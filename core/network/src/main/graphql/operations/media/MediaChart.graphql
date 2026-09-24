@@ -1,0 +1,28 @@
+query MediaChart($page: Int, $perPage: Int, $sort: [MediaSort], $type: MediaType,
+    $status: MediaStatus, $format: MediaFormat, $country: CountryCode, $isAdult: Boolean
+) {
+    Page(page: $page, perPage: $perPage) {
+        media(sort: $sort, type: $type, status: $status, format: $format, countryOfOrigin: $country, isAdult: $isAdult) {
+            ...BasicMediaDetails
+            format
+            startDate {
+                year
+            }
+            status
+            coverImage {
+                large
+            }
+            averageScore
+            genres
+            episodes
+            chapters
+            duration
+            mediaListEntry {
+                ...BasicMediaListEntry
+            }
+        }
+        pageInfo {
+            ...CommonPage
+        }
+    }
+}

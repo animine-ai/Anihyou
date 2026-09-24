@@ -1,0 +1,42 @@
+query MediaRelationsAndRecommendations($mediaId: Int) {
+    Media(id: $mediaId) {
+        relations {
+            edges {
+                ...MediaRelated
+            }
+        }
+        recommendations(page: 1, sort: RATING_DESC) {
+            nodes {
+                ...MediaRecommended
+            }
+        }
+    }
+}
+
+fragment MediaRelated on MediaEdge {
+    relationType(version: 3)
+    node {
+        ...BasicMediaDetails
+        coverImage {
+            large
+        }
+        mediaListEntry {
+            ...BasicMediaListEntry
+        }
+    }
+}
+
+fragment MediaRecommended on Recommendation {
+    id
+    rating
+    userRating
+    mediaRecommendation {
+        ...BasicMediaDetails
+        coverImage {
+            large
+        }
+        mediaListEntry {
+            ...BasicMediaListEntry
+        }
+    }
+}

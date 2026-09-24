@@ -1,0 +1,5 @@
+query UserBasicInfo($userId: Int, $name: String) {
+    User(id: $userId, name: $name) {
+        ...UserInfo
+    }
+}

@@ -1,0 +1,20 @@
+query Followers($userId: Int!, $page: Int, $perPage: Int) {
+    Page(page: $page, perPage: $perPage) {
+        followers(userId: $userId) {
+            ...UserFollow
+        }
+        pageInfo {
+            ...CommonPage
+        }
+    }
+}
+
+fragment UserFollow on User {
+    id
+    name
+    avatar {
+        large
+    }
+    isFollowing
+    isFollower
+}

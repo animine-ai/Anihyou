@@ -1,0 +1,195 @@
+package com.axiel7.anihyou.core.model.media
+
+import androidx.compose.ui.graphics.Color
+import com.axiel7.anihyou.core.network.AiringWidgetQuery
+import com.axiel7.anihyou.core.network.MediaRecommendationsQuery
+import com.axiel7.anihyou.core.network.api.model.CountryOfOriginDto
+import com.axiel7.anihyou.core.network.fragment.BasicMediaDetails
+import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
+import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
+import com.axiel7.anihyou.core.network.type.MediaFormat
+import com.axiel7.anihyou.core.network.type.MediaListStatus
+import com.axiel7.anihyou.core.network.type.MediaStatus
+import com.axiel7.anihyou.core.network.type.MediaType
+import com.axiel7.anihyou.core.network.type.RecommendationRating
+
+/**
+ * @return `episodes`, `chapters` or `volumes` depending on the current user entry progress.
+ */
+fun CommonMediaListEntry.duration(): Int? =
+    when (media?.basicMediaDetails?.type) {
+        MediaType.ANIME -> media?.basicMediaDetails?.episodes
+        MediaType.MANGA -> {
+            if (basicMediaListEntry.isUsingVolumeProgress()) media?.basicMediaDetails?.volumes
+            else media?.basicMediaDetails?.chapters
+        }
+
+        else -> null
+    }
+
+fun CommonMediaListEntry.calculateProgressBarValue(): Float {
+    val total = duration() ?: 0
+    return if (total == 0) 0f
+    else (basicMediaListEntry.progressOrVolumes() ?: 0).div(total.toFloat())
+}
+
+fun BasicMediaListEntry.progressOrVolumes() =
+    if (isUsingVolumeProgress()) progressVolumes else progress
+
+fun BasicMediaListEntry.isUsingVolumeProgress() = progressVolumes != null && progressVolumes!! > 0
+        && (progress == null || progress == 0)
+
+fun CommonMediaListEntry.isBehind() =
+    (basicMediaListEntry.progress ?: 0) < (media?.nextAiringEpisode?.episode?.minus(1) ?: 0)
+
+fun BasicMediaListEntry.isBehind(nextAiringEpisode: Int) = (progress ?: 0) < (nextAiringEpisode - 1)
+
+fun CommonMediaListEntry.episodesBehind() =
+    (media?.nextAiringEpisode?.episode?.minus(1) ?: 0) - (basicMediaListEntry.progress ?: 0)
+
+@Suppress("UNCHECKED_CAST")
+fun BasicMediaListEntry.advancedScoreNames() = (advancedScores as? LinkedHashMap<String, Any>)?.keys
+
+@Suppress("UNCHECKED_CAST")
+fun BasicMediaListEntry.advancedScoresMap() = (advancedScores as? LinkedHashMap<String, Any>)
+    ?.mapValues { (it.value as? Number ?: 0).toDouble() } as LinkedHashMap<String, Double>
+
+val exampleBasicMediaListEntry = BasicMediaListEntry(
+    __typename = "",
+    id = 1,
+    mediaId = 1,
+    status = MediaListStatus.CURRENT,
+    score = 7.7,
+    advancedScores = null,
+    progress = 999,
+    progressVolumes = null,
+    repeat = 2,
+    startedAt = null,
+    completedAt = null,
+    private = false,
+    hiddenFromStatusLists = false,
+    notes = "This is a note",
+    priority = 0
+)
+
+val exampleCommonMediaListEntry = CommonMediaListEntry(
+    __typename = "",
+    mediaId = 1,
+    media = CommonMediaListEntry.Media(
+        __typename = "",
+        id = 1,
+        coverImage = CommonMediaListEntry.CoverImage(
+            __typename = "",
+            large = null,
+            color = "#f55442"
+        ),
+        nextAiringEpisode = CommonMediaListEntry.NextAiringEpisode(
+            __typename = "",
+            episode = 3,
+            timeUntilAiring = 1203239,
+            id = 0,
+        ),
+        status = MediaStatus.RELEASING,
+        basicMediaDetails = BasicMediaDetails(
+            __typename = "",
+            id = 1,
+            title = BasicMediaDetails.Title(
+                __typename = "",
+                userPreferred = "Guild no Uketsukejou desu ga, Zangyou wa Iya nanode Boss wo Solo Toubatsu Shiyou to Omoimasu"
+            ),
+            duration = 24,
+            episodes = 1095,
+            chapters = null,
+            volumes = null,
+            type = MediaType.ANIME,
+            format = MediaFormat.TV,
+            isAdult = false,
+        ),
+        title = CommonMediaListEntry.Title(
+            __typename = "",
+            romaji = null,
+            english = null,
+            native = null,
+        ),
+        synonyms = listOf(),
+        format = MediaFormat.TV,
+        countryOfOrigin = CountryOfOriginDto.JAPAN,
+        startDate = null,
+        genres = null,
+        tags = null,
+    ),
+    id = 1,
+    basicMediaListEntry = exampleBasicMediaListEntry
+)
+
+val exampleAiringWidgetEntry = AiringWidgetQuery.Medium(
+    __typename = "",
+    id = 1,
+    title = AiringWidgetQuery.Title(
+        __typename = "",
+        userPreferred = "Kimetsu no Yaiba: Katanakaji no Sato-hen"
+    ),
+    nextAiringEpisode = AiringWidgetQuery.NextAiringEpisode(
+        __typename = "",
+        episode = 3,
+        airingAt = 1725018922,
+        timeUntilAiring = 1203239,
+        id = 0,
+    ),
+    mediaListEntry = AiringWidgetQuery.MediaListEntry(
+        __typename = "",
+        id = 1,
+        mediaId = 1,
+        status = MediaListStatus.CURRENT,
+    ),
+    coverImage = AiringWidgetQuery.CoverImage(
+        color = "",
+        __typename = ""
+    ),
+)
+val exampleBasicMediaDetails = BasicMediaDetails(
+    __typename = "",
+    id = 1,
+    title = BasicMediaDetails.Title(
+        __typename = "",
+        userPreferred = "Guild no Uketsukejou desu ga, Zangyou wa Iya nanode Boss wo Solo Toubatsu Shiyou to Omoimasu"
+    ),
+    duration = 24,
+    episodes = 1095,
+    chapters = null,
+    volumes = null,
+    type = MediaType.ANIME,
+    format = MediaFormat.TV,
+    isAdult = false,
+)
+
+val recommendationsSampleItem = MediaRecommendationsQuery.Recommendation(
+    __typename = "",
+    id = 1,
+    rating = 1,
+    userRating = RecommendationRating.RATE_UP,
+    media = MediaRecommendationsQuery.Media(
+        __typename = "",
+        mediaListEntry = null,
+        coverImage = MediaRecommendationsQuery.CoverImage(__typename = "", large = null),
+        startDate = MediaRecommendationsQuery.StartDate(__typename = "", year = 2026),
+        averageScore = 80,
+        genres = listOf("Comedy", "Drama", "Romance"),
+        status = MediaStatus.FINISHED,
+        format = MediaFormat.SPECIAL,
+        id = 1,
+        basicMediaDetails = exampleBasicMediaDetails
+    ),
+    mediaRecommendation = MediaRecommendationsQuery.MediaRecommendation(
+        __typename = "",
+        mediaListEntry = null,
+        coverImage = MediaRecommendationsQuery.CoverImage1(__typename = "", large = null),
+        startDate = MediaRecommendationsQuery.StartDate1(__typename = "", year = 2020),
+        averageScore = 60,
+        genres = null,
+        status = null,
+        format = null,
+        id = 2,
+        basicMediaDetails = exampleBasicMediaDetails,
+    )
+)

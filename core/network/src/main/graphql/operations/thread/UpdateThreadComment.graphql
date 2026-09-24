@@ -1,0 +1,22 @@
+mutation UpdateThreadComment($id: Int, $text: String, $threadId: Int, $parentCommentId: Int) {
+    SaveThreadComment(id: $id, comment: $text, threadId: $threadId, parentCommentId: $parentCommentId) {
+        ...CommonThreadComment
+    }
+}
+
+fragment CommonThreadComment on ThreadComment {
+    id
+    comment
+    likeCount
+    isLiked
+    createdAt
+    isLocked
+    user {
+        id
+        name
+        avatar {
+            medium
+        }
+    }
+    #childComments
+}

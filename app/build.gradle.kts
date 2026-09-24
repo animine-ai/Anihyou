@@ -1,0 +1,223 @@
+import java.util.Properties
+
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.jetbrains.kotlin.compose)
+    alias(libs.plugins.koin.compiler)
+    alias(libs.plugins.androidx.baselineprofile)
+    alias(libs.plugins.stability.analyzer)
+}
+
+val appPackageName = rootProject.extra["appPackageName"] as String
+
+val versionProps = Properties().also {
+    it.load(project.rootProject.file("version.properties").reader())
+}
+
+android {
+    namespace = appPackageName
+    compileSdk = libs.versions.android.compileSdk.get().toInt()
+
+    defaultConfig {
+        applicationId = appPackageName
+        minSdk = libs.versions.android.minSdk.get().toInt()
+        targetSdk = libs.versions.android.targetSdk.get().toInt()
+        versionCode = versionProps.getProperty("code").toInt()
+        versionName = versionProps.getProperty("name")
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary = true
+        }
+    }
+
+    androidResources {
+        localeFilters += listOf(
+            "en",
+            "ja-rJP",
+            "ru-rRU",
+            "es-rES",
+            "tr-rTR",
+            "pt-rBR",
+            "ar-rSA",
+            "in-rID",
+            "it-rIT",
+            "uk-rUA",
+            "pl-rPL",
+            "az-rAZ",
+            "de-rDE",
+            "zh-rCN",
+            "zh-rTW",
+            "fr-rFR",
+            "th-rTH",
+            "ro-rRO"
+        )
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-DEBUG"
+            isDebuggable = true
+            isMinifyEnabled = false
+            isShrinkResources = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        release {
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = false
+            isCrunchPngs = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
+        }
+        create("benchmarkRelease") {
+            matchingFallbacks += listOf("release")
+        }
+        create("nonMinifiedRelease") {
+            matchingFallbacks += listOf("debug")
+        }
+    }
+
+    flavorDimensions += "version"
+    productFlavors {
+        create("foss") {
+            dimension = "version"
+        }
+        create("gms") {
+            dimension = "version"
+            versionNameSuffix = "-gms"
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true
+        }
+    }
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+        aidl = false
+        renderScript = false
+        shaders = false
+    }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+    dependenciesInfo {
+        includeInApk = false
+    }
+}
+
+base {
+    archivesName = "anihyou-${versionProps.getProperty("name")}"
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
+    }
+}
+
+composeCompiler {
+    stabilityConfigurationFiles.add(rootProject.layout.projectDirectory.file("stability_config.conf"))
+}
+
+baselineProfile {
+    dexLayoutOptimization = true
+}
+
+dependencies {
+    implementation(project(":core:network"))
+    implementation(project(":core:domain"))
+    implementation(project(":core:ui"))
+    implementation(project(":feature:activitydetails"))
+    implementation(project(":feature:calendar"))
+    implementation(project(":feature:characterdetails"))
+    implementation(project(":feature:editmedia"))
+    implementation(project(":feature:genrestags"))
+    implementation(project(":feature:explore"))
+    implementation(project(":feature:home"))
+    implementation(project(":feature:login"))
+    implementation(project(":feature:mediadetails"))
+    implementation(project(":feature:notifications"))
+    implementation(project(":feature:profile"))
+    implementation(project(":feature:reviewdetails"))
+    implementation(project(":feature:settings"))
+    implementation(project(":feature:staffdetails"))
+    implementation(project(":feature:studiodetails"))
+    implementation(project(":feature:thread"))
+    implementation(project(":feature:usermedialist"))
+    implementation(project(":feature:widget"))
+    implementation(project(":feature:worker"))
+
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.activity.compose)
+
+    implementation(libs.androidx.core.splashscreen)
+    implementation(libs.androidx.core.performance)
+
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.tooling.preview)
+
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.material3.window.sizeclass)
+
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.navigation3.ui)
+
+    implementation(libs.androidx.glance.appwidget.preview)
+
+    "gmsImplementation"(libs.androidx.wear.remote.interactions)
+
+    implementation(libs.accompanist.permissions)
+
+    implementation(libs.coil.compose)
+    implementation(libs.coil.gif)
+    implementation(libs.coil.network.okhttp)
+
+    implementation(platform(libs.koin.bom))
+    implementation(libs.koin.annotations)
+    implementation(libs.koin.android)
+    implementation(libs.koin.compose)
+    implementation(libs.koin.compose.viewmodel)
+    implementation(libs.koin.compose.navigation3)
+    implementation(libs.koin.workmanager)
+
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.ui.test.junit4)
+    debugImplementation(libs.ui.tooling)
+    debugImplementation(libs.ui.test.manifest)
+
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
+    implementation(libs.androidx.profileinstaller)
+    "baselineProfile"(project(":baselineprofile"))
+}
+
+composeStabilityAnalyzer {
+    stabilityConfigurationFiles.add(isolated.rootProject.projectDirectory.file("stability_config.conf"))
+}

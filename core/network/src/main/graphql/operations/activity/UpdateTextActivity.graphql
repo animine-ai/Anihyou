@@ -1,0 +1,10 @@
+mutation UpdateTextActivity($id: Int, $text: String) {
+    SaveTextActivity(id: $id, text: $text) {
+        ... on TextActivity {
+            ...TextActivityFragment
+            replies {
+                ...ActivityReplyFragment
+            }
+        }
+    }
+}

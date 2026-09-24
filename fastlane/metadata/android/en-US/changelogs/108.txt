@@ -1,0 +1,4 @@
+- Improved threads comments!
+- Fix seasonal lists not loading more data
+- Fix too many request error (again)
+- Other fixes and improvements

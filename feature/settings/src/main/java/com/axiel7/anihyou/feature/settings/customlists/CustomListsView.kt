@@ -1,0 +1,228 @@
+package com.axiel7.anihyou.feature.settings.customlists
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.axiel7.anihyou.core.model.media.localized
+import com.axiel7.anihyou.core.network.type.MediaType
+import com.axiel7.anihyou.core.resources.R
+import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
+import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithLargeTopAppBar
+import com.axiel7.anihyou.core.ui.composables.PreferencesTitle
+import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
+import com.axiel7.anihyou.core.ui.composables.common.DialogWithTextInput
+import com.axiel7.anihyou.core.ui.composables.common.ErrorDialogHandler
+import com.axiel7.anihyou.core.ui.composables.common.SmallCircularProgressIndicator
+import com.axiel7.anihyou.core.ui.composables.preferenceShape
+import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
+import org.koin.compose.viewmodel.koinViewModel
+
+@Composable
+fun CustomListsView() {
+    val viewModel: CustomListsViewModel = koinViewModel()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    CustomListsContent(
+        uiState = uiState,
+        event = viewModel,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CustomListsContent(
+    uiState: CustomListsUiState,
+    event: CustomListsEvent?,
+) {
+    val navActionManager = LocalNavActionManager.current
+    val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
+        rememberTopAppBarState()
+    )
+
+    ErrorDialogHandler(uiState, onDismiss = { event?.onErrorDisplayed() })
+
+    DefaultScaffoldWithLargeTopAppBar(
+        title = stringResource(R.string.custom_lists),
+        navigationIcon = { BackIconButton(onClick = navActionManager::goBack) },
+        actions = {
+            if (uiState.isLoading) {
+                SmallCircularProgressIndicator()
+            } else {
+                IconButton(onClick = { event?.updateCustomLists() }) {
+                    Icon(
+                        painter = painterResource(R.drawable.save_24),
+                        contentDescription = stringResource(R.string.save)
+                    )
+                }
+            }
+        },
+        scrollBehavior = topAppBarScrollBehavior
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
+                .verticalScroll(rememberScrollState())
+                .padding(padding)
+        ) {
+            MediaType.knownEntries.forEach { mediaType ->
+                var openDialog by remember { mutableStateOf(false) }
+                var selectedItem by remember { mutableStateOf<String?>(null) }
+
+                PreferencesTitle(text = mediaType.localized())
+
+                val customLists = uiState.customLists(mediaType)
+                customLists?.forEachIndexed { index, list ->
+                    ListItem(
+                        list = list,
+                        shape = preferenceShape(index, customLists.size),
+                        onClickEdit = {
+                            selectedItem = list
+                            openDialog = true
+                        },
+                        onClickDelete = { event?.onListRemoved(list, mediaType) }
+                    )
+                }
+
+                AddButton(onClick = { openDialog = true })
+
+                if (openDialog) {
+                    var newList by remember { mutableStateOf(selectedItem.orEmpty()) }
+                    DialogWithTextInput(
+                        title = mediaType.localized(),
+                        label = stringResource(R.string.list_name),
+                        value = newList,
+                        onValueChange = { newList = it },
+                        onConfirm = {
+                            selectedItem?.let { prev ->
+                                event?.onListEdited(prev, newList, mediaType)
+                            } ?: run {
+                                event?.onListAdded(newList, mediaType)
+                            }
+                            newList = ""
+                            selectedItem = null
+                            openDialog = false
+                        },
+                        confirmEnabled = newList.isNotBlank(),
+                        onDismiss = {
+                            newList = ""
+                            selectedItem = null
+                            openDialog = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ListItem(
+    list: String,
+    shape: Shape,
+    onClickEdit: () -> Unit,
+    onClickDelete: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 1.dp, bottom = 1.dp),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = list,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .weight(1f)
+            )
+            IconButton(onClick = onClickEdit) {
+                Icon(
+                    painter = painterResource(R.drawable.edit_24),
+                    contentDescription = stringResource(R.string.edit)
+                )
+            }
+            IconButton(onClick = onClickDelete) {
+                Icon(
+                    painter = painterResource(R.drawable.delete_24),
+                    contentDescription = stringResource(R.string.delete)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddButton(
+    onClick: () -> Unit,
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .padding(top = 16.dp)
+            .padding(horizontal = 16.dp),
+        shapes = ButtonDefaults.shapes(),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.add_24),
+            contentDescription = stringResource(R.string.add),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text = stringResource(R.string.add))
+    }
+}
+
+@Preview
+@Composable
+private fun CustomListsViewPreview() {
+    val animeLists = remember {
+        mutableStateListOf("AOTY", "Best SoL")
+    }
+    val mangaLists = remember {
+        mutableStateListOf("MOTY", "Best Seinen")
+    }
+    AniHyouTheme {
+        CustomListsContent(
+            uiState = CustomListsUiState(
+                animeLists = animeLists,
+                mangaLists = mangaLists,
+            ),
+            event = null,
+        )
+    }
+}
