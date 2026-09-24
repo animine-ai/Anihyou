@@ -5,6 +5,7 @@ import com.axiel7.anihyou.release.core.model.LanguageTrack
 import com.axiel7.anihyou.release.core.model.ReleaseSnapshot
 import com.axiel7.anihyou.release.core.model.ReleaseStreamKey
 import com.axiel7.anihyou.release.core.model.ReleaseKind
+import com.axiel7.anihyou.release.core.model.ScheduleCondition
 import com.axiel7.anihyou.release.core.model.SourceSeriesKey
 import java.time.Instant
 import java.time.LocalDate
@@ -13,6 +14,8 @@ import java.time.ZoneId
 enum class AniWorldPageRole {
     RECENT_CURRENT,
     FUTURE_CALENDAR,
+    POSTPONEMENT,
+    DIRECT_EPISODE,
     SUPPORT_EXPLANATION,
 }
 
@@ -22,6 +25,7 @@ enum class AniWorldFailureKind {
     CHANGED_SEMANTIC_ANCHOR,
     UNKNOWN_LANGUAGE_MARKER,
     HTTP_STATUS,
+    TRANSPORT_FAILURE,
     NON_HTML_CONTENT,
     OVERSIZED_BODY,
     REDIRECT_HOST,
@@ -107,6 +111,9 @@ data class AniWorldNormalizedObservation(
     val approximate: Boolean,
     val sourceRoot: String,
     val rawTokens: List<AniWorldRawToken>,
+    val navigationSeason: Int? = null,
+    val sourceReportedAt: Instant? = null,
+    val scheduleCondition: ScheduleCondition = ScheduleCondition.UNKNOWN,
 )
 
 data class AniWorldParsedPage(

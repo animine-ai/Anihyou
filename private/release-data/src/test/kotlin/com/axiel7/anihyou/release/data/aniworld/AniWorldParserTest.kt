@@ -3,7 +3,6 @@ package com.axiel7.anihyou.release.data.aniworld
 import com.axiel7.anihyou.release.core.model.Installment
 import com.axiel7.anihyou.release.core.model.LanguageTrack
 import com.axiel7.anihyou.release.core.model.ReleaseKind
-import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
 import org.junit.Assert.assertEquals
@@ -336,14 +335,12 @@ class AniWorldParserTest {
     """.trimIndent()
 
     private fun fixture(name: String): String {
-        val relative = "private/evidence/wp00-r1/aniworld/fixtures/$name"
-        val file = listOf(
-            File(relative),
-            File("../$relative"),
-            File("../../$relative"),
-        ).firstOrNull { it.isFile }
-            ?: error("fixture not found: $relative")
-        return file.readText()
+        val resource = "wp00-r1/aniworld/fixtures/$name"
+        return Thread.currentThread().contextClassLoader
+            .getResourceAsStream(resource)
+            ?.bufferedReader()
+            ?.use { it.readText() }
+            ?: error("fixture resource not found: $resource")
     }
 
     private fun sha256(value: String): String =

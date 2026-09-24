@@ -1,6 +1,7 @@
 package com.axiel7.anihyou.release.data.aniworld
 
 import java.net.URI
+import java.util.concurrent.CancellationException
 
 class AniWorldClient(
     private val transport: AniWorldHttpTransport,
@@ -26,13 +27,23 @@ class AniWorldClient(
             )
         }
 
-        val response = transport.fetch(
-            AniWorldTransportRequest(
-                url = requestedUri.toString(),
-                maxBytes = limits.maxBodyBytes,
-                timeoutMillis = timeoutMillis,
-            ),
-        )
+        val response = try {
+            transport.fetch(
+                AniWorldTransportRequest(
+                    url = requestedUri.toString(),
+                    maxBytes = limits.maxBodyBytes,
+                    timeoutMillis = timeoutMillis,
+                ),
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (exception: Exception) {
+            return AniWorldClientResult.Failure(
+                AniWorldFailureKind.TRANSPORT_FAILURE,
+                "provider transport failed closed: " +
+                    (exception::class.simpleName ?: "transport-error"),
+            )
+        }
         if (response.statusCode !in 200..299) {
             return AniWorldClientResult.Failure(
                 AniWorldFailureKind.HTTP_STATUS,

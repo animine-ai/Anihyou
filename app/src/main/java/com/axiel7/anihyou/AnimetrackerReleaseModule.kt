@@ -2,6 +2,11 @@ package com.axiel7.anihyou
 
 import androidx.room.Room
 import com.axiel7.anihyou.release.core.api.IdentityCandidateSource
+import com.axiel7.anihyou.release.core.api.ReleaseAuthorityReducer
+import com.axiel7.anihyou.release.core.api.ReleaseDecisionRepository
+import com.axiel7.anihyou.release.core.api.ReleaseEvidenceRepository
+import com.axiel7.anihyou.release.core.api.ReleaseForecastRevisionRepository
+import com.axiel7.anihyou.release.core.api.SourceHealthRepository
 import com.axiel7.anihyou.release.core.api.ReleaseAccountContextProvider
 import com.axiel7.anihyou.release.core.api.ReleaseForecastRecheckScheduler
 import com.axiel7.anihyou.release.core.api.ReleaseMappingRepository
@@ -22,7 +27,10 @@ import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_4_5
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_5_6
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_6_7
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_7_8
+import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_8_9
+import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_9_10
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
+import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
 import com.axiel7.anihyou.release.data.preferences.ReleasePreferencesStore
 import com.axiel7.anihyou.release.data.repository.AniListIdentityCandidateSource
 import com.axiel7.anihyou.release.data.repository.AniListReleaseAccountContextProvider
@@ -37,6 +45,10 @@ import com.axiel7.anihyou.release.data.repository.RoomReleasePreferencesReposito
 import com.axiel7.anihyou.release.data.repository.RoomReleasePresentationRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseProjectionRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseSyncStore
+import com.axiel7.anihyou.release.data.repository.RoomReleaseDecisionRepository
+import com.axiel7.anihyou.release.data.repository.RoomReleaseEvidenceRepository
+import com.axiel7.anihyou.release.data.repository.RoomReleaseIntelligencePersistence
+import com.axiel7.anihyou.release.data.repository.RoomSourceHealthRepository
 import java.time.Clock
 import org.koin.android.ext.koin.androidApplication
 import org.koin.dsl.module
@@ -56,9 +68,18 @@ val animetrackerReleaseModule = module {
             RELEASE_MIGRATION_5_6,
             RELEASE_MIGRATION_6_7,
             RELEASE_MIGRATION_7_8,
+            RELEASE_MIGRATION_8_9,
+            RELEASE_MIGRATION_9_10,
         ).build()
     }
     single<AniWorldHttpTransport> { JdkAniWorldHttpTransport() }
+    single<ReleaseAuthorityReducer> { AniWorldReleaseAuthorityReducer() }
+    single { RoomReleaseEvidenceRepository(get()) }
+    single<ReleaseEvidenceRepository> { get<RoomReleaseEvidenceRepository>() }
+    single<ReleaseForecastRevisionRepository> { get<RoomReleaseEvidenceRepository>() }
+    single<ReleaseDecisionRepository> { RoomReleaseDecisionRepository(get()) }
+    single<SourceHealthRepository> { RoomSourceHealthRepository(get()) }
+    single { RoomReleaseIntelligencePersistence(get(), get()) }
     single { AniWorldClient(get()) }
     single { AniWorldProvider(client = get(), clock = get()) }
     single { RoomIdentityCandidateStore(get(), get()) }
