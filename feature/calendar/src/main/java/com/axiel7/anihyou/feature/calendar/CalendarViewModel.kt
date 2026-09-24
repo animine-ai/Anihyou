@@ -4,6 +4,9 @@ import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.common.utils.DateUtils.toTimestamp
 import com.axiel7.anihyou.core.common.viewmodel.PagedUiStateViewModel
+import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
 import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
@@ -15,21 +18,30 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Clock
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CalendarViewModel(
     private val mediaRepository: MediaRepository,
-    private val defaultPreferencesRepository: DefaultPreferencesRepository
+    private val defaultPreferencesRepository: DefaultPreferencesRepository,
+    private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
+    private val clock: Clock = Clock.systemUTC(),
 ) : PagedUiStateViewModel<CalendarUiState>(), CalendarEvent {
 
-    override val initialState = CalendarUiState()
+    override val initialState = CalendarUiState(day = nowLocalDateTime())
+
+    private fun nowLocalDateTime(): LocalDateTime =
+        LocalDateTime.ofInstant(clock.instant(), ZoneId.systemDefault())
 
     val onMyList = defaultPreferencesRepository.calendarOnMyList
+    private val myUserId = defaultPreferencesRepository.userId.filterNotNull()
     private val displayAdult = defaultPreferencesRepository.displayAdult
 
     fun onMyListChanged(value: Boolean?) = viewModelScope.launch {
@@ -92,7 +104,7 @@ class CalendarViewModel(
         mutableUiState.update {
             it.copy(
                 fetchFromNetwork = true,
-                day = LocalDateTime.now(),
+                day = nowLocalDateTime(),
                 weeklyAnime = mutableMapOf(),
                 page = 1,
                 hasNextPage = true,
@@ -148,6 +160,14 @@ class CalendarViewModel(
                 }
                 state.copy(
                     weeklyAnime = updatedMap,
+                    providerOnlyByDate = state.releaseCalendarRows.providerOnlyByDate(
+                        knownMediaIds = updatedMap.values
+                            .asSequence()
+                            .flatten()
+                            .map { it.id }
+                            .toSet(),
+                        fallbackDate = state.day.toLocalDate(),
+                    ),
                     isLoading = false,
                 )
             }
@@ -155,13 +175,54 @@ class CalendarViewModel(
     }
 
     init {
+        mutableUiState
+            .map { it.day.toLocalDate() }
+            .distinctUntilChanged()
+            .flatMapLatest { date ->
+                myUserId.flatMapLatest { accountId ->
+                    releasePresentationRepository.observeCalendar(
+                        accountId = accountId.toLong(),
+                        range = date..date.plusDays(14),
+                    )
+                }
+            }
+            .onEach { rows ->
+                mutableUiState.update { state ->
+                    val authoritativeRows = rows.filter { it.isAuthoritative }
+                    val byMedia = authoritativeRows
+                        .mapNotNull { it.mediaId }
+                        .distinct()
+                        .associateWith { mediaId ->
+                            authoritativeRows
+                                .filter { it.mediaId == mediaId }
+                                .sortedForPresentation()
+                        }
+                    state.copy(
+                        releaseCalendarRows = rows,
+                        providerRowsByDate = authoritativeRows.providerRowsByDate(
+                            fallbackDate = state.day.toLocalDate(),
+                        ),
+                        releaseByMediaId = byMedia,
+                        providerOnlyByDate = rows.providerOnlyByDate(
+                            knownMediaIds = state.weeklyAnime.values
+                                .asSequence()
+                                .flatten()
+                                .map { it.id }
+                                .toSet(),
+                            fallbackDate = state.day.toLocalDate(),
+                        ),
+                    )
+                }
+            }
+            .launchIn(viewModelScope)
+
         onMyList.onEach { onMyListVal ->
             if (mutableUiState.value.onMyList != onMyListVal) {
                 mutableUiState.update {
                     it.copy(
                         onMyList = onMyListVal,
                         weeklyAnime = mutableMapOf(),
-                        day = LocalDateTime.now(),
+                        day = nowLocalDateTime(),
                         page = 1,
                         hasNextPage = true,
                         isLoading = true,
@@ -205,6 +266,14 @@ class CalendarViewModel(
 
                         state.copy(
                             weeklyAnime = updatedMap,
+                            providerOnlyByDate = state.releaseCalendarRows.providerOnlyByDate(
+                                knownMediaIds = updatedMap.values
+                                    .asSequence()
+                                    .flatten()
+                                    .map { it.id }
+                                    .toSet(),
+                                fallbackDate = state.day.toLocalDate(),
+                            ),
                             hasNextPage = result.hasNextPage,
                             isLoading = false,
                         )
@@ -221,4 +290,30 @@ class CalendarViewModel(
             }
             .launchIn(viewModelScope)
     }
+
+private fun List<ReleaseUiCalendarItem>.providerRowsByDate(
+    fallbackDate: LocalDate,
+): Map<LocalDate, List<ReleaseUiCalendarItem>> =
+    asSequence()
+        .filter { it.isAuthoritative }
+        .groupBy { it.sourceDate ?: fallbackDate }
+        .mapValues { (_, rows) -> rows.sortedForPresentation() }
+
+private fun List<ReleaseUiCalendarItem>.providerOnlyByDate(
+    knownMediaIds: Set<Int>,
+    fallbackDate: LocalDate,
+): Map<LocalDate, List<ReleaseUiCalendarItem>> =
+    asSequence()
+        .filter { it.isAuthoritative && (it.mediaId == null || it.mediaId !in knownMediaIds) }
+        .groupBy { it.sourceDate ?: fallbackDate }
+        .mapValues { (_, rows) -> rows.sortedForPresentation() }
+
+private fun List<ReleaseUiCalendarItem>.sortedForPresentation(): List<ReleaseUiCalendarItem> =
+    sortedWith(
+        compareBy<ReleaseUiCalendarItem> { it.forecastAt ?: java.time.Instant.MAX }
+            .thenBy { it.stream.stableKey }
+            .thenBy { it.installment.stableKey }
+            .thenByDescending { it.revision },
+    )
+
 }

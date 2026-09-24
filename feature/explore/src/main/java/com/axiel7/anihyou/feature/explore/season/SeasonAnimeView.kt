@@ -57,8 +57,10 @@ import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithMediumTopAppBar
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.core.ui.composables.common.ErrorDialogHandler
 import com.axiel7.anihyou.core.ui.composables.list.OnBottomReached
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_SMALL_WIDTH
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemHorizontal
+import com.axiel7.anihyou.core.ui.composables.media.ReleaseScheduleText
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemHorizontalPlaceholder
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemVertical
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemVerticalPlaceholder
@@ -244,8 +246,20 @@ private fun SeasonalGrid(
                 blurImage = blurAdult && item.basicMediaDetails.isAdult == true,
                 modifier = Modifier.wrapContentWidth(),
                 subtitle = {
-                    item.averageScore?.let { score ->
-                        SmallScoreIndicator(score = score)
+                    val releasePresentations = uiState.releaseByMediaId[item.id]
+                        .orEmpty()
+                        .filter { it.isAuthoritative }
+                    if (releasePresentations.isNotEmpty()) {
+                        releasePresentations.forEach { presentation ->
+                            ReleaseScheduleText(
+                                presentation = presentation,
+                                fallback = {},
+                            )
+                        }
+                    } else {
+                        item.averageScore?.let { score ->
+                            SmallScoreIndicator(score = score)
+                        }
                     }
                 },
                 status = item.mediaListEntry?.basicMediaListEntry?.status,
@@ -286,15 +300,27 @@ private fun SeasonalList(
                 imageUrl = item.coverImage?.large,
                 blurImage = blurAdult && item.basicMediaDetails.isAdult == true,
                 subtitle1 = {
-                    item.nextAiringEpisode?.let { nextAiringEpisode ->
-                        Text(
-                            text = stringResource(
-                                R.string.episode_in_time,
-                                nextAiringEpisode.episode,
-                                nextAiringEpisode.timeUntilAiring.toLong().secondsToLegibleText()
-                            ),
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                    val releasePresentations = uiState.releaseByMediaId[item.id]
+                        .orEmpty()
+                        .filter { it.isAuthoritative }
+                    if (releasePresentations.isNotEmpty()) {
+                        releasePresentations.forEach { presentation ->
+                            ReleaseScheduleText(
+                                presentation = presentation,
+                                fallback = {},
+                            )
+                        }
+                    } else {
+                        item.nextAiringEpisode?.let { nextAiringEpisode ->
+                            Text(
+                                text = stringResource(
+                                    R.string.episode_in_time,
+                                    nextAiringEpisode.episode,
+                                    nextAiringEpisode.timeUntilAiring.toLong().secondsToLegibleText()
+                                ),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 },
                 subtitle2 = {

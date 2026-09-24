@@ -7,6 +7,9 @@ import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.base.extensions.indexOfFirstOrNull
 import com.axiel7.anihyou.core.common.utils.NumberUtils.isNullOrZero
 import com.axiel7.anihyou.core.common.viewmodel.UiStateViewModel
+import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaListRepository
 import com.axiel7.anihyou.core.model.CurrentListType
@@ -30,20 +33,87 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Clock
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CurrentViewModel(
     private val mediaListRepository: MediaListRepository,
     defaultPreferencesRepository: DefaultPreferencesRepository,
+    private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
+    private val clock: Clock = Clock.systemUTC(),
 ) : UiStateViewModel<CurrentUiState>(), CurrentEvent {
 
     override val initialState = CurrentUiState()
 
     private val myUserId = defaultPreferencesRepository.userId.filterNotNull()
+    private val releaseMediaIds = MutableStateFlow<Set<Int>>(emptySet())
+
+    private fun Map<Int, List<ReleaseUiPresentation>>.authoritativeFor(mediaId: Int): ReleaseUiPresentation? =
+        this[mediaId].orEmpty().firstOrNull { it.isAuthoritative }
+
+    private fun isBehindForCurrent(
+        entry: CommonMediaListEntry,
+        presentations: Map<Int, List<ReleaseUiPresentation>>,
+    ): Boolean {
+        val release = presentations.authoritativeFor(entry.mediaId)
+        return if (release?.isAuthoritative == true) {
+            release.pendingCount > 0
+        } else {
+            entry.isBehind()
+        }
+    }
+
+    private fun providerAwareEpisodesBehind(
+        entry: CommonMediaListEntry,
+        presentations: Map<Int, List<ReleaseUiPresentation>>,
+    ): Int {
+        val release = presentations.authoritativeFor(entry.mediaId)
+        return if (release?.isAuthoritative == true) {
+            release.pendingCount
+        } else {
+            entry.episodesBehind()
+        }
+    }
+
+    private fun airingSortValue(
+        entry: CommonMediaListEntry,
+        presentations: Map<Int, List<ReleaseUiPresentation>>,
+    ): Long? {
+        val release = presentations.authoritativeFor(entry.mediaId)
+        return if (release?.isAuthoritative == true) {
+            release.nextForecastAt?.toEpochMilli()
+        } else {
+            entry.media?.nextAiringEpisode?.timeUntilAiring
+        }
+    }
+
+    private fun reclassifyCurrentLists(
+        state: CurrentUiState,
+        presentations: Map<Int, List<ReleaseUiPresentation>>,
+    ): CurrentUiState {
+        val currentEntries = (state.airingList + state.behindList).distinctBy { it.mediaId }
+        val airing = currentEntries
+            .filterNot { isBehindForCurrent(it, presentations) }
+            .sortedWith(compareBy(nullsLast()) { airingSortValue(it, presentations) })
+        val behind = currentEntries
+            .filter { isBehindForCurrent(it, presentations) }
+            .sortedWith(
+                compareByDescending<CommonMediaListEntry> { it.basicMediaListEntry.priority }
+                    .thenByDescending { providerAwareEpisodesBehind(it, presentations) }
+            )
+        state.airingList.clear()
+        state.airingList.addAll(airing)
+        state.behindList.clear()
+        state.behindList.addAll(behind)
+        return state.copy(releaseByMediaId = presentations)
+    }
 
     override fun refresh() {
         mutableUiState.update { it.copy(fetchFromNetwork = true) }
@@ -93,21 +163,50 @@ class CurrentViewModel(
                         list.indexOfFirstOrNull { it.mediaId == selectedItem.mediaId }
                             ?.let { index ->
                                 val oldValue = list[index]
-                                if (newListEntry.status != oldValue.basicMediaListEntry.status) {
+                                val updatedValue = oldValue.copy(basicMediaListEntry = newListEntry)
+                                val statusChanged =
+                                    newListEntry.status != oldValue.basicMediaListEntry.status
+                                if (statusChanged) {
                                     list.removeAt(index)
                                     if (newListEntry.status == MediaListStatus.COMPLETED
                                         && newListEntry.score.isNullOrZero()
                                     ) {
                                         toggleSetScoreDialog(true)
                                     }
+                                    if (
+                                        type == CurrentListType.AIRING ||
+                                        type == CurrentListType.BEHIND
+                                    ) {
+                                        val target = if (
+                                            isBehindForCurrent(
+                                                updatedValue,
+                                                mutableUiState.value.releaseByMediaId,
+                                            )
+                                        ) {
+                                            behindList
+                                        } else {
+                                            airingList
+                                        }
+                                        target.removeAll { it.mediaId == updatedValue.mediaId }
+                                        if (
+                                            newListEntry.status == MediaListStatus.CURRENT ||
+                                            newListEntry.status == MediaListStatus.REPEATING
+                                        ) {
+                                            target.add(updatedValue)
+                                        }
+                                    }
                                 } else {
-                                    list[index] = oldValue.copy(basicMediaListEntry = newListEntry)
-                                }
-                                if (type == CurrentListType.BEHIND
-                                    && !newListEntry.isBehind(oldValue.media?.nextAiringEpisode?.episode ?: 0)
-                                ) {
-                                    airingList.add(list[index])
-                                    list.removeAt(index)
+                                    list[index] = updatedValue
+                                    if (
+                                        type == CurrentListType.BEHIND &&
+                                        !isBehindForCurrent(
+                                            updatedValue,
+                                            mutableUiState.value.releaseByMediaId,
+                                        )
+                                    ) {
+                                        airingList.add(updatedValue)
+                                        list.removeAt(index)
+                                    }
                                 }
                             }
                     } else {
@@ -152,6 +251,27 @@ class CurrentViewModel(
     }
 
     init {
+        releaseMediaIds
+            .combine(myUserId) { ids, accountId -> accountId.toLong() to ids }
+            .flatMapLatest { (accountId, ids) ->
+                releasePresentationRepository.observeForMedia(accountId, ids)
+            }
+            .onEach { presentations ->
+                mutableUiState.update { state ->
+                    reclassifyCurrentLists(state, presentations)
+                }
+            }
+            .launchIn(viewModelScope)
+
+        mutableUiState
+            .map { state ->
+                (state.airingList + state.behindList + state.animeList + state.mangaList + state.nextSeasonAnimeList)
+                    .mapTo(mutableSetOf()) { it.mediaId }
+            }
+            .distinctUntilChanged()
+            .onEach { ids -> releaseMediaIds.value = ids }
+            .launchIn(viewModelScope)
+
         // anime
         mutableUiState
             .distinctUntilChanged { _, new ->
@@ -173,20 +293,28 @@ class CurrentViewModel(
                 mutableUiState.update { uiState ->
                     when (result) {
                         is PagedResult.Success -> {
-                            val airingList = result.list
-                                .filter {
-                                    it.media?.status == MediaStatus.RELEASING && !it.isBehind()
+                            val currentEntries = result.list.filter {
+                                it.media?.status == MediaStatus.RELEASING
+                            }
+                            val airingList = currentEntries
+                                .filterNot {
+                                    isBehindForCurrent(it, uiState.releaseByMediaId)
                                 }
                                 .sortedWith(
-                                    compareBy(nullsLast()) { it.media?.nextAiringEpisode?.timeUntilAiring }
+                                    compareBy(nullsLast()) {
+                                        airingSortValue(it, uiState.releaseByMediaId)
+                                    }
                                 )
-                            val behindList = result.list
+                            val behindList = currentEntries
                                 .filter {
-                                    it.media?.status == MediaStatus.RELEASING && it.isBehind()
+                                    isBehindForCurrent(it, uiState.releaseByMediaId)
                                 }
                                 .sortedWith(
-                                    compareByDescending<CommonMediaListEntry> { it.basicMediaListEntry.priority }
-                                        .thenByDescending { it.episodesBehind() }
+                                    compareByDescending<CommonMediaListEntry> {
+                                        it.basicMediaListEntry.priority
+                                    }.thenByDescending {
+                                        providerAwareEpisodesBehind(it, uiState.releaseByMediaId)
+                                    }
                                 )
                             val animeList = result.list
                                 .filter { it.media?.status != MediaStatus.RELEASING }
@@ -298,7 +426,7 @@ class CurrentViewModel(
                 !new.fetchFromNetwork
             }
             .flatMapLatest { uiState ->
-                val now = LocalDateTime.now()
+                val now = LocalDateTime.ofInstant(clock.instant(), ZoneId.systemDefault())
                 mediaListRepository.getMySeasonalAnime(
                     season = now.currentAnimeSeason(),
                     fetchFromNetwork = uiState.fetchFromNetwork,

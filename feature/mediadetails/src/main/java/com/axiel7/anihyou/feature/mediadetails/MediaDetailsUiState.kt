@@ -16,6 +16,7 @@ import com.axiel7.anihyou.core.network.fragment.ListActivityFragment
 import com.axiel7.anihyou.core.network.fragment.MediaCharacter
 import com.axiel7.anihyou.core.network.fragment.MediaStaff
 import com.axiel7.anihyou.core.base.state.UiState
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.model.TranslatorApp
 
 @Immutable
@@ -25,6 +26,7 @@ data class MediaDetailsUiState(
     val coloredMedia: Boolean = true,
 
     val details: MediaDetailsQuery.Media? = null,
+    val releasePresentations: List<ReleaseUiPresentation> = emptyList(),
     val openings: List<AnimeThemes.Theme>? = null,
     val endings: List<AnimeThemes.Theme>? = null,
     val customLinks: Set<String> = emptySet(),

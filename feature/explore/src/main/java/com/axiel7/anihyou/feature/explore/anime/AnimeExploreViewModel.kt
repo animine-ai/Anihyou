@@ -5,6 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.base.extensions.indexOfFirstOrNull
 import com.axiel7.anihyou.core.common.viewmodel.UiStateViewModel
+import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
+import com.axiel7.anihyou.release.core.sync.ReleaseSourceTimePolicy
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
 import com.axiel7.anihyou.core.model.media.currentAnimeSeason
@@ -15,19 +19,29 @@ import com.axiel7.anihyou.core.network.fragment.ExploreMedia
 import com.axiel7.anihyou.core.network.type.MediaSort
 import com.axiel7.anihyou.core.network.type.MediaType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Clock
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 import kotlin.time.Duration.Companion.milliseconds
 
 class AnimeExploreViewModel(
     private val mediaRepository: MediaRepository,
-    defaultPreferencesRepository: DefaultPreferencesRepository
+    private val defaultPreferencesRepository: DefaultPreferencesRepository,
+    private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
+    private val clock: Clock = Clock.systemUTC(),
 ) : UiStateViewModel<AnimeExploreUiState>(), AnimeExploreEvent {
 
-    private val now = LocalDateTime.now()
+    private val now = LocalDateTime.ofInstant(clock.instant(), ZoneId.systemDefault())
+    private val myUserId = defaultPreferencesRepository.userId.filterNotNull()
 
     override val initialState =
         AnimeExploreUiState(
@@ -51,7 +65,7 @@ class AnimeExploreViewModel(
     override fun fetchAiringAnime() {
         if (mutableUiState.value.airingAnime.isEmpty()) {
             mediaRepository.getAiringAnimesPage(
-                airingAtGreater = System.currentTimeMillis() / 1000,
+                airingAtGreater = clock.instant().epochSecond,
                 isAdult = uiState.value.displayAdult,
                 page = 1
             ).onEach { result ->
@@ -204,7 +218,6 @@ class AnimeExploreViewModel(
             fetchTrendingAnime()
         }
         viewModelScope.launch {
-            // PullToRefresh needs a min delay when changing the isRefreshing state
             delay(1000.milliseconds)
             mutableUiState.update { it.copy(isLoading = false) }
         }
@@ -245,6 +258,41 @@ class AnimeExploreViewModel(
     }
 
     init {
+        mutableUiState
+            .map { state ->
+                state.allLists.flatten().mapTo(mutableSetOf()) { it.id }
+            }
+            .distinctUntilChanged()
+            .flatMapLatest { ids ->
+                myUserId.flatMapLatest { accountId ->
+                    releasePresentationRepository.observeForMedia(accountId.toLong(), ids)
+                }
+            }
+            .onEach { rows ->
+                mutableUiState.update { it.copy(releaseByMediaId = rows) }
+            }
+            .launchIn(viewModelScope)
+
+        myUserId
+            .flatMapLatest { accountId ->
+                val start = LocalDate.ofInstant(
+                    clock.instant(),
+                    ReleaseSourceTimePolicy.ANI_WORLD_ZONE,
+                )
+                releasePresentationRepository.observeCalendar(
+                    accountId = accountId.toLong(),
+                    range = start..start.plusDays(14),
+                )
+            }
+            .onEach { rows ->
+                mutableUiState.update {
+                    it.copy(
+                        providerAiringRows = rows.filter(ReleaseUiCalendarItem::isAuthoritative),
+                    )
+                }
+            }
+            .launchIn(viewModelScope)
+
         defaultPreferencesRepository.airingOnMyList
             .onEach { value ->
                 mutableUiState.update { it.copy(airingOnMyList = value) }

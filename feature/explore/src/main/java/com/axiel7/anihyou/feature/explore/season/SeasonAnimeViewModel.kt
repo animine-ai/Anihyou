@@ -3,6 +3,8 @@ package com.axiel7.anihyou.feature.explore.season
 import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.common.viewmodel.PagedUiStateViewModel
+import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.ListPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
@@ -16,6 +18,9 @@ import com.axiel7.anihyou.core.ui.common.navigation.Route.SeasonAnime
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -29,6 +34,7 @@ class SeasonAnimeViewModel(
     defaultPreferencesRepository: DefaultPreferencesRepository,
     private val mediaRepository: MediaRepository,
     private val listPreferencesRepository: ListPreferencesRepository,
+    private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
 ) : PagedUiStateViewModel<SeasonAnimeUiState>(), SeasonAnimeEvent {
 
     private val season = MediaSeason.safeValueOf(arguments.season)
@@ -82,6 +88,19 @@ class SeasonAnimeViewModel(
     }
 
     init {
+        uiState
+            .map { it.animeSeasonal.mapTo(mutableSetOf()) { item -> item.id } }
+            .distinctUntilChanged()
+            .flatMapLatest { ids ->
+                defaultPreferencesRepository.userId.filterNotNull().flatMapLatest { accountId ->
+                    releasePresentationRepository.observeForMedia(accountId.toLong(), ids)
+                }
+            }
+            .onEach { rows ->
+                mutableUiState.update { it.copy(releaseByMediaId = rows) }
+            }
+            .launchIn(viewModelScope)
+
         defaultPreferencesRepository.displayAdult
             .onEach { value ->
                 mutableUiState.update { it.copy(displayAdult = value ?: false) }

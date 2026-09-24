@@ -353,6 +353,7 @@ private fun LazyListGrid(
         ) { item ->
             GridUserMediaListItem(
                 item = item,
+                        releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
                 listStatus = uiState.status,
                 scoreFormat = uiState.scoreFormat,
                 showLowPriority = uiState.showLowPriority,
@@ -414,6 +415,7 @@ private fun LazyListTablet(
                 ) { item ->
                     StandardUserMediaListItem(
                         item = item,
+                        releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
                         listStatus = uiState.status,
                         scoreFormat = uiState.scoreFormat,
                         isMyList = uiState.isMyList,
@@ -436,6 +438,7 @@ private fun LazyListTablet(
                 ) { item ->
                     CompactUserMediaListItem(
                         item = item,
+                        releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
                         listStatus = uiState.status,
                         scoreFormat = uiState.scoreFormat,
                         isMyList = uiState.isMyList,
@@ -458,6 +461,7 @@ private fun LazyListTablet(
                 ) { item ->
                     MinimalUserMediaListItem(
                         item = item,
+                        releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
                         listStatus = uiState.status,
                         scoreFormat = uiState.scoreFormat,
                         allPriorityColors = allPriorityColors,
@@ -525,6 +529,7 @@ private fun LazyListPhone(
                 ) { item ->
                     StandardUserMediaListItem(
                         item = item,
+                        releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
                         listStatus = uiState.status,
                         scoreFormat = uiState.scoreFormat,
                         isMyList = uiState.isMyList,
@@ -548,6 +553,7 @@ private fun LazyListPhone(
                 ) { item ->
                     CompactUserMediaListItem(
                         item = item,
+                        releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
                         listStatus = uiState.status,
                         scoreFormat = uiState.scoreFormat,
                         isMyList = uiState.isMyList,
@@ -571,6 +577,7 @@ private fun LazyListPhone(
                 ) { item ->
                     MinimalUserMediaListItem(
                         item = item,
+                        releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
                         listStatus = uiState.status,
                         scoreFormat = uiState.scoreFormat,
                         allPriorityColors = allPriorityColors,

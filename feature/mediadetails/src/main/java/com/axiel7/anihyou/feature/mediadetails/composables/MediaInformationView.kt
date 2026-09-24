@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -54,7 +55,7 @@ import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.formatted
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.minutesToLegibleText
 import com.axiel7.anihyou.feature.mediadetails.MediaDetailsUiState
-import java.time.LocalDateTime
+import java.time.ZoneId
 
 private const val TagLimit = 10
 
@@ -76,13 +77,59 @@ fun MediaInformationView(
     ) {
         InfoTitle(text = stringResource(R.string.information))
 
-        uiState.details?.nextAiringEpisode?.let { nextAiringEpisode ->
+        val providerRelease = uiState.releasePresentations.firstOrNull { it.isAuthoritative }
+        if (providerRelease != null) {
+            val providerInfoParts = buildList {
+                providerRelease.confirmedThroughEpisode?.let {
+                    add(stringResource(R.string.release_schedule_confirmed_through, it))
+                }
+                if (providerRelease.confirmedPending > 0) {
+                    add(
+                        pluralStringResource(
+                            R.plurals.release_schedule_pending,
+                            providerRelease.confirmedPending,
+                            providerRelease.confirmedPending,
+                        ),
+                    )
+                }
+                providerRelease.nextExpectedInstallment?.let { installment ->
+                    val label = releaseInstallmentLabel(
+                        installment = installment,
+                        releaseKind = providerRelease.stream.releaseKind,
+                    )
+                    add(
+                        providerRelease.nextForecastAt?.let { forecastAt ->
+                            stringResource(
+                                R.string.release_schedule_next_at,
+                                label,
+                                forecastAt.atZone(ZoneId.systemDefault())
+                                    .toLocalDateTime()
+                                    .toLocalized()
+                                    .orEmpty(),
+                            )
+                        } ?: stringResource(R.string.release_schedule_next, label),
+                    )
+                }
+            }
             InfoItemView(
                 title = stringResource(R.string.airing),
-                info = LocalDateTime.now().plusSeconds(nextAiringEpisode.timeUntilAiring.toLong())
-                    ?.toLocalized(),
-                modifier = Modifier.defaultPlaceholder(visible = uiState.isLoading)
+                info = providerInfoParts.ifEmpty {
+                    listOf(stringResource(R.string.release_schedule_available))
+                }.joinToString(" · "),
+                modifier = Modifier.defaultPlaceholder(visible = uiState.isLoading),
             )
+        } else {
+            uiState.details?.nextAiringEpisode?.let { nextAiringEpisode ->
+                InfoItemView(
+                    title = stringResource(R.string.airing),
+                    info = stringResource(
+                        R.string.episode_in_time,
+                        nextAiringEpisode.episode,
+                        nextAiringEpisode.timeUntilAiring.toLong().secondsToLegibleText(),
+                    ),
+                    modifier = Modifier.defaultPlaceholder(visible = uiState.isLoading),
+                )
+            }
         }
         InfoItemView(
             title = stringResource(R.string.duration),

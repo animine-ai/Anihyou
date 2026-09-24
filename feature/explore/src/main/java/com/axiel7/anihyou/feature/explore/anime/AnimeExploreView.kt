@@ -213,6 +213,8 @@ private fun AnimeDiscoverContent(
                                 airingOnMyList = uiState.airingOnMyList,
                                 airingAnime = uiState.airingAnime,
                                 airingAnimeOnMyList = uiState.airingAnimeOnMyList,
+                                releaseByMediaId = uiState.releaseByMediaId,
+                                providerAiringRows = uiState.providerAiringRows,
                                 isLoading = uiState.isLoadingAiring,
                                 onLongClickItem = { details, listEntry ->
                                     event?.selectItem(details, listEntry)
@@ -230,6 +232,7 @@ private fun AnimeDiscoverContent(
                             SeasonAnimeContent(
                                 animeSeason = uiState.nowAnimeSeason,
                                 seasonAnime = uiState.thisSeasonAnime,
+                                releaseByMediaId = uiState.releaseByMediaId,
                                 isLoading = uiState.isLoadingThisSeason,
                                 isNextSeason = false,
                                 onLongClickItem = {
@@ -276,6 +279,7 @@ private fun AnimeDiscoverContent(
                             SeasonAnimeContent(
                                 animeSeason = uiState.nextAnimeSeason,
                                 seasonAnime = uiState.nextSeasonAnime,
+                                releaseByMediaId = uiState.releaseByMediaId,
                                 isLoading = uiState.isLoadingNextSeason,
                                 isNextSeason = true,
                                 onLongClickItem = {
@@ -346,7 +350,7 @@ private fun AnimeDiscoverContent(
 @Preview
 @Composable
 private fun AnimeDiscoverInfoPreview() {
-    val now = remember { LocalDateTime.now() }
+    val now = remember { LocalDateTime.of(2026, 1, 15, 12, 0) }
     AniHyouTheme {
         Surface {
             AnimeDiscoverContent(

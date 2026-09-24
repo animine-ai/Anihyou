@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.graphics.Color
 import com.axiel7.anihyou.core.base.state.UiState
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.model.CurrentListType
 import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
 
@@ -19,6 +20,7 @@ data class CurrentUiState(
     val mediumPriorityColor: Color? = null,
     val highPriorityColor: Color? = null,
     val nextSeasonAnimeList: SnapshotStateList<CommonMediaListEntry> = mutableStateListOf(),
+    val releaseByMediaId: Map<Int, List<ReleaseUiPresentation>> = emptyMap(),
     val selectedItem: CommonMediaListEntry? = null,
     val selectedType: CurrentListType? = null,
     val openSetScoreDialog: Boolean = false,

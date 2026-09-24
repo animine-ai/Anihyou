@@ -134,7 +134,7 @@ private fun CalendarBannerPreview() {
         Surface {
             CalendarBanner(
                 title = "Today",
-                date = LocalDateTime.now(),
+                date = LocalDateTime.of(2026, 1, 15, 12, 0),
                 height = 120.dp,
                 imageUrl = null,
                 color = Color(0xFFC1F54E),

@@ -26,6 +26,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.axiel7.anihyou.core.common.utils.NumberUtils.isGreaterThanZero
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
 import com.axiel7.anihyou.core.network.type.MediaListStatus
@@ -33,6 +34,7 @@ import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.ScoreFormat
 import com.axiel7.anihyou.core.ui.common.LocalBlurAdult
 import com.axiel7.anihyou.core.ui.composables.media.AiringScheduleText
+import com.axiel7.anihyou.core.ui.composables.media.ReleaseScheduleText
 import com.axiel7.anihyou.core.ui.composables.media.AllPriorityColors
 import com.axiel7.anihyou.core.ui.composables.media.ListStatusBadgeIndicator
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_MEDIUM_HEIGHT
@@ -47,6 +49,8 @@ import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 @Composable
 fun GridUserMediaListItem(
     item: CommonMediaListEntry,
+    releasePresentations: List<ReleaseUiPresentation> = emptyList(),
+    releasePresentation: ReleaseUiPresentation? = null,
     listStatus: MediaListStatus?,
     scoreFormat: ScoreFormat,
     showLowPriority: Boolean,
@@ -57,6 +61,13 @@ fun GridUserMediaListItem(
     val blurAdult = LocalBlurAdult.current
     val status = listStatus ?: item.basicMediaListEntry.status
     val priority = item.basicMediaListEntry.priority
+    val providerRows = if (releasePresentations.isNotEmpty()) {
+        releasePresentations.filter { it.isAuthoritative }
+    } else {
+        listOfNotNull(releasePresentation?.takeIf { it.isAuthoritative })
+    }
+    val hasProviderSchedule = providerRows.isNotEmpty()
+    val nextAiringEpisode = if (hasProviderSchedule) null else item.media?.nextAiringEpisode
     val singleEpisode = item.media?.basicMediaDetails?.type == MediaType.ANIME && (item.media?.basicMediaDetails?.episodes == 1)
     Card(
         modifier = Modifier
@@ -95,10 +106,9 @@ fun GridUserMediaListItem(
                 Column(
                     modifier = Modifier.align(Alignment.TopEnd)
                 ) {
-                    val nextAiringEpisode = item.media?.nextAiringEpisode
                     val hasPriorityBadge = priority != null && (priority > 0 || showLowPriority)
 
-                    if (nextAiringEpisode != null) {
+                    if (hasProviderSchedule || nextAiringEpisode != null) {
                         ElevatedCard(
                             modifier = Modifier.fillMaxWidth(),
                             shape = if (hasPriorityBadge) {
@@ -107,11 +117,22 @@ fun GridUserMediaListItem(
                                 RoundedCornerShape(12.dp)
                             }
                         ) {
-                            AiringScheduleText(
-                                item = item,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                textAlign = TextAlign.Left,
-                            )
+                            if (providerRows.isEmpty()) {
+                                AiringScheduleText(
+                                    item = item,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    textAlign = TextAlign.Left,
+                                )
+                            } else {
+                                providerRows.forEach { presentation ->
+                                    ReleaseScheduleText(
+                                        presentation = presentation,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        textAlign = TextAlign.Left,
+                                        fallback = {},
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -120,7 +141,7 @@ fun GridUserMediaListItem(
                             priority = priority,
                             modifier = Modifier.align(Alignment.End),
                             allPriorityColors = allPriorityColors,
-                            shape = if (nextAiringEpisode != null) {
+                            shape = if (hasProviderSchedule || nextAiringEpisode != null) {
                                 RoundedCornerShape(bottomStart = 16.dp)
                             } else {
                                 RoundedCornerShape(topEnd = 8.dp, bottomStart = 16.dp)

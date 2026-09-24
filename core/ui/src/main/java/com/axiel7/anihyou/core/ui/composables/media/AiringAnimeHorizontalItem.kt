@@ -26,6 +26,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
 import com.axiel7.anihyou.core.model.media.icon
 import com.axiel7.anihyou.core.model.media.localized
 import com.axiel7.anihyou.core.model.stats.overview.StatusDistribution.Companion.asStat
@@ -40,6 +42,9 @@ import com.materialkolor.ktx.harmonize
 fun AiringAnimeHorizontalItem(
     title: String,
     subtitle: String,
+    releasePresentations: List<ReleaseUiPresentation> = emptyList(),
+    releaseCalendarPresentations: List<ReleaseUiCalendarItem> = emptyList(),
+    releasePresentation: ReleaseUiPresentation? = null,
     blurImage: Boolean = false,
     imageUrl: String?,
     score: Int? = null,
@@ -47,6 +52,14 @@ fun AiringAnimeHorizontalItem(
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {},
 ) {
+    val presentations = (if (releasePresentations.isNotEmpty()) {
+        releasePresentations
+    } else {
+        releasePresentation?.let(::listOf).orEmpty()
+    }).filter { it.isAuthoritative }
+    val calendarPresentations = releaseCalendarPresentations
+        .filter { it.isAuthoritative }
+
     Surface(
         shape = MaterialTheme.shapes.large,
         color = Color.Transparent,
@@ -113,12 +126,28 @@ fun AiringAnimeHorizontalItem(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                when {
+                    presentations.isNotEmpty() -> presentations.forEach { presentation ->
+                        ReleaseScheduleText(
+                            presentation = presentation,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                            fallback = {},
+                        )
+                    }
+                    calendarPresentations.isNotEmpty() -> calendarPresentations.forEach { presentation ->
+                        ReleaseCalendarScheduleText(
+                            presentation = presentation,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                            fallback = {},
+                        )
+                    }
+                    else -> Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
 
                 if (score != null) {
                     SmallScoreIndicator(

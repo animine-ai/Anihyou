@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.graphics.Color
 import com.axiel7.anihyou.core.base.state.UiState
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.model.ItemsPerRow
 import com.axiel7.anihyou.core.model.ListStyle
 import com.axiel7.anihyou.core.model.genre.GenresAndTagsForSearch
@@ -26,6 +27,7 @@ data class UserMediaListUiState(
     val entries: SnapshotStateList<CommonMediaListEntry> = mutableStateListOf(),
     val mangaEntries: SnapshotStateList<CommonMediaListEntry> = mutableStateListOf(),
     val novelEntries: SnapshotStateList<CommonMediaListEntry> = mutableStateListOf(),
+    val releaseByMediaId: Map<Int, List<ReleaseUiPresentation>> = emptyMap(),
     val status: MediaListStatus? = null,
     val isMyList: Boolean = true,
     val showLowPriority: Boolean = false,

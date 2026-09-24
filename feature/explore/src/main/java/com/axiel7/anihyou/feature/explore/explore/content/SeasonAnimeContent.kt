@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.model.media.AnimeSeason
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
 import com.axiel7.anihyou.core.resources.R
@@ -16,6 +17,7 @@ import com.axiel7.anihyou.core.ui.common.LocalBlurAdult
 import com.axiel7.anihyou.core.ui.composables.list.DiscoverLazyRow
 import com.axiel7.anihyou.core.ui.composables.list.HorizontalListHeader
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_ITEM_VERTICAL_HEIGHT
+import com.axiel7.anihyou.core.ui.composables.media.ReleaseScheduleText
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemVertical
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemVerticalPlaceholder
 import com.axiel7.anihyou.core.ui.composables.scores.SmallScoreIndicator
@@ -24,6 +26,7 @@ import com.axiel7.anihyou.core.ui.composables.scores.SmallScoreIndicator
 fun SeasonAnimeContent(
     animeSeason: AnimeSeason,
     seasonAnime: List<ExploreMedia>,
+    releaseByMediaId: Map<Int, List<ReleaseUiPresentation>> = emptyMap(),
     isLoading: Boolean,
     isNextSeason: Boolean,
     onLongClickItem: (ExploreMedia) -> Unit,
@@ -42,7 +45,7 @@ fun SeasonAnimeContent(
         minHeight = MEDIA_ITEM_VERTICAL_HEIGHT.dp
     ) {
         items(
-            items = seasonAnime,
+            items = seasonAnime.providerOrdered(releaseByMediaId),
             contentType = { it }
         ) { item ->
             MediaItemVertical(
@@ -51,10 +54,22 @@ fun SeasonAnimeContent(
                 blurImage = blurAdult && item.basicMediaDetails.isAdult == true,
                 modifier = Modifier.padding(horizontal = 8.dp),
                 subtitle = {
-                    item.averageScore?.let { score ->
-                        SmallScoreIndicator(score = score)
-                    } ?: run {
-                        Spacer(modifier = Modifier.size(20.dp))
+                    val releasePresentations = releaseByMediaId[item.id]
+                        .orEmpty()
+                        .filter { it.isAuthoritative }
+                    if (releasePresentations.isNotEmpty()) {
+                        releasePresentations.forEach { presentation ->
+                            ReleaseScheduleText(
+                                presentation = presentation,
+                                fallback = {},
+                            )
+                        }
+                    } else {
+                        item.averageScore?.let { score ->
+                            SmallScoreIndicator(score = score)
+                        } ?: run {
+                            Spacer(modifier = Modifier.size(20.dp))
+                        }
                     }
                 },
                 status = item.mediaListEntry?.basicMediaListEntry?.status,
@@ -77,3 +92,14 @@ fun SeasonAnimeContent(
         }
     }//:LazyRow
 }
+
+private fun List<ExploreMedia>.providerOrdered(
+    releaseByMediaId: Map<Int, List<ReleaseUiPresentation>>,
+): List<ExploreMedia> = sortedWith(
+    compareBy<ExploreMedia> { media ->
+        releaseByMediaId[media.id]
+            .orEmpty()
+            .minOfOrNull { it.nextForecastAt ?: java.time.Instant.MAX }
+            ?: java.time.Instant.MAX
+    }.thenBy { it.id },
+)

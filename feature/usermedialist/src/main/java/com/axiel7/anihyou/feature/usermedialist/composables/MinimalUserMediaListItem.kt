@@ -25,6 +25,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.axiel7.anihyou.core.common.utils.NumberUtils.isGreaterThanZero
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.model.media.exampleBasicMediaListEntry
 import com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry
 import com.axiel7.anihyou.core.model.media.icon
@@ -37,6 +38,7 @@ import com.axiel7.anihyou.core.network.type.ScoreFormat
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.composables.IncrementOneButton
 import com.axiel7.anihyou.core.ui.composables.media.AiringScheduleText
+import com.axiel7.anihyou.core.ui.composables.media.ReleaseScheduleText
 import com.axiel7.anihyou.core.ui.composables.media.AllPriorityColors
 import com.axiel7.anihyou.core.ui.composables.media.MediaProgressIndicator
 import com.axiel7.anihyou.core.ui.composables.media.priorityIcon
@@ -47,6 +49,8 @@ import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 @Composable
 fun MinimalUserMediaListItem(
     item: CommonMediaListEntry,
+    releasePresentations: List<ReleaseUiPresentation> = emptyList(),
+    releasePresentation: ReleaseUiPresentation? = null,
     listStatus: MediaListStatus?,
     scoreFormat: ScoreFormat,
     allPriorityColors: AllPriorityColors,
@@ -61,6 +65,12 @@ fun MinimalUserMediaListItem(
 ) {
     val status = listStatus ?: item.basicMediaListEntry.status
     val priority = item.basicMediaListEntry.priority
+    val providerRows = if (releasePresentations.isNotEmpty()) {
+        releasePresentations.filter { it.isAuthoritative }
+    } else {
+        listOfNotNull(releasePresentation?.takeIf { it.isAuthoritative })
+    }
+    val hasReleaseSchedule = providerRows.isNotEmpty() || item.media?.nextAiringEpisode != null
     val singleEpisode =
         item.media?.basicMediaDetails?.type == MediaType.ANIME && (item.media?.basicMediaDetails?.episodes == 1)
     Surface(
@@ -90,12 +100,19 @@ fun MinimalUserMediaListItem(
                     fontSize = 15.sp,
                     lineHeight = 17.sp,
                     overflow = TextOverflow.Ellipsis,
-                    maxLines = if (item.media?.nextAiringEpisode != null) 1 else 2
+                    maxLines = if (hasReleaseSchedule) 1 else 2
                 )
 
-                AiringScheduleText(
-                    item = item,
-                )
+                if (providerRows.isEmpty()) {
+                    AiringScheduleText(item = item)
+                } else {
+                    providerRows.forEach { presentation ->
+                        ReleaseScheduleText(
+                            presentation = presentation,
+                            fallback = {},
+                        )
+                    }
+                }
 
                 Row(
                     modifier = Modifier.padding(top = 8.dp, end = 8.dp),

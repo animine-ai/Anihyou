@@ -677,4 +677,74 @@
     <string name="notification_media_changed">Die Website-Daten für %s wurden aktualisiert</string>
     <string name="notification_media_deleted">%s würde von der Website gelöscht</string>
     <string name="notification_forum_mention">%1$s hat dich im Forenthema %2$s erwähnt.</string>
+
+    <string name="release_notification_text">%1$s · %2$s</string>
+    <string name="release_notification_unknown_title">AniWorld-Veröffentlichung</string>
+    <string name="release_notification_episode">Episode %1$s</string>
+    <string name="release_notification_film">Film</string>
+    <string name="release_notification_special">Special</string>
+    <string name="release_notification_unknown_installment">Neue Folge</string>
+
+    <string name="release_schedule_confirmed_through">Bestätigt bis Episode %1$d</string>
+    <plurals name="release_schedule_pending">
+        <item quantity="one">%d ausstehende Veröffentlichung</item>
+        <item quantity="other">%d ausstehende Veröffentlichungen</item>
+    </plurals>
+    <string name="release_schedule_next">Als Nächstes: %1$s</string>
+    <string name="release_schedule_next_at">Als Nächstes: %1$s · %2$s</string>
+    <string name="release_schedule_confirmed_installment">%1$s bestätigt</string>
+    <string name="release_schedule_available">Veröffentlichungsstatus verfügbar</string>
+    <string name="release_installment_episode">Episode %1$d</string>
+    <string name="release_installment_episode_fraction">Episode %1$d.%2$d</string>
+    <string name="release_installment_film">Film</string>
+    <string name="release_installment_film_number">Film %1$d</string>
+    <string name="release_installment_special">Special</string>
+    <string name="release_installment_special_number">Special %1$d</string>
+    <string name="release_installment_ova">OVA</string>
+    <string name="release_installment_ona">ONA</string>
+
+
+    <string name="release_relative_now">jetzt</string>
+    <plurals name="release_relative_seconds">
+        <item quantity="one">in %d Sekunde</item>
+        <item quantity="other">in %d Sekunden</item>
+    </plurals>
+    <plurals name="release_relative_minutes">
+        <item quantity="one">in %d Minute</item>
+        <item quantity="other">in %d Minuten</item>
+    </plurals>
+    <plurals name="release_relative_hours">
+        <item quantity="one">in %d Stunde</item>
+        <item quantity="other">in %d Stunden</item>
+    </plurals>
+    <plurals name="release_relative_days">
+        <item quantity="one">in %d Tag</item>
+        <item quantity="other">in %d Tagen</item>
+    </plurals>
+
+
+    <string name="release_provider_only">Provider-Veröffentlichung</string>
+
+    <string name="release_provider_enabled">AniWorld-Veröffentlichungsdaten verwenden</string>
+    <string name="release_provider_enabled_summary">Gültige Provider-Zeilen ersetzen die vollständige AniList-Veröffentlichungsanzeige.</string>
+    <string name="release_preferred_track">Bevorzugte deutsche Spur</string>
+    <string name="release_track_de_sub">Deutsche Untertitel</string>
+    <string name="release_track_de_dub">Deutsche Synchronfassung</string>
+    <string name="release_notifications_enabled">Veröffentlichungsbenachrichtigungen</string>
+    <string name="release_notifications_enabled_summary">Veröffentlichungsbenachrichtigungen bleiben von AniList-Benachrichtigungen getrennt.</string>
+    <string name="release_provider_status">AniWorld-Veröffentlichungsstatus</string>
+    <string name="release_provider_status_enabled">Aktiviert</string>
+    <string name="release_provider_status_disabled">Deaktiviert</string>
+    <string name="release_mapping_title">AniWorld-Zuordnungen</string>
+    <string name="release_mapping_summary">Manuell: %1$d · automatisch: %2$d · ungelöst: %3$d</string>
+    <string name="release_mapping_empty">Noch keine Zuordnungen gespeichert.</string>
+    <string name="release_mapping_manual_media">Manuelle Zuordnung · AniList-Medium %1$d</string>
+    <string name="release_mapping_automatic_media">Automatische Zuordnung · AniList-Medium %1$d</string>
+    <string name="release_mapping_unresolved">Ungelöste Quelle %1$d</string>
+    <string name="release_mapping_reset">Auf automatisch zurücksetzen</string>
+    <string name="release_mapping_rematch">Automatische Zuordnungen neu suchen</string>
+    <string name="release_mapping_manual_title">Manuelle AniWorld-Zuordnung</string>
+    <string name="release_mapping_media_id">AniList-Medien-ID</string>
+    <string name="release_mapping_evidence">Nachweis</string>
+
 </resources>

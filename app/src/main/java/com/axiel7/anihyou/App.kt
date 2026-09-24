@@ -40,8 +40,10 @@ class App : Application(), SingletonImageLoader.Factory {
                 single<DevicePerformance> { DefaultDevicePerformance() }
             }
 
+
             modules(
                 coreModule,
+                animetrackerReleaseModule,
                 dataStoreModule,
                 networkModule,
                 apiModule,

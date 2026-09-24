@@ -224,9 +224,10 @@ class MediaRepository (
     suspend fun getAiringWidgetData(
         page: Int,
         perPage: Int = 25,
+        fetchPolicy: FetchPolicy = FetchPolicy.NetworkFirst,
     ) = api
         .airingWidgetQuery(page, perPage)
-        .fetchPolicy(FetchPolicy.NetworkFirst)
+        .fetchPolicy(fetchPolicy)
         .execute()
         .asDataResult { data ->
             data.Page?.media?.filterNotNull()

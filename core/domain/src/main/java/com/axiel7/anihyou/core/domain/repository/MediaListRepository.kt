@@ -3,6 +3,7 @@ package com.axiel7.anihyou.core.domain.repository
 import com.apollographql.cache.normalized.FetchPolicy
 import com.apollographql.cache.normalized.fetchPolicy
 import com.axiel7.anihyou.core.base.DataResult
+import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.common.utils.NumberUtils.isGreaterThanZero
 import com.axiel7.anihyou.core.model.media.AnimeSeason
 import com.axiel7.anihyou.core.model.media.advancedScoresMap
@@ -21,19 +22,30 @@ import com.axiel7.anihyou.core.network.type.MediaListStatus
 import com.axiel7.anihyou.core.network.type.MediaSort
 import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.ScoreFormat
+import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.onEach
-import java.time.LocalDate
 
-class MediaListRepository (
+class MediaListRepository(
     private val api: MediaListApi,
     defaultPreferencesRepository: DefaultPreferencesRepository,
 ) : BaseNetworkRepository(defaultPreferencesRepository) {
 
     private val _lastUpdatedEntry = MutableStateFlow<BasicMediaListEntry?>(null)
     val lastUpdatedEntry = _lastUpdatedEntry.asStateFlow()
+
+    private val localAccountProgressIndex = LocalAccountProgressIndex()
+
+    /**
+     * Returns only a complete local account slice. A partial index is unknown,
+     * not zero, so callers can fail closed without a second account database.
+     */
+    fun cachedProgressFor(
+        userId: Int,
+        mediaIds: Set<Int>,
+    ): Map<Int, Int>? = localAccountProgressIndex.read(userId, mediaIds)
 
     fun getMediaListCollection(
         userId: Int,
@@ -58,8 +70,21 @@ class MediaListRepository (
         fetchFromNetwork: Boolean = false,
         page: Int?,
         perPage: Int? = 25,
+        cacheOnly: Boolean = false,
+        mediaIds: List<Int>? = null,
     ) = api
-        .userMediaList(userId, mediaType, statusIn, sort, scoreFormat, fetchFromNetwork, page, perPage)
+        .userMediaList(
+            userId,
+            mediaType,
+            statusIn,
+            sort,
+            scoreFormat,
+            fetchFromNetwork,
+            page,
+            perPage,
+            cacheOnly,
+            mediaIds,
+        )
         .toFlow()
         .asPagedResult(page = { it.Page?.pageInfo?.commonPage }) { data ->
             data.Page?.mediaList?.mapNotNull {
@@ -67,10 +92,20 @@ class MediaListRepository (
                 // that sometimes returns the score in another format if we don't explicit send it
                 it?.commonMediaListEntry?.copy(
                     basicMediaListEntry = it.commonMediaListEntry.basicMediaListEntry.copy(
-                        score = it.scoreFixed
-                    )
+                        score = it.scoreFixed,
+                    ),
                 )
             }.orEmpty()
+        }
+        .onEach { result ->
+            if (result is PagedResult.Success) {
+                localAccountProgressIndex.record(
+                    userId = userId,
+                    progressByMediaId = result.list.mapNotNull { entry ->
+                        entry.progressOrVolumes()?.let { progress -> entry.mediaId to progress }
+                    }.toMap(),
+                )
+            }
         }
 
     fun getMySeasonalAnime(
@@ -92,7 +127,7 @@ class MediaListRepository (
     fun incrementProgress(
         entry: BasicMediaListEntry,
         increment: Int = 1,
-        total: Int?
+        total: Int?,
     ): Flow<DataResult<UpdateEntryMutation.SaveMediaListEntry?>> {
         val newProgress = (entry.progressOrVolumes() ?: 0) + increment
         val totalDuration = total.takeIf { it != 0 }
@@ -113,7 +148,7 @@ class MediaListRepository (
             status = newStatus,
             startedAt = LocalDate.now().takeIf {
                 (!isRepeating || entry.startedAt?.fuzzyDate?.isNull() != false) &&
-                (isPlanning || !entry.progress.isGreaterThanZero())
+                    (isPlanning || !entry.progress.isGreaterThanZero())
             }?.toFuzzyDate() ?: entry.startedAt?.fuzzyDate,
             completedAt = LocalDate.now().takeIf {
                 (!isRepeating || entry.completedAt?.fuzzyDate?.isNull() != false) && isMaxProgress
@@ -135,7 +170,7 @@ class MediaListRepository (
         private: Boolean? = null,
         hiddenFromStatusLists: Boolean? = null,
         notes: String? = null,
-        priority: Int? = null
+        priority: Int? = null,
     ) = api
         .updateEntryMutation(
             mediaId = mediaId,
@@ -152,11 +187,12 @@ class MediaListRepository (
             hiddenFromStatusLists = hiddenFromStatusLists
                 .takeIf { hiddenFromStatusLists != oldEntry?.hiddenFromStatusLists },
             notes = notes.takeIf { notes != oldEntry?.notes },
-            priority = priority.takeIf { priority != oldEntry?.priority }
+            priority = priority.takeIf { priority != oldEntry?.priority },
         )
         .toFlow()
         .onEach {
             it.data?.SaveMediaListEntry?.basicMediaListEntry?.let { entry ->
+                localAccountProgressIndex.invalidate(entry.mediaId)
                 _lastUpdatedEntry.emit(entry)
                 api.updateMediaListCache(entry)
             }
@@ -181,12 +217,21 @@ class MediaListRepository (
             it.SaveMediaListEntry
         }
 
-    suspend fun deleteEntry(id: Int) = api
-        .deleteMediaListMutation(id)
-        .execute()
-        .asDataResult {
-            it.DeleteMediaListEntry
+    suspend fun deleteEntry(id: Int): DataResult<*> {
+        val result = api
+            .deleteMediaListMutation(id)
+            .execute()
+            .asDataResult {
+                it.DeleteMediaListEntry
+            }
+        if (result is DataResult.Success) {
+            // The mutation knows only the AniList entry id here. Clearing the small
+            // local index is safer than retaining a potentially deleted media row as
+            // known account progress. Normal list/cache reads repopulate it lazily.
+            localAccountProgressIndex.clear()
         }
+        return result
+    }
 
     @Suppress("UNCHECKED_CAST")
     fun getMediaListCustomLists(id: Int, userId: Int) = api
@@ -207,7 +252,7 @@ class MediaListRepository (
         .fetchPolicy(FetchPolicy.CacheFirst)
         .toFlow()
         .asPagedResult(
-            page = { CommonPage("", chunk, it.MediaListCollection?.hasNextChunk) }
+            page = { CommonPage("", chunk, it.MediaListCollection?.hasNextChunk) },
         ) { data ->
             data.MediaListCollection?.lists
                 ?.flatMap { list ->
@@ -215,4 +260,49 @@ class MediaListRepository (
                 }
                 .orEmpty()
         }
+}
+
+class LocalAccountProgressIndex {
+    private val progressByUser = mutableMapOf<Int, MutableMap<Int, Int>>()
+
+    @Synchronized
+    fun record(
+        userId: Int,
+        progressByMediaId: Map<Int, Int>,
+    ) {
+        require(userId > 0) { "user id must be positive" }
+        require(progressByMediaId.keys.all { it > 0 }) {
+            "progress media ids must be positive"
+        }
+        require(progressByMediaId.values.all { it >= 0 }) {
+            "progress values must be non-negative"
+        }
+        if (progressByMediaId.isEmpty()) return
+        val userProgress = progressByUser.getOrPut(userId) { mutableMapOf() }
+        userProgress.putAll(progressByMediaId)
+    }
+
+    @Synchronized
+    fun invalidate(mediaId: Int) {
+        require(mediaId > 0) { "media id must be positive" }
+        progressByUser.values.forEach { it.remove(mediaId) }
+    }
+
+    @Synchronized
+    fun clear() {
+        progressByUser.clear()
+    }
+
+    @Synchronized
+    fun read(
+        userId: Int,
+        mediaIds: Set<Int>,
+    ): Map<Int, Int>? {
+        require(userId > 0) { "user id must be positive" }
+        require(mediaIds.all { it > 0 }) { "media ids must be positive" }
+        if (mediaIds.isEmpty()) return emptyMap()
+        val userProgress = progressByUser[userId] ?: return null
+        if (mediaIds.any { it !in userProgress }) return null
+        return mediaIds.associateWith { userProgress.getValue(it) }
+    }
 }

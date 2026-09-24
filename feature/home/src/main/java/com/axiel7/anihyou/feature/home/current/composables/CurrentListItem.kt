@@ -26,6 +26,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.axiel7.anihyou.core.common.utils.NumberUtils.isGreaterThanZero
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
 import com.axiel7.anihyou.core.network.type.MediaType
@@ -34,6 +35,7 @@ import com.axiel7.anihyou.core.ui.common.LocalScoreFormat
 import com.axiel7.anihyou.core.ui.composables.IncrementOneButton
 import com.axiel7.anihyou.core.ui.composables.defaultPlaceholder
 import com.axiel7.anihyou.core.ui.composables.media.AiringScheduleText
+import com.axiel7.anihyou.core.ui.composables.media.ReleaseScheduleText
 import com.axiel7.anihyou.core.ui.composables.media.AllPriorityColors
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_COMPACT_HEIGHT
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_COMPACT_WIDTH
@@ -48,6 +50,8 @@ import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 fun CurrentListItem(
     modifier: Modifier = Modifier,
     item: CommonMediaListEntry,
+    releasePresentations: List<ReleaseUiPresentation> = emptyList(),
+    releasePresentation: ReleaseUiPresentation? = null,
     isPlusEnabled: Boolean,
     showLowPriority: Boolean,
     allPriorityColors: AllPriorityColors,
@@ -56,6 +60,11 @@ fun CurrentListItem(
     onClickPlus: (Int) -> Unit,
     blockPlus: () -> Unit,
 ) {
+    val presentations = if (releasePresentations.isNotEmpty()) {
+        releasePresentations.filter { it.isAuthoritative }
+    } else {
+        releasePresentation?.takeIf { it.isAuthoritative }?.let(::listOf).orEmpty()
+    }
     val scoreFormat = LocalScoreFormat.current
     val blurAdult = LocalBlurAdult.current
     val singleEpisode =
@@ -123,9 +132,16 @@ fun CurrentListItem(
                     maxLines = 2
                 )
                 
-                AiringScheduleText(
-                    item = item,
-                )
+                if (presentations.isEmpty()) {
+                    AiringScheduleText(item = item)
+                } else {
+                    presentations.forEach { presentation ->
+                        ReleaseScheduleText(
+                            presentation = presentation,
+                            fallback = {},
+                        )
+                    }
+                }
 
                 Row(
                     modifier = Modifier

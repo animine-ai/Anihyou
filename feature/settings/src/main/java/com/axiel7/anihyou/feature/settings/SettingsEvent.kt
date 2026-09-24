@@ -9,6 +9,7 @@ import com.axiel7.anihyou.core.model.ItemsPerRow
 import com.axiel7.anihyou.core.model.ListStyle
 import com.axiel7.anihyou.core.model.Theme
 import com.axiel7.anihyou.core.model.TranslatorApp
+import com.axiel7.anihyou.release.core.api.ReleaseGermanTrack
 import com.axiel7.anihyou.core.model.notification.NotificationInterval
 import com.axiel7.anihyou.core.network.type.ScoreFormat
 import com.axiel7.anihyou.core.network.type.UserStaffNameLanguage
@@ -42,6 +43,22 @@ interface SettingsEvent : UiEvent {
     fun setUseFuzzySearch(value: Boolean)
 
     fun setSeparateNovelsAndManga(value: Boolean)
+
+    fun setReleaseProviderEnabled(value: Boolean)
+
+    fun setPreferredGermanTrack(value: ReleaseGermanTrack)
+
+    fun setReleaseNotificationsEnabled(value: Boolean)
+
+    fun setManualMapping(
+        streamKey: String,
+        mediaId: Int,
+        evidence: String,
+    )
+
+    fun resetManualMapping(streamKey: String)
+
+    fun rematchMappings()
 
     @OptIn(ExperimentalPermissionsApi::class)
     fun setNotificationsEnabled(

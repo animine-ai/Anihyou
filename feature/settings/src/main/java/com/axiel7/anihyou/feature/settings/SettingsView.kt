@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,6 +29,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.axiel7.anihyou.core.base.ANILIST_ACCOUNT_SETTINGS_URL
@@ -49,6 +52,8 @@ import com.axiel7.anihyou.core.model.user.entriesLocalized
 import com.axiel7.anihyou.core.network.type.ScoreFormat
 import com.axiel7.anihyou.core.network.type.UserStaffNameLanguage
 import com.axiel7.anihyou.core.network.type.UserTitleLanguage
+import com.axiel7.anihyou.release.core.api.ReleaseGermanTrack
+import com.axiel7.anihyou.release.core.api.ReleaseMappingStatus
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.common.LocalIsLanguageEn
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
@@ -113,6 +118,11 @@ private fun SettingsContent(
     )
 
     var showConfirmDialog by remember { mutableStateOf(false) }
+    var showMappingDialog by remember { mutableStateOf(false) }
+    var showManualMappingDialog by remember { mutableStateOf(false) }
+    var selectedMapping by remember { mutableStateOf<ReleaseMappingStatus?>(null) }
+    var manualMediaId by remember { mutableStateOf("") }
+    var manualEvidence by remember { mutableStateOf("") }
 
     ErrorDialogHandler(uiState, onDismiss = { event?.onErrorDisplayed() })
 
@@ -216,6 +226,69 @@ private fun SettingsContent(
             )
 
             PreferencesTitle(text = stringResource(R.string.content))
+
+            SwitchPreference(
+                title = stringResource(R.string.release_provider_enabled),
+                subtitle = stringResource(R.string.release_provider_enabled_summary),
+                preferenceValue = uiState.releaseProviderEnabled,
+                onValueChange = { event?.setReleaseProviderEnabled(it) },
+                shape = topShape,
+            )
+
+            if (uiState.releaseProviderEnabled) {
+                ListPreference(
+                    title = stringResource(R.string.release_preferred_track),
+                    values = ReleaseGermanTrack.entries.toList(),
+                    labelForValue = { track ->
+                        stringResource(
+                            when (track) {
+                                ReleaseGermanTrack.DE_SUB -> R.string.release_track_de_sub
+                                ReleaseGermanTrack.DE_DUB -> R.string.release_track_de_dub
+                            },
+                        )
+                    },
+                    preferenceValue = uiState.preferredGermanTrack,
+                    onValueChange = { event?.setPreferredGermanTrack(it) },
+                    shape = middleShape,
+                )
+
+                if (uiState.isLoggedIn) {
+                    SwitchPreference(
+                        title = stringResource(R.string.release_notifications_enabled),
+                        subtitle = stringResource(R.string.release_notifications_enabled_summary),
+                        preferenceValue = uiState.releaseNotificationsEnabled,
+                        onValueChange = { event?.setReleaseNotificationsEnabled(it) },
+                        shape = middleShape,
+                    )
+                }
+            }
+
+            PlainPreference(
+                title = stringResource(R.string.release_provider_status),
+                subtitle = stringResource(
+                    if (uiState.releaseProviderEnabled) {
+                        R.string.release_provider_status_enabled
+                    } else {
+                        R.string.release_provider_status_disabled
+                    },
+                ),
+                onClick = {},
+                shape = if (uiState.releaseProviderEnabled) middleShape else singleShape,
+            )
+
+            if (uiState.releaseProviderEnabled && uiState.isLoggedIn) {
+                PlainPreference(
+                    title = stringResource(R.string.release_mapping_title),
+                    subtitle = stringResource(
+                        R.string.release_mapping_summary,
+                        uiState.releaseManualMappingCount,
+                        uiState.releaseAutomaticMappingCount,
+                        uiState.releaseUnresolvedMappingCount,
+                    ),
+                    onClick = { showMappingDialog = true },
+                    shape = bottomShape,
+                )
+            }
 
             if (uiState.isLoggedIn) {
                 ListPreference(
@@ -511,6 +584,115 @@ private fun SettingsContent(
         }//: Column
     }//: Scaffold
 
+    if (showMappingDialog) {
+        AlertDialog(
+            onDismissRequest = { showMappingDialog = false },
+            title = { Text(stringResource(R.string.release_mapping_title)) },
+            text = {
+                Column {
+                    if (uiState.releaseMappings.isEmpty()) {
+                        Text(stringResource(R.string.release_mapping_empty))
+                    } else {
+                        uiState.releaseMappings.forEachIndexed { index, mapping ->
+                            val isManual = mapping.origin == "MANUAL"
+                            TextButton(
+                                onClick = {
+                                    selectedMapping = mapping
+                                    manualMediaId = mapping.mediaId?.toString().orEmpty()
+                                    manualEvidence = mapping.evidence.orEmpty()
+                                    showMappingDialog = false
+                                    showManualMappingDialog = true
+                                },
+                            ) {
+                                Text(
+                                    when {
+                                        isManual -> stringResource(
+                                            R.string.release_mapping_manual_media,
+                                            mapping.mediaId ?: 0,
+                                        )
+                                        mapping.mediaId != null -> stringResource(
+                                            R.string.release_mapping_automatic_media,
+                                            mapping.mediaId,
+                                        )
+                                        else -> stringResource(
+                                            R.string.release_mapping_unresolved,
+                                            index + 1,
+                                        )
+                                    },
+                                )
+                            }
+                            if (isManual) {
+                                TextButton(
+                                    onClick = { event?.resetManualMapping(mapping.streamKey) },
+                                ) {
+                                    Text(stringResource(R.string.release_mapping_reset))
+                                }
+                            }
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            event?.rematchMappings()
+                            showMappingDialog = false
+                        },
+                    ) {
+                        Text(stringResource(R.string.release_mapping_rematch))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMappingDialog = false }) {
+                    Text(stringResource(R.string.close))
+                }
+            },
+        )
+    }
+
+    if (showManualMappingDialog) {
+        AlertDialog(
+            onDismissRequest = { showManualMappingDialog = false },
+            title = { Text(stringResource(R.string.release_mapping_manual_title)) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = manualMediaId,
+                        onValueChange = { manualMediaId = it.filter { character -> character.isDigit() } },
+                        label = { Text(stringResource(R.string.release_mapping_media_id)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = manualEvidence,
+                        onValueChange = { manualEvidence = it },
+                        label = { Text(stringResource(R.string.release_mapping_evidence)) },
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = manualMediaId.toIntOrNull() != null &&
+                        manualEvidence.isNotBlank() &&
+                        selectedMapping != null,
+                    onClick = {
+                        val mediaId = manualMediaId.toIntOrNull()
+                        val mapping = selectedMapping
+                        if (mediaId != null && mapping != null) {
+                            event?.setManualMapping(mapping.streamKey, mediaId, manualEvidence)
+                        }
+                        showManualMappingDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showManualMappingDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
     if (showConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showConfirmDialog = false },

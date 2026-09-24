@@ -1,0 +1,157 @@
+name: AniWorld R2 Evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'feature/aniworld-provider-core'
+    paths:
+      - '.github/workflows/wp00-evidence.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aniworld-r2-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  r2-evidence:
+    name: R2 exact-head tests, runtime, lint and APK builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Capture exact toolchain
+        run: |
+          set -euo pipefail
+          echo "commit=${GITHUB_SHA}"
+          echo "captured_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          java -version 2>&1
+          ./gradlew --version
+
+      - name: Verify R2 architecture boundaries
+        run: |
+          set -euo pipefail
+          if grep -REni --include='*.kt' --include='*.kts' '(android\.|androidx\.room|apollographql|aniworld)' private/release-core; then
+            echo "FAIL release-core contains provider or Android implementation detail"
+            exit 1
+          fi
+          echo "PASS release-core remains provider-neutral"
+
+          if grep -REn --include='*.kt' --include='*.kts' 'com\.axiel7\.anihyou\.release\.data|private:release-data' feature core wearos baselineprofile 2>/dev/null; then
+            echo "FAIL feature/core production module depends on release-data implementation"
+            exit 1
+          fi
+          echo "PASS feature/core modules depend only on release contracts"
+
+          if grep -REn --include='*.kt' --include='*.kts' --exclude='KiyoriReleaseModule.kt' 'com\.axiel7\.anihyou\.release\.data|private:release-data' app/src/main/java; then
+            echo "FAIL app code outside KiyoriReleaseModule binds release-data"
+            exit 1
+          fi
+          echo "PASS release-data binding is confined to the app composition root"
+
+          if find core/domain -type f -path '*/release/*' -print | grep -q .; then
+            echo "FAIL legacy core/domain release ownership resurrected"
+            exit 1
+          fi
+          echo "PASS no legacy core/domain release ownership"
+
+          if grep -REn --include='*.kt' --include='*.kts' --include='*.py' 'TODO|FIXME|@Ignore|@Disabled' private/release-core private/release-data tools/wp00r1; then
+            echo "FAIL TODO/FIXME/skipped/disabled marker present in release scope"
+            exit 1
+          fi
+          echo "PASS no skipped release proof markers"
+
+      - name: Verify localization and durable AniWorld fixtures
+        run: |
+          set -euo pipefail
+          python3 tools/wp00r1/verify_release_resource_parity.py
+          python3 tools/wp00r1/verify_aniworld_fixtures.py private/evidence/wp00-r1/aniworld
+
+      - name: Run release-core tests
+        run: ./gradlew --console=plain --stacktrace :private:release-core:test
+
+      - name: Run release-data tests
+        run: ./gradlew --console=plain --stacktrace :private:release-data:testDebugUnitTest
+
+      - name: Run affected module tests
+        run: |
+          set -euo pipefail
+          ./gradlew --console=plain --stacktrace \
+            :feature:calendar:testDebugUnitTest \
+            :feature:explore:testDebugUnitTest \
+            :feature:widget:testDebugUnitTest \
+            :feature:worker:testDebugUnitTest \
+            :feature:settings:testDebugUnitTest \
+            :feature:home:testDebugUnitTest \
+            :feature:mediadetails:testDebugUnitTest \
+            :feature:usermedialist:testDebugUnitTest \
+            :core:ui:testDebugUnitTest \
+            :core:domain:testDebugUnitTest \
+            :core:network:testDebugUnitTest
+
+      - name: Print Current-list cold/warm runtime evidence
+        run: |
+          set -euo pipefail
+          report="$(find feature/home/build -path '*/reports/wp00-r1/current-list-runtime.json' -print -quit)"
+          test -n "$report"
+          echo "runtime_report_path=$report"
+          cat "$report"
+
+      - name: Run exact FOSS debug unit-test gate
+        run: ./gradlew --console=plain --stacktrace testFossDebugUnitTest
+
+      - name: Lint FOSS debug
+        run: ./gradlew --console=plain --stacktrace :app:lintFossDebug
+
+      - name: Build FOSS debug APK
+        run: ./gradlew --console=plain --stacktrace :app:assembleFossDebug
+
+      - name: Build FOSS release APK with R8
+        run: ./gradlew --console=plain --stacktrace :app:assembleFossRelease
+
+      - name: Summarize exact evidence
+        run: |
+          set -euo pipefail
+          echo "ANIWORLD R2 BUILD SUMMARY"
+          echo "commit=${GITHUB_SHA}"
+          echo "release_tests=success"
+          echo "affected_module_tests=success"
+          echo "current_list_runtime=success"
+          echo "foss_debug_unit_tests=success"
+          echo "lint=success"
+          echo "debug_build=success"
+          echo "release_r8_build=success"
+          echo "captured_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          find app/build/outputs/apk -type f -name '*.apk' -print0 | sort -z | while IFS= read -r -d '' apk; do
+            printf '%s\t%s bytes\t' "$apk" "$(stat -c '%s' "$apk")"
+            sha256sum "$apk" | awk '{print $1}'
+          done
+
+      - name: Upload exact-head APK evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: aniworld-r2-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/foss/debug/*.apk
+            app/build/outputs/apk/foss/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aniworld-r2-failure-${{ github.sha }}
+          path: |
+            **/build/reports/**
+            **/build/test-results/**
+          if-no-files-found: ignore
+          retention-days: 7

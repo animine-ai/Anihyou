@@ -4,6 +4,8 @@ import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.core.base.DataResult
 import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.common.viewmodel.UiStateViewModel
+import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.FavoriteRepository
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
@@ -19,6 +21,7 @@ import com.axiel7.anihyou.core.ui.common.navigation.Route
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onEach
@@ -32,6 +35,7 @@ class MediaDetailsViewModel(
     defaultPreferencesRepository: DefaultPreferencesRepository,
     private val mediaRepository: MediaRepository,
     private val favoriteRepository: FavoriteRepository,
+    private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
 ) : UiStateViewModel<MediaDetailsUiState>(), MediaDetailsEvent {
 
     override val initialState = MediaDetailsUiState(isLoggedIn = arguments.isLoggedIn)
@@ -271,6 +275,19 @@ class MediaDetailsViewModel(
     }
 
     init {
+        defaultPreferencesRepository.userId
+            .distinctUntilChanged()
+            .flatMapLatest { accountId ->
+                releasePresentationRepository.observeForMedia(
+                    accountId = accountId?.toLong(),
+                    mediaIds = setOf(arguments.id),
+                )
+            }
+            .onEach { rows ->
+                mutableUiState.update { it.copy(releasePresentations = rows[arguments.id].orEmpty()) }
+            }
+            .launchIn(viewModelScope)
+
         defaultPreferencesRepository.coloredMedia
             .onEach { value ->
                 mutableUiState.update { it.copy(coloredMedia = value) }

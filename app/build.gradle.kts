@@ -147,6 +147,9 @@ baselineProfile {
 }
 
 dependencies {
+    implementation(project(":private:release-core"))
+    implementation(project(":private:release-data"))
+    implementation("androidx.room:room-runtime:2.8.5")
     implementation(project(":core:network"))
     implementation(project(":core:domain"))
     implementation(project(":core:ui"))

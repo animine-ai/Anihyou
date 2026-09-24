@@ -5,6 +5,12 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
 import com.axiel7.anihyou.core.base.DataResult
 import com.axiel7.anihyou.core.common.viewmodel.UiStateViewModel
+import com.axiel7.anihyou.release.core.api.ReleaseGermanTrack
+import com.axiel7.anihyou.release.core.api.ReleaseMappingRepository
+import com.axiel7.anihyou.release.core.api.ReleaseOutboxRepository
+import com.axiel7.anihyou.release.core.api.ReleasePreferencesRepository
+import com.axiel7.anihyou.release.core.api.ReleaseRefreshCoordinator
+import com.axiel7.anihyou.release.core.api.RefreshReason
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.ListPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.LoginRepository
@@ -24,6 +30,7 @@ import com.axiel7.anihyou.feature.worker.NotificationWorker.Companion.scheduleNo
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionState
 import com.google.accompanist.permissions.isGranted
+import java.time.Clock
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
@@ -41,6 +48,11 @@ class SettingsViewModel(
     private val userRepository: UserRepository,
     private val loginRepository: LoginRepository,
     private val workManager: WorkManager,
+    private val releasePreferencesRepository: ReleasePreferencesRepository,
+    private val releaseOutboxRepository: ReleaseOutboxRepository,
+    private val releaseMappingRepository: ReleaseMappingRepository,
+    private val releaseRefreshCoordinator: ReleaseRefreshCoordinator,
+    private val clock: Clock = Clock.systemUTC(),
 ) : UiStateViewModel<SettingsUiState>(), SettingsEvent {
 
     override val initialState = SettingsUiState()
@@ -124,6 +136,65 @@ class SettingsViewModel(
     override fun setUseFuzzySearch(value: Boolean) {
         viewModelScope.launch {
             defaultPreferencesRepository.setUseFuzzySearch(value)
+        }
+    }
+
+    override fun setReleaseProviderEnabled(value: Boolean) {
+        viewModelScope.launch {
+            releasePreferencesRepository.setProviderEnabled(value)
+            if (!value) {
+                releaseOutboxRepository.cancelPending("AniWorld provider disabled", clock.instant())
+            }
+            runCatching {
+                releaseRefreshCoordinator.refresh(RefreshReason.MANUAL)
+            }
+        }
+    }
+
+    override fun setPreferredGermanTrack(value: ReleaseGermanTrack) {
+        viewModelScope.launch {
+            releasePreferencesRepository.setPreferredTrack(value)
+            runCatching {
+                releaseRefreshCoordinator.refresh(RefreshReason.MANUAL)
+            }
+        }
+    }
+
+    override fun setReleaseNotificationsEnabled(value: Boolean) {
+        viewModelScope.launch {
+            releasePreferencesRepository.setNotificationsEnabled(value)
+            if (!value) {
+                releaseOutboxRepository.cancelPending("release notifications disabled", clock.instant())
+            }
+        }
+    }
+
+    override fun setManualMapping(
+        streamKey: String,
+        mediaId: Int,
+        evidence: String,
+    ) {
+        viewModelScope.launch {
+            if (defaultPreferencesRepository.userId.firstOrNull() == null) return@launch
+            releaseMappingRepository.setManualMapping(streamKey, mediaId, evidence)
+            releaseRefreshCoordinator.refresh(RefreshReason.MANUAL)
+        }
+    }
+
+    override fun resetManualMapping(streamKey: String) {
+        viewModelScope.launch {
+            if (defaultPreferencesRepository.userId.firstOrNull() == null) return@launch
+            if (releaseMappingRepository.resetToAutomatic(streamKey)) {
+                releaseRefreshCoordinator.refresh(RefreshReason.MANUAL)
+            }
+        }
+    }
+
+    override fun rematchMappings() {
+        viewModelScope.launch {
+            if (defaultPreferencesRepository.userId.firstOrNull() == null) return@launch
+            releaseMappingRepository.clearAutomaticMappings()
+            releaseRefreshCoordinator.refresh(RefreshReason.MANUAL)
         }
     }
 
@@ -238,6 +309,7 @@ class SettingsViewModel(
 
     override fun logOut(recreate: () -> Unit) {
         viewModelScope.launch {
+            releaseOutboxRepository.cancelPending("account logout", clock.instant())
             loginRepository.logOut()
             workManager.cancelNotificationWork()
             recreate()
@@ -272,6 +344,36 @@ class SettingsViewModel(
         }
 
     init {
+        releasePreferencesRepository.releasePreferences
+            .onEach { preferences ->
+                mutableUiState.update {
+                    it.copy(
+                        releaseProviderEnabled = preferences.selectedProvider != null,
+                        preferredGermanTrack = preferences.preferredTrack,
+                        releaseNotificationsEnabled = preferences.notificationsEnabled,
+                    )
+                }
+            }
+            .launchIn(viewModelScope)
+
+        releaseMappingRepository.observeMappings()
+            .onEach { mappings ->
+                val manual = mappings.count { it.origin == "MANUAL" }
+                val unresolved = mappings.count {
+                    it.mediaId == null || it.confidence !in setOf("EXACT", "HIGH")
+                }
+                val automatic = (mappings.size - manual).coerceAtLeast(0)
+                mutableUiState.update {
+                    it.copy(
+                        releaseManualMappingCount = manual,
+                        releaseAutomaticMappingCount = automatic,
+                        releaseUnresolvedMappingCount = unresolved,
+                        releaseMappings = mappings,
+                    )
+                }
+            }
+            .launchIn(viewModelScope)
+
         isLoggedIn
             .onEach { value ->
                 mutableUiState.update { it.copy(isLoggedIn = value) }

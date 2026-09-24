@@ -24,7 +24,9 @@ android {
 }
 
 dependencies {
+    implementation(project(":private:release-core"))
     implementation(project(":feature:worker"))
+    implementation(project(":core:domain"))
 
     implementation(libs.androidx.work.runtime)
     implementation(libs.accompanist.permissions)

@@ -698,4 +698,74 @@
     <string name="widget_config_title">Widget configuration</string>
     <string name="style_colored">Colored</string>
     <string name="style_monochrome">Monochrome</string>
+
+    <string name="release_notification_text">%1$s · %2$s</string>
+    <string name="release_notification_unknown_title">AniWorld release</string>
+    <string name="release_notification_episode">Episode %1$s</string>
+    <string name="release_notification_film">Film</string>
+    <string name="release_notification_special">Special</string>
+    <string name="release_notification_unknown_installment">New installment</string>
+
+    <string name="release_schedule_confirmed_through">Confirmed through episode %1$d</string>
+    <plurals name="release_schedule_pending">
+        <item quantity="one">%d pending release</item>
+        <item quantity="other">%d pending releases</item>
+    </plurals>
+    <string name="release_schedule_next">Next %1$s</string>
+    <string name="release_schedule_next_at">Next %1$s · %2$s</string>
+    <string name="release_schedule_confirmed_installment">%1$s confirmed</string>
+    <string name="release_schedule_available">Release status available</string>
+    <string name="release_installment_episode">Episode %1$d</string>
+    <string name="release_installment_episode_fraction">Episode %1$d.%2$d</string>
+    <string name="release_installment_film">Film</string>
+    <string name="release_installment_film_number">Film %1$d</string>
+    <string name="release_installment_special">Special</string>
+    <string name="release_installment_special_number">Special %1$d</string>
+    <string name="release_installment_ova">OVA</string>
+    <string name="release_installment_ona">ONA</string>
+
+
+    <string name="release_relative_now">now</string>
+    <plurals name="release_relative_seconds">
+        <item quantity="one">in %d second</item>
+        <item quantity="other">in %d seconds</item>
+    </plurals>
+    <plurals name="release_relative_minutes">
+        <item quantity="one">in %d minute</item>
+        <item quantity="other">in %d minutes</item>
+    </plurals>
+    <plurals name="release_relative_hours">
+        <item quantity="one">in %d hour</item>
+        <item quantity="other">in %d hours</item>
+    </plurals>
+    <plurals name="release_relative_days">
+        <item quantity="one">in %d day</item>
+        <item quantity="other">in %d days</item>
+    </plurals>
+
+
+    <string name="release_provider_only">Provider release</string>
+
+
+    <string name="release_provider_enabled">Use AniWorld release data</string>
+    <string name="release_provider_enabled_summary">Provider-valid rows replace the complete AniList release presentation.</string>
+    <string name="release_preferred_track">Preferred German track</string>
+    <string name="release_track_de_sub">German subtitles</string>
+    <string name="release_track_de_dub">German dub</string>
+    <string name="release_notifications_enabled">Release notifications</string>
+    <string name="release_notifications_enabled_summary">Keep release notifications separate from AniList notifications.</string>
+    <string name="release_provider_status">AniWorld release status</string>
+    <string name="release_provider_status_enabled">Enabled</string>
+    <string name="release_provider_status_disabled">Disabled</string>
+    <string name="release_mapping_title">AniWorld mappings</string>
+    <string name="release_mapping_summary">Manual: %1$d · automatic: %2$d · unresolved: %3$d</string>
+    <string name="release_mapping_empty">No stored mappings yet.</string>
+    <string name="release_mapping_manual_media">Manual mapping · AniList media %1$d</string>
+    <string name="release_mapping_automatic_media">Automatic mapping · AniList media %1$d</string>
+    <string name="release_mapping_unresolved">Unresolved source %1$d</string>
+    <string name="release_mapping_reset">Reset to automatic</string>
+    <string name="release_mapping_rematch">Rematch automatic mappings</string>
+    <string name="release_mapping_manual_title">Manual AniWorld mapping</string>
+    <string name="release_mapping_media_id">AniList media ID</string>
+    <string name="release_mapping_evidence">Evidence</string>
 </resources>

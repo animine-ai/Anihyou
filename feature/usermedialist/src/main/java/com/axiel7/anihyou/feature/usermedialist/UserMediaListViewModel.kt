@@ -10,6 +10,8 @@ import com.axiel7.anihyou.core.common.utils.NumberUtils.isNullOrZero
 import com.axiel7.anihyou.core.common.utils.SearchUtils.fuzzyScore
 import com.axiel7.anihyou.core.common.utils.SearchUtils.whiteSpaceRegex
 import com.axiel7.anihyou.core.common.viewmodel.UiStateViewModel
+import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.ListPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaListRepository
@@ -48,6 +50,8 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -60,6 +64,7 @@ class UserMediaListViewModel(
     private val mediaListRepository: MediaListRepository,
     private val defaultPreferencesRepository: DefaultPreferencesRepository,
     private val listPreferencesRepository: ListPreferencesRepository,
+    private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
 ) : UiStateViewModel<UserMediaListUiState>(), UserMediaListEvent {
 
     private val scoreFormat = arguments.scoreFormat?.let { ScoreFormat.safeValueOf(it) }
@@ -82,6 +87,7 @@ class UserMediaListViewModel(
         .filterNotNull()
 
     private val titleLanguage = defaultPreferencesRepository.titleLanguage
+    private val releaseMediaIds = MutableStateFlow<Set<Int>>(emptySet())
 
     override fun setScoreFormat(value: ScoreFormat) {
         mutableUiState.update { it.copy(scoreFormat = value) }
@@ -406,6 +412,29 @@ class UserMediaListViewModel(
     }
 
     init {
+        releaseMediaIds
+            .combine(mutableUiState.map { it.userId }.distinctUntilChanged()) { ids, accountId ->
+                ids to accountId
+            }
+            .flatMapLatest { (ids, accountId) ->
+                if (accountId != null) {
+                    releasePresentationRepository.observeForMedia(accountId.toLong(), ids)
+                } else {
+                    myUserId.flatMapLatest { currentAccountId ->
+                        releasePresentationRepository.observeForMedia(currentAccountId.toLong(), ids)
+                    }
+                }
+            }
+            .onEach { presentations ->
+                mutableUiState.update { it.copy(releaseByMediaId = presentations) }
+            }
+            .launchIn(viewModelScope)
+
+        mutableUiState
+            .map { state -> state.entries.mapTo(mutableSetOf()) { it.mediaId } }
+            .distinctUntilChanged()
+            .onEach { ids -> releaseMediaIds.value = ids }
+            .launchIn(viewModelScope)
 
         //search
         mutableUiState

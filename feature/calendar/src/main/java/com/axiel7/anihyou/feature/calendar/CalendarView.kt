@@ -185,8 +185,37 @@ private fun CalendarViewContent(
                 ),
                 state = listState,
             ) {
-                uiState.weeklyAnime.entries.forEach { (date, mediaList) ->
-                    if (mediaList.isEmpty()) return@forEach
+                (uiState.weeklyAnime.keys + uiState.providerRowsByDate.keys + uiState.providerOnlyByDate.keys)
+                    .toSortedSet()
+                    .forEach { date ->
+                    val providerRows = uiState.providerRowsByDate[date].orEmpty()
+                    val metadataByMediaId = uiState.weeklyAnime.values
+                        .asSequence()
+                        .flatten()
+                        .associateBy { it.id }
+                    val providerOwnsDate = providerRows.isNotEmpty()
+                    val eventRows = if (providerOwnsDate) {
+                        providerRows.filter { row ->
+                            row.mediaId?.let(metadataByMediaId::containsKey) == true
+                        }
+                    } else {
+                        emptyList()
+                    }
+                    val mediaList = if (providerOwnsDate) {
+                        eventRows
+                            .mapNotNull { row -> row.mediaId?.let(metadataByMediaId::get) }
+                            .distinctBy { it.id }
+                    } else {
+                        uiState.weeklyAnime[date].orEmpty()
+                    }
+                    val providerOnlyRows = if (providerOwnsDate) {
+                        providerRows.filter { row ->
+                            row.mediaId == null || row.mediaId !in metadataByMediaId
+                        }
+                    } else {
+                        uiState.providerOnlyByDate[date].orEmpty()
+                    }
+                    if (mediaList.isEmpty() && providerOnlyRows.isEmpty()) return@forEach
                     stickyHeader {
                         val titleId = when (date.dayOfWeek) {
                             DayOfWeek.MONDAY -> R.string.monday
@@ -218,40 +247,93 @@ private fun CalendarViewContent(
                         )
                     }
 
-                    items(
-                        items = mediaList,
-                        contentType = { it }
-                    ) { item ->
-                        val isLast = mediaList.lastOrNull() == item
-                        val isFirst = mediaList.firstOrNull() == item
-
-                        CalendarAiringHorizontalItem(
-                            title = item.basicMediaDetails.title?.userPreferred.orEmpty(),
-                            subtitle = item.nextAiringEpisode?.let { nextAiringEpisode ->
-                                stringResource(
-                                    R.string.episode_airing_at,
-                                    nextAiringEpisode.episode,
-                                    nextAiringEpisode.airingAt.toLong().timestampToTimeString() ?: UNKNOWN_CHAR
-                                )
-                            } ?: stringResource(R.string.unknown),
-                            blurImage = blurAdult && item.basicMediaDetails.isAdult == true,
-                            imageUrl = item.coverImage?.large,
-                            score = item.averageScore,
-                            status = item.mediaListEntry?.basicMediaListEntry?.status,
-                            onClick = {
-                                navActionManager.toMediaDetails(item.id)
-                            },
-                            onLongClick = {
-                                event?.selectItem(item)
-                                showEditSheetAction()
-                            },
-                            modifier = Modifier.padding(
-                                bottom = if (isLast) 16.dp else 8.dp,
-                                top = if (isFirst) 16.dp else 0.dp,
+                    if (providerOwnsDate) {
+                        items(
+                            items = eventRows,
+                            key = { it.eventKey },
+                            contentType = { "provider-event" },
+                        ) { release ->
+                            val item = release.mediaId?.let(metadataByMediaId::get)
+                            CalendarAiringHorizontalItem(
+                                title = item?.basicMediaDetails?.title?.userPreferred.orEmpty()
+                                    .ifBlank { stringResource(R.string.release_provider_only) },
+                                subtitle = "",
+                                releasePresentations = listOf(release),
+                                blurImage = blurAdult && item?.basicMediaDetails?.isAdult == true,
+                                imageUrl = item?.coverImage?.large,
+                                score = item?.averageScore,
+                                status = item?.mediaListEntry?.basicMediaListEntry?.status,
+                                onClick = {
+                                    release.mediaId?.let(navActionManager::toMediaDetails)
+                                },
+                                onLongClick = {
+                                    item?.let {
+                                        event?.selectItem(it)
+                                        showEditSheetAction()
+                                    }
+                                },
+                                modifier = Modifier.padding(bottom = 8.dp),
                             )
+                        }
+                    } else {
+                        items(
+                            items = mediaList,
+                            key = { "anilist-media-" + it.id },
+                            contentType = { it }
+                        ) { item ->
+                            val isLast = mediaList.lastOrNull() == item
+                            val isFirst = mediaList.firstOrNull() == item
+
+                            CalendarAiringHorizontalItem(
+                                title = item.basicMediaDetails.title?.userPreferred.orEmpty(),
+                                subtitle = if (uiState.releaseByMediaId[item.id].orEmpty().any { it.isAuthoritative }) {
+                                    ""
+                                } else {
+                                    item.nextAiringEpisode?.let { nextAiringEpisode ->
+                                        stringResource(
+                                            R.string.episode_airing_at,
+                                            nextAiringEpisode.episode,
+                                            nextAiringEpisode.airingAt.toLong().timestampToTimeString() ?: UNKNOWN_CHAR
+                                        )
+                                    } ?: stringResource(R.string.unknown)
+                                },
+                                releasePresentations = uiState.releaseByMediaId[item.id].orEmpty(),
+                                blurImage = blurAdult && item.basicMediaDetails.isAdult == true,
+                                imageUrl = item.coverImage?.large,
+                                score = item.averageScore,
+                                status = item.mediaListEntry?.basicMediaListEntry?.status,
+                                onClick = {
+                                    navActionManager.toMediaDetails(item.id)
+                                },
+                                onLongClick = {
+                                    event?.selectItem(item)
+                                    showEditSheetAction()
+                                },
+                                modifier = Modifier.padding(
+                                    bottom = if (isLast) 16.dp else 8.dp,
+                                    top = if (isFirst) 16.dp else 0.dp,
+                                )
+                            )
+                        }
+                    }
+
+                    items(
+                        items = providerOnlyRows,
+                        key = { it.eventKey },
+                        contentType = { "provider-release" },
+                    ) { release ->
+                        CalendarAiringHorizontalItem(
+                            title = stringResource(R.string.release_provider_only),
+                            subtitle = "",
+                            releasePresentations = listOf(release),
+                            blurImage = false,
+                            imageUrl = null,
+                            onClick = {
+                                release.mediaId?.let(navActionManager::toMediaDetails)
+                            },
+                            modifier = Modifier.padding(bottom = 8.dp),
                         )
                     }
-                }
 
                 if (uiState.isLoading) {
                     item {

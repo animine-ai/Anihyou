@@ -22,20 +22,23 @@ import com.axiel7.anihyou.core.base.DataResult
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.NotificationRepository
 import com.axiel7.anihyou.core.domain.repository.UserRepository
+import com.axiel7.anihyou.core.model.notification.GenericNotification
 import com.axiel7.anihyou.core.model.notification.GenericNotification.Companion.localizedText
 import com.axiel7.anihyou.core.model.notification.NotificationInterval
 import com.axiel7.anihyou.core.model.notification.NotificationTypeGroup
 import com.axiel7.anihyou.core.model.notification.NotificationTypeGroup.Companion.asDeepLinkType
 import com.axiel7.anihyou.core.model.notification.NotificationTypeGroup.Companion.asGroup
 import com.axiel7.anihyou.core.network.NetworkVariables
+import com.axiel7.anihyou.core.network.type.NotificationType
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.utils.ImageUtils.getBitmapFromUrl
 import com.axiel7.anihyou.core.ui.utils.NotificationUtils.createNotificationChannel
 import com.axiel7.anihyou.core.ui.utils.NotificationUtils.showNotification
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.firstOrNull
+import com.axiel7.anihyou.release.core.api.ReleaseNotificationGate
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.firstOrNull
 
 class NotificationWorker(
     context: Context,
@@ -44,19 +47,16 @@ class NotificationWorker(
     private val notificationsRepository: NotificationRepository,
     private val defaultPreferencesRepository: DefaultPreferencesRepository,
     private val networkVariables: NetworkVariables,
+    private val releaseNotificationGate: ReleaseNotificationGate,
 ) : CoroutineWorker(context, params) {
 
-    // AniList API does not have a socket for notifications, so we schedule a work with an interval
-    // chosen by the user and check for new notifications
     @RequiresPermission(android.Manifest.permission.POST_NOTIFICATIONS)
     override suspend fun doWork(): Result {
         try {
             setForegroundSafely()
             val accessToken = defaultPreferencesRepository.accessToken.firstOrNull()
-                ?: return Result.failure()
+                ?: return Result.success()
             networkVariables.accessToken = accessToken
-            // check first the unread count so we can skip early if there aren't unread notifications
-            // e.g.: the user read the notifications on web
             val unreadCount = userRepository.getUnreadNotificationCount().firstOrNull()
                 ?: return Result.failure()
             if (unreadCount <= 0) return Result.success()
@@ -64,20 +64,34 @@ class NotificationWorker(
             val result = notificationsRepository.getNewNotifications(unreadCount)
 
             return if (result is DataResult.Success && result.data != null) {
-                // since AniList API does not have a filter for createdAt we need to filter
-                // locally the new notifications by saving the latest createdAt to preferences
-                // so we don't notify the same notification more than once
                 val lastCreatedAt = defaultPreferencesRepository.lastNotificationCreatedAt
                     .firstOrNull() ?: 0
-                val newNotifications = result.data!!.filter {
-                    it.createdAt != null && it.createdAt!! > lastCreatedAt
-                }
-                if (newNotifications.isNotEmpty()) {
-                    newNotifications.firstOrNull()?.createdAt?.let { createdAt ->
-                        defaultPreferencesRepository.setLastNotificationCreatedAt(createdAt)
+                val viewerId = defaultPreferencesRepository.userId.firstOrNull()
+                val unseenServerNotifications = result.data!!
+                    .filter { notification ->
+                        notification.createdAt != null && notification.createdAt!! > lastCreatedAt
                     }
+
+                val classification = classifyAniListDeviceNotifications(
+                    notifications = unseenServerNotifications,
+                    viewerId = viewerId,
+                    suppressAiring = { accountId, mediaId, episode ->
+                        releaseNotificationGate.suppressAniListAiring(
+                            accountId = accountId,
+                            mediaId = mediaId,
+                            episode = episode,
+                        )
+                    },
+                    onClassificationError = { error ->
+                        Log.e(TAG, "AniList AIRING suppression revalidation failed", error)
+                    },
+                )
+                classification.cursorCreatedAt?.let { createdAt ->
+                    defaultPreferencesRepository.setLastNotificationCreatedAt(createdAt)
                 }
-                newNotifications.groupBy { it.type }.forEach { (type, notifications) ->
+                val deviceNotifications = classification.deviceNotifications
+
+                deviceNotifications.groupBy { it.type }.forEach { (type, notifications) ->
                     val group = type?.asGroup() ?: NotificationTypeGroup.ALL
                     notifications.forEach {
                         var pendingIntent: PendingIntent? = null
@@ -89,11 +103,11 @@ class NotificationWorker(
                                     action = deepLinkType.intentAction
                                     putExtra("content_id", it.contentId)
                                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                                            Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                        Intent.FLAG_ACTIVITY_CLEAR_TASK
                                 }?.let { intent ->
                                     pendingIntent = PendingIntent.getActivity(
                                         applicationContext, it.id, intent,
-                                        PendingIntent.FLAG_IMMUTABLE
+                                        PendingIntent.FLAG_IMMUTABLE,
                                     )
                                 }
                         }
@@ -112,21 +126,21 @@ class NotificationWorker(
                             largeIcon = image,
                             bigPicture = image.takeIf { _ -> it.isMedia },
                             pendingIntent = pendingIntent,
-                            group = group.name
+                            group = group.name,
                         )
                     }
                     if (notifications.size > 1) {
                         applicationContext.showNotification(
                             notificationId = 1,
                             channelId = group.channelId,
-                            title = "${applicationContext.getString(group.stringRes)} (${newNotifications.size})",
+                            title = "${applicationContext.getString(group.stringRes)} (${deviceNotifications.size})",
                             text = "",
                             group = group.name,
-                            isGroupSummary = true
+                            isGroupSummary = true,
                         )
                     }
                 }
-                Result.success()
+                if (classification.retryNeeded) Result.retry() else Result.success()
             } else Result.retry()
         } catch (e: Exception) {
             Log.e(TAG, "doWork: ", e)
@@ -146,7 +160,7 @@ class NotificationWorker(
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             } else {
                 0
-            }
+            },
         )
     }
 
@@ -190,25 +204,25 @@ class NotificationWorker(
                     else type.stringRes
                     createNotificationChannel(
                         id = type.channelId,
-                        name = getString(stringRes)
+                        name = getString(stringRes),
                     )
                 }
                 createNotificationChannel(
                     id = SYNC_CHANNEL_ID,
-                    name = getString(R.string.update_interval)
+                    name = getString(R.string.update_interval),
                 )
             }
         }
 
         fun WorkManager.scheduleNotificationWork(
-            interval: NotificationInterval
+            interval: NotificationInterval,
         ) {
             val notificationWorkRequest =
                 PeriodicWorkRequestBuilder<NotificationWorker>(
                     repeatInterval = interval.value,
                     repeatIntervalTimeUnit = interval.timeUnit,
                     flexTimeInterval = 1,
-                    flexTimeIntervalUnit = TimeUnit.HOURS
+                    flexTimeIntervalUnit = TimeUnit.HOURS,
                 ).apply {
                     addTag(WORK_NAME)
                     setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
@@ -218,7 +232,7 @@ class NotificationWorker(
             enqueueUniquePeriodicWork(
                 WORK_NAME,
                 ExistingPeriodicWorkPolicy.UPDATE,
-                notificationWorkRequest
+                notificationWorkRequest,
             )
         }
 
@@ -226,4 +240,73 @@ class NotificationWorker(
             cancelUniqueWork(WORK_NAME)
         }
     }
+}
+
+internal data class AniListDeviceClassification(
+    val deviceNotifications: List<GenericNotification>,
+    val cursorCreatedAt: Int?,
+    val retryNeeded: Boolean,
+)
+
+/**
+ * Classifies notifications in monotonically increasing server-time groups.
+ * If one AIRING item cannot be classified safely, nothing at that timestamp or
+ * later is posted and the cursor advances only through the last fully classified
+ * timestamp. This keeps the unsafe AIRING item retryable without replaying safe
+ * notifications that were already posted in an earlier timestamp group.
+ */
+internal suspend fun classifyAniListDeviceNotifications(
+    notifications: List<GenericNotification>,
+    viewerId: Int?,
+    suppressAiring: suspend (accountId: Long, mediaId: Int, episode: Int) -> Boolean,
+    onClassificationError: (Exception) -> Unit = {},
+): AniListDeviceClassification {
+    val deviceNotifications = mutableListOf<GenericNotification>()
+    var cursorCreatedAt: Int? = null
+
+    val groups = notifications
+        .mapNotNull { notification -> notification.createdAt?.let { it to notification } }
+        .groupBy({ it.first }, { it.second })
+        .toSortedMap()
+
+    for ((createdAt, group) in groups) {
+        val groupDeviceNotifications = mutableListOf<GenericNotification>()
+        var groupFailed = false
+
+        for (notification in group.sortedBy { it.id }) {
+            if (notification.type != NotificationType.AIRING || viewerId == null) {
+                groupDeviceNotifications += notification
+                continue
+            }
+            val episode = notification.numEpisode()
+            if (episode == null) {
+                groupDeviceNotifications += notification
+                continue
+            }
+            val suppress = try {
+                suppressAiring(viewerId.toLong(), notification.contentId, episode)
+            } catch (error: Exception) {
+                onClassificationError(error)
+                groupFailed = true
+                continue
+            }
+            if (!suppress) groupDeviceNotifications += notification
+        }
+
+        if (groupFailed) {
+            return AniListDeviceClassification(
+                deviceNotifications = deviceNotifications,
+                cursorCreatedAt = cursorCreatedAt,
+                retryNeeded = true,
+            )
+        }
+        deviceNotifications += groupDeviceNotifications
+        cursorCreatedAt = createdAt
+    }
+
+    return AniListDeviceClassification(
+        deviceNotifications = deviceNotifications,
+        cursorCreatedAt = cursorCreatedAt,
+        retryNeeded = false,
+    )
 }

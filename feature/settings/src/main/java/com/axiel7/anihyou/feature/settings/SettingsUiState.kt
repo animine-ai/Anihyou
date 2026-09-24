@@ -9,6 +9,8 @@ import com.axiel7.anihyou.core.model.ItemsPerRow
 import com.axiel7.anihyou.core.model.ListStyle
 import com.axiel7.anihyou.core.model.Theme
 import com.axiel7.anihyou.core.model.TranslatorApp
+import com.axiel7.anihyou.release.core.api.ReleaseGermanTrack
+import com.axiel7.anihyou.release.core.api.ReleaseMappingStatus
 import com.axiel7.anihyou.core.model.notification.NotificationInterval
 import com.axiel7.anihyou.core.network.fragment.UserSettings
 import com.axiel7.anihyou.core.network.type.ScoreFormat
@@ -38,6 +40,14 @@ data class SettingsUiState(
     val hideScores: Boolean = false,
     val useFuzzySearch: Boolean = false,
     val separateNovelsAndManga: Boolean = false,
+    val releaseProviderEnabled: Boolean = false,
+    val preferredGermanTrack: ReleaseGermanTrack = ReleaseGermanTrack.DE_SUB,
+    val releaseNotificationsEnabled: Boolean = false,
+    val releaseStatus: String = "disabled",
+    val releaseManualMappingCount: Int = 0,
+    val releaseAutomaticMappingCount: Int = 0,
+    val releaseUnresolvedMappingCount: Int = 0,
+    val releaseMappings: List<ReleaseMappingStatus> = emptyList(),
     val isLoggedIn: Boolean = false,
     override val error: String? = null,
     override val isLoading: Boolean = false,
