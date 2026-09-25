@@ -30,9 +30,6 @@ private fun String.requireBounded(limit: Int, field: String): String {
     return this
 }
 
-private fun String?.requireBounded(limit: Int, field: String): String? =
-    this?.requireBounded(limit, field)
-
 private fun String?.isWithin(limit: Int): Boolean = this == null || length <= limit
 
 private fun encodeSiteIdentifier(identifier: AniWorldSiteIdentifier): String =
