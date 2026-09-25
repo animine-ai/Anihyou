@@ -32,8 +32,11 @@ ksp {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
-    implementation(project(":private:release-core"))
+    implementation(project(":core:base"))
     implementation(project(":core:domain"))
+    implementation(project(":core:model"))
+    implementation(project(":core:network"))
+    implementation(project(":private:release-core"))
     implementation("org.jsoup:jsoup:1.18.3")
     implementation(libs.androidx.datastore.preferences)
     implementation("androidx.room:room-runtime:2.8.5")
