@@ -181,6 +181,7 @@ dependencies {
     implementation(libs.androidx.core.performance)
 
     implementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
 
