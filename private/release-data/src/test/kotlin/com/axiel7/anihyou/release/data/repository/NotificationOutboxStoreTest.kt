@@ -224,7 +224,11 @@ class NotificationOutboxStoreTest {
 
             val cancelled = store.claim(item.eventKey, now = createdAt.plusSeconds(10))
 
-            assertEquals(NotificationOutboxStatus.CANCELLED, cancelled?.status)
+            assertNull(cancelled)
+            assertEquals(
+                NotificationOutboxStatus.CANCELLED,
+                database.releaseDao().getNotificationOutbox(item.eventKey)?.toDomainOrNull()?.status,
+            )
             assertEquals(
                 createdAt.plusSeconds(10).toString(),
                 database.releaseDao().getNotificationOutbox(item.eventKey)?.cancelledAt,
