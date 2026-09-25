@@ -39,6 +39,7 @@ class JdkAniWorldHttpTransport : AniWorldHttpTransport {
                 connection.disconnect()
             }
         }
+    }
 
 private fun java.io.InputStream.readBounded(maxBytes: Int): String {
     require(maxBytes > 0) { "maximum response size must be positive" }
