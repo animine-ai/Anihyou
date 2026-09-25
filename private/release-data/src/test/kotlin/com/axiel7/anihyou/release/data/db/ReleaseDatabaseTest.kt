@@ -248,7 +248,7 @@ class ReleaseDatabaseTest {
     private fun openDatabase(withMigration: Boolean = false): ReleaseDatabase =
         Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName)
             .apply {
-                if (withMigration) addMigrations(RELEASE_MIGRATION_1_2, RELEASE_MIGRATION_2_3, RELEASE_MIGRATION_3_4, RELEASE_MIGRATION_4_5, RELEASE_MIGRATION_5_6, RELEASE_MIGRATION_6_7, RELEASE_MIGRATION_7_8, RELEASE_MIGRATION_8_9, RELEASE_MIGRATION_9_10)
+                if (withMigration) addMigrations(RELEASE_MIGRATION_1_2, RELEASE_MIGRATION_2_3, RELEASE_MIGRATION_3_4, RELEASE_MIGRATION_4_5, RELEASE_MIGRATION_5_6, RELEASE_MIGRATION_6_7, RELEASE_MIGRATION_7_8, RELEASE_MIGRATION_8_9)
             }
             .allowMainThreadQueries()
             .build()

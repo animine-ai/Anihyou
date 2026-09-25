@@ -3,7 +3,6 @@ package com.axiel7.anihyou.release.data.aniworld
 import com.axiel7.anihyou.release.core.api.ReleaseEvidenceSource
 import com.axiel7.anihyou.release.core.api.SourceFailureKind
 import com.axiel7.anihyou.release.core.api.SourceResult
-import com.axiel7.anihyou.release.core.model.AniWorldSiteIdentifier
 import com.axiel7.anihyou.release.core.model.LanguageTrack
 import com.axiel7.anihyou.release.core.model.ReleaseEvidence
 import com.axiel7.anihyou.release.core.model.ReleaseEvidenceType
@@ -15,7 +14,6 @@ import java.time.ZoneOffset
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -206,112 +204,6 @@ class AniWorldEvidenceSourcesTest {
     }
 
     @Test
-    fun evidenceIdIsDeterministicAndSeasonSafe() {
-        val seasonOne = deterministicEvidenceId(
-            identityKey = "aniworld:/anime/stream/alpha/1/1/episode:1/DE_SUB",
-        )
-        val seasonTwo = deterministicEvidenceId(
-            identityKey = "aniworld:/anime/stream/alpha/2/2/episode:1/DE_SUB",
-        )
-
-        assertNotEquals(seasonOne, seasonTwo)
-        assertEquals(
-            seasonOne,
-            deterministicEvidenceId(
-                identityKey = "aniworld:/anime/stream/alpha/1/1/episode:1/DE_SUB",
-            ),
-        )
-        assertTrue(seasonOne.startsWith("aniworld-v3:ANIWORLD_RECENT:"))
-        assertTrue(seasonOne.length <= 256)
-    }
-
-    @Test
-    fun evidenceIdSeparatesLanguageTrackSourceAndInstallment() {
-        val sub = deterministicEvidenceId(
-            identityKey = "aniworld:/anime/stream/alpha/1/1/episode:1/DE_SUB",
-        )
-        val dub = deterministicEvidenceId(
-            identityKey = "aniworld:/anime/stream/alpha/1/1/episode:1/DE_DUB",
-        )
-        val calendar = deterministicEvidenceId(
-            sourceType = ReleaseSourceType.ANIWORLD_CALENDAR,
-            identityKey = "aniworld:/anime/stream/alpha/1/1/episode:1/DE_SUB",
-        )
-        val episodeTwo = deterministicEvidenceId(
-            identityKey = "aniworld:/anime/stream/alpha/1/1/episode:2/DE_SUB",
-        )
-        val filmOne = deterministicEvidenceId(
-            identityKey = "aniworld:/anime/stream/alpha/1/1/film:1/DE_SUB",
-        )
-        val filmTwo = deterministicEvidenceId(
-            identityKey = "aniworld:/anime/stream/alpha/1/1/film:2/DE_SUB",
-        )
-
-        assertNotEquals(sub, dub)
-        assertNotEquals(sub, calendar)
-        assertNotEquals(sub, episodeTwo)
-        assertNotEquals(filmOne, filmTwo)
-    }
-
-    @Test
-    fun evidenceIdUsesCompleteSourceHashAndEvidenceFields() {
-        val commonPrefix = "1234567890abcdef"
-        val first = deterministicEvidenceId(
-            sourceHash = commonPrefix + "000000000000000000000000000000000000000000000000",
-        )
-        val second = deterministicEvidenceId(
-            sourceHash = commonPrefix + "ffffffffffffffffffffffffffffffffffffffffffffffff",
-        )
-        val changedEvidence = deterministicEvidenceId(
-            approximateTime = true,
-            scheduleCondition = ScheduleCondition.DELAYED,
-            sourceReportedAt = Instant.parse("2026-09-08T11:34:00Z"),
-        )
-
-        assertNotEquals(first, second)
-        assertNotEquals(first, changedEvidence)
-    }
-
-    @Test
-    fun adapterEvidenceIdChangesWhenSeasonChanges() = runBlocking {
-        val seasonOne = singleEvidence(
-            recent(recentHtml("DE_SUB", sourceSeason = 1, navigationSeason = 1)),
-        )
-        val seasonTwo = singleEvidence(
-            recent(recentHtml("DE_SUB", sourceSeason = 2, navigationSeason = 2)),
-        )
-
-        assertNotEquals(seasonOne.id, seasonTwo.id)
-        assertTrue(seasonOne.identityKey.contains("/1/1/episode:7/DE_SUB"))
-        assertTrue(seasonTwo.identityKey.contains("/2/2/episode:7/DE_SUB"))
-    }
-
-    @Test
-    fun unchangedSnapshotAtDifferentPollTimesKeepsEvidenceId() = runBlocking {
-        val html = recentHtml("DE_SUB")
-        val first = singleEvidence(recentAt(html, observedAt))
-        val second = singleEvidence(recentAt(html, observedAt.plusSeconds(300)))
-
-        assertEquals(first.id, second.id)
-        assertNotEquals(first.observedAt, second.observedAt)
-    }
-
-    @Test
-    fun titleChangesDoNotEnterTheEvidenceIdentityFingerprint() {
-        val beforeRename = AniWorldSiteIdentifier(
-            slug = "alpha",
-            normalizedTitle = "Alpha",
-        )
-        val afterRename = AniWorldSiteIdentifier(
-            slug = "alpha",
-            normalizedTitle = "Alpha: The New Title",
-        )
-
-        assertEquals(beforeRename, afterRename)
-        assertEquals(beforeRename.stableKey, afterRename.stableKey)
-    }
-
-    @Test
     fun calendarFailureDoesNotDiscardRecentEvidence() = runBlocking {
         val transport = RoutingTransport(
             mapOf(
@@ -355,24 +247,6 @@ class AniWorldEvidenceSourcesTest {
         assertTrue(collection.results[1] is SourceResult.Success)
     }
 
-    private fun deterministicEvidenceId(
-        sourceType: ReleaseSourceType = ReleaseSourceType.ANIWORLD_RECENT,
-        sourceHash: String = "source-hash-000000000000000000000000000000000000000000000000000000000000",
-        identityKey: String = "aniworld:/anime/stream/alpha/1/1/episode:1/DE_SUB",
-        evidenceType: ReleaseEvidenceType = ReleaseEvidenceType.CONFIRMATION,
-        sourceReportedAt: Instant? = null,
-        approximateTime: Boolean = false,
-        scheduleCondition: ScheduleCondition = ScheduleCondition.UNKNOWN,
-    ): String = AniWorldEvidenceId.create(
-        sourceType = sourceType,
-        sourceHash = sourceHash,
-        identityKey = identityKey,
-        evidenceType = evidenceType,
-        sourceReportedAt = sourceReportedAt,
-        approximateTime = approximateTime,
-        scheduleCondition = scheduleCondition,
-    )
-
     private suspend fun calendar(html: String): SourceResult<List<ReleaseEvidence>> =
         AniWorldCalendarEvidenceAdapter(
             client = AniWorldClient(RoutingTransport(mapOf("/animekalender" to response(html)))),
@@ -380,15 +254,9 @@ class AniWorldEvidenceSourcesTest {
         ).collect()
 
     private suspend fun recent(html: String): SourceResult<List<ReleaseEvidence>> =
-        recentAt(html, observedAt)
-
-    private suspend fun recentAt(
-        html: String,
-        pollTime: Instant,
-    ): SourceResult<List<ReleaseEvidence>> =
         AniWorldRecentEpisodeEvidenceAdapter(
             client = AniWorldClient(RoutingTransport(mapOf("/neue-episoden" to response(html)))),
-            clock = Clock.fixed(pollTime, ZoneOffset.UTC),
+            clock = clock,
         ).collect()
 
     private suspend fun postponement(html: String): SourceResult<List<ReleaseEvidence>> =
@@ -422,26 +290,15 @@ class AniWorldEvidenceSourcesTest {
         assertEquals(expected, (result as SourceResult.Failure).kind)
     }
 
-    private fun recentHtml(
-        track: String,
-        includeSourceReportedAt: Boolean = false,
-        sourceSeason: Int? = null,
-        navigationSeason: Int? = null,
-        episode: Int = 7,
-    ): String {
-        val seasonAttributes = listOfNotNull(
-            sourceSeason?.let { "data-source-season=\"$it\"" },
-            navigationSeason?.let { "data-navigation-season=\"$it\"" },
-        ).joinToString(" ")
-        return """
+    private fun recentHtml(track: String, includeSourceReportedAt: Boolean = false): String =
+        """
         <html><body><main><h1>Neue Episoden</h1>
-          <article data-source-key="series-alpha" data-episode="$episode" $seasonAttributes>
+          <article data-source-key="series-alpha" data-episode="7">
             ${if (includeSourceReportedAt) "<span>Veröffentlicht bei uns: 08.09.2026 13:34</span>" else ""}
-            <img class="flag" title="Folge $episode" data-track="$track">
+            <img class="flag" title="Folge 7" data-track="$track">
           </article>
         </main></body></html>
         """.trimIndent()
-    }
 
     private fun calendarHtml(
         time: String,

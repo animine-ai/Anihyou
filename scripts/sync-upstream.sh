@@ -17,7 +17,7 @@ fi
 git fetch --prune upstream "$UPSTREAM_REF"
 git checkout -B upstream-sync "refs/remotes/upstream/$UPSTREAM_REF"
 
-# The mirror is source-only. Project AI context is centralized in animine-ai/master-context.
+# The mirror is source-only. Project AI context is centralized in itlspqr/master-context.
 rm -rf .github/workflows .ai projects prompts handoffs docs/ai-context ai-context
 rm -f PLAN.md
 if [[ -d private/evidence/aniworld ]]; then

@@ -13,7 +13,7 @@ local.properties
 /fastlane/report.xml
 .kotlin
 
-# AI project context is centralized in animine-ai/master-context.
+# AI project context is centralized in itlspqr/master-context.
 /.ai/*
 !/.ai/CONTEXT.md
 /docs/ai-context/

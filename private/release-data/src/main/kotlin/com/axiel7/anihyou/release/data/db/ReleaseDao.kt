@@ -51,55 +51,6 @@ abstract class ReleaseDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract suspend fun insertMappingAttempt(row: MappingAttemptEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    abstract suspend fun insertReleaseEvidence(row: ReleaseEvidenceEntity): Long
-
-    @Query("SELECT * FROM v3_release_evidence WHERE id = :id")
-    abstract suspend fun getReleaseEvidence(id: String): ReleaseEvidenceEntity?
-
-    @Query(
-        "SELECT * FROM v3_release_evidence " +
-            "WHERE identityKey = :identityKey ORDER BY observedAt, id",
-    )
-    abstract fun observeReleaseEvidence(identityKey: String): Flow<List<ReleaseEvidenceEntity>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    abstract suspend fun upsertReleaseDecision(row: ReleaseDecisionEntity)
-
-    @Query("SELECT * FROM v3_release_decision WHERE identityKey = :identityKey")
-    abstract suspend fun getReleaseDecision(identityKey: String): ReleaseDecisionEntity?
-
-    @Query("SELECT * FROM v3_release_decision WHERE identityKey = :identityKey")
-    abstract fun observeReleaseDecision(identityKey: String): Flow<ReleaseDecisionEntity?>
-
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    abstract suspend fun insertForecastRevision(row: ReleaseForecastRevisionEntity): Long
-
-    @Query(
-        "SELECT * FROM v3_forecast_revision " +
-            "WHERE identityKey = :identityKey ORDER BY observedAt, revisionId",
-    )
-    abstract fun observeForecastRevisions(
-        identityKey: String,
-    ): Flow<List<ReleaseForecastRevisionEntity>>
-
-    @Query(
-        "SELECT * FROM v3_forecast_revision WHERE evidenceId = :evidenceId LIMIT 1",
-    )
-    abstract suspend fun getForecastRevisionByEvidenceId(
-        evidenceId: String,
-    ): ReleaseForecastRevisionEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    abstract suspend fun upsertSourceHealth(row: SourceHealthEntity)
-
-    @Query("SELECT * FROM v3_source_health WHERE sourceType = :sourceType")
-    abstract suspend fun getSourceHealth(sourceType: String): SourceHealthEntity?
-
-    @Query("SELECT * FROM v3_source_health WHERE sourceType = :sourceType")
-    abstract fun observeSourceHealth(sourceType: String): Flow<SourceHealthEntity?>
-
-
     @Query("SELECT * FROM v3_external_mapping WHERE mappingSubjectKey = :mappingSubjectKey AND externalProvider = :externalProvider")
     abstract suspend fun getExternalMapping(
         mappingSubjectKey: String,

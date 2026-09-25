@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-const val RELEASE_DATABASE_VERSION = 10
+const val RELEASE_DATABASE_VERSION = 9
 
 @Database(
     entities = [
@@ -24,10 +24,6 @@ const val RELEASE_DATABASE_VERSION = 10
         ForecastRecheckWorkEntity::class,
         ExternalMappingEntity::class,
         MappingAttemptEntity::class,
-        ReleaseEvidenceEntity::class,
-        ReleaseDecisionEntity::class,
-        SourceHealthEntity::class,
-        ReleaseForecastRevisionEntity::class,
     ],
     version = RELEASE_DATABASE_VERSION,
     exportSchema = true,
@@ -532,136 +528,6 @@ val RELEASE_MIGRATION_8_9 = object : Migration(8, 9) {
         db.execSQL(
             "INSERT OR REPLACE INTO schema_meta(key, schemaVersion, value, updatedAt) " +
                 "VALUES('release_schema', 9, 'wp03b-mapping', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-        )
-    }
-}
-
-
-val RELEASE_MIGRATION_9_10 = object : Migration(9, 10) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL(
-            """
-            CREATE TABLE IF NOT EXISTS v3_release_evidence (
-                id TEXT NOT NULL,
-                identityKey TEXT NOT NULL,
-                sourceType TEXT NOT NULL,
-                sourceUrl TEXT NOT NULL,
-                sourceHash TEXT NOT NULL,
-                parserVersion TEXT NOT NULL,
-                observedAt TEXT NOT NULL,
-                sourceReportedAt TEXT,
-                approximateTime INTEGER NOT NULL,
-                siteIdentifierPayload TEXT,
-                sourceSeason INTEGER,
-                navigationSeason INTEGER,
-                installmentPayload TEXT NOT NULL,
-                languageTrack TEXT,
-                evidenceType TEXT NOT NULL,
-                scheduleCondition TEXT NOT NULL,
-                confidenceSource REAL NOT NULL,
-                confidenceIdentity REAL NOT NULL,
-                confidenceInstallment REAL NOT NULL,
-                confidenceLanguageTrack REAL NOT NULL,
-                confidenceTiming REAL NOT NULL,
-                PRIMARY KEY(id)
-            )
-            """.trimIndent(),
-        )
-        db.execSQL(
-            """
-            CREATE TABLE IF NOT EXISTS v3_release_decision (
-                identityKey TEXT NOT NULL,
-                siteIdentifierPayload TEXT,
-                sourceSeason INTEGER,
-                navigationSeason INTEGER,
-                installmentPayload TEXT NOT NULL,
-                languageTrack TEXT,
-                phase TEXT NOT NULL,
-                scheduleCondition TEXT NOT NULL,
-                authority TEXT NOT NULL,
-                contributingEvidenceIdsPayload TEXT NOT NULL,
-                authoritativeEvidenceIdsPayload TEXT NOT NULL,
-                releaseAt TEXT,
-                lastObservedAt TEXT,
-                decidedAt TEXT NOT NULL,
-                revision INTEGER NOT NULL,
-                diagnosticsPayload TEXT NOT NULL,
-                PRIMARY KEY(identityKey)
-            )
-            """.trimIndent(),
-        )
-        db.execSQL(
-            """
-            CREATE TABLE IF NOT EXISTS v3_source_health (
-                sourceType TEXT NOT NULL,
-                status TEXT NOT NULL,
-                lastAttemptAt TEXT,
-                lastSuccessAt TEXT,
-                consecutiveFailures INTEGER NOT NULL,
-                parserVersion TEXT,
-                sourceHash TEXT,
-                diagnostic TEXT,
-                PRIMARY KEY(sourceType)
-            )
-            """.trimIndent(),
-        )
-        db.execSQL(
-            """
-            CREATE TABLE IF NOT EXISTS v3_forecast_revision (
-                revisionId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                identityKey TEXT NOT NULL,
-                evidenceId TEXT NOT NULL,
-                forecastAt TEXT NOT NULL,
-                observedAt TEXT NOT NULL,
-                approximateTime INTEGER NOT NULL,
-                sourceHash TEXT NOT NULL,
-                parserVersion TEXT NOT NULL
-            )
-            """.trimIndent(),
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS idx_v3_evidence_identity_observed " +
-                "ON v3_release_evidence(identityKey, observedAt)",
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS idx_v3_evidence_source_observed " +
-                "ON v3_release_evidence(sourceType, observedAt)",
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS idx_v3_evidence_hash " +
-                "ON v3_release_evidence(sourceHash)",
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS idx_v3_evidence_type_observed " +
-                "ON v3_release_evidence(evidenceType, observedAt)",
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS idx_v3_decision_phase_authority " +
-                "ON v3_release_decision(phase, authority)",
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS idx_v3_decision_decided " +
-                "ON v3_release_decision(decidedAt)",
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS idx_v3_decision_track_phase " +
-                "ON v3_release_decision(languageTrack, phase)",
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS idx_v3_health_status_attempt " +
-                "ON v3_source_health(status, lastAttemptAt)",
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS idx_v3_forecast_identity_observed " +
-                "ON v3_forecast_revision(identityKey, observedAt)",
-        )
-        db.execSQL(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_v3_forecast_evidence " +
-                "ON v3_forecast_revision(evidenceId)",
-        )
-        db.execSQL(
-            "INSERT OR REPLACE INTO schema_meta(key, schemaVersion, value, updatedAt) " +
-                "VALUES('release_schema', 10, 'wp04a-intelligence', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
         )
     }
 }

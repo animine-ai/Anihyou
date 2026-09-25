@@ -391,50 +391,6 @@ data class ReleaseDecision(
     }
 }
 
-
-/**
- * A durable audit row for one AniWorld calendar forecast revision.
- *
- * Forecast revisions are derived from forecast evidence and never grant release
- * authority. Their evidenceId links the revision back to append-only evidence.
- */
-data class ReleaseForecastRevision(
-    val id: String,
-    val identityKey: String,
-    val evidenceId: String,
-    val forecastAt: Instant,
-    val observedAt: Instant,
-    val approximateTime: Boolean,
-    val sourceHash: String,
-    val parserVersion: String,
-) {
-    init {
-        require(id.isNotBlank()) { "forecast revision id must not be blank" }
-        require(identityKey.isNotBlank()) { "forecast revision identity must not be blank" }
-        require(evidenceId.isNotBlank()) { "forecast revision evidence id must not be blank" }
-        require(sourceHash.isNotBlank()) { "forecast revision hash must not be blank" }
-        require(parserVersion.isNotBlank()) { "forecast revision parser must not be blank" }
-    }
-
-    companion object {
-        fun fromEvidence(evidence: ReleaseEvidence): ReleaseForecastRevision? {
-            if (evidence.sourceType != ReleaseSourceType.ANIWORLD_CALENDAR) return null
-            if (evidence.evidenceType != ReleaseEvidenceType.FORECAST) return null
-            val forecastAt = evidence.sourceReportedAt ?: return null
-            return ReleaseForecastRevision(
-                id = evidence.id,
-                identityKey = evidence.identityKey,
-                evidenceId = evidence.id,
-                forecastAt = forecastAt,
-                observedAt = evidence.observedAt,
-                approximateTime = evidence.approximateTime,
-                sourceHash = evidence.sourceHash,
-                parserVersion = evidence.parserVersion,
-            )
-        }
-    }
-}
-
 /**
  * Last-good state for one source role. It is intentionally independent from the
  * release decision so a degraded source cannot erase successful evidence.

@@ -2,7 +2,6 @@ package com.axiel7.anihyou.release.core.api
 
 import com.axiel7.anihyou.release.core.model.ReleaseDecision
 import com.axiel7.anihyou.release.core.model.ReleaseEvidence
-import com.axiel7.anihyou.release.core.model.ReleaseForecastRevision
 import com.axiel7.anihyou.release.core.model.ReleaseSourceType
 import com.axiel7.anihyou.release.core.model.SourceHealth
 import kotlinx.coroutines.flow.Flow
@@ -53,28 +52,6 @@ interface SourceHealthRepository {
     suspend fun put(health: SourceHealth)
 
     fun observe(sourceType: ReleaseSourceType): Flow<SourceHealth?>
-}
-
-
-/**
- * Durable materialized authority projection. Implementations must reject
- * lower revisions and must not regress RELEASED or CONFLICT decisions.
- */
-interface ReleaseDecisionRepository {
-    suspend fun get(identityKey: String): ReleaseDecision?
-
-    suspend fun put(decision: ReleaseDecision): Boolean
-
-    fun observe(identityKey: String): Flow<ReleaseDecision?>
-}
-
-/**
- * Append-only forecast revision history derived from calendar evidence.
- */
-interface ReleaseForecastRevisionRepository {
-    suspend fun append(revision: ReleaseForecastRevision): Boolean
-
-    fun observeForecastFor(identityKey: String): Flow<List<ReleaseForecastRevision>>
 }
 
 enum class SourceFailureKind {

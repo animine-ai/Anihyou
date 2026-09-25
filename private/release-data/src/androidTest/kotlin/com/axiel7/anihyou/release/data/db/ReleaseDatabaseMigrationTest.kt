@@ -15,9 +15,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class ReleaseDatabaseMigrationV8ToV10Test {
+class ReleaseDatabaseMigrationTest {
     private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-    private val databaseName = "release-persistence-v8-to-v10-test.db"
+    private val databaseName = "release-persistence-v8-to-v9-test.db"
     private val streamKey = "aniworld/snapshot/EPISODE/1/DE_DUB"
     private val observedAt = Instant.parse("2026-09-11T12:00:00Z").toString()
 
@@ -69,7 +69,7 @@ class ReleaseDatabaseMigrationV8ToV10Test {
 
         val migrated = migrationTestHelper.runMigrationsAndValidate(
             databaseName,
-            10,
+            9,
             true,
             RELEASE_MIGRATION_1_2,
             RELEASE_MIGRATION_2_3,
@@ -79,7 +79,6 @@ class ReleaseDatabaseMigrationV8ToV10Test {
             RELEASE_MIGRATION_6_7,
             RELEASE_MIGRATION_7_8,
             RELEASE_MIGRATION_8_9,
-            RELEASE_MIGRATION_9_10,
         )
         try {
             val objects = objectNames(migrated)
@@ -89,20 +88,6 @@ class ReleaseDatabaseMigrationV8ToV10Test {
             assertTrue(objects.contains("idx_v3_mapping_status_validation"))
             assertTrue(objects.contains("idx_v3_attempt_subject_time"))
             assertTrue(objects.contains("idx_v3_attempt_result_time"))
-            assertTrue(objects.contains("v3_release_evidence"))
-            assertTrue(objects.contains("v3_release_decision"))
-            assertTrue(objects.contains("v3_source_health"))
-            assertTrue(objects.contains("v3_forecast_revision"))
-            assertTrue(objects.contains("idx_v3_evidence_identity_observed"))
-            assertTrue(objects.contains("idx_v3_evidence_source_observed"))
-            assertTrue(objects.contains("idx_v3_evidence_hash"))
-            assertTrue(objects.contains("idx_v3_evidence_type_observed"))
-            assertTrue(objects.contains("idx_v3_decision_phase_authority"))
-            assertTrue(objects.contains("idx_v3_decision_decided"))
-            assertTrue(objects.contains("idx_v3_decision_track_phase"))
-            assertTrue(objects.contains("idx_v3_health_status_attempt"))
-            assertTrue(objects.contains("idx_v3_forecast_identity_observed"))
-            assertTrue(objects.contains("idx_v3_forecast_evidence"))
             assertEquals("hash", migrated.query("SELECT sourceHash FROM provider_snapshot WHERE streamKey = '$streamKey'").use {
                 if (!it.moveToFirst()) null else it.getString(0)
             })
@@ -118,7 +103,7 @@ class ReleaseDatabaseMigrationV8ToV10Test {
         try {
             assertEquals("hash", reopened.releaseDao().getProviderSnapshot(streamKey)?.sourceHash)
             assertEquals(
-                10,
+                9,
                 reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion,
             )
         } finally {
