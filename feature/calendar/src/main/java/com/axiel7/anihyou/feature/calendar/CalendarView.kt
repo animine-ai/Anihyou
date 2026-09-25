@@ -354,6 +354,7 @@ private fun CalendarViewContent(
         }
     }
 }
+}
 
 
 @Composable
