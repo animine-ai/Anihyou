@@ -43,7 +43,7 @@ class App : Application(), SingletonImageLoader.Factory {
 
             modules(
                 coreModule,
-                animetrackerReleaseModule,
+                kiyoriReleaseModule,
                 dataStoreModule,
                 networkModule,
                 apiModule,

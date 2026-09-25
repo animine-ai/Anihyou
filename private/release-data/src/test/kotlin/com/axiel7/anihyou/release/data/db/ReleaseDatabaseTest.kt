@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.data.db
 
+import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.axiel7.anihyou.release.core.model.AuthorityStatus
@@ -19,6 +20,7 @@ import com.axiel7.anihyou.release.core.model.SourceSeriesKey
 import com.axiel7.anihyou.release.core.model.SourceIdentity
 import com.axiel7.anihyou.release.data.repository.RoomReleaseProjectionRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseSyncStore
+import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -45,17 +47,28 @@ class ReleaseDatabaseTest {
     }
 
     @Test
-    fun currentDatabasePreservesR2SnapshotAndReopens() = runBlocking {
-        val database = openDatabase()
+    fun migrationFromVersionOnePreservesSnapshotAndReopens() = runBlocking {
+        val initial = openDatabase()
         val snapshot = sampleSnapshot()
+        initial.releaseDao().upsertProviderSnapshots(listOf(snapshot.toEntity()))
+        initial.close()
+
+        val databaseFile = context.getDatabasePath(databaseName)
+        val raw = SQLiteDatabase.openDatabase(
+            databaseFile.path,
+            null,
+            SQLiteDatabase.OPEN_READWRITE,
+        )
         try {
-            database.releaseDao().upsertProviderSnapshots(listOf(snapshot.toEntity()))
+            raw.execSQL("DROP TABLE schema_meta")
+            raw.version = 1
         } finally {
-            database.close()
+            raw.close()
         }
 
-        val reopened = openDatabase()
+        val reopened = openDatabase(withMigration = true)
         try {
+            assertEquals(8, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
             assertEquals(snapshot, reopened.releaseDao().getProviderSnapshot(snapshot.stream.stableKey)?.toDomainOrNull())
         } finally {
             reopened.close()
@@ -248,7 +261,7 @@ class ReleaseDatabaseTest {
     private fun openDatabase(withMigration: Boolean = false): ReleaseDatabase =
         Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName)
             .apply {
-                if (withMigration) addMigrations(RELEASE_MIGRATION_1_2, RELEASE_MIGRATION_2_3, RELEASE_MIGRATION_3_4, RELEASE_MIGRATION_4_5, RELEASE_MIGRATION_5_6, RELEASE_MIGRATION_6_7, RELEASE_MIGRATION_7_8, RELEASE_MIGRATION_8_9, RELEASE_MIGRATION_9_10)
+                if (withMigration) addMigrations(RELEASE_MIGRATION_1_2, RELEASE_MIGRATION_2_3, RELEASE_MIGRATION_3_4, RELEASE_MIGRATION_4_5, RELEASE_MIGRATION_5_6, RELEASE_MIGRATION_6_7, RELEASE_MIGRATION_7_8)
             }
             .allowMainThreadQueries()
             .build()

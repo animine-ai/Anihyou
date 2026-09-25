@@ -176,21 +176,15 @@ class AniWorldParser(
             val flag = releaseFlag.flag
             val card = releaseFlag.card
             val track = (releaseFlag.classification as FlagClassification.German).track
-            val route = (resolveRoute(card, sourceUrl) as? AniWorldCardRouteResult.Success)?.route
-            if (route == null) {
-                invalidCardCount += 1
-                continue
-            }
-            val canonicalRoute = route
-            val sourceKey = SourceSeriesKey(canonicalRoute.slug)
-            val installment = parseInstallment(flag, card, canonicalRoute)
-            val season = parseSeason(flag, card) ?: canonicalRoute.season
+            val sourceKey = resolveSourceKey(card, sourceUrl)
+            val installment = parseInstallment(flag, card)
+            val season = parseSeason(flag, card)
             val parsedTime = if (role == AniWorldPageRole.FUTURE_CALENDAR) {
                 parseForecastTime(flag, card, flagText(flag, card))
             } else {
                 DateTimeParseOutcome.NotRequired
             }
-            if (installment == null) {
+            if (sourceKey == null || installment == null) {
                 invalidCardCount += 1
                 continue
             }
@@ -212,7 +206,7 @@ class AniWorldParser(
                 )
             }
             val time = parsedTime as? DateTimeParseOutcome.Parsed
-            val kind = parseReleaseKind(flag, card, canonicalRoute)
+            val kind = parseReleaseKind(flag, card)
             val stream = ReleaseStreamKey(
                 providerId = ProviderId(PROVIDER_ID),
                 stableSeriesKey = sourceKey,
@@ -231,7 +225,7 @@ class AniWorldParser(
                 sourceTime = time?.time,
                 sourceZone = time?.zone,
                 approximate = time?.approximate ?: false,
-                sourceRoot = canonicalRoute.canonicalSeriesUrl,
+                sourceRoot = seriesRoot(card, sourceUrl, sourceKey),
                 rawTokens = rawTokens,
             )
         }
@@ -384,10 +378,6 @@ class AniWorldParser(
             when (role) {
                 AniWorldPageRole.RECENT_CURRENT -> text.contains("neue episoden")
                 AniWorldPageRole.FUTURE_CALENDAR -> text.contains("animekalender")
-                AniWorldPageRole.POSTPONEMENT ->
-                    text.contains("verschob") || text.contains("verschieb")
-                AniWorldPageRole.DIRECT_EPISODE ->
-                    text.contains("folge") || text.contains("episode") || text.contains("stream")
                 AniWorldPageRole.SUPPORT_EXPLANATION -> text.contains("nach deutscher synchro sortieren")
             }
         }?.text()?.trim()?.takeIf { it.isNotBlank() }
@@ -419,12 +409,7 @@ class AniWorldParser(
         card: Element,
         sourceUrl: String,
     ): Boolean =
-        resolveSourceKey(card, sourceUrl) != null ||
-            parseInstallment(
-                flag,
-                card,
-                (resolveRoute(card, sourceUrl) as? AniWorldCardRouteResult.Success)?.route,
-            ) != null
+        resolveSourceKey(card, sourceUrl) != null || parseInstallment(flag, card) != null
 
     private fun classifyFlag(flag: Element, card: Element): FlagClassification {
         val text = flagText(flag, card)
@@ -474,38 +459,19 @@ class AniWorldParser(
         return null
     }
 
-    private fun parseInstallment(
-        flag: Element,
-        card: Element,
-        route: AniWorldCanonicalRoute?,
-    ): Installment? {
+    private fun parseInstallment(flag: Element, card: Element): Installment? {
         val title = flagText(flag, card)
         val explicit = firstNonBlankAttr(flag, card, "data-installment", "data-episode")
         if (explicit != null) {
-            parseEpisodeValue(explicit)?.let {
-                if (route?.installment != null && route.installment != it) return null
-                return it
-            }
+            parseEpisodeValue(explicit)?.let { return it }
         }
-        val explicitFilm = firstNonBlankAttr(flag, card, "data-film", "data-movie")
-            ?.toIntOrNull()
-            ?.takeIf { it >= 0 }
-            ?.let { Installment.Film(it) }
-        if (explicitFilm != null) {
-            if (route?.installment != null && route.installment != explicitFilm) return null
-            return explicitFilm
-        }
-        route?.installment?.let { return it }
-        val kind = parseReleaseKind(flag, card, route)
+        val kind = parseReleaseKind(flag, card)
         return when (kind) {
             ReleaseKind.MOVIE -> {
-                if (route?.kind == AniWorldCanonicalRouteKind.FILMS_OVERVIEW) {
-                    null
-                } else {
-                    val number = Regex("(?i)\\b(?:film|movie)\\s*([0-9]{1,4})\\b")
-                        .find(title)?.groupValues?.get(1)?.toIntOrNull()
-                    Installment.Film(number)
-                }
+                val number = firstNonBlankAttr(flag, card, "data-film", "data-movie")
+                    ?.toIntOrNull()
+                    ?: Regex("(?i)\\b(?:film|movie)\\s*([0-9]{1,4})\\b").find(title)?.groupValues?.get(1)?.toIntOrNull()
+                Installment.Film(number)
             }
             ReleaseKind.SPECIAL, ReleaseKind.OVA, ReleaseKind.ONA -> {
                 val number = firstNonBlankAttr(flag, card, "data-special")
@@ -543,16 +509,7 @@ class AniWorldParser(
             ?: Regex("(?i)\\bS([0-9]{1,3})E[0-9]{1,4}\\b").find(text)?.groupValues?.get(1)?.toIntOrNull()
     }
 
-    private fun parseReleaseKind(
-        flag: Element,
-        card: Element,
-        route: AniWorldCanonicalRoute? = null,
-    ): ReleaseKind {
-        if (route?.kind == AniWorldCanonicalRouteKind.FILM ||
-            route?.kind == AniWorldCanonicalRouteKind.FILMS_OVERVIEW
-        ) {
-            return ReleaseKind.MOVIE
-        }
+    private fun parseReleaseKind(flag: Element, card: Element): ReleaseKind {
         val text = flagText(flag, card)
         return when {
             Regex("(?i)\\b(?:film|movie)\\b").containsMatchIn(text) -> ReleaseKind.MOVIE
@@ -684,18 +641,31 @@ class AniWorldParser(
         } ?: parents.firstOrNull { it.tagName() == "a" } ?: flag
     }
 
-    private fun resolveRoute(element: Element, sourceUrl: String): AniWorldCardRouteResult =
-        AniWorldCardRouteResolver.resolve(
-            sourceUrl = sourceUrl,
-            sourceKey = firstNonBlankAttr(element, "data-source-key", "data-series-key", "data-series"),
-            href = if (element.tagName() == "a") element.attr("href") else element.selectFirst("a[href]")?.attr("href"),
-        )
+    private fun resolveSourceKey(element: Element, sourceUrl: String): SourceSeriesKey? {
+        firstNonBlankAttr(element, "data-source-key", "data-series-key", "data-series")?.let {
+            return SourceSeriesKey(it.trim())
+        }
+        val link = if (element.tagName() == "a") element else element.selectFirst("a[href]")
+        val href = link?.attr("href")?.trim().orEmpty()
+        if (href.isBlank()) return null
+        val uri = runCatching { URI(sourceUrl).resolve(href) }.getOrNull() ?: return null
+        val path = uri.path ?: return null
+        val marker = "/anime/"
+        val key = path.substringAfter(marker, "").trim('/')
+        return key.takeIf { it.isNotBlank() }?.let(::SourceSeriesKey)
+    }
 
-    private fun resolveSourceKey(element: Element, sourceUrl: String): SourceSeriesKey? =
-        (resolveRoute(element, sourceUrl) as? AniWorldCardRouteResult.Success)
-            ?.route
-            ?.slug
-            ?.let(::SourceSeriesKey)
+    private fun seriesRoot(element: Element, sourceUrl: String, key: SourceSeriesKey): String {
+        val link = if (element.tagName() == "a") element else element.selectFirst("a[href]")
+        val href = link?.attr("href")?.trim()
+        if (!href.isNullOrBlank()) {
+            val uri = runCatching { URI(sourceUrl).resolve(href) }.getOrNull()
+            if (uri != null) {
+                return URI(uri.scheme, uri.authority, uri.path?.trimEnd('/'), null, null).toString()
+            }
+        }
+        return sourceRoot(sourceUrl) + "/anime/" + key.value
+    }
 
     private fun unknownDataTokens(element: Element): List<AniWorldRawToken> =
         element.attributes().asList()

@@ -16,16 +16,9 @@ fi
 
 git fetch --prune upstream "$UPSTREAM_REF"
 git checkout -B upstream-sync "refs/remotes/upstream/$UPSTREAM_REF"
-
-# The mirror is source-only. Project AI context is centralized in animine-ai/master-context.
-rm -rf .github/workflows .ai projects prompts handoffs docs/ai-context ai-context
-rm -f PLAN.md
-if [[ -d private/evidence/aniworld ]]; then
-  find private/evidence/aniworld -maxdepth 1 -type f -name '*.md' -delete
-fi
-
+rm -rf .github/workflows
 git add -A
 if ! git diff --cached --quiet; then
-  git commit -m "Mirror AniHyou upstream without workflows or project context"
+  git commit -m "Mirror AniHyou upstream without workflow definitions"
 fi
 git push --force origin "HEAD:refs/heads/$TARGET_BRANCH"
