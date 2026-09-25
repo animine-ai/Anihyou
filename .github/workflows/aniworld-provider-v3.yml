@@ -83,8 +83,8 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Export Room schema
-        run: ./gradlew --console=plain --stacktrace :private:release-data:compileDebugKotlin
+      - name: Run Room KSP schema export
+        run: ./gradlew --console=plain --stacktrace :private:release-data:kspDebugKotlin
 
       - name: Validate generated schema JSON
         id: schema
