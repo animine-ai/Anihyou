@@ -157,6 +157,9 @@ jobs:
       - name: Run core tests
         run: ./gradlew --console=plain --stacktrace :private:release-core:test
 
+      - name: Compile core domain
+        run: ./gradlew --console=plain --stacktrace :core:domain:compileDebugKotlin
+
       - name: Run Robolectric data tests
         run: ./gradlew --console=plain --stacktrace :private:release-data:testDebugUnitTest
 

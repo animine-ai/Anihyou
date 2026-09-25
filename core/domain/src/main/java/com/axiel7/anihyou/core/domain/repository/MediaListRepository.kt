@@ -102,7 +102,7 @@ class MediaListRepository(
                 localAccountProgressIndex.record(
                     userId = userId,
                     progressByMediaId = result.list.mapNotNull { entry ->
-                        entry.progressOrVolumes()?.let { progress -> entry.mediaId to progress }
+                        entry.basicMediaListEntry.progressOrVolumes()?.let { progress -> entry.mediaId to progress }
                     }.toMap(),
                 )
             }
