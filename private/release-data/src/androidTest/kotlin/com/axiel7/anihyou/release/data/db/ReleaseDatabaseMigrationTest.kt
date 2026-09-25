@@ -12,6 +12,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
@@ -116,11 +117,13 @@ class ReleaseDatabaseMigrationV8ToV10Test {
             databaseName,
         ).allowMainThreadQueries().build()
         try {
-            assertEquals("hash", reopened.releaseDao().getProviderSnapshot(streamKey)?.sourceHash)
-            assertEquals(
-                10,
-                reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion,
-            )
+            runBlocking {
+                assertEquals("hash", reopened.releaseDao().getProviderSnapshot(streamKey)?.sourceHash)
+                assertEquals(
+                    10,
+                    reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion,
+                )
+            }
         } finally {
             reopened.close()
         }

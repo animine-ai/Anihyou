@@ -54,6 +54,8 @@ import com.axiel7.anihyou.core.ui.composables.media.VideoThumbnailItem
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.formatted
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.minutesToLegibleText
+import com.axiel7.anihyou.core.ui.composables.media.releaseInstallmentLabel
+import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 import com.axiel7.anihyou.feature.mediadetails.MediaDetailsUiState
 import java.time.ZoneId
 

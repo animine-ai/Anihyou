@@ -90,7 +90,7 @@ class CurrentViewModel(
         return if (release?.isAuthoritative == true) {
             release.nextForecastAt?.toEpochMilli()
         } else {
-            entry.media?.nextAiringEpisode?.timeUntilAiring
+            entry.media?.nextAiringEpisode?.timeUntilAiring?.toLong()
         }
     }
 
