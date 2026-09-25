@@ -64,10 +64,10 @@ class ReleaseReducerTest {
         )
         assertTrue(selected is com.axiel7.anihyou.release.core.projection.ReleasePresentation.Provider)
         val provider = (selected as com.axiel7.anihyou.release.core.projection.ReleasePresentation.Provider).value
-        assertEquals(9, provider.confirmedThroughEpisode)
+        assertEquals(Installment.Episode(9), provider.confirmedInstallments.single())
         assertEquals(10, provider.nextForecast!!.identity.installment.wholeEpisodeNumber)
         assertEquals(observedAt.plusSeconds(5 * DAY_SECONDS), provider.nextForecast.forecastAt)
-        assertEquals(5, provider.pendingCount)
+        assertEquals(5, provider.confirmedPending)
         assertFalse(provider.nextForecast.forecastAt == aniListFallback.nextAiringAt)
     }
 
