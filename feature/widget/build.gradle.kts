@@ -10,6 +10,7 @@ android {
 
 dependencies {
     implementation(project(":private:release-core"))
+    implementation(libs.apollo.normalized.cache)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.preview)
     implementation(libs.androidx.glance.material3)

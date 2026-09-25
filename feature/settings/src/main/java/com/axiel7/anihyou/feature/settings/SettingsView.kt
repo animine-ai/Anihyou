@@ -595,6 +595,7 @@ private fun SettingsContent(
                     } else {
                         uiState.releaseMappings.forEachIndexed { index, mapping ->
                             val isManual = mapping.origin == "MANUAL"
+                            val mappedMediaId = mapping.mediaId
                             TextButton(
                                 onClick = {
                                     selectedMapping = mapping
@@ -608,11 +609,11 @@ private fun SettingsContent(
                                     when {
                                         isManual -> stringResource(
                                             R.string.release_mapping_manual_media,
-                                            mapping.mediaId ?: 0,
+                                            mappedMediaId ?: 0,
                                         )
-                                        mapping.mediaId != null -> stringResource(
+                                        mappedMediaId != null -> stringResource(
                                             R.string.release_mapping_automatic_media,
-                                            mapping.mediaId,
+                                            mappedMediaId,
                                         )
                                         else -> stringResource(
                                             R.string.release_mapping_unresolved,
