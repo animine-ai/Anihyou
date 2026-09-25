@@ -136,8 +136,11 @@ jobs:
           ./gradlew --console=plain :private:release-data:tasks --all
           ./gradlew --console=plain :app:tasks --all
 
-      - name: Run core and Robolectric data tests
-        run: ./gradlew --console=plain --stacktrace :private:release-core:test :private:release-data:testDebugUnitTest
+      - name: Run core tests
+        run: ./gradlew --console=plain --stacktrace :private:release-core:test
+
+      - name: Run Robolectric data tests
+        run: ./gradlew --console=plain --stacktrace :private:release-data:testDebugUnitTest
 
       - name: Validate generated Room schema 10
         id: schema
