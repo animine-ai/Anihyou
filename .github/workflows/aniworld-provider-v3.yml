@@ -39,14 +39,32 @@ jobs:
       matrix:
         include:
           - schema_version: 8
-            source_ref: 4c912fc5542060917f9ea7b1c289b22992d4017d
+            source_ref: ci/historical-room-v8-source
+            historical_source_sha: 4c912fc5542060917f9ea7b1c289b22992d4017d
+            imported_source_commit: 3dd871f76ab41218372196be7ed2cf3526d837aa
           - schema_version: 9
-            source_ref: fba44c807f750469ee7b0571c418ffe3cacb67dd
+            source_ref: ci/historical-room-v9-source
+            historical_source_sha: fba44c807f750469ee7b0571c418ffe3cacb67dd
+            imported_source_commit: 351c597f1711d381e3c46ca83e821c2899feaa0e
     steps:
-      - name: Checkout schema source
+      - name: Checkout internalized historical schema source
         uses: actions/checkout@v4
         with:
           ref: ${{ matrix.source_ref }}
+
+      - name: Verify internalized historical source ref
+        shell: bash
+        run: |
+          actual="$(git rev-parse HEAD)"
+          expected="${{ matrix.imported_source_commit }}"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Expected internalized source commit $expected, got $actual"
+            exit 1
+          fi
+          echo "Historical source repo: itlspqr/Animetracker (read-only provenance)"
+          echo "Historical source SHA: ${{ matrix.historical_source_sha }}"
+          echo "New-repo source ref: ${{ matrix.source_ref }}"
+          echo "New-repo source commit: $actual"
 
       - name: Set up Java
         uses: actions/setup-java@v4
