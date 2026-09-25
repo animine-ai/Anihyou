@@ -30,7 +30,7 @@ class RoomReleaseEvidenceRepository(
             val inserted = dao.insertReleaseEvidence(entity) != -1L
             if (inserted) {
                 ReleaseForecastRevision.fromEvidence(evidence)?.let { revision ->
-                    revision.toEntityOrNull()?.let(dao::insertForecastRevision)
+                    revision.toEntityOrNull()?.let { dao.insertForecastRevision(it) }
                 }
             }
             inserted
@@ -113,7 +113,7 @@ class RoomSourceHealthRepository(
             val current = dao.getSourceHealth(health.sourceType.name)?.toDomainOrNull()
             SourceHealthPersistencePolicy.merge(current, health)
                 .toEntityOrNull()
-                ?.let(dao::upsertSourceHealth)
+                ?.let { dao.upsertSourceHealth(it) }
         }
     }
 }
@@ -134,11 +134,16 @@ class RoomReleaseIntelligencePersistence(
     ): List<ReleaseDecision> = database.withTransaction {
         val decisions = linkedMapOf<String, ReleaseDecision>()
         results.forEach { result ->
-            result.sourceHealth?.let { incoming ->
+            val sourceHealth = when (result) {
+                is SourceResult.Success -> result.sourceHealth
+                is SourceResult.PartialSuccess -> result.sourceHealth
+                is SourceResult.Failure -> result.sourceHealth
+            }
+            sourceHealth?.let { incoming ->
                 val current = dao.getSourceHealth(incoming.sourceType.name)?.toDomainOrNull()
                 SourceHealthPersistencePolicy.merge(current, incoming)
                     .toEntityOrNull()
-                    ?.let(dao::upsertSourceHealth)
+                    ?.let { dao.upsertSourceHealth(it) }
             }
             val evidence = when (result) {
                 is SourceResult.Success -> result.value
@@ -149,7 +154,7 @@ class RoomReleaseIntelligencePersistence(
                 val entity = item.toEntityOrNull() ?: return@forEach
                 if (dao.insertReleaseEvidence(entity) == -1L) return@forEach
                 ReleaseForecastRevision.fromEvidence(item)?.let { revision ->
-                    revision.toEntityOrNull()?.let(dao::insertForecastRevision)
+                    revision.toEntityOrNull()?.let { dao.insertForecastRevision(it) }
                 }
                 val previous = dao.getReleaseDecision(item.identityKey)?.toDomainOrNull()
                 val next = runCatching { reducer.reduce(previous, item) }.getOrNull()

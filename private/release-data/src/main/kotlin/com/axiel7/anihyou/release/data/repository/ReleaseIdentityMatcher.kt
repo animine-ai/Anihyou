@@ -16,9 +16,11 @@ import com.axiel7.anihyou.release.core.model.ReleaseSnapshot
 import com.axiel7.anihyou.release.core.model.SourceIdentity
 import com.axiel7.anihyou.release.core.sync.CandidatePoolRequest
 import com.axiel7.anihyou.release.core.sync.CandidatePoolWindows
+import com.axiel7.anihyou.release.core.sync.IdentityResolutionResult
 import com.axiel7.anihyou.release.core.sync.ReleaseSourceTimePolicy
 import com.axiel7.anihyou.release.core.sync.ReleaseSyncPlanner
 import com.axiel7.anihyou.release.core.sync.SyncBudget
+import com.axiel7.anihyou.release.core.sync.SyncPerformanceMetrics
 import com.axiel7.anihyou.release.core.sync.SyncPlanRequest
 import com.axiel7.anihyou.release.core.sync.TargetedLookupWork
 import kotlinx.coroutines.async

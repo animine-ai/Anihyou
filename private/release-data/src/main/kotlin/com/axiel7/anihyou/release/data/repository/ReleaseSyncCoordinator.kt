@@ -181,8 +181,9 @@ class ReleaseSyncCoordinator(
                 mediaRows += projection
                 calendarRows += calendarProjections(state, projection)
 
-                if (projection.authority == AuthorityStatus.VALID && projection.mediaId != null) {
-                    val notificationProgress = context.progressFor(projection.mediaId)
+                val notificationMediaId = projection.mediaId
+                if (projection.authority == AuthorityStatus.VALID && notificationMediaId != null) {
+                    val notificationProgress = context.progressFor(notificationMediaId)
                         ?: return RefreshOutcome.Failed(
                             kind = com.axiel7.anihyou.release.core.api.FailureKind.UNKNOWN,
                             diagnostic = "account progress disappeared before notification policy",
@@ -191,7 +192,7 @@ class ReleaseSyncCoordinator(
                         previous = previousState,
                         current = state,
                         accountId = accountId,
-                        mediaId = projection.mediaId,
+                        mediaId = notificationMediaId,
                         accountProgress = notificationProgress,
                     ).forEach { decision ->
                         if (decision is ReleaseNotificationDecision.Enqueue) {

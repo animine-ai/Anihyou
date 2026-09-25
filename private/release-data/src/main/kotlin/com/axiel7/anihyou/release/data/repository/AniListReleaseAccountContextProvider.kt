@@ -4,6 +4,7 @@ import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaListRepository
 import com.axiel7.anihyou.core.model.media.progressOrVolumes
+import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
 import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.ScoreFormat
 import com.axiel7.anihyou.release.core.api.ReleaseAccountContext
@@ -56,7 +57,7 @@ class AniListReleaseAccountContextProvider(
         val progressByMediaId = mutableMapOf<Int, Int>()
 
         for (chunk in chunks) {
-            var pageResult: PagedResult.Success<com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry>? = null
+            var pageResult: PagedResult.Success<CommonMediaListEntry>? = null
             var failed = false
             mediaListRepository.getUserMediaList(
                 userId = userId,
@@ -83,7 +84,7 @@ class AniListReleaseAccountContextProvider(
             }
             cached.list.forEach { entry ->
                 if (entry.mediaId in chunk) {
-                    entry.progressOrVolumes()
+                    entry.basicMediaListEntry.progressOrVolumes()
                         ?.takeIf { it >= 0 }
                         ?.let { progressByMediaId[entry.mediaId] = it }
                 }
