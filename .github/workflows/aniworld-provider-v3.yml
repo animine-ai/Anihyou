@@ -58,7 +58,9 @@ jobs:
         uses: android-actions/setup-android@v4.0.4
 
       - name: Install compile SDK 37
-        run: sdkmanager --install "platforms;android-37"
+        run: |
+          android sdk install --help
+          android sdk install platforms/android-37.0
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -120,7 +122,9 @@ jobs:
           echo "Android CLI diagnostics complete; command exit status above is diagnostic only"
 
       - name: Install compile SDK 37
-        run: sdkmanager --install "platforms;android-37"
+        run: |
+          android sdk install --help
+          android sdk install platforms/android-37.0
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -176,7 +180,9 @@ jobs:
         uses: android-actions/setup-android@v4.0.4
 
       - name: Install compile SDK 37
-        run: sdkmanager --install "platforms;android-37"
+        run: |
+          android sdk install --help
+          android sdk install platforms/android-37.0
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -219,7 +225,9 @@ jobs:
         uses: android-actions/setup-android@v4.0.4
 
       - name: Install compile SDK 37
-        run: sdkmanager --install "platforms;android-37"
+        run: |
+          android sdk install --help
+          android sdk install platforms/android-37.0
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
