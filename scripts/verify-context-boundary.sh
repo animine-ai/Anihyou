@@ -17,7 +17,7 @@ while IFS= read -r path; do
   esac
 done < <(git ls-files)
 
-if git grep -I -n -E 'madebycli|Kiyori-Privat|kiyori-privat|github\.com/madebycli' -- .   ':(exclude).git' >/tmp/context-boundary-oldrefs.txt 2>/dev/null; then
+if git grep -I -n -E 'madebycli|Kiyori-Privat|kiyori-privat|github\.com/madebycli' -- . ':(exclude).git' ':(exclude)scripts/verify-context-boundary.sh' >/tmp/context-boundary-oldrefs.txt 2>/dev/null; then
   cat /tmp/context-boundary-oldrefs.txt >&2
   echo "Old repository/account references are forbidden." >&2
   fail=1
