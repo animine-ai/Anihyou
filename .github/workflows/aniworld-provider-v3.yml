@@ -41,11 +41,11 @@ jobs:
           - schema_version: 8
             source_ref: ci/historical-room-v8-source
             historical_source_sha: 4c912fc5542060917f9ea7b1c289b22992d4017d
-            imported_source_commit: 3dd871f76ab41218372196be7ed2cf3526d837aa
+            imported_source_commit: 9017e079aee748e6381113188b7b2bbb419f91ee
           - schema_version: 9
             source_ref: ci/historical-room-v9-source
             historical_source_sha: fba44c807f750469ee7b0571c418ffe3cacb67dd
-            imported_source_commit: 351c597f1711d381e3c46ca83e821c2899feaa0e
+            imported_source_commit: 1789db1f43f4c57e421cf979162b79fb9575d8f1
     steps:
       - name: Checkout internalized historical schema source
         uses: actions/checkout@v4
