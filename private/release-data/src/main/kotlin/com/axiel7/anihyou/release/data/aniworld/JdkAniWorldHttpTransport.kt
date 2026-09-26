@@ -16,10 +16,12 @@ class JdkAniWorldHttpTransport : AniWorldHttpTransport {
             val connection = (URL(request.url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = request.timeoutMillis.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 readTimeout = request.timeoutMillis.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                instanceFollowRedirects = true
+                instanceFollowRedirects = false
                 requestMethod = "GET"
                 setRequestProperty("Accept", "text/html,application/xhtml+xml")
                 setRequestProperty("User-Agent", "Kiyori-AniWorld-ReleaseSync/1")
+                request.ifNoneMatch?.let { setRequestProperty("If-None-Match", it.safeValidator()) }
+                request.ifModifiedSince?.let { setRequestProperty("If-Modified-Since", it.safeValidator()) }
             }
             try {
                 val statusCode = connection.responseCode
@@ -28,12 +30,19 @@ class JdkAniWorldHttpTransport : AniWorldHttpTransport {
                 } else {
                     connection.errorStream
                 }
-                val body = stream?.use { it.readBounded(request.maxBytes) }.orEmpty()
+                val bytes = stream?.use { it.readBounded(request.maxBytes) } ?: ByteArray(0)
+                val oversized = bytes.size > request.maxBytes
                 AniWorldHttpResponse(
                     statusCode = statusCode,
                     contentType = connection.contentType,
                     finalUrl = connection.url.toString(),
-                    body = body,
+                    body = if (oversized) "" else bytes.toString(Charsets.UTF_8),
+                    bodyTooLarge = oversized,
+                    rawBodyBytes = bytes.size,
+                    location = connection.getHeaderField("Location")?.take(2048),
+                    retryAfter = connection.getHeaderField("Retry-After")?.take(256),
+                    etag = connection.getHeaderField("ETag")?.take(512),
+                    lastModified = connection.getHeaderField("Last-Modified")?.take(256),
                 )
             } finally {
                 connection.disconnect()
@@ -41,19 +50,22 @@ class JdkAniWorldHttpTransport : AniWorldHttpTransport {
         }
     }
 
-private fun java.io.InputStream.readBounded(maxBytes: Int): String {
+private fun String.safeValidator(): String {
+    require(length in 1..512 && none { it == '\r' || it == '\n' || it.isISOControl() })
+    return this
+}
+
+internal fun java.io.InputStream.readBounded(maxBytes: Int): ByteArray {
     require(maxBytes > 0) { "maximum response size must be positive" }
     val output = ByteArrayOutputStream((maxBytes + 1).coerceAtMost(16 * 1024))
     val buffer = ByteArray(8 * 1024)
     var total = 0
     while (total <= maxBytes) {
-        val read = read(buffer)
+        val read = read(buffer, 0, (maxBytes + 1 - total).coerceAtMost(buffer.size))
         if (read < 0) break
-        val remaining = maxBytes + 1 - total
-        val copied = read.coerceAtMost(remaining)
-        output.write(buffer, 0, copied)
-        total += copied
-        if (copied < read || total > maxBytes) break
+        if (read == 0) continue
+        output.write(buffer, 0, read)
+        total += read
     }
-    return output.toString(Charsets.UTF_8.name())
+    return output.toByteArray()
 }

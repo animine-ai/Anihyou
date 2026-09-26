@@ -113,60 +113,46 @@ class AniWorldEvidenceSourcesTest {
     }
 
     @Test
-    fun postponementKeepsSubAndDubIndependent() = runBlocking {
+    fun supportListKeepsSubAndDubUnboundWithoutCorrectionEvidence() = runBlocking {
         val result = postponement(
             """
-            <html><body><main><h1>Verschobene Episoden</h1>
-              <article data-source-key="series-alpha" data-episode="8">
-                <span>Verschoben</span>
-                <img class="flag" title="Folge 8" data-track="DE_SUB">
-              </article>
-              <article data-source-key="series-alpha" data-episode="8">
-                <span>Verschoben</span>
-                <img class="flag" title="Folge 8" data-track="DE_DUB">
-              </article>
+            <html><body><main><h1>Anime Verschiebungen</h1><ul>
+              <li>Series Alpha S00 E00 Sub: 08.09.2026 auf 15.09.2026 verschoben</li>
+              <li>Series Alpha S00 E00 Dub: 08.09.2026 auf 16.09.2026 verschoben</li>
+            </ul>
             </main></body></html>
             """.trimIndent(),
         )
-
-        val evidence = evidenceValues(result)
-        assertEquals(2, evidence.size)
-        assertEquals(setOf(LanguageTrack.DE_SUB, LanguageTrack.DE_DUB), evidence.mapNotNull { it.languageTrack }.toSet())
-        assertTrue(evidence.all { it.scheduleCondition == ScheduleCondition.DELAYED })
-        assertTrue(evidence.all { it.evidenceType == ReleaseEvidenceType.CORRECTION })
+        assertFailure(result, SourceFailureKind.PARSE)
+        assertEquals("/support/frage/anime-verschiebungen",
+            AniWorldPostponementEvidenceAdapter.DEFAULT_POSTPONEMENT_PATH)
     }
 
     @Test
-    fun dubPostponementDoesNotCreateSubEvidence() = runBlocking {
-        val result = postponement(
-            """
-            <html><body><main><h1>Verschobene Episoden</h1>
-              <article data-source-key="series-alpha" data-episode="8">
-                <span>Verschoben</span>
-                <img class="flag" title="Folge 8" data-track="DE_DUB">
-              </article>
-            </main></body></html>
-            """.trimIndent(),
-        )
-
-        val evidence = evidenceValues(result)
-        assertEquals(listOf(LanguageTrack.DE_DUB), evidence.map { it.languageTrack })
+    fun supportListParserPreservesExplicitTracksAndZeroIdentityWithoutBinding() {
+        val rows = AniWorldPostponementSupportList.parse(
+            "<main><h1>Anime Verschiebungen</h1><ul>" +
+                "<li>Alpha S00/E00 Sub verschoben</li><li>Alpha S00/E00 Dub verschoben</li></ul></main>",
+            "https://aniworld.to/support/frage/anime-verschiebungen",
+        )!!
+        assertEquals(0, rows.first().season)
+        assertEquals(0, rows.first().episode)
+        assertEquals(setOf(LanguageTrack.DE_SUB), rows.first().tracks)
+        assertEquals(setOf(LanguageTrack.DE_DUB), rows.last().tracks)
+        assertEquals(rows.first().sourceHash, rows.last().sourceHash)
     }
 
     @Test
-    fun unknownReturnDateIsHiatus() = runBlocking {
+    fun titleOnlySupportRowCannotBecomeAuthoritativeHiatus() = runBlocking {
         val result = postponement(
             """
-            <html><body><main><h1>Verschobene Episoden</h1>
-              <article data-source-key="series-alpha" data-episode="8">
-                <span>Unbekannter Rückkehrtermin</span>
-                <img class="flag" title="Folge 8" data-track="DE_SUB">
-              </article>
-            </main></body></html>
+            <html><body><main><h1>Anime Verschiebungen</h1><ul>
+              <li>Series Alpha S01/E08 Sub: Unbekannter Rückkehrtermin</li>
+            </ul></main></body></html>
             """.trimIndent(),
         )
 
-        assertEquals(ScheduleCondition.HIATUS, singleEvidence(result).scheduleCondition)
+        assertFailure(result, SourceFailureKind.PARSE)
     }
 
     @Test
@@ -394,7 +380,7 @@ class AniWorldEvidenceSourcesTest {
     private suspend fun postponement(html: String): SourceResult<List<ReleaseEvidence>> =
         AniWorldPostponementEvidenceAdapter(
             client = AniWorldClient(
-                RoutingTransport(mapOf("/verschobene-episoden" to response(html))),
+                RoutingTransport(mapOf("/support/frage/anime-verschiebungen" to response(html))),
             ),
             clock = clock,
         ).collect()

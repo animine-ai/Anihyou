@@ -130,6 +130,8 @@ class AniWorldProvider(
             kind = when (kind) {
                 AniWorldFailureKind.BLOCKED_PAGE -> FailureKind.BLOCKED
                 AniWorldFailureKind.HTTP_STATUS,
+                AniWorldFailureKind.RATE_LIMITED,
+                AniWorldFailureKind.NOT_MODIFIED_CACHE_MISS,
                 AniWorldFailureKind.TRANSPORT_FAILURE,
                 AniWorldFailureKind.NON_HTML_CONTENT,
                 AniWorldFailureKind.OVERSIZED_BODY,
@@ -167,6 +169,8 @@ class AniWorldProvider(
                 AniWorldFailureKind.EXCESSIVE_INVALID_CARDS,
                 AniWorldFailureKind.UNSUPPORTED_ROLE -> FailureKind.PARSE
                 AniWorldFailureKind.HTTP_STATUS,
+                AniWorldFailureKind.RATE_LIMITED,
+                AniWorldFailureKind.NOT_MODIFIED_CACHE_MISS,
                 AniWorldFailureKind.TRANSPORT_FAILURE,
                 AniWorldFailureKind.NON_HTML_CONTENT,
                 AniWorldFailureKind.OVERSIZED_BODY,

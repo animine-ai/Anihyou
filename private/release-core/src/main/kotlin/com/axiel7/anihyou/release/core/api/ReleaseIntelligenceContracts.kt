@@ -79,6 +79,8 @@ interface ReleaseForecastRevisionRepository {
 
 enum class SourceFailureKind {
     NETWORK,
+    RATE_LIMITED,
+    NOT_MODIFIED_CACHE_MISS,
     BLOCKED,
     INVALID_INPUT,
     PARSE,
@@ -103,6 +105,8 @@ sealed interface SourceResult<out T> {
         val kind: SourceFailureKind,
         val diagnostic: String,
         val sourceHealth: SourceHealth? = null,
+        /** Bounded scheduling hint in seconds; no retry is performed by the source. */
+        val retryAfterSeconds: Long? = null,
     ) : SourceResult<Nothing>
 }
 

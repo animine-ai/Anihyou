@@ -25,6 +25,8 @@ enum class AniWorldFailureKind {
     CHANGED_SEMANTIC_ANCHOR,
     UNKNOWN_LANGUAGE_MARKER,
     HTTP_STATUS,
+    RATE_LIMITED,
+    NOT_MODIFIED_CACHE_MISS,
     TRANSPORT_FAILURE,
     NON_HTML_CONTENT,
     OVERSIZED_BODY,
@@ -49,7 +51,7 @@ data class AniWorldLimits(
     val maxInvalidCardRatio: Double = 0.50,
 ) {
     init {
-        require(maxBodyBytes > 0)
+        require(maxBodyBytes in 1..16_000_000)
         require(maxCards > 0)
         require(maxCalendarDays > 0)
         require(maxUnknownTokens >= 0)
@@ -62,6 +64,8 @@ data class AniWorldTransportRequest(
     val url: String,
     val maxBytes: Int,
     val timeoutMillis: Long,
+    val ifNoneMatch: String? = null,
+    val ifModifiedSince: String? = null,
 )
 
 data class AniWorldHttpResponse(
@@ -69,6 +73,12 @@ data class AniWorldHttpResponse(
     val contentType: String?,
     val finalUrl: String,
     val body: String,
+    val location: String? = null,
+    val retryAfter: String? = null,
+    val etag: String? = null,
+    val lastModified: String? = null,
+    val bodyTooLarge: Boolean = false,
+    val rawBodyBytes: Int = body.toByteArray(Charsets.UTF_8).size,
 )
 
 fun interface AniWorldHttpTransport {
@@ -78,6 +88,8 @@ fun interface AniWorldHttpTransport {
 data class AniWorldPageRequest(
     val role: AniWorldPageRole,
     val url: String,
+    val ifNoneMatch: String? = null,
+    val ifModifiedSince: String? = null,
 )
 
 data class AniWorldRawToken(

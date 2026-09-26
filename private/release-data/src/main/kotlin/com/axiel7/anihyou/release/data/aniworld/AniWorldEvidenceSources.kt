@@ -48,10 +48,7 @@ class AniWorldRecentEpisodeEvidenceAdapter(
     )
 }
 
-/**
- * Verschobene Episoden is correction evidence. The parser emits one record
- * per positively identified language track and never fills a missing track.
- */
+/** Textual support-list rows have no canonical series identity. WP04B.0 owns binding. */
 class AniWorldPostponementEvidenceAdapter(
     private val client: AniWorldClient,
     private val parser: AniWorldEvidenceParser = AniWorldEvidenceParser(),
@@ -61,14 +58,34 @@ class AniWorldPostponementEvidenceAdapter(
 ) : AbstractAniWorldEvidenceSource(client, parser, clock) {
     override val sourceType: ReleaseSourceType = ReleaseSourceType.ANIWORLD_POSTPONEMENT
 
-    override suspend fun collect(): SourceResult<List<ReleaseEvidence>> = collectPage(
-        role = AniWorldPageRole.POSTPONEMENT,
-        url = resolve(sourceRoot, postponementPath.trimStart('/')),
-        evidenceType = ReleaseEvidenceType.CORRECTION,
-    )
+    override suspend fun collect(): SourceResult<List<ReleaseEvidence>> {
+        val observedAt = clock.instant()
+        val url = resolve(sourceRoot, postponementPath.trimStart('/'))
+        return when (val fetched = client.fetch(AniWorldPageRequest(AniWorldPageRole.POSTPONEMENT, url))) {
+            is AniWorldClientResult.Failure -> SourceResult.Failure(
+                kind = when (fetched.kind) {
+                    AniWorldFailureKind.RATE_LIMITED -> SourceFailureKind.RATE_LIMITED
+                    AniWorldFailureKind.NOT_MODIFIED_CACHE_MISS -> SourceFailureKind.NOT_MODIFIED_CACHE_MISS
+                    else -> SourceFailureKind.NETWORK
+                },
+                diagnostic = fetched.diagnostic.take(256),
+                sourceHealth = SourceHealth(sourceType, SourceHealthStatus.UNAVAILABLE,
+                    lastAttemptAt = observedAt, lastSuccessAt = null, consecutiveFailures = 1),
+                retryAfterSeconds = fetched.retryAfterSeconds,
+            )
+            is AniWorldClientResult.Success -> SourceResult.Failure(
+                kind = SourceFailureKind.PARSE,
+                diagnostic = if (AniWorldPostponementSupportList.parse(fetched.response.body, fetched.response.finalUrl) == null)
+                    "support-list structure invalid; no correction can be emitted"
+                else "support-list rows are unbound; no canonical correction can be emitted",
+                sourceHealth = SourceHealth(sourceType, SourceHealthStatus.DEGRADED,
+                    lastAttemptAt = observedAt, lastSuccessAt = null, consecutiveFailures = 1),
+            )
+        }
+    }
 
     companion object {
-        const val DEFAULT_POSTPONEMENT_PATH = "/verschobene-episoden"
+        const val DEFAULT_POSTPONEMENT_PATH = "/support/frage/anime-verschiebungen"
     }
 }
 
@@ -335,6 +352,7 @@ abstract class AbstractAniWorldEvidenceSource(
     ): SourceResult.Failure = SourceResult.Failure(
         kind = kind.toSourceFailureKind(),
         diagnostic = diagnostic.take(256),
+        retryAfterSeconds = retryAfterSeconds,
         sourceHealth = SourceHealth(
             sourceType = sourceType,
             status = kind.toHealthStatus(),
@@ -348,6 +366,8 @@ abstract class AbstractAniWorldEvidenceSource(
 
     private fun AniWorldFailureKind.toSourceFailureKind(): SourceFailureKind = when (this) {
         AniWorldFailureKind.BLOCKED_PAGE -> SourceFailureKind.BLOCKED
+        AniWorldFailureKind.RATE_LIMITED -> SourceFailureKind.RATE_LIMITED
+        AniWorldFailureKind.NOT_MODIFIED_CACHE_MISS -> SourceFailureKind.NOT_MODIFIED_CACHE_MISS
         AniWorldFailureKind.HTTP_STATUS,
         AniWorldFailureKind.TRANSPORT_FAILURE,
         AniWorldFailureKind.NON_HTML_CONTENT,
@@ -371,6 +391,8 @@ abstract class AbstractAniWorldEvidenceSource(
 
     private fun AniWorldFailureKind.toHealthStatus(): SourceHealthStatus = when (this) {
         AniWorldFailureKind.BLOCKED_PAGE -> SourceHealthStatus.BLOCKED
+        AniWorldFailureKind.RATE_LIMITED,
+        AniWorldFailureKind.NOT_MODIFIED_CACHE_MISS,
         AniWorldFailureKind.HTTP_STATUS,
         AniWorldFailureKind.TRANSPORT_FAILURE,
         AniWorldFailureKind.NON_HTML_CONTENT,
