@@ -98,6 +98,34 @@ class ReleaseReconciliationRepositoryTest {
         } finally { db.close() }
     }
 
+    @Test fun emptyCoveredDirectCyclesReachPersistedExpectationAndBecomeMissing() = runBlocking {
+        val db = open()
+        try {
+            val repository = RoomReleaseReconciliationRepository(db)
+            repository.importBaseline()
+            val forecast = evidence("expected", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST)
+            val key = CanonicalReleaseIdentity.from(forecast)!!.key
+            repository.persistCompletedCycle(cycle("forecast", time, forecast))
+            fun negative(id: String, at: Instant) = CompletedObservationCycle(
+                id, "direct-target", at.minusSeconds(60), at, AbsencePolicySnapshot(),
+                listOf(CycleSourceObservation(id, ReleaseSourceType.ANIWORLD_DIRECT_PAGE,
+                    key, LanguageTrack.DE_SUB, CycleResult.SUCCESS, SourceHealthStatus.HEALTHY,
+                    TargetCoverage.COMPLETE_FOR_TARGET, TargetPresence.ABSENT, at)),
+                listOf(ExpectedSourceInstance(id, ReleaseSourceType.ANIWORLD_DIRECT_PAGE,
+                    key, LanguageTrack.DE_SUB, negativeRequired = true)),
+            )
+            val due = time.plusSeconds(24 * 3600)
+            repository.persistCompletedCycle(negative("first-empty", due))
+            assertEquals(ReleasePhase.EXPECTED, repository.get(key)?.phase)
+            assertEquals(1, repository.get(key)?.absenceCount)
+            repository.persistCompletedCycle(negative("second-empty", due.plusSeconds(1800)))
+            assertEquals(ReleasePhase.MISSING, repository.get(key)?.phase)
+            assertEquals(2, repository.get(key)?.absenceCount)
+            assertEquals(1, repository.rebuildProjections())
+        } finally { db.close() }
+    }
+
     @Test fun legacyPartialReleasedIsQuarantinedWithoutExactAuthority() = runBlocking {
         val db = open()
         try {

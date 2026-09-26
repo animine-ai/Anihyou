@@ -228,10 +228,12 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 }
                 source.copy(evidence = observations)
             }
-            val affectedBuckets = resolved.flatMap { it.evidence }.mapNotNull { item ->
+            val affectedBuckets = (resolved.flatMap { it.evidence }.mapNotNull { item ->
                 if (item.identityCompleteness() == ReleaseIdentityCompleteness.NON_BINDABLE) null
                 else bucketOf(item)
-            }.toSet()
+            } + resolved.mapNotNull { source ->
+                CanonicalReleaseIdentity.decode(source.targetKey)?.bucketKey
+            }).toSet()
             val previousRows = affectedBuckets.flatMap { bucket ->
                 pageAll { limit, offset -> dao.projectionsForBucket(bucket, limit, offset) }
             }

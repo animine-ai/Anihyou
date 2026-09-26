@@ -133,8 +133,9 @@ class ReleaseDatabaseMigrationTest {
     }
 
     private fun seedSchemaMarker(db: SupportSQLiteDatabase, version: Int) {
+        val value = if (version == 10) "wp04a-intelligence" else "fixture"
         db.execSQL("INSERT INTO schema_meta(`key`, schemaVersion, value, updatedAt) " +
-            "VALUES('release_schema', $version, 'fixture', '2026-09-26T00:00:00Z')")
+            "VALUES('release_schema', $version, '$value', '2026-09-26T00:00:00Z')")
     }
 
     @Test
