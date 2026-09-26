@@ -614,7 +614,7 @@ private fun applyRevisionRewrites(db: SupportSQLiteDatabase, rewrites: List<Revi
             "UPDATE $FORECAST_TABLE SET identityKey = ?, evidenceId = ?, forecastAt = ?, " +
                 "observedAt = ?, approximateTime = ?, sourceHash = ?, parserVersion = ? " +
                 "WHERE revisionId = ?",
-            arrayOf(
+            arrayOf<Any?>(
                 e.identityKey, e.evidenceId, e.forecastAt, e.observedAt,
                 e.approximateTime.asSqlInt(), e.sourceHash, e.parserVersion, e.revisionId,
             ),
@@ -747,7 +747,7 @@ private fun writeRevisionArchives(
                 observedAt, approximateTime, sourceHash, parserVersion, archivedAt
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
-            arrayOf(
+            arrayOf<Any?>(
                 original.revisionId, canonicalId, original.identityKey, original.evidenceId,
                 original.forecastAt, original.observedAt, original.approximateTime.asSqlInt(),
                 original.sourceHash, original.parserVersion, timestamp,
@@ -922,9 +922,15 @@ private fun ensureRevisionSequence(db: SupportSQLiteDatabase, originalSequence: 
     val target = maxOf(originalSequence, maximumId)
     val current = readRevisionSequence(db)
     if (current < target) {
-        db.execSQL("UPDATE sqlite_sequence SET seq = ? WHERE name = ?", arrayOf(target, FORECAST_TABLE))
+        db.execSQL(
+            "UPDATE sqlite_sequence SET seq = ? WHERE name = ?",
+            arrayOf<Any?>(target, FORECAST_TABLE),
+        )
         if (readRevisionSequence(db) < target) {
-            db.execSQL("INSERT INTO sqlite_sequence(name, seq) VALUES (?, ?)", arrayOf(FORECAST_TABLE, target))
+            db.execSQL(
+                "INSERT INTO sqlite_sequence(name, seq) VALUES (?, ?)",
+                arrayOf<Any?>(FORECAST_TABLE, target),
+            )
         }
     }
 }
