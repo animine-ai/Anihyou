@@ -35,12 +35,19 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 it.evidenceType == ReleaseEvidenceType.FORECAST }
                 .sortedWith(compareBy({ it.observedAt }, { it.id }))
             val latest = forecasts.lastOrNull()
+            val corrections = items.filter { it.sourceType == ReleaseSourceType.ANIWORLD_POSTPONEMENT &&
+                it.evidenceType == ReleaseEvidenceType.CORRECTION &&
+                it.scheduleCondition != ScheduleCondition.UNKNOWN }
+                .sortedWith(compareBy({ it.observedAt }, { it.id }))
+            val schedule = corrections.map { it.scheduleCondition }.distinct()
             var state = CanonicalReleaseState(identity.key,
                 underlyingPhase = if (positive.isNotEmpty()) ReleasePhase.RELEASED
                     else if (latest != null) ReleasePhase.EXPECTED else ReleasePhase.UNKNOWN,
                 phase = if (positive.isNotEmpty()) ReleasePhase.RELEASED
                     else if (latest != null) ReleasePhase.EXPECTED else ReleasePhase.UNKNOWN,
                 authority = if (positive.isNotEmpty()) ReleaseAuthority.ANIWORLD else ReleaseAuthority.NONE,
+                scheduleCondition = if (schedule.size == 1) schedule.single() else ScheduleCondition.UNKNOWN,
+                scheduleEvidenceId = if (schedule.size == 1) corrections.first().id else null,
                 releaseAt = positive.firstOrNull { !it.approximateTime }?.sourceReportedAt,
                 forecastAt = latest?.sourceReportedAt,
                 forecastEvidenceId = latest?.id,
@@ -51,6 +58,12 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 state = ReleaseConflictPolicy.open(state, ReleaseConflict(
                     "legacy-time:${identity.key}", ReleaseConflictKind.PUBLICATION_TIME_DISAGREEMENT,
                     positive.map { it.id }.toSet(), true,
+                ))
+            }
+            if (schedule.size > 1) {
+                state = ReleaseConflictPolicy.open(state, ReleaseConflict(
+                    "legacy-schedule:${identity.key}", ReleaseConflictKind.SCHEDULE_DISAGREEMENT,
+                    corrections.map { it.id }.toSet(), true,
                 ))
             }
             states[identity.key] = state
@@ -73,6 +86,7 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
         val old = pageAll(dao::decisionPage).map { raw ->
             raw to evidenceStore.canonicalDecisionOrThrow(raw)
         }.sortedWith(compareBy({ it.second.decidedAt }, { it.first.identityKey }))
+        val legacyAnchors = mutableMapOf<String, Instant>()
         for ((raw, legacy) in old) {
             val referenced = legacy.authoritativeEvidenceIds.map { id ->
                 evidenceStore.resolveStoredId(id) ?: error("dangling legacy authority reference")
@@ -83,11 +97,31 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 valid.size == referenced.size && valid.isNotEmpty()) {
                 val target = key.single()
                 val previous = states[target] ?: error("missing exact Evidence projection")
-                states[target] = previous.copy(
+                val anchor = legacyAnchors[target]
+                var merged = previous.copy(
                     underlyingPhase = ReleasePhase.RELEASED, phase = ReleasePhase.RELEASED,
                     authority = ReleaseAuthority.ANIWORLD,
-                    releaseAt = previous.releaseAt ?: legacy.releaseAt,
+                    releaseAt = anchor ?: legacy.releaseAt ?: previous.releaseAt,
                 )
+                if (legacy.releaseAt != null) {
+                    if (anchor == null) {
+                        legacyAnchors[target] = legacy.releaseAt
+                        if (previous.releaseAt != null && previous.releaseAt != legacy.releaseAt) {
+                            merged = ReleaseConflictPolicy.open(merged, ReleaseConflict(
+                                "legacy-evidence-time:$target:${raw.identityKey}",
+                                ReleaseConflictKind.PUBLICATION_TIME_DISAGREEMENT,
+                                valid.map { it.id }.toSet(), true,
+                            ))
+                        }
+                    } else if (anchor != legacy.releaseAt) {
+                        merged = ReleaseConflictPolicy.open(merged, ReleaseConflict(
+                            "legacy-time:$target:${raw.identityKey}",
+                            ReleaseConflictKind.PUBLICATION_TIME_DISAGREEMENT,
+                            valid.map { it.id }.toSet(), true,
+                        ))
+                    }
+                }
+                states[target] = merged
             } else if (legacy.phase == ReleasePhase.RELEASED && key.isEmpty()) {
                 val holder = referenced.firstOrNull() ?: continue
                 val partialKey = "partial-v1:${holder.id}"
@@ -111,8 +145,30 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 fromKey = null, toKey = null, causeCycleId = null, policyVersion = 1,
                 beforeRevision = 0, afterRevision = 1,
                 payload = ReleaseReconciliationMapper.eventPayload(row),
+                resolutionActor = null, resolutionReason = null,
             ))
             dao.upsertProjection(row)
+        }
+        old.forEachIndexed { index, (raw, legacy) ->
+            val contributing = legacy.contributingEvidenceIds.mapNotNull { id ->
+                evidenceStore.resolveStoredId(id)
+            }
+            val keys = contributing.mapNotNull(CanonicalReleaseIdentity::from).map { it.key }.distinct()
+            val target = if (keys.size == 1) keys.single() else contributing.firstOrNull()?.let {
+                "partial-v1:${it.id}"
+            }
+            val projection = target?.let { dao.projection(it) } ?: return@forEachIndexed
+            dao.insertEvent(ReconciliationEventEntity(
+                eventId = digest("legacy-decision:${raw.identityKey}"), commitSequence = 0,
+                eventOrdinal = states.size + index, kind = "BASELINE_LEGACY_DECISION",
+                payloadVersion = 1, projectionKey = projection.projectionKey,
+                partialEvidenceId = null, fromKey = raw.identityKey,
+                toKey = projection.projectionKey, causeCycleId = null,
+                policyVersion = 1, beforeRevision = projection.revision,
+                afterRevision = projection.revision,
+                payload = ReleaseReconciliationMapper.eventPayload(projection),
+                resolutionActor = null, resolutionReason = null,
+            ))
         }
         dao.insertMarker(SchemaMetaEntity("BASELINE_IMPORT_COMPLETE", 12, "v1",
             Instant.EPOCH.toString()))
@@ -137,8 +193,18 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 check(source.supersedesEvidenceIds.size <= 1) {
                     "multiple supersession claims require separate typed receipts"
                 }
+                if (source.sourceType == ReleaseSourceType.ANIWORLD_DIRECT_PAGE) {
+                    check(CanonicalReleaseIdentity.decode(source.targetKey)?.track == source.track) {
+                        "direct source target/track mismatch"
+                    }
+                }
                 val observations = source.evidence.map { incoming ->
                     check(incoming.sourceType == source.sourceType) { "source instance role mismatch" }
+                    if (source.sourceType == ReleaseSourceType.ANIWORLD_DIRECT_PAGE) {
+                        check(CanonicalReleaseIdentity.from(incoming)?.key == source.targetKey) {
+                            "direct Evidence belongs to another target"
+                        }
+                    }
                     val canonical = when (val result = evidenceStore.resolveOrAppend(incoming)) {
                         is EvidenceAppendResolution.Inserted -> result.canonicalEvidence
                         is EvidenceAppendResolution.Existing -> result.canonicalEvidence
@@ -149,6 +215,15 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                         evidenceStore.resolveStoredId(incoming.id)?.id == canonical.id)
                     canonical
                 }.distinctBy { it.id }
+                source.supersedesEvidenceIds.forEach { id ->
+                    val superseded = evidenceStore.resolveStoredId(id)
+                        ?: error("supersession references missing Evidence")
+                    check(source.sourceType == ReleaseSourceType.ANIWORLD_POSTPONEMENT &&
+                        superseded.sourceType == source.sourceType && observations.any {
+                            CanonicalReleaseIdentity.from(it) != null &&
+                                CanonicalReleaseIdentity.from(it) == CanonicalReleaseIdentity.from(superseded)
+                        }) { "unsafe correction supersession" }
+                }
                 source.copy(evidence = observations)
             }
             val affectedBuckets = resolved.flatMap { it.evidence }.mapNotNull { item ->
@@ -159,7 +234,7 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 pageAll { limit, offset -> dao.projectionsForBucket(bucket, limit, offset) }
             }
             val previous = previousRows.associate { row ->
-                row.projectionKey to ReleaseReconciliationMapper.state(row)
+                row.projectionKey to verifyStateReferences(row)
             }
             val storedPartials = previousRows.filter { it.projectionKey.startsWith("partial-v1:") }
                 .map { row ->
@@ -171,6 +246,13 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
             val normalized = cycle.copy(sources = resolved)
             val plan = reconciler.reconcile(previous, normalized,
                 (storedPartials + newPartials).distinctBy { it.id }, true, late)
+            val bucketByKey = previousRows.associate { it.projectionKey to it.bucketKey } +
+                resolved.flatMap { it.evidence }.mapNotNull { item ->
+                    val key = CanonicalReleaseIdentity.from(item)?.key ?: if (
+                        item.identityCompleteness() == ReleaseIdentityCompleteness.PARTIAL)
+                        "partial-v1:${item.id}" else null
+                    key?.let { it to bucketOf(item) }
+                }.toMap()
             val sequence = dao.lastSequence() + 1
             val metadata = "v1:${cycle.policy.grace.seconds}:${cycle.policy.minimumSeparation.seconds}:" +
                 cycle.policy.maximumCycleDuration.seconds
@@ -179,20 +261,22 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 if (cycle.sources.any { it.result == CycleResult.INCOMPLETE }) "INCOMPLETE" else "COMPLETE",
                 requestDigest))
             resolved.forEach { source ->
+                val expected = cycle.manifest.singleOrNull { it.instanceId == source.instanceId }
                 dao.insertSource(CycleSourceObservationEntity(cycle.id, source.instanceId,
-                    source.sourceType.name, source.targetKey, source.track?.name, source.result.name,
+                    source.sourceType.name, source.targetKey, source.track?.name,
+                    expected?.negativeRequired ?: false, source.result.name,
                     source.health.name, source.coverage.name, source.presence.name,
                     source.observedAt?.toString(), source.supersedesEvidenceIds.singleOrNull()))
                 source.evidence.forEach { item ->
-                    dao.insertReceipt(CycleEvidenceReceiptEntity(cycle.id, source.instanceId, item.id))
+                    val projectionKey = CanonicalReleaseIdentity.from(item)?.key
+                        ?: "partial-v1:${item.id}"
+                    dao.insertReceipt(CycleEvidenceReceiptEntity(cycle.id, source.instanceId,
+                        item.id, projectionKey))
                 }
             }
             plan.changes.forEachIndexed { ordinal, change ->
-                val bucket = previousRows.firstOrNull { it.projectionKey == change.key }?.bucketKey
-                    ?: resolved.flatMap { it.evidence }.firstOrNull {
-                        CanonicalReleaseIdentity.from(it)?.key == change.key ||
-                            "partial-v1:${it.id}" == change.key
-                    }?.let(::bucketOf) ?: error("missing candidate bucket for changed projection")
+                val bucket = bucketByKey[change.key]
+                    ?: error("missing candidate bucket for changed projection")
                 val row = ReleaseReconciliationMapper.projection(change.after, bucket, sequence)
                 dao.insertEvent(ReconciliationEventEntity(
                     digest("${cycle.id}:$ordinal"), sequence, ordinal, change.kind, 1, change.key,
@@ -200,6 +284,7 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                     change.before?.bindingKey, change.after.bindingKey, cycle.id, cycle.policy.version,
                     change.before?.revision ?: 0, change.after.revision,
                     ReleaseReconciliationMapper.eventPayload(row),
+                    null, null,
                 ))
                 dao.upsertProjection(row)
             }
@@ -208,15 +293,50 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
 
     suspend fun get(key: String): CanonicalReleaseState? = database.withTransaction {
         check(dao.baselineMarker() != null)
-        dao.projection(key)?.let(ReleaseReconciliationMapper::state)
+        dao.projection(key)?.let { verifyStateReferences(it) }
     }
+
+    /** Explicit administrative resolution with durable actor and reason provenance. */
+    suspend fun resolveConflict(key: String, conflictId: String,
+                                actor: String, reason: String): CanonicalReleaseState =
+        database.withTransaction {
+            check(dao.baselineMarker() != null)
+            require(actor.isNotBlank() && actor.length <= 256 &&
+                reason.isNotBlank() && reason.length <= 4096)
+            val priorRow = dao.projection(key) ?: error("unknown projection")
+            val prior = ReleaseReconciliationMapper.state(priorRow)
+            val next = ReleaseConflictPolicy.resolve(prior, conflictId, actor, reason)
+                .copy(revision = prior.revision + 1)
+            val sequence = dao.lastSequence() + 1
+            val row = ReleaseReconciliationMapper.projection(next, priorRow.bucketKey, sequence)
+            dao.insertEvent(ReconciliationEventEntity(
+                digest("resolve:$sequence:$key:$conflictId"), sequence, 0,
+                "RESOLVE_CONFLICT", 1, key, null, null, null, null, 1,
+                prior.revision, next.revision,
+                ReleaseReconciliationMapper.eventPayload(row), actor, reason,
+            ))
+            dao.upsertProjection(row)
+            next
+        }
 
     suspend fun history(key: String, limit: Int, offset: Int): List<ReconciliationEventEntity> {
         require(limit in 1..256 && offset >= 0)
         check(dao.baselineMarker() != null)
         return dao.eventsFor(key, limit, offset).onEach { event ->
             check(event.payloadVersion == 1)
+            if (event.kind == "RESOLVE_CONFLICT") check(!event.resolutionActor.isNullOrBlank() &&
+                !event.resolutionReason.isNullOrBlank())
             check(ReleaseReconciliationMapper.eventProjection(event.payload).projectionKey == key)
+        }
+    }
+
+    suspend fun evidenceReceipts(key: String, limit: Int, offset: Int): List<CycleEvidenceReceiptEntity> {
+        require(limit in 1..256 && offset >= 0)
+        check(dao.baselineMarker() != null)
+        return dao.receiptsForProjection(key, limit, offset).onEach { receipt ->
+            val evidence = dao.evidenceById(receipt.canonicalEvidenceId)?.toDomainOrNull()
+                ?: error("orphan cycle Evidence receipt")
+            check((CanonicalReleaseIdentity.from(evidence)?.key ?: "partial-v1:${evidence.id}") == key)
         }
     }
 
@@ -252,9 +372,45 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
     }
 
     private fun bucketOf(e: ReleaseEvidence): String {
-        val path = e.siteIdentifier?.canonicalSeriesPath ?: error("candidate lacks canonical series")
-        val part = e.installment
-        return lengthKey("canonical-bucket-v1", "aniworld", path, part.stableKey)
+        return CanonicalReleaseIdentity.bucketOf(e) ?: error("candidate lacks canonical bucket")
+    }
+
+    private suspend fun verifyStateReferences(row: CanonicalReleaseProjectionEntity): CanonicalReleaseState {
+        val state = ReleaseReconciliationMapper.state(row)
+        if (state.key.startsWith("partial-v1:")) {
+            val evidenceId = state.key.removePrefix("partial-v1:")
+            val partial = dao.evidenceById(evidenceId)?.toDomainOrNull()
+                ?: error("partial projection references missing Evidence")
+            check(partial.identityCompleteness() == ReleaseIdentityCompleteness.PARTIAL &&
+                bucketOf(partial) == row.bucketKey)
+            state.bindingKey?.let { bound ->
+                val target = CanonicalReleaseIdentity.decode(bound) ?: error("invalid bound identity")
+                check(com.axiel7.anihyou.release.core.state.ReleaseIdentityCompatibilityPolicy
+                    .compatible(partial, target) && dao.projection(bound) != null) {
+                    "partial binding references a foreign or missing candidate"
+                }
+            }
+        }
+        state.forecastEvidenceId?.let { id ->
+            val forecast = dao.evidenceById(id)?.toDomainOrNull()
+                ?: error("projection references missing forecast")
+            check(forecast.sourceType == ReleaseSourceType.ANIWORLD_CALENDAR &&
+                forecast.evidenceType == ReleaseEvidenceType.FORECAST &&
+                (CanonicalReleaseIdentity.from(forecast)?.key == state.key ||
+                    CanonicalReleaseIdentity.decode(state.key)?.let { key ->
+                        forecast.identityCompleteness() == ReleaseIdentityCompleteness.PARTIAL &&
+                            bucketOf(forecast) == key.bucketKey &&
+                            dao.projection("partial-v1:$id")?.bindingKey == state.key
+                    } == true)) { "forecast reference belongs to another release" }
+        }
+        state.scheduleEvidenceId?.let { id ->
+            val correction = dao.evidenceById(id)?.toDomainOrNull()
+                ?: error("projection references missing schedule correction")
+            check(correction.sourceType == ReleaseSourceType.ANIWORLD_POSTPONEMENT &&
+                correction.evidenceType == ReleaseEvidenceType.CORRECTION &&
+                CanonicalReleaseIdentity.from(correction)?.key == state.key)
+        }
+        return state
     }
 
     private fun lengthKey(vararg fields: String): String = buildString {
@@ -270,6 +426,10 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
         cycle.id, cycle.scopeId, cycle.startedAt.toString(), cycle.completedAt.toString(),
         cycle.policy.version.toString(), cycle.policy.grace.seconds.toString(),
         cycle.policy.minimumSeparation.seconds.toString(), cycle.policy.maximumCycleDuration.seconds.toString(),
+        *cycle.manifest.sortedBy { it.instanceId }.map { expected ->
+            lengthKey(expected.instanceId, expected.sourceType.name, expected.targetKey,
+                expected.track?.name ?: "", expected.negativeRequired.toString())
+        }.toTypedArray(),
         *cycle.sources.sortedBy { it.instanceId }.map { source ->
             lengthKey(source.instanceId, source.sourceType.name, source.targetKey,
                 source.track?.name ?: "", source.result.name, source.health.name, source.coverage.name,

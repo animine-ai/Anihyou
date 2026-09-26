@@ -30,6 +30,7 @@ data class CycleSourceObservationEntity(
     val sourceType: String,
     val target: String,
     val track: String?,
+    val negativeRequired: Boolean,
     val result: String,
     val health: String,
     val coverage: String,
@@ -48,11 +49,15 @@ data class CycleSourceObservationEntity(
         ForeignKey(entity = ReleaseEvidenceEntity::class, parentColumns = ["id"],
             childColumns = ["canonicalEvidenceId"],
             onDelete = ForeignKey.RESTRICT, onUpdate = ForeignKey.RESTRICT),
-    ], indices = [Index(value = ["canonicalEvidenceId"], name = "idx_v3_receipt_evidence")])
+    ], indices = [
+        Index(value = ["canonicalEvidenceId"], name = "idx_v3_receipt_evidence"),
+        Index(value = ["projectionKey", "cycleId"], name = "idx_v3_receipt_projection_cycle"),
+    ])
 data class CycleEvidenceReceiptEntity(
     val cycleId: String,
     val sourceInstanceId: String,
     val canonicalEvidenceId: String,
+    val projectionKey: String,
 )
 
 @Entity(tableName = "v3_reconciliation_event", indices = [
@@ -75,6 +80,8 @@ data class ReconciliationEventEntity(
     val beforeRevision: Long,
     val afterRevision: Long,
     val payload: String,
+    val resolutionActor: String?,
+    val resolutionReason: String?,
 )
 
 @Entity(tableName = "v3_canonical_release_projection", indices = [
@@ -88,6 +95,7 @@ data class CanonicalReleaseProjectionEntity(
     val phase: String,
     val authority: String,
     val scheduleCondition: String,
+    val scheduleEvidenceId: String?,
     val releaseAt: String?,
     val forecastAt: String?,
     val forecastEvidenceId: String?,

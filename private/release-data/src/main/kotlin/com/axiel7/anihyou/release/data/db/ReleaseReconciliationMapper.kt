@@ -19,7 +19,8 @@ internal object ReleaseReconciliationMapper {
         require(payload.length <= 65536)
         return CanonicalReleaseProjectionEntity(
             state.key, bucket, state.underlyingPhase.name, state.phase.name, state.authority.name,
-            state.scheduleCondition.name, state.releaseAt?.toString(), state.forecastAt?.toString(),
+            state.scheduleCondition.name, state.scheduleEvidenceId,
+            state.releaseAt?.toString(), state.forecastAt?.toString(),
             state.forecastEvidenceId, state.bindingKey, payload, state.revision, sequence,
             state.absenceCount, state.lastAbsenceAt?.toString(), state.expectationEvidenceId,
         )
@@ -51,6 +52,7 @@ internal object ReleaseReconciliationMapper {
             phase = ReleasePhase.valueOf(row.phase),
             authority = ReleaseAuthority.valueOf(row.authority),
             scheduleCondition = ScheduleCondition.valueOf(row.scheduleCondition),
+            scheduleEvidenceId = row.scheduleEvidenceId,
             releaseAt = row.releaseAt?.let(Instant::parse),
             forecastAt = row.forecastAt?.let(Instant::parse),
             forecastEvidenceId = row.forecastEvidenceId,
@@ -71,6 +73,7 @@ internal object ReleaseReconciliationMapper {
         val value = JSONObject().put("v", 1).put("key", row.projectionKey).put("bucket", row.bucketKey)
             .put("underlying", row.underlyingPhase).put("phase", row.phase)
             .put("authority", row.authority).put("schedule", row.scheduleCondition)
+            .put("scheduleId", row.scheduleEvidenceId ?: JSONObject.NULL)
             .put("release", row.releaseAt ?: JSONObject.NULL)
             .put("forecast", row.forecastAt ?: JSONObject.NULL)
             .put("forecastId", row.forecastEvidenceId ?: JSONObject.NULL)
@@ -86,11 +89,12 @@ internal object ReleaseReconciliationMapper {
     fun eventProjection(payload: String): CanonicalReleaseProjectionEntity {
         require(payload.length <= 65536)
         val json = JSONObject(payload)
-        check(json.getInt("v") == 1 && json.length() == 17)
+        check(json.getInt("v") == 1 && json.length() == 18)
         fun optional(name: String): String? = if (json.isNull(name)) null else json.getString(name)
         val row = CanonicalReleaseProjectionEntity(
             json.getString("key"), json.getString("bucket"), json.getString("underlying"),
             json.getString("phase"), json.getString("authority"), json.getString("schedule"),
+            optional("scheduleId"),
             optional("release"), optional("forecast"), optional("forecastId"), optional("binding"),
             json.getString("conflicts"), json.getLong("revision"), json.getLong("sequence"),
             json.getInt("absence"), optional("lastAbsence"), optional("expectation"),

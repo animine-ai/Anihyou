@@ -69,7 +69,8 @@ class ReleaseCycleReconciler {
                     val forecast = forecasts.minBy { it.id }
                     val changed = state.forecastEvidenceId != forecast.id
                     state = state.copy(
-                        underlyingPhase = if (state.underlyingPhase == ReleasePhase.UNKNOWN)
+                        underlyingPhase = if (state.underlyingPhase == ReleasePhase.UNKNOWN ||
+                            changed && state.underlyingPhase == ReleasePhase.MISSING)
                             ReleasePhase.EXPECTED else state.underlyingPhase,
                         forecastAt = forecast.sourceReportedAt,
                         forecastEvidenceId = forecast.id,
@@ -96,29 +97,46 @@ class ReleaseCycleReconciler {
             }
             if (corrections.isNotEmpty() && !late) {
                 val conditions = corrections.map { it.scheduleCondition }.distinct()
-                if (conditions.size == 1 && state.scheduleCondition == ScheduleCondition.UNKNOWN) {
-                    state = state.copy(scheduleCondition = conditions.single())
+                if (conditions.size == 1 && state.scheduleCondition == ScheduleCondition.UNKNOWN &&
+                    state.conflicts.none { it.open &&
+                        it.kind == ReleaseConflictKind.SCHEDULE_DISAGREEMENT }) {
+                    state = state.copy(scheduleCondition = conditions.single(),
+                        scheduleEvidenceId = corrections.first().id)
                     put(key, "EXACT_CORRECTION", corrections.first().id, state)
                 } else if (conditions.size > 1 ||
                     conditions.single() != state.scheduleCondition) {
-                    val ids = corrections.map { it.id }.toSet()
-                    state = ReleaseConflictPolicy.open(state, ReleaseConflict(
-                        "schedule:$key:${ids.sorted().joinToString(",")}",
-                        ReleaseConflictKind.SCHEDULE_DISAGREEMENT, ids, true,
-                    )).copy(scheduleCondition = ScheduleCondition.UNKNOWN)
-                    put(key, "OPEN_CONFLICT", corrections.first().id, state)
+                    val replacement = corrections.singleOrNull()?.takeIf { next ->
+                        state.scheduleEvidenceId != null && cycle.sources.any { source ->
+                            source.evidence.any { it.id == next.id } &&
+                                state.scheduleEvidenceId in source.supersedesEvidenceIds
+                        }
+                    }
+                    if (replacement != null && state.conflicts.none { it.open &&
+                        it.kind == ReleaseConflictKind.SCHEDULE_DISAGREEMENT }) {
+                        state = state.copy(scheduleCondition = replacement.scheduleCondition,
+                            scheduleEvidenceId = replacement.id, absenceCount = 0, lastAbsenceAt = null)
+                        put(key, "SUPERSEDE_CORRECTION", replacement.id, state)
+                    } else {
+                        val ids = (corrections.map { it.id } + listOfNotNull(state.scheduleEvidenceId)).toSet()
+                        state = ReleaseConflictPolicy.open(state, ReleaseConflict(
+                            "schedule:$key:${ids.sorted().joinToString(",")}",
+                            ReleaseConflictKind.SCHEDULE_DISAGREEMENT, ids, true,
+                        )).copy(scheduleCondition = ScheduleCondition.UNKNOWN)
+                        put(key, "OPEN_CONFLICT", corrections.first().id, state)
+                    }
                 }
             }
         }
         // A second exact candidate can invalidate an earlier binding even if the partial
         // Evidence is absent from this poll. The caller supplies all persisted partials in scope.
+        val candidatesByBucket = states.keys.mapNotNull(CanonicalReleaseIdentity::decode)
+            .groupBy { it.bucketKey }
         partialForecasts.sortedBy { it.id }.forEach { partial ->
             if (!ReleaseIdentityCompatibilityPolicy.mayBindForecast(partial)) return@forEach
             val key = "partial-v1:${partial.id}"
             val prior = states[key] ?: CanonicalReleaseState(key, underlyingPhase = ReleasePhase.EXPECTED,
                 phase = ReleasePhase.EXPECTED)
-            val candidates = states.keys.mapNotNull(CanonicalReleaseIdentity::decode)
-                .filter { ReleaseIdentityCompatibilityPolicy.compatible(partial, it) }
+            val candidates = candidatesByBucket[CanonicalReleaseIdentity.bucketOf(partial)].orEmpty()
             val selection = ReleaseIdentityCompatibilityPolicy.selectKeys(partial, candidates,
                 completeCandidates)
             val bound = (selection as? ReleaseIdentityCompatibilityPolicy.Selection.Bound)?.identity?.key

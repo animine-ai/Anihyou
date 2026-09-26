@@ -80,6 +80,7 @@ class AniWorldDirectVerificationEvidenceAdapter(
     private val clock: Clock = Clock.systemUTC(),
 ) : AbstractAniWorldEvidenceSource(client, parser, clock) {
     override val sourceType: ReleaseSourceType = ReleaseSourceType.ANIWORLD_DIRECT_PAGE
+    override val sourceInstanceId: String = "${ReleaseSourceType.ANIWORLD_DIRECT_PAGE.name}:$episodeUrl"
 
     override suspend fun collect(): SourceResult<List<ReleaseEvidence>> = collectPage(
         role = AniWorldPageRole.DIRECT_EPISODE,
@@ -111,6 +112,9 @@ class AniWorldEvidenceIngestionCoordinator(
         }
         return AniWorldEvidenceCollection(
             results = results,
+            sourceInstances = sources.zip(results).map { (source, result) ->
+                CollectedEvidenceSourceInstance(source.sourceInstanceId, source.sourceType, result)
+            },
             evidence = results.flatMap { result ->
                 when (result) {
                     is SourceResult.Success -> result.value
@@ -125,6 +129,13 @@ class AniWorldEvidenceIngestionCoordinator(
 data class AniWorldEvidenceCollection(
     val results: List<SourceResult<List<ReleaseEvidence>>>,
     val evidence: List<ReleaseEvidence>,
+    val sourceInstances: List<CollectedEvidenceSourceInstance> = emptyList(),
+)
+
+data class CollectedEvidenceSourceInstance(
+    val instanceId: String,
+    val sourceType: ReleaseSourceType,
+    val result: SourceResult<List<ReleaseEvidence>>,
 )
 
 abstract class AbstractAniWorldEvidenceSource(

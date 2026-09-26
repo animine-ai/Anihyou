@@ -40,7 +40,9 @@ interface ReleaseReconciliationDao {
     @Query("SELECT * FROM v3_observation_cycle WHERE cycleId = :id")
     suspend fun cycle(id: String): ObservationCycleEntity?
 
-    @Query("SELECT COALESCE(MAX(commitSequence), 0) FROM v3_observation_cycle")
+    @Query("SELECT COALESCE(MAX(seq), 0) FROM (" +
+        "SELECT MAX(commitSequence) AS seq FROM v3_observation_cycle UNION ALL " +
+        "SELECT MAX(commitSequence) AS seq FROM v3_reconciliation_event)")
     suspend fun lastSequence(): Long
 
     @Query("SELECT completedAt FROM v3_observation_cycle WHERE scopeId = :scope ORDER BY commitSequence DESC LIMIT 1")
@@ -66,4 +68,7 @@ interface ReleaseReconciliationDao {
 
     @Query("SELECT * FROM v3_cycle_evidence_receipt WHERE canonicalEvidenceId = :id ORDER BY cycleId LIMIT :limit OFFSET :offset")
     suspend fun receiptsFor(id: String, limit: Int, offset: Int): List<CycleEvidenceReceiptEntity>
+
+    @Query("SELECT * FROM v3_cycle_evidence_receipt WHERE projectionKey = :key ORDER BY cycleId, sourceInstanceId, canonicalEvidenceId LIMIT :limit OFFSET :offset")
+    suspend fun receiptsForProjection(key: String, limit: Int, offset: Int): List<CycleEvidenceReceiptEntity>
 }

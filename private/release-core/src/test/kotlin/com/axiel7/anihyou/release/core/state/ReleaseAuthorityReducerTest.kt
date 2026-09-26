@@ -154,6 +154,43 @@ class ReleaseAuthorityReducerTest {
         assertEquals(ReleaseAuthority.NONE, decision.authority)
     }
 
+    @Test
+    fun onlyOriginallyExactCorrectRoleCanGrantAuthority() {
+        val recent = evidence("recent")
+        val direct = evidence("direct", sourceType = ReleaseSourceType.ANIWORLD_DIRECT_PAGE,
+            evidenceType = ReleaseEvidenceType.VERIFICATION)
+        assertEquals(ReleasePhase.RELEASED, reducer.reduce(null, recent).phase)
+        assertEquals(ReleasePhase.RELEASED, reducer.reduce(null, direct).phase)
+        val rejected = listOf(
+            recent.copy(sourceSeason = null),
+            recent.copy(languageTrack = null),
+            recent.copy(installment = Installment.Film(0), sourceSeason = null),
+            recent.copy(installment = Installment.Film(null), sourceSeason = null),
+            recent.copy(installment = Installment.Special(1)),
+            recent.copy(evidenceType = ReleaseEvidenceType.VERIFICATION),
+            direct.copy(evidenceType = ReleaseEvidenceType.CONFIRMATION),
+        )
+        rejected.forEach { item ->
+            assertNotEquals("Unexpected authority: ${item.identityKey}", ReleasePhase.RELEASED,
+                reducer.reduce(null, item).phase)
+        }
+        assertEquals(ReleasePhase.RELEASED, reducer.reduce(null,
+            recent.copy(sourceSeason = 0, installment = Installment.Episode(0))).phase)
+    }
+
+    @Test
+    fun calendarCannotSetOnScheduleAndUnknownCorrectionCannotImplyDelay() {
+        val forecast = reducer.reduce(null, evidence("calendar", sourceType =
+            ReleaseSourceType.ANIWORLD_CALENDAR, evidenceType = ReleaseEvidenceType.FORECAST))
+        assertEquals(ScheduleCondition.UNKNOWN, forecast.scheduleCondition)
+        assertEquals(null, forecast.releaseAt)
+        val corrected = reducer.reduce(forecast, evidence("correction", sourceType =
+            ReleaseSourceType.ANIWORLD_POSTPONEMENT, evidenceType = ReleaseEvidenceType.CORRECTION,
+            scheduleCondition = ScheduleCondition.UNKNOWN))
+        assertEquals(ScheduleCondition.UNKNOWN, corrected.scheduleCondition)
+        assertEquals(ReleaseAuthority.NONE, corrected.authority)
+    }
+
     private fun evidence(
         id: String,
         sourceType: ReleaseSourceType = ReleaseSourceType.ANIWORLD_RECENT,

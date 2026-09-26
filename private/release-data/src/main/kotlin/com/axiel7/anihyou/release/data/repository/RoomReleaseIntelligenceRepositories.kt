@@ -266,6 +266,9 @@ class RoomReleaseEvidenceRepository(
     private val store = RoomReleaseEvidenceStore(database)
 
     override suspend fun append(evidence: ReleaseEvidence): Boolean = database.withTransaction {
+        check(database.reconciliationDao().baselineMarker() == null) {
+            "new Evidence must be committed through the canonical cycle path"
+        }
         when (val resolved = store.resolveOrAppend(evidence)) {
             is EvidenceAppendResolution.Inserted -> {
                 store.ensureForecastRevision(resolved.canonicalEvidence)
@@ -288,6 +291,9 @@ class RoomReleaseEvidenceRepository(
         }
 
     override suspend fun append(revision: ReleaseForecastRevision): Boolean = database.withTransaction {
+        check(database.reconciliationDao().baselineMarker() == null) {
+            "ForecastRevision must be committed through the canonical cycle path"
+        }
         val evidence = store.resolveStoredId(revision.evidenceId) ?: return@withTransaction false
         val derived = ReleaseForecastRevision.fromEvidence(evidence) ?: return@withTransaction false
         if (derived != revision) return@withTransaction false

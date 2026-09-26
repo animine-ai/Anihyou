@@ -103,7 +103,9 @@ class ReleaseCycleReconcilerTest {
             at.minusSeconds(60), at, AbsencePolicySnapshot(), listOf(CycleSourceObservation(
                 id, ReleaseSourceType.ANIWORLD_DIRECT_PAGE, key, LanguageTrack.DE_SUB,
                 CycleResult.SUCCESS, SourceHealthStatus.HEALTHY,
-                TargetCoverage.COMPLETE_FOR_TARGET, TargetPresence.ABSENT, at)))
+                TargetCoverage.COMPLETE_FOR_TARGET, TargetPresence.ABSENT, at)),
+            manifest = listOf(ExpectedSourceInstance(id, ReleaseSourceType.ANIWORLD_DIRECT_PAGE,
+                key, LanguageTrack.DE_SUB, negativeRequired = true)))
         val first = ReleaseMissingPolicy.apply(initial.states.getValue(key), negative("n1", due), false)
         assertEquals(ReleasePhase.EXPECTED, first.phase)
         assertEquals(1, first.absenceCount)
@@ -134,5 +136,79 @@ class ReleaseCycleReconcilerTest {
             "operator", "source correction proof")
         assertEquals(ReleasePhase.RELEASED, resolved.phase)
         assertFalse(resolved.conflicts.first().open)
+    }
+
+    @Test fun sameBatchPermutationNeverChoosesArbitraryPublicationTime() {
+        val first = evidence("first", source = ReleaseSourceType.ANIWORLD_RECENT,
+            kind = ReleaseEvidenceType.CONFIRMATION, time = t0)
+        val second = evidence("second", source = ReleaseSourceType.ANIWORLD_RECENT,
+            kind = ReleaseEvidenceType.CONFIRMATION, time = t0.plusSeconds(60))
+        val one = reconciler.reconcile(emptyMap(), cycle("one", t0, first, second), emptyList(), true)
+        val two = reconciler.reconcile(emptyMap(), cycle("one", t0, second, first), emptyList(), true)
+        assertEquals(one.states, two.states)
+        val released = one.states.getValue(CanonicalReleaseIdentity.from(first)!!.key)
+        assertEquals(ReleasePhase.RELEASED, released.phase)
+        assertNull(released.releaseAt)
+        assertTrue(released.conflicts.any { it.open })
+    }
+
+    @Test fun forecastCannotBecomePositiveAndPartialRecentCannotBind() {
+        val partial = evidence("partial", source = ReleaseSourceType.ANIWORLD_RECENT,
+            kind = ReleaseEvidenceType.CONFIRMATION, season = null)
+        val exact = evidence("exact", source = ReleaseSourceType.ANIWORLD_RECENT,
+            kind = ReleaseEvidenceType.CONFIRMATION)
+        val result = reconciler.reconcile(emptyMap(), cycle("one", t0, exact, partial),
+            listOf(partial), true)
+        assertNull(result.states["partial-v1:partial"]?.bindingKey)
+        val forecastOnly = reconciler.reconcile(emptyMap(), cycle("calendar", t0,
+            evidence("forecast")), emptyList(), true)
+        assertEquals(ReleaseAuthority.NONE, forecastOnly.states.values.single().authority)
+        assertNull(forecastOnly.states.values.single().releaseAt)
+        assertEquals(ScheduleCondition.UNKNOWN, forecastOnly.states.values.single().scheduleCondition)
+    }
+
+    @Test fun unrelatedFailureAndRepeatedForecastDoNotResetAbsenceCounter() {
+        val forecast = evidence("forecast")
+        val key = CanonicalReleaseIdentity.from(forecast)!!.key
+        val previous = CanonicalReleaseState(key, underlyingPhase = ReleasePhase.EXPECTED,
+            phase = ReleasePhase.EXPECTED, forecastAt = t0,
+            forecastEvidenceId = forecast.id, expectationEvidenceId = forecast.id,
+            absenceCount = 1, lastAbsenceAt = t0.plusSeconds(86400))
+        val unrelated = CompletedObservationCycle("unrelated", "scope", t0.plusSeconds(90000),
+            t0.plusSeconds(90060), AbsencePolicySnapshot(), listOf(CycleSourceObservation(
+                "other", ReleaseSourceType.ANIWORLD_RECENT, "other-target", LanguageTrack.DE_DUB,
+                CycleResult.FAILURE, SourceHealthStatus.UNAVAILABLE)))
+        assertEquals(previous, ReleaseMissingPolicy.apply(previous, unrelated, false))
+        val repeated = reconciler.reconcile(mapOf(key to previous), cycle("repeat",
+            t0.plusSeconds(90060), forecast), emptyList(), true)
+        assertEquals(1, repeated.states[key]?.absenceCount)
+    }
+
+    @Test fun approximateForecastDoesNotStartMissingClock() {
+        val forecast = evidence("approximate").copy(approximateTime = true)
+        val state = reconciler.reconcile(emptyMap(), cycle("forecast", t0, forecast),
+            emptyList(), true).states.getValue(CanonicalReleaseIdentity.from(forecast)!!.key)
+        assertNull(state.expectationEvidenceId)
+    }
+
+    @Test fun correctionKeepsReleasedFactAndContradictionRemainsOpen() {
+        val positive = evidence("recent", source = ReleaseSourceType.ANIWORLD_RECENT,
+            kind = ReleaseEvidenceType.CONFIRMATION)
+        val delayed = evidence("delayed", source = ReleaseSourceType.ANIWORLD_POSTPONEMENT,
+            kind = ReleaseEvidenceType.CORRECTION).copy(scheduleCondition = ScheduleCondition.DELAYED)
+        val early = evidence("early", source = ReleaseSourceType.ANIWORLD_POSTPONEMENT,
+            kind = ReleaseEvidenceType.CORRECTION).copy(scheduleCondition = ScheduleCondition.EARLY)
+        val first = reconciler.reconcile(emptyMap(), cycle("release", t0, positive), emptyList(), true)
+        val second = reconciler.reconcile(first.states,
+            cycle("delay", t0.plusSeconds(60), delayed), emptyList(), true)
+        val third = reconciler.reconcile(second.states,
+            cycle("early", t0.plusSeconds(120), early), emptyList(), true)
+        val key = CanonicalReleaseIdentity.from(positive)!!.key
+        assertEquals(ReleasePhase.RELEASED, second.states[key]?.phase)
+        assertEquals(ScheduleCondition.DELAYED, second.states[key]?.scheduleCondition)
+        assertEquals(ReleasePhase.RELEASED, third.states[key]?.phase)
+        assertEquals(ScheduleCondition.UNKNOWN, third.states[key]?.scheduleCondition)
+        assertTrue(third.states.getValue(key).conflicts.any { it.open &&
+            it.kind == ReleaseConflictKind.SCHEDULE_DISAGREEMENT })
     }
 }

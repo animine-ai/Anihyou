@@ -119,4 +119,57 @@ class ReleaseReconciliationRepositoryTest {
                 db.releaseDao().getReleaseDecision(item.identityKey)?.toDomainOrNull()?.phase)
         } finally { db.close() }
     }
+
+    @Test fun explicitConflictResolutionPersistsActorAndReplaysAfterRestart() = runBlocking {
+        val db = open()
+        try {
+            val recent = evidence("recent", ReleaseSourceType.ANIWORLD_RECENT,
+                ReleaseEvidenceType.CONFIRMATION)
+            val direct = evidence("direct", ReleaseSourceType.ANIWORLD_DIRECT_PAGE,
+                ReleaseEvidenceType.VERIFICATION, forecastAt = time.plusSeconds(120))
+            val key = CanonicalReleaseIdentity.from(recent)!!.key
+            val repository = RoomReleaseReconciliationRepository(db)
+            repository.importBaseline()
+            repository.persistCompletedCycle(cycle("one", time, recent))
+            repository.persistCompletedCycle(cycle("two", time.plusSeconds(60), direct))
+            val conflicted = repository.get(key)!!
+            assertEquals(ReleasePhase.RELEASED, conflicted.phase)
+            val conflictId = conflicted.conflicts.single().id
+            assertTrue(runCatching { repository.resolveConflict(key, conflictId,
+                "", "insufficient provenance") }.isFailure)
+            val resolved = repository.resolveConflict(key, conflictId,
+                "test-operator", "verified correction")
+            assertEquals(ReleasePhase.RELEASED, resolved.phase)
+            assertFalse(resolved.conflicts.single().open)
+            assertTrue(repository.history(key, 20, 0).any {
+                it.kind == "RESOLVE_CONFLICT" && it.resolutionActor == "test-operator"
+            })
+            assertEquals(1, repository.rebuildProjections())
+        } finally { db.close() }
+    }
+
+    @Test fun moreThanFiveHundredEvidenceReceiptsRemainPagedAndLossless() = runBlocking {
+        val db = open()
+        try {
+            val repository = RoomReleaseReconciliationRepository(db)
+            repository.importBaseline()
+            val items = (0 until 513).map { index -> evidence("bulk-$index",
+                ReleaseSourceType.ANIWORLD_RECENT, ReleaseEvidenceType.CONFIRMATION) }
+            val key = CanonicalReleaseIdentity.from(items.first())!!.key
+            val cycle = CompletedObservationCycle("bulk", "v12-test", time.minusSeconds(60),
+                time, AbsencePolicySnapshot(), listOf(CycleSourceObservation(
+                    "bulk-source", ReleaseSourceType.ANIWORLD_RECENT, key, LanguageTrack.DE_SUB,
+                    CycleResult.SUCCESS, SourceHealthStatus.HEALTHY,
+                    observedAt = time, evidence = items)))
+            repository.persistCompletedCycle(cycle)
+            assertEquals(ReleasePhase.RELEASED, repository.get(key)?.phase)
+            assertEquals(256, repository.evidenceReceipts(key, 256, 0).size)
+            assertEquals(256, repository.evidenceReceipts(key, 256, 256).size)
+            assertEquals(1, repository.evidenceReceipts(key, 256, 512).size)
+            assertEquals(513L, db.openHelper.writableDatabase.query(
+                "SELECT count(*) FROM v3_cycle_evidence_receipt").use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { db.close() }
+    }
 }

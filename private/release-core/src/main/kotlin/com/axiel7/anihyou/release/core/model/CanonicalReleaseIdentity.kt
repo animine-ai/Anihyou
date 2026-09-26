@@ -26,6 +26,12 @@ data class CanonicalReleaseIdentity private constructor(
     )
 
     companion object {
+        fun bucketOf(evidence: ReleaseEvidence): String? {
+            val path = evidence.siteIdentifier?.canonicalSeriesPath ?: return null
+            if (evidence.identityCompleteness() == ReleaseIdentityCompleteness.NON_BINDABLE) return null
+            return encode("canonical-bucket-v1", "aniworld", path, evidence.installment.stableKey)
+        }
+
         fun decode(key: String): CanonicalReleaseIdentity? {
             val parts = ArrayList<String?>()
             var offset = 0

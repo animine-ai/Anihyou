@@ -76,7 +76,7 @@ class ReleaseDatabaseMigrationTest {
     @Test
     fun genuineVersionElevenMigratesToTwelveWithoutChangingEvidenceTables() {
         val name = databaseNames[10]
-        migrationTestHelper.createDatabase(name, 11).close()
+        migrationTestHelper.createDatabase(name, 11).apply { seedSchemaMarker(this, 11) }.close()
         val migrated = migrationTestHelper.runMigrationsAndValidate(name, 12, true,
             RELEASE_MIGRATION_11_12)
         try {
@@ -92,7 +92,7 @@ class ReleaseDatabaseMigrationTest {
     @Test
     fun genuineVersionTenAndEightReachTwelveThroughOriginalSchemas() {
         val ten = databaseNames[11]
-        migrationTestHelper.createDatabase(ten, 10).close()
+        migrationTestHelper.createDatabase(ten, 10).apply { seedSchemaMarker(this, 10) }.close()
         val migratedTen = migrationTestHelper.runMigrationsAndValidate(ten, 12, true,
             RELEASE_MIGRATION_10_11, RELEASE_MIGRATION_11_12)
         try {
@@ -101,7 +101,7 @@ class ReleaseDatabaseMigrationTest {
         } finally { migratedTen.close() }
 
         val eight = databaseNames[12]
-        migrationTestHelper.createDatabase(eight, 8).close()
+        migrationTestHelper.createDatabase(eight, 8).apply { seedSchemaMarker(this, 8) }.close()
         val migratedEight = migrationTestHelper.runMigrationsAndValidate(eight, 12, true,
             RELEASE_MIGRATION_8_9, RELEASE_MIGRATION_9_10, RELEASE_MIGRATION_10_11,
             RELEASE_MIGRATION_11_12)
@@ -115,7 +115,7 @@ class ReleaseDatabaseMigrationTest {
     fun v11InvalidMarkerBlocksV12MigrationAndRollsBack() {
         val name = databaseNames[13]
         val old = migrationTestHelper.createDatabase(name, 11)
-        old.execSQL("UPDATE schema_meta SET schemaVersion = 999 WHERE key = 'release_schema'")
+        seedSchemaMarker(old, 999)
         old.close()
         val failed = runCatching { migrationTestHelper.runMigrationsAndValidate(name, 12, true,
             RELEASE_MIGRATION_11_12) }
@@ -130,6 +130,11 @@ class ReleaseDatabaseMigrationTest {
                 assertTrue(it.moveToFirst()); it.getLong(0)
             })
         } finally { reopened.close() }
+    }
+
+    private fun seedSchemaMarker(db: SupportSQLiteDatabase, version: Int) {
+        db.execSQL("INSERT INTO schema_meta(`key`, schemaVersion, value, updatedAt) " +
+            "VALUES('release_schema', $version, 'fixture', '2026-09-26T00:00:00Z')")
     }
 
     @Test
@@ -402,6 +407,14 @@ class ReleaseDatabaseMigrationTest {
             .addMigrations(RELEASE_MIGRATION_11_12).allowMainThreadQueries().build()
         try {
             val evidenceRepository = RoomReleaseEvidenceRepository(database)
+            assertEquals(12L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
+            assertEquals(4L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT COUNT(*) FROM v3_evidence_alias"))
+            assertEquals(4L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT COUNT(*) FROM v3_evidence_duplicate_archive"))
+            assertEquals(2L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT COUNT(*) FROM v3_forecast_revision_archive"))
             assertEquals(calendarLegacy, evidenceRepository.findById(calendarV2.id))
             assertFalse(evidenceRepository.append(calendarV2))
             assertFalse(evidenceRepository.append(runtimeV2))

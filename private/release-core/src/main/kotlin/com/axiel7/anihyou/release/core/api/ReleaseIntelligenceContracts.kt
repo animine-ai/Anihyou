@@ -112,6 +112,8 @@ sealed interface SourceResult<out T> {
  */
 interface ReleaseEvidenceSource {
     val sourceType: ReleaseSourceType
+    /** Stable identity of this fetch instance; distinct direct targets must not collapse. */
+    val sourceInstanceId: String get() = sourceType.name
 
     suspend fun collect(): SourceResult<List<ReleaseEvidence>>
 }

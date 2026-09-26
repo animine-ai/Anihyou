@@ -46,6 +46,14 @@ data class AbsencePolicySnapshot(
     }
 }
 
+data class ExpectedSourceInstance(
+    val instanceId: String,
+    val sourceType: ReleaseSourceType,
+    val targetKey: String,
+    val track: LanguageTrack?,
+    val negativeRequired: Boolean = false,
+)
+
 data class CompletedObservationCycle(
     val id: String,
     val scopeId: String,
@@ -53,12 +61,22 @@ data class CompletedObservationCycle(
     val completedAt: Instant,
     val policy: AbsencePolicySnapshot,
     val sources: List<CycleSourceObservation>,
+    val manifest: List<ExpectedSourceInstance> = emptyList(),
 ) {
     init {
         require(id.isNotBlank() && id.length <= 256 && scopeId.isNotBlank() && scopeId.length <= 2048)
         require(!completedAt.isBefore(startedAt) && sources.isNotEmpty())
         require(sources.map { it.instanceId }.distinct().size == sources.size)
         require(sources.size <= 1024 && sources.sumOf { it.evidence.size } <= 65536)
+        require(manifest.size <= 1024 && manifest.map { it.instanceId }.distinct().size == manifest.size)
+        require(manifest.isEmpty() || manifest.map { it.instanceId }.toSet() ==
+            sources.map { it.instanceId }.toSet())
+        require(manifest.all { expected -> sources.any { actual ->
+            actual.instanceId == expected.instanceId && actual.sourceType == expected.sourceType &&
+                actual.targetKey == expected.targetKey && actual.track == expected.track
+        } })
+        require(sources.none { it.coverage == TargetCoverage.COMPLETE_FOR_TARGET } ||
+            manifest.isNotEmpty()) { "negative coverage requires a predeclared manifest" }
         require(sources.all { it.observedAt == null ||
             (it.observedAt >= startedAt && it.observedAt <= completedAt) })
     }
@@ -82,6 +100,7 @@ data class CanonicalReleaseState(
     val phase: ReleasePhase = ReleasePhase.UNKNOWN,
     val authority: ReleaseAuthority = ReleaseAuthority.NONE,
     val scheduleCondition: ScheduleCondition = ScheduleCondition.UNKNOWN,
+    val scheduleEvidenceId: String? = null,
     val releaseAt: Instant? = null,
     val forecastAt: Instant? = null,
     val forecastEvidenceId: String? = null,
