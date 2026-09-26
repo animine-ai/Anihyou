@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-const val RELEASE_DATABASE_VERSION = 10
+const val RELEASE_DATABASE_VERSION = 11
 
 @Database(
     entities = [
@@ -28,6 +28,9 @@ const val RELEASE_DATABASE_VERSION = 10
         ReleaseDecisionEntity::class,
         SourceHealthEntity::class,
         ReleaseForecastRevisionEntity::class,
+        ReleaseEvidenceAliasEntity::class,
+        ReleaseEvidenceDuplicateArchiveEntity::class,
+        ReleaseForecastRevisionArchiveEntity::class,
     ],
     version = RELEASE_DATABASE_VERSION,
     exportSchema = true,

@@ -29,6 +29,7 @@ import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_6_7
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_7_8
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_8_9
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_9_10
+import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_10_11
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
 import com.axiel7.anihyou.release.data.preferences.ReleasePreferencesStore
@@ -70,6 +71,7 @@ val animetrackerReleaseModule = module {
             RELEASE_MIGRATION_7_8,
             RELEASE_MIGRATION_8_9,
             RELEASE_MIGRATION_9_10,
+            RELEASE_MIGRATION_10_11,
         ).build()
     }
     single<AniWorldHttpTransport> { JdkAniWorldHttpTransport() }

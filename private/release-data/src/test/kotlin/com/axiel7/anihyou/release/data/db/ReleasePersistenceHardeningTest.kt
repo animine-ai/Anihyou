@@ -23,6 +23,7 @@ import com.axiel7.anihyou.release.data.repository.RoomReleaseEvidenceRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseIntelligencePersistence
 import com.axiel7.anihyou.release.data.repository.RoomSourceHealthRepository
 import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
+import com.axiel7.anihyou.release.data.ReleaseEvidenceFingerprintV2
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -76,10 +77,13 @@ class ReleasePersistenceHardeningTest {
                 ),
             )
 
-            val confirmation = forecast.copy(
-                id = "confirmation-evidence",
+            val confirmationWithoutId = forecast.copy(
+                id = "pending",
                 sourceType = ReleaseSourceType.ANIWORLD_RECENT,
                 evidenceType = ReleaseEvidenceType.CONFIRMATION,
+            )
+            val confirmation = confirmationWithoutId.copy(
+                id = ReleaseEvidenceFingerprintV2.evidenceId(confirmationWithoutId),
             )
             assertTrue(database.releaseDao().insertReleaseEvidence(confirmation.toEntity()) > 0)
             assertFalse(
@@ -234,7 +238,7 @@ class ReleasePersistenceHardeningTest {
             firstSeenAt = observedAt,
             lastValidatedAt = observedAt,
         )
-        return ReleaseEvidence(
+        val withoutV2Id = ReleaseEvidence(
             id = id,
             sourceType = sourceType,
             sourceUrl = "https://aniworld.to/anime/stream/wp04a-hardening",
@@ -258,5 +262,6 @@ class ReleasePersistenceHardeningTest {
                 timing = 1.0,
             ),
         )
+        return withoutV2Id.copy(id = ReleaseEvidenceFingerprintV2.evidenceId(withoutV2Id))
     }
 }

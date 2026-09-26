@@ -1,6 +1,7 @@
 package com.axiel7.anihyou.release.data.db
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 
 @Entity(
@@ -16,6 +17,11 @@ import androidx.room.Index
         ),
         Index(value = ["sourceHash"], name = "idx_v3_evidence_hash"),
         Index(
+            value = ["canonicalFingerprint"],
+            unique = true,
+            name = "idx_v3_evidence_fingerprint",
+        ),
+        Index(
             value = ["evidenceType", "observedAt"],
             name = "idx_v3_evidence_type_observed",
         ),
@@ -23,6 +29,7 @@ import androidx.room.Index
 )
 data class ReleaseEvidenceEntity(
     @androidx.room.PrimaryKey val id: String,
+    val canonicalFingerprint: String,
     val identityKey: String,
     val sourceType: String,
     val sourceUrl: String,
@@ -121,4 +128,98 @@ data class ReleaseForecastRevisionEntity(
     val approximateTime: Boolean,
     val sourceHash: String,
     val parserVersion: String,
+)
+
+@Entity(
+    tableName = "v3_evidence_alias",
+    foreignKeys = [
+        ForeignKey(
+            entity = ReleaseEvidenceEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["canonicalEvidenceId"],
+            onDelete = ForeignKey.RESTRICT,
+            onUpdate = ForeignKey.RESTRICT,
+        ),
+    ],
+    indices = [
+        Index(value = ["canonicalEvidenceId"], name = "idx_v3_alias_canonical_evidence"),
+        Index(value = ["canonicalFingerprint"], name = "idx_v3_alias_fingerprint"),
+    ],
+)
+data class ReleaseEvidenceAliasEntity(
+    @androidx.room.PrimaryKey val aliasId: String,
+    val canonicalEvidenceId: String,
+    val canonicalFingerprint: String,
+    val aliasKind: String,
+    val createdAt: String,
+)
+
+@Entity(
+    tableName = "v3_evidence_duplicate_archive",
+    foreignKeys = [
+        ForeignKey(
+            entity = ReleaseEvidenceEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["canonicalEvidenceId"],
+            onDelete = ForeignKey.RESTRICT,
+            onUpdate = ForeignKey.RESTRICT,
+        ),
+    ],
+    indices = [
+        Index(value = ["canonicalEvidenceId"], name = "idx_v3_evidence_archive_canonical"),
+    ],
+)
+data class ReleaseEvidenceDuplicateArchiveEntity(
+    @androidx.room.PrimaryKey val originalId: String,
+    val canonicalEvidenceId: String,
+    val canonicalFingerprint: String,
+    val identityKey: String,
+    val sourceType: String,
+    val sourceUrl: String,
+    val sourceHash: String,
+    val parserVersion: String,
+    val observedAt: String,
+    val sourceReportedAt: String?,
+    val approximateTime: Boolean,
+    val siteIdentifierPayload: String?,
+    val sourceSeason: Int?,
+    val navigationSeason: Int?,
+    val installmentPayload: String,
+    val languageTrack: String?,
+    val evidenceType: String,
+    val scheduleCondition: String,
+    val confidenceSource: Double,
+    val confidenceIdentity: Double,
+    val confidenceInstallment: Double,
+    val confidenceLanguageTrack: Double,
+    val confidenceTiming: Double,
+    val archivedAt: String,
+)
+
+@Entity(
+    tableName = "v3_forecast_revision_archive",
+    foreignKeys = [
+        ForeignKey(
+            entity = ReleaseForecastRevisionEntity::class,
+            parentColumns = ["revisionId"],
+            childColumns = ["canonicalRevisionId"],
+            onDelete = ForeignKey.RESTRICT,
+            onUpdate = ForeignKey.RESTRICT,
+        ),
+    ],
+    indices = [
+        Index(value = ["canonicalRevisionId"], name = "idx_v3_forecast_archive_canonical"),
+    ],
+)
+data class ReleaseForecastRevisionArchiveEntity(
+    @androidx.room.PrimaryKey val originalRevisionId: Long,
+    val canonicalRevisionId: Long,
+    val identityKey: String,
+    val evidenceId: String,
+    val forecastAt: String,
+    val observedAt: String,
+    val approximateTime: Boolean,
+    val sourceHash: String,
+    val parserVersion: String,
+    val archivedAt: String,
 )

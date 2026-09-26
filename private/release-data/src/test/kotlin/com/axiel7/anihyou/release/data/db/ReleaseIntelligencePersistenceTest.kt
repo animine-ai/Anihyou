@@ -16,6 +16,7 @@ import com.axiel7.anihyou.release.core.model.ReleaseSourceType
 import com.axiel7.anihyou.release.core.model.ScheduleCondition
 import com.axiel7.anihyou.release.core.model.SourceHealth
 import com.axiel7.anihyou.release.core.model.SourceHealthStatus
+import com.axiel7.anihyou.release.data.ReleaseEvidenceFingerprintV2
 import com.axiel7.anihyou.release.core.api.SourceFailureKind
 import com.axiel7.anihyou.release.core.api.SourceResult
 import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
@@ -58,10 +59,13 @@ class ReleaseIntelligencePersistenceTest {
                 sourceReportedAt = Instant.parse("2026-09-22T20:10:00Z"),
                 approximate = true,
             )
-            val second = first.copy(
+            val secondWithoutId = first.copy(
                 id = "forecast-2",
                 observedAt = Instant.parse("2026-09-22T18:05:00Z"),
                 sourceReportedAt = Instant.parse("2026-09-22T20:20:00Z"),
+            )
+            val second = secondWithoutId.copy(
+                id = ReleaseEvidenceFingerprintV2.evidenceId(secondWithoutId),
             )
             val repository = RoomReleaseEvidenceRepository(database)
 
@@ -191,7 +195,7 @@ class ReleaseIntelligencePersistenceTest {
             firstSeenAt = observedAt,
             lastValidatedAt = observedAt,
         )
-        return ReleaseEvidence(
+        val withoutV2Id = ReleaseEvidence(
             id = id,
             sourceType = sourceType,
             sourceUrl = "https://aniworld.to/anime/stream/wp04a-series",
@@ -215,5 +219,6 @@ class ReleaseIntelligencePersistenceTest {
                 timing = 1.0,
             ),
         )
+        return withoutV2Id.copy(id = ReleaseEvidenceFingerprintV2.evidenceId(withoutV2Id))
     }
 }

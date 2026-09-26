@@ -51,11 +51,27 @@ abstract class ReleaseDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract suspend fun insertMappingAttempt(row: MappingAttemptEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     abstract suspend fun insertReleaseEvidence(row: ReleaseEvidenceEntity): Long
 
     @Query("SELECT * FROM v3_release_evidence WHERE id = :id")
     abstract suspend fun getReleaseEvidence(id: String): ReleaseEvidenceEntity?
+
+    @Query("SELECT * FROM v3_release_evidence WHERE canonicalFingerprint = :fingerprint")
+    abstract suspend fun getReleaseEvidenceByFingerprint(
+        fingerprint: String,
+    ): List<ReleaseEvidenceEntity>
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    abstract suspend fun insertEvidenceAlias(row: ReleaseEvidenceAliasEntity)
+
+    @Query("SELECT * FROM v3_evidence_alias WHERE aliasId = :aliasId")
+    abstract suspend fun getEvidenceAlias(aliasId: String): ReleaseEvidenceAliasEntity?
+
+    @Query("SELECT * FROM v3_evidence_duplicate_archive WHERE originalId = :originalId")
+    abstract suspend fun getEvidenceDuplicateArchive(
+        originalId: String,
+    ): ReleaseEvidenceDuplicateArchiveEntity?
 
     @Query(
         "SELECT * FROM v3_release_evidence " +
@@ -72,7 +88,7 @@ abstract class ReleaseDao {
     @Query("SELECT * FROM v3_release_decision WHERE identityKey = :identityKey")
     abstract fun observeReleaseDecision(identityKey: String): Flow<ReleaseDecisionEntity?>
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     abstract suspend fun insertForecastRevision(row: ReleaseForecastRevisionEntity): Long
 
     @Query(

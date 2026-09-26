@@ -46,6 +46,10 @@ jobs:
             source_ref: ci/historical-room-v9-source
             historical_source_sha: fba44c807f750469ee7b0571c418ffe3cacb67dd
             imported_source_commit: 6628284ced4fdd19aa99359d0e579df1ee33d96f
+          - schema_version: 10
+            source_ref: bf6a8f48deecf88711e2a00acde3ac30a2cab6c4
+            historical_source_sha: bf6a8f48deecf88711e2a00acde3ac30a2cab6c4
+            imported_source_commit: bf6a8f48deecf88711e2a00acde3ac30a2cab6c4
     steps:
       - name: Checkout internalized historical schema source
         uses: actions/checkout@v4
@@ -61,8 +65,11 @@ jobs:
             echo "Expected internalized source commit $expected, got $actual"
             exit 1
           fi
-          echo "Historical source repo: itlspqr/Animetracker (read-only provenance)"
-          echo "Historical source SHA: ${{ matrix.historical_source_sha }}"
+          if [[ "${{ matrix.schema_version }}" == "10" ]]; then
+            echo "Room 10 source: accepted animine-ai/Anihyou baseline"
+          else
+            echo "Historical Room source SHA: ${{ matrix.historical_source_sha }}"
+          fi
           echo "New-repo source ref: ${{ matrix.source_ref }}"
           echo "New-repo source commit: $actual"
 
@@ -109,7 +116,7 @@ jobs:
           retention-days: 14
 
   release-modules-test:
-    name: Core/Data tests and Room schema 10 export
+    name: Core/Data tests and Room schema 11 export
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -163,24 +170,24 @@ jobs:
       - name: Run Robolectric data tests
         run: ./gradlew --console=plain --stacktrace :private:release-data:testDebugUnitTest
 
-      - name: Validate generated Room schema 10
+      - name: Validate generated Room schema 11
         id: schema
         shell: bash
         run: |
           mkdir -p private/release-data/schemas
-          schema_path="$(find private/release-data/schemas -type f -name "10.json" -print -quit)"
+          schema_path="$(find private/release-data/schemas -type f -name "11.json" -print -quit)"
           if [[ -z "$schema_path" ]]; then
-            echo "Room schema 10.json was not generated"
+            echo "Room schema 11.json was not generated"
             find private/release-data/schemas -type f -print
             exit 1
           fi
           python3 -m json.tool "$schema_path" >/dev/null
           echo "schema_path=$schema_path" >> "$GITHUB_OUTPUT"
 
-      - name: Upload real schema 10
+      - name: Upload genuine Room schema 11
         uses: actions/upload-artifact@v7
         with:
-          name: room-schema-10
+          name: room-schema-11
           path: ${{ steps.schema.outputs.schema_path }}
           if-no-files-found: error
           retention-days: 14
@@ -256,7 +263,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Download generated schemas 8, 9 and 10
+      - name: Download generated schemas 8, 9, 10 and 11
         uses: actions/download-artifact@v8.0.1
         with:
           pattern: room-schema-*
@@ -268,7 +275,7 @@ jobs:
         run: |
           schema_dir="private/release-data/schemas/com.axiel7.anihyou.release.data.db.ReleaseDatabase"
           mkdir -p "$schema_dir"
-          for version in 8 9 10; do
+          for version in 8 9 10 11; do
             schema_path="$(find .ci-room-schemas -type f -name "$version.json" -print -quit)"
             if [[ -z "$schema_path" ]]; then
               echo "Downloaded schema $version.json is missing"

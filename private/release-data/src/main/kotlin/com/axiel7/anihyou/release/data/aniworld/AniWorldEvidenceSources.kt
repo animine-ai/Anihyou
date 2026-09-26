@@ -10,9 +10,8 @@ import com.axiel7.anihyou.release.core.model.ReleaseEvidenceType
 import com.axiel7.anihyou.release.core.model.ReleaseSourceType
 import com.axiel7.anihyou.release.core.model.SourceHealth
 import com.axiel7.anihyou.release.core.model.SourceHealthStatus
+import com.axiel7.anihyou.release.data.ReleaseEvidenceFingerprintV2
 import java.net.URI
-import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
 import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.CancellationException
@@ -384,10 +383,6 @@ abstract class AbstractAniWorldEvidenceSource(
  * snapshot deduplicates while SourceHealth records polling attempts.
  */
 internal object AniWorldEvidenceId {
-    private const val FINGERPRINT_VERSION = "evidence-id-v2"
-    private const val ID_PREFIX = "aniworld-v3"
-    private const val HEX = "0123456789abcdef"
-
     fun create(
         sourceType: ReleaseSourceType,
         sourceHash: String,
@@ -396,37 +391,15 @@ internal object AniWorldEvidenceId {
         sourceReportedAt: Instant?,
         approximateTime: Boolean,
         scheduleCondition: com.axiel7.anihyou.release.core.model.ScheduleCondition,
-    ): String {
-        val fingerprint = buildString {
-            appendField(FINGERPRINT_VERSION)
-            appendField(sourceType.name)
-            appendField(sourceHash)
-            appendField(identityKey)
-            appendField(evidenceType.name)
-            appendField(sourceReportedAt?.toString())
-            appendField(approximateTime.toString())
-            appendField(scheduleCondition.name)
-        }
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(fingerprint.toByteArray(StandardCharsets.UTF_8))
-        val hash = buildString(digest.size * 2) {
-            digest.forEach { byte ->
-                val value = byte.toInt() and 0xff
-                append(HEX[value ushr 4])
-                append(HEX[value and 0x0f])
-            }
-        }
-        return "$ID_PREFIX:${sourceType.name}:$hash"
-    }
-
-    private fun StringBuilder.appendField(value: String?) {
-        if (value == null) {
-            append("-1:")
-            return
-        }
-        val bytes = value.toByteArray(StandardCharsets.UTF_8)
-        append(bytes.size).append(':').append(value)
-    }
+    ): String = ReleaseEvidenceFingerprintV2.evidenceId(
+        sourceType = sourceType,
+        sourceHash = sourceHash,
+        identityKey = identityKey,
+        evidenceType = evidenceType,
+        sourceReportedAt = sourceReportedAt,
+        approximateTime = approximateTime,
+        scheduleCondition = scheduleCondition,
+    )
 }
 
 private const val DEFAULT_ANIWORLD_SOURCE_ROOT = "https://aniworld.to"

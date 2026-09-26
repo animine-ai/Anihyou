@@ -15,7 +15,9 @@ import com.axiel7.anihyou.release.core.model.ReleaseSourceType
 import com.axiel7.anihyou.release.core.model.ScheduleCondition
 import com.axiel7.anihyou.release.core.model.SourceHealth
 import com.axiel7.anihyou.release.core.model.SourceHealthStatus
+import com.axiel7.anihyou.release.data.ReleaseEvidenceFingerprintV2
 import java.time.Instant
+import java.util.Locale
 
 private const val MAX_EVIDENCE_ID_LENGTH = 256
 private const val MAX_IDENTITY_KEY_LENGTH = 2048
@@ -102,6 +104,7 @@ fun ReleaseEvidence.toEntity(): ReleaseEvidenceEntity {
     val sitePayload = siteIdentifier?.let(::encodeSiteIdentifier)
     return ReleaseEvidenceEntity(
         id = id.requireBounded(MAX_EVIDENCE_ID_LENGTH, "evidence id"),
+        canonicalFingerprint = ReleaseEvidenceFingerprintV2.compute(this),
         identityKey = identityKey.requireBounded(MAX_IDENTITY_KEY_LENGTH, "evidence identity"),
         sourceType = sourceType.name,
         sourceUrl = sourceUrl.requireBounded(MAX_URL_LENGTH, "evidence url"),
@@ -129,14 +132,18 @@ fun ReleaseEvidence.toEntity(): ReleaseEvidenceEntity {
 fun ReleaseEvidence.toEntityOrNull(): ReleaseEvidenceEntity? =
     runCatching { toEntity() }.getOrNull()
 
-fun ReleaseEvidenceEntity.toDomainOrNull(): ReleaseEvidence? {
+fun ReleaseEvidenceEntity.toDomainOrNull(
+    validateCanonicalFingerprint: Boolean = true,
+): ReleaseEvidence? {
     if (!id.isWithin(MAX_EVIDENCE_ID_LENGTH) ||
         !identityKey.isWithin(MAX_IDENTITY_KEY_LENGTH) ||
         !sourceUrl.isWithin(MAX_URL_LENGTH) ||
         !sourceHash.isWithin(MAX_HASH_LENGTH) ||
         !parserVersion.isWithin(MAX_PARSER_LENGTH) ||
         siteIdentifierPayload?.length?.let { it > MAX_PAYLOAD_LENGTH } == true ||
-        installmentPayload.length > MAX_PAYLOAD_LENGTH
+        installmentPayload.length > MAX_PAYLOAD_LENGTH ||
+        (validateCanonicalFingerprint &&
+            !ReleaseEvidenceFingerprintV2.isValidFingerprint(canonicalFingerprint))
     ) return null
 
     val sourceType = runCatching { ReleaseSourceType.valueOf(sourceType) }.getOrNull()
@@ -179,7 +186,16 @@ fun ReleaseEvidenceEntity.toDomainOrNull(): ReleaseEvidence? {
                 languageTrack = confidenceLanguageTrack,
                 timing = confidenceTiming,
             ),
-        ).takeIf { it.identityKey == identityKey }
+        ).takeIf { evidence ->
+            val legacyPrefix = "${sourceType.name.lowercase(Locale.ROOT)}:"
+            evidence.identityKey == identityKey &&
+                (!validateCanonicalFingerprint ||
+                    canonicalFingerprint == ReleaseEvidenceFingerprintV2.compute(evidence)) &&
+                (!ReleaseEvidenceFingerprintV2.isV2Id(id) ||
+                    id == ReleaseEvidenceFingerprintV2.evidenceId(evidence)) &&
+                (!sourceType.isAniWorld || !id.startsWith(legacyPrefix) ||
+                    legacyEvidenceId(evidence) == id)
+        }
     }.getOrNull()
 }
 
