@@ -211,4 +211,31 @@ class ReleaseCycleReconcilerTest {
         assertTrue(third.states.getValue(key).conflicts.any { it.open &&
             it.kind == ReleaseConflictKind.SCHEDULE_DISAGREEMENT })
     }
+
+    @Test fun navigationDisagreementBlocksOnlyRouting() {
+        val first = evidence("first", source = ReleaseSourceType.ANIWORLD_RECENT,
+            kind = ReleaseEvidenceType.CONFIRMATION)
+        val second = evidence("second", source = ReleaseSourceType.ANIWORLD_RECENT,
+            kind = ReleaseEvidenceType.CONFIRMATION).copy(navigationSeason = 4)
+        val a = reconciler.reconcile(emptyMap(), cycle("first", t0, first), emptyList(), true)
+        val b = reconciler.reconcile(a.states, cycle("second", t0.plusSeconds(60), second),
+            emptyList(), true)
+        val key = CanonicalReleaseIdentity.from(first)!!.key
+        assertEquals(NavigationRoute.Ambiguous, b.states.getValue(key).navigationRoute())
+        assertEquals(ReleasePhase.RELEASED, b.states.getValue(key).phase)
+        assertTrue(b.states.getValue(key).conflicts.isEmpty())
+    }
+
+    @Test fun lateCycleFromAnotherScopeCannotReplaceNewerForecast() {
+        val a = evidence("A", time = t0)
+        val b = evidence("B", time = t0.plusSeconds(3600))
+        val first = reconciler.reconcile(emptyMap(), cycle("first", t0, a), emptyList(), true)
+        val second = reconciler.reconcile(first.states,
+            cycle("second", t0.plusSeconds(180), b), emptyList(), true)
+        val late = reconciler.reconcile(second.states,
+            cycle("third", t0.plusSeconds(60), a).copy(scopeId = "other"), emptyList(), true)
+        val key = CanonicalReleaseIdentity.from(a)!!.key
+        assertEquals(b.id, late.states.getValue(key).forecastEvidenceId)
+        assertEquals(second.states.getValue(key).revision, late.states.getValue(key).revision)
+    }
 }

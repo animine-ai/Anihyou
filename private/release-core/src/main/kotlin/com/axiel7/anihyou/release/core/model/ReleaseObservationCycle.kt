@@ -110,6 +110,22 @@ data class CanonicalReleaseState(
     val absenceCount: Int = 0,
     val lastAbsenceAt: Instant? = null,
     val expectationEvidenceId: String? = null,
+    /** Routing candidates; disagreement never changes the release fact. */
+    val navigationSeasons: Set<Int> = emptySet(),
+    val latestCompletedAt: Instant? = null,
 ) {
-    init { require(revision >= 0 && absenceCount >= 0) }
+    init { require(revision >= 0 && absenceCount >= 0 &&
+        navigationSeasons.size <= 256 && navigationSeasons.all { it >= 0 }) }
+}
+
+sealed interface NavigationRoute {
+    data object Unknown : NavigationRoute
+    data class Unique(val season: Int) : NavigationRoute
+    data object Ambiguous : NavigationRoute
+}
+
+fun CanonicalReleaseState.navigationRoute(): NavigationRoute = when (navigationSeasons.size) {
+    0 -> NavigationRoute.Unknown
+    1 -> NavigationRoute.Unique(navigationSeasons.single())
+    else -> NavigationRoute.Ambiguous
 }

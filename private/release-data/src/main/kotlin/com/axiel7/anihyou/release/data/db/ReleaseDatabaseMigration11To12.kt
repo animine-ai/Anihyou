@@ -61,7 +61,9 @@ val RELEASE_MIGRATION_11_12 = object : Migration(11, 12) {
             releaseAt TEXT, forecastAt TEXT, forecastEvidenceId TEXT, bindingKey TEXT,
             conflictIdsPayload TEXT NOT NULL, revision INTEGER NOT NULL,
             lastAppliedSequence INTEGER NOT NULL, absenceCount INTEGER NOT NULL,
-            lastAbsenceAt TEXT, expectationEvidenceId TEXT, PRIMARY KEY(projectionKey))""")
+            lastAbsenceAt TEXT, expectationEvidenceId TEXT, navigationPayload TEXT NOT NULL,
+            latestCompletedAt TEXT,
+            PRIMARY KEY(projectionKey))""")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_v3_canonical_phase_authority ON v3_canonical_release_projection(phase, authority)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_v3_canonical_bucket ON v3_canonical_release_projection(bucketKey)")
         db.execSQL("UPDATE schema_meta SET schemaVersion = 12, value = 'wp04a5-journal', " +

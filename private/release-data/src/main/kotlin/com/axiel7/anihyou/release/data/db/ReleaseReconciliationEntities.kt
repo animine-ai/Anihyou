@@ -106,4 +106,6 @@ data class CanonicalReleaseProjectionEntity(
     val absenceCount: Int,
     val lastAbsenceAt: String?,
     val expectationEvidenceId: String?,
+    val navigationPayload: String,
+    val latestCompletedAt: String?,
 )

@@ -23,6 +23,8 @@ internal object ReleaseReconciliationMapper {
             state.releaseAt?.toString(), state.forecastAt?.toString(),
             state.forecastEvidenceId, state.bindingKey, payload, state.revision, sequence,
             state.absenceCount, state.lastAbsenceAt?.toString(), state.expectationEvidenceId,
+            JSONArray(state.navigationSeasons.sorted()).toString(),
+            state.latestCompletedAt?.toString(),
         )
     }
 
@@ -35,6 +37,11 @@ internal object ReleaseReconciliationMapper {
             "invalid projection identity"
         }
         val array = JSONArray(row.conflictIdsPayload)
+        require(row.navigationPayload.length <= 2048)
+        val navigation = JSONArray(row.navigationPayload)
+        check(navigation.length() <= 256)
+        val seasons = (0 until navigation.length()).map(navigation::getInt)
+        check(seasons.all { it >= 0 } && seasons.distinct().size == seasons.size)
         check(array.length() <= 256)
         val conflicts = (0 until array.length()).map { index ->
             val item = array.getJSONObject(index)
@@ -62,6 +69,8 @@ internal object ReleaseReconciliationMapper {
             absenceCount = row.absenceCount,
             lastAbsenceAt = row.lastAbsenceAt?.let(Instant::parse),
             expectationEvidenceId = row.expectationEvidenceId,
+            navigationSeasons = seasons.toSet(),
+            latestCompletedAt = row.latestCompletedAt?.let(Instant::parse),
         )
         check(ReleaseConflictPolicyCheck.effective(state) == state.phase)
         check(state.authority != ReleaseAuthority.ANIWORLD ||
@@ -81,7 +90,9 @@ internal object ReleaseReconciliationMapper {
             .put("conflicts", row.conflictIdsPayload).put("revision", row.revision)
             .put("sequence", row.lastAppliedSequence).put("absence", row.absenceCount)
             .put("lastAbsence", row.lastAbsenceAt ?: JSONObject.NULL)
-            .put("expectation", row.expectationEvidenceId ?: JSONObject.NULL).toString()
+            .put("expectation", row.expectationEvidenceId ?: JSONObject.NULL)
+            .put("navigation", row.navigationPayload)
+            .put("latestCompleted", row.latestCompletedAt ?: JSONObject.NULL).toString()
         require(value.length <= 65536)
         return value
     }
@@ -89,7 +100,7 @@ internal object ReleaseReconciliationMapper {
     fun eventProjection(payload: String): CanonicalReleaseProjectionEntity {
         require(payload.length <= 65536)
         val json = JSONObject(payload)
-        check(json.getInt("v") == 1 && json.length() == 18)
+        check(json.getInt("v") == 1 && json.length() == 20)
         fun optional(name: String): String? = if (json.isNull(name)) null else json.getString(name)
         val row = CanonicalReleaseProjectionEntity(
             json.getString("key"), json.getString("bucket"), json.getString("underlying"),
@@ -98,6 +109,8 @@ internal object ReleaseReconciliationMapper {
             optional("release"), optional("forecast"), optional("forecastId"), optional("binding"),
             json.getString("conflicts"), json.getLong("revision"), json.getLong("sequence"),
             json.getInt("absence"), optional("lastAbsence"), optional("expectation"),
+            json.getString("navigation"),
+            optional("latestCompleted"),
         )
         state(row)
         return row

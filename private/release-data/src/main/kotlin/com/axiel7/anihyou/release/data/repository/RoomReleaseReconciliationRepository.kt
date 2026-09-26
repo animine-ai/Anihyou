@@ -52,6 +52,7 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 forecastAt = latest?.sourceReportedAt,
                 forecastEvidenceId = latest?.id,
                 expectationEvidenceId = latest?.takeIf { !it.approximateTime && it.sourceReportedAt != null }?.id,
+                navigationSeasons = items.mapNotNull { it.navigationSeason }.toSet(),
             )
             val timeClaims = positive.filter { !it.approximateTime }.mapNotNull { it.sourceReportedAt }.distinct()
             if (timeClaims.size > 1) {
@@ -103,17 +104,18 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                     authority = ReleaseAuthority.ANIWORLD,
                     releaseAt = anchor ?: legacy.releaseAt ?: previous.releaseAt,
                 )
-                if (legacy.releaseAt != null) {
+                val legacyTime = legacy.releaseAt
+                if (legacyTime != null) {
                     if (anchor == null) {
-                        legacyAnchors[target] = legacy.releaseAt
-                        if (previous.releaseAt != null && previous.releaseAt != legacy.releaseAt) {
+                        legacyAnchors[target] = legacyTime
+                        if (previous.releaseAt != null && previous.releaseAt != legacyTime) {
                             merged = ReleaseConflictPolicy.open(merged, ReleaseConflict(
                                 "legacy-evidence-time:$target:${raw.identityKey}",
                                 ReleaseConflictKind.PUBLICATION_TIME_DISAGREEMENT,
                                 valid.map { it.id }.toSet(), true,
                             ))
                         }
-                    } else if (anchor != legacy.releaseAt) {
+                    } else if (anchor != legacyTime) {
                         merged = ReleaseConflictPolicy.open(merged, ReleaseConflict(
                             "legacy-time:$target:${raw.identityKey}",
                             ReleaseConflictKind.PUBLICATION_TIME_DISAGREEMENT,

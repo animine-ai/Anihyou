@@ -24,10 +24,11 @@ class ReleaseCycleReconciler {
         val changes = mutableListOf<ReconciliationChange>()
         val items = cycle.sources.flatMap { it.evidence }.distinctBy { it.id }
             .sortedWith(compareBy({ it.sourceType.name }, { it.id }))
-        fun put(key: String, kind: String, evidenceId: String?, next: CanonicalReleaseState) {
+        fun put(key: String, kind: String, evidenceId: String?, next: CanonicalReleaseState,
+                semantic: Boolean = true) {
             val before = states[key]
             if (before == next) return
-            val after = next.copy(revision = (before?.revision ?: 0) + 1)
+            val after = next.copy(revision = (before?.revision ?: 0) + if (semantic) 1 else 0)
             states[key] = after
             changes += ReconciliationChange(kind, key, evidenceId, before, after)
         }
@@ -37,6 +38,12 @@ class ReleaseCycleReconciler {
         exact.toSortedMap(compareBy { it.key }).forEach { (identity, evidence) ->
             val key = identity.key
             var state = states[key] ?: CanonicalReleaseState(key)
+            val keyLate = late || state.latestCompletedAt?.isAfter(cycle.completedAt) == true
+            val observedNavigation = evidence.mapNotNull { it.navigationSeason }.toSet()
+            if (observedNavigation.isNotEmpty()) {
+                state = state.copy(navigationSeasons = state.navigationSeasons + observedNavigation)
+                put(key, "NAVIGATION_OBSERVATION", null, state)
+            }
             val positives = evidence.filter { it.isExactPositive() }
             val preciseTimes = positives.filter { !it.approximateTime }
                 .mapNotNull { it.sourceReportedAt }.distinct()
@@ -63,7 +70,7 @@ class ReleaseCycleReconciler {
                 it.sourceType == ReleaseSourceType.ANIWORLD_CALENDAR &&
                     it.evidenceType == ReleaseEvidenceType.FORECAST
             }
-            if (forecasts.isNotEmpty() && !late) {
+            if (forecasts.isNotEmpty() && !keyLate) {
                 val moments = forecasts.map { it.sourceReportedAt to it.approximateTime }.distinct()
                 if (moments.size == 1) {
                     val forecast = forecasts.minBy { it.id }
@@ -95,7 +102,7 @@ class ReleaseCycleReconciler {
                     it.evidenceType == ReleaseEvidenceType.CORRECTION &&
                     it.scheduleCondition != ScheduleCondition.UNKNOWN
             }
-            if (corrections.isNotEmpty() && !late) {
+            if (corrections.isNotEmpty() && !keyLate) {
                 val conditions = corrections.map { it.scheduleCondition }.distinct()
                 if (conditions.size == 1 && state.scheduleCondition == ScheduleCondition.UNKNOWN &&
                     state.conflicts.none { it.open &&
@@ -183,9 +190,19 @@ class ReleaseCycleReconciler {
         states.keys.sorted().forEach { key ->
             if (CanonicalReleaseIdentity.decode(key) == null) return@forEach
             val state = states.getValue(key)
+            val keyLate = late || state.latestCompletedAt?.isAfter(cycle.completedAt) == true
             val missing = ReleaseMissingPolicy.apply(state, cycle,
-                items.any { CanonicalReleaseIdentity.from(it)?.key == key && it.isExactPositive() }, late)
+                items.any { CanonicalReleaseIdentity.from(it)?.key == key && it.isExactPositive() }, keyLate)
             put(key, "ABSENCE_PROBE", null, missing)
+        }
+        val touchedKeys = exact.keys.map { it.key }.toSet() +
+            cycle.sources.mapNotNull { CanonicalReleaseIdentity.decode(it.targetKey)?.key }
+        touchedKeys.sorted().forEach { key ->
+            val state = states[key] ?: return@forEach
+            if (state.latestCompletedAt == null || cycle.completedAt > state.latestCompletedAt) {
+                put(key, "CYCLE_TIMESTAMP", null,
+                    state.copy(latestCompletedAt = cycle.completedAt), semantic = false)
+            }
         }
         return ReconciliationPlan(states.toMap(), changes)
     }
