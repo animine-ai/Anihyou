@@ -205,6 +205,7 @@ class ReleasePersistenceHardeningTest {
                 )
                 val decision = AniWorldReleaseAuthorityReducer().reduce(null, confirmation)
                 val repository = RoomReleaseDecisionRepository(database)
+                assertTrue(RoomReleaseEvidenceRepository(database).append(confirmation))
                 assertTrue(repository.put(decision))
                 assertTrue(repository.put(decision))
                 assertFalse(

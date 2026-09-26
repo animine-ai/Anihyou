@@ -95,6 +95,7 @@ class ReleaseIntelligencePersistenceTest {
             assertEquals(ReleasePhase.RELEASED, released.phase)
             assertEquals(ReleaseAuthority.ANIWORLD, released.authority)
 
+            assertTrue(RoomReleaseEvidenceRepository(database).append(release))
             val repository = RoomReleaseDecisionRepository(database)
             assertTrue(repository.put(released))
             val regressed = released.copy(
