@@ -8,6 +8,7 @@ import com.axiel7.anihyou.release.core.model.ReleaseEvidenceType
 import com.axiel7.anihyou.release.core.model.ReleasePhase
 import com.axiel7.anihyou.release.core.model.ReleaseSourceType
 import com.axiel7.anihyou.release.core.model.ScheduleCondition
+import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
 
 /**
  * Domain-only reducer for the V3 authority rules. Provider adapters remain
@@ -45,17 +46,13 @@ class AniWorldReleaseAuthorityReducer : ReleaseAuthorityReducer {
             revision = base.revision + 1L,
         )
 
-        if (base.phase == ReleasePhase.CONFLICT) {
-            return enriched.copy(phase = ReleasePhase.CONFLICT)
-        }
-
         if (base.phase == ReleasePhase.RELEASED) {
             return enriched.copy(
                 phase = ReleasePhase.RELEASED,
                 authority = ReleaseAuthority.ANIWORLD,
                 scheduleCondition = if (evidence.sourceType == ReleaseSourceType.ANIWORLD_POSTPONEMENT) {
                     evidence.scheduleCondition.takeUnless { it == ScheduleCondition.UNKNOWN }
-                        ?: ScheduleCondition.DELAYED
+                        ?: base.scheduleCondition
                 } else {
                     base.scheduleCondition
                 },
@@ -93,9 +90,9 @@ class AniWorldReleaseAuthorityReducer : ReleaseAuthorityReducer {
             evidence.sourceType == ReleaseSourceType.ANIWORLD_POSTPONEMENT &&
                 evidence.evidenceType == ReleaseEvidenceType.CORRECTION ->
                 evidence.scheduleCondition.takeUnless { it == ScheduleCondition.UNKNOWN }
-                    ?: ScheduleCondition.DELAYED
+                    ?: base.scheduleCondition
             evidence.sourceType == ReleaseSourceType.ANIWORLD_CALENDAR &&
-                evidence.evidenceType == ReleaseEvidenceType.FORECAST -> ScheduleCondition.ON_SCHEDULE
+                evidence.evidenceType == ReleaseEvidenceType.FORECAST -> base.scheduleCondition
             else -> base.scheduleCondition
         }
         return enriched.copy(
@@ -104,7 +101,7 @@ class AniWorldReleaseAuthorityReducer : ReleaseAuthorityReducer {
             authority = authority,
             authoritativeEvidenceIds = authoritativeIds.distinct(),
             releaseAt = if (isPositiveAuthorityEvidence) {
-                evidence.sourceReportedAt ?: base.releaseAt
+                base.releaseAt ?: evidence.sourceReportedAt?.takeUnless { evidence.approximateTime }
             } else {
                 base.releaseAt
             },
@@ -112,33 +109,24 @@ class AniWorldReleaseAuthorityReducer : ReleaseAuthorityReducer {
     }
 
     private fun ReleaseEvidence.isPositiveAuthorityEvidence(): Boolean =
-        sourceType.isReleaseAuthoritativeSource &&
-            evidenceType in setOf(
-                ReleaseEvidenceType.CONFIRMATION,
-                ReleaseEvidenceType.VERIFICATION,
-            ) &&
-            siteIdentifier != null &&
-            languageTrack != null &&
+        ((sourceType == ReleaseSourceType.ANIWORLD_RECENT &&
+            evidenceType == ReleaseEvidenceType.CONFIRMATION) ||
+            (sourceType == ReleaseSourceType.ANIWORLD_DIRECT_PAGE &&
+                evidenceType == ReleaseEvidenceType.VERIFICATION)) &&
+            CanonicalReleaseIdentity.from(this) != null &&
             confidence.overall > 0.0
 
     private fun sameIdentity(
         decision: ReleaseDecision,
         evidence: ReleaseEvidence,
     ): Boolean =
-        decision.installment == evidence.installment &&
-            matches(decision.siteIdentifier, evidence.siteIdentifier) &&
-            matches(decision.sourceSeason, evidence.sourceSeason) &&
-            matches(decision.navigationSeason, evidence.navigationSeason) &&
-            matches(decision.languageTrack, evidence.languageTrack)
-
-    private fun <T> matches(current: T?, incoming: T?): Boolean =
-        current == null || incoming == null || current == incoming
+        decision.identityKey == evidence.identityKey
 
     private fun preserveMonotonicPhase(
         previous: ReleasePhase,
         candidate: ReleasePhase,
     ): ReleasePhase = when {
-        previous == ReleasePhase.CONFLICT -> ReleasePhase.CONFLICT
+        previous == ReleasePhase.CONFLICT && candidate != ReleasePhase.RELEASED -> ReleasePhase.CONFLICT
         previous == ReleasePhase.RELEASED -> ReleasePhase.RELEASED
         previous == ReleasePhase.CONFIRMED &&
             candidate !in setOf(ReleasePhase.RELEASED, ReleasePhase.CONFLICT) -> ReleasePhase.CONFIRMED

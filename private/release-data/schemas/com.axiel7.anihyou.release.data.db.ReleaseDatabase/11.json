@@ -1,0 +1,2210 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 11,
+    "identityHash": "91b53f67eea0b598344e9ba162f77f73",
+    "entities": [
+      {
+        "tableName": "provider_snapshot",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`streamKey` TEXT NOT NULL, `providerId` TEXT NOT NULL, `stableSeriesKey` TEXT NOT NULL, `releaseKind` TEXT NOT NULL, `sourceSeason` INTEGER, `languageTrack` TEXT NOT NULL, `confirmationsPayload` TEXT NOT NULL, `forecastsPayload` TEXT NOT NULL, `freshnessStatus` TEXT NOT NULL, `lastAttemptAt` TEXT, `lastSuccessAt` TEXT, `freshnessObservedAt` TEXT, `parserVersion` TEXT, `sourceHash` TEXT, `freshnessDiagnostic` TEXT, `mappingPayload` TEXT, `sourcePresent` INTEGER NOT NULL, `sourceRoot` TEXT, `snapshotObservedAt` TEXT NOT NULL, PRIMARY KEY(`streamKey`))",
+        "fields": [
+          {
+            "fieldPath": "streamKey",
+            "columnName": "streamKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerId",
+            "columnName": "providerId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stableSeriesKey",
+            "columnName": "stableSeriesKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "releaseKind",
+            "columnName": "releaseKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceSeason",
+            "columnName": "sourceSeason",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "languageTrack",
+            "columnName": "languageTrack",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmationsPayload",
+            "columnName": "confirmationsPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "forecastsPayload",
+            "columnName": "forecastsPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "freshnessStatus",
+            "columnName": "freshnessStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastSuccessAt",
+            "columnName": "lastSuccessAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "freshnessObservedAt",
+            "columnName": "freshnessObservedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "parserVersion",
+            "columnName": "parserVersion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceHash",
+            "columnName": "sourceHash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "freshnessDiagnostic",
+            "columnName": "freshnessDiagnostic",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "mappingPayload",
+            "columnName": "mappingPayload",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourcePresent",
+            "columnName": "sourcePresent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceRoot",
+            "columnName": "sourceRoot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotObservedAt",
+            "columnName": "snapshotObservedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "streamKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_provider_snapshot_success",
+            "unique": false,
+            "columnNames": [
+              "providerId",
+              "lastSuccessAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_provider_snapshot_success` ON `${TABLE_NAME}` (`providerId`, `lastSuccessAt`)"
+          },
+          {
+            "name": "idx_provider_snapshot_source_hash",
+            "unique": false,
+            "columnNames": [
+              "sourceHash"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_provider_snapshot_source_hash` ON `${TABLE_NAME}` (`sourceHash`)"
+          }
+        ]
+      },
+      {
+        "tableName": "source_release_observation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`identityKey` TEXT NOT NULL, `observedAt` TEXT NOT NULL, `streamKey` TEXT NOT NULL, `streamPayload` TEXT, `installmentPayload` TEXT NOT NULL, `track` TEXT NOT NULL, `confirmed` INTEGER NOT NULL, `forecastAt` TEXT, `sourceDate` TEXT, `sourceTime` TEXT, `sourceZone` TEXT, `approximate` INTEGER NOT NULL, `sourceRoot` TEXT NOT NULL, `rawTokensPayload` TEXT NOT NULL, PRIMARY KEY(`identityKey`, `observedAt`))",
+        "fields": [
+          {
+            "fieldPath": "identityKey",
+            "columnName": "identityKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedAt",
+            "columnName": "observedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamKey",
+            "columnName": "streamKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamPayload",
+            "columnName": "streamPayload",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "installmentPayload",
+            "columnName": "installmentPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "track",
+            "columnName": "track",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmed",
+            "columnName": "confirmed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "forecastAt",
+            "columnName": "forecastAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceDate",
+            "columnName": "sourceDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceTime",
+            "columnName": "sourceTime",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceZone",
+            "columnName": "sourceZone",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "approximate",
+            "columnName": "approximate",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceRoot",
+            "columnName": "sourceRoot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rawTokensPayload",
+            "columnName": "rawTokensPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "identityKey",
+            "observedAt"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_observation_stream_date",
+            "unique": false,
+            "columnNames": [
+              "streamKey",
+              "sourceDate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_observation_stream_date` ON `${TABLE_NAME}` (`streamKey`, `sourceDate`)"
+          },
+          {
+            "name": "idx_observation_source_root",
+            "unique": false,
+            "columnNames": [
+              "sourceRoot"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_observation_source_root` ON `${TABLE_NAME}` (`sourceRoot`)"
+          }
+        ]
+      },
+      {
+        "tableName": "release_mapping",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`streamKey` TEXT NOT NULL, `mediaId` INTEGER, `confidence` TEXT, `score` REAL, `runnerUpMargin` REAL, `evidence` TEXT, `matcherVersion` TEXT, `origin` TEXT, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`streamKey`))",
+        "fields": [
+          {
+            "fieldPath": "streamKey",
+            "columnName": "streamKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaId",
+            "columnName": "mediaId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "confidence",
+            "columnName": "confidence",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "score",
+            "columnName": "score",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "runnerUpMargin",
+            "columnName": "runnerUpMargin",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "evidence",
+            "columnName": "evidence",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "matcherVersion",
+            "columnName": "matcherVersion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "origin",
+            "columnName": "origin",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "streamKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_release_mapping_media_confidence",
+            "unique": false,
+            "columnNames": [
+              "mediaId",
+              "confidence"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_release_mapping_media_confidence` ON `${TABLE_NAME}` (`mediaId`, `confidence`)"
+          }
+        ]
+      },
+      {
+        "tableName": "account_library_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` INTEGER NOT NULL, `mediaId` INTEGER NOT NULL, `statePayload` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`accountId`, `mediaId`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaId",
+            "columnName": "mediaId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statePayload",
+            "columnName": "statePayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountId",
+            "mediaId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_library_state_account_updated",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_library_state_account_updated` ON `${TABLE_NAME}` (`accountId`, `updatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "media_release_projection",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`projectionKey` TEXT NOT NULL, `accountId` INTEGER, `mediaId` INTEGER, `streamPayload` TEXT NOT NULL, `authority` TEXT NOT NULL, `confirmedThroughEpisode` INTEGER, `confirmedInstallmentsPayload` TEXT NOT NULL, `nextForecastPayload` TEXT, `nextForecastAt` TEXT, `pendingCount` INTEGER NOT NULL, `freshnessPayload` TEXT NOT NULL, `mappingPayload` TEXT, `sourceRoot` TEXT, `revision` INTEGER NOT NULL, `diagnosticsPayload` TEXT NOT NULL, PRIMARY KEY(`projectionKey`))",
+        "fields": [
+          {
+            "fieldPath": "projectionKey",
+            "columnName": "projectionKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "mediaId",
+            "columnName": "mediaId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "streamPayload",
+            "columnName": "streamPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authority",
+            "columnName": "authority",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedThroughEpisode",
+            "columnName": "confirmedThroughEpisode",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "confirmedInstallmentsPayload",
+            "columnName": "confirmedInstallmentsPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextForecastPayload",
+            "columnName": "nextForecastPayload",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "nextForecastAt",
+            "columnName": "nextForecastAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingCount",
+            "columnName": "pendingCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "freshnessPayload",
+            "columnName": "freshnessPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mappingPayload",
+            "columnName": "mappingPayload",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceRoot",
+            "columnName": "sourceRoot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "diagnosticsPayload",
+            "columnName": "diagnosticsPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "projectionKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_media_projection_account_media",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "mediaId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_media_projection_account_media` ON `${TABLE_NAME}` (`accountId`, `mediaId`)"
+          },
+          {
+            "name": "idx_media_projection_account_authority_pending",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "authority",
+              "pendingCount"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_media_projection_account_authority_pending` ON `${TABLE_NAME}` (`accountId`, `authority`, `pendingCount`)"
+          },
+          {
+            "name": "idx_media_projection_account_source",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "sourceRoot"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_media_projection_account_source` ON `${TABLE_NAME}` (`accountId`, `sourceRoot`)"
+          },
+          {
+            "name": "idx_media_projection_account_forecast",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "nextForecastAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_media_projection_account_forecast` ON `${TABLE_NAME}` (`accountId`, `nextForecastAt`)"
+          },
+          {
+            "name": "idx_media_projection_revision",
+            "unique": false,
+            "columnNames": [
+              "revision"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_media_projection_revision` ON `${TABLE_NAME}` (`revision`)"
+          }
+        ]
+      },
+      {
+        "tableName": "calendar_release_projection",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`projectionKey` TEXT NOT NULL, `accountId` INTEGER, `mediaId` INTEGER, `streamPayload` TEXT NOT NULL, `installmentPayload` TEXT NOT NULL, `forecastAt` TEXT, `confirmed` INTEGER NOT NULL, `authority` TEXT NOT NULL, `revision` INTEGER NOT NULL, `sourceDate` TEXT, PRIMARY KEY(`projectionKey`))",
+        "fields": [
+          {
+            "fieldPath": "projectionKey",
+            "columnName": "projectionKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "mediaId",
+            "columnName": "mediaId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "streamPayload",
+            "columnName": "streamPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "installmentPayload",
+            "columnName": "installmentPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "forecastAt",
+            "columnName": "forecastAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "confirmed",
+            "columnName": "confirmed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authority",
+            "columnName": "authority",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceDate",
+            "columnName": "sourceDate",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "projectionKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_calendar_projection_account_date",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "sourceDate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_calendar_projection_account_date` ON `${TABLE_NAME}` (`accountId`, `sourceDate`)"
+          },
+          {
+            "name": "idx_calendar_projection_account_media",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "mediaId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_calendar_projection_account_media` ON `${TABLE_NAME}` (`accountId`, `mediaId`)"
+          },
+          {
+            "name": "idx_calendar_projection_revision",
+            "unique": false,
+            "columnNames": [
+              "revision"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_calendar_projection_revision` ON `${TABLE_NAME}` (`revision`)"
+          }
+        ]
+      },
+      {
+        "tableName": "schema_meta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `schemaVersion` INTEGER NOT NULL, `value` TEXT, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_diagnostic",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`diagnosticKey` TEXT NOT NULL, `accountId` INTEGER, `code` TEXT NOT NULL, `message` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `recoverable` INTEGER NOT NULL, PRIMARY KEY(`diagnosticKey`))",
+        "fields": [
+          {
+            "fieldPath": "diagnosticKey",
+            "columnName": "diagnosticKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "code",
+            "columnName": "code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "message",
+            "columnName": "message",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recoverable",
+            "columnName": "recoverable",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "diagnosticKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_sync_diagnostic_account_created",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_sync_diagnostic_account_created` ON `${TABLE_NAME}` (`accountId`, `createdAt`)"
+          },
+          {
+            "name": "idx_sync_diagnostic_code",
+            "unique": false,
+            "columnNames": [
+              "code"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_sync_diagnostic_code` ON `${TABLE_NAME}` (`code`)"
+          }
+        ]
+      },
+      {
+        "tableName": "identity_candidate",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceKey` TEXT NOT NULL, `mediaId` INTEGER NOT NULL, `titlesPayload` TEXT NOT NULL, `format` TEXT, `startDate` TEXT, `fetchedAt` TEXT NOT NULL, `expiresAt` TEXT NOT NULL, PRIMARY KEY(`sourceKey`, `mediaId`))",
+        "fields": [
+          {
+            "fieldPath": "sourceKey",
+            "columnName": "sourceKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaId",
+            "columnName": "mediaId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titlesPayload",
+            "columnName": "titlesPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "format",
+            "columnName": "format",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "startDate",
+            "columnName": "startDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expiresAt",
+            "columnName": "expiresAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sourceKey",
+            "mediaId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_identity_candidate_source_expiry",
+            "unique": false,
+            "columnNames": [
+              "sourceKey",
+              "expiresAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_identity_candidate_source_expiry` ON `${TABLE_NAME}` (`sourceKey`, `expiresAt`)"
+          },
+          {
+            "name": "idx_identity_candidate_media",
+            "unique": false,
+            "columnNames": [
+              "mediaId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_identity_candidate_media` ON `${TABLE_NAME}` (`mediaId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "lookup_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`cacheKey` TEXT NOT NULL, `sourceKey` TEXT NOT NULL, `query` TEXT NOT NULL, `signature` TEXT NOT NULL, `resultPayload` TEXT NOT NULL, `fetchedAt` TEXT NOT NULL, `expiresAt` TEXT NOT NULL, PRIMARY KEY(`cacheKey`))",
+        "fields": [
+          {
+            "fieldPath": "cacheKey",
+            "columnName": "cacheKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceKey",
+            "columnName": "sourceKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "query",
+            "columnName": "query",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "signature",
+            "columnName": "signature",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resultPayload",
+            "columnName": "resultPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expiresAt",
+            "columnName": "expiresAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "cacheKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_lookup_cache_source_expiry",
+            "unique": false,
+            "columnNames": [
+              "sourceKey",
+              "expiresAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_lookup_cache_source_expiry` ON `${TABLE_NAME}` (`sourceKey`, `expiresAt`)"
+          },
+          {
+            "name": "idx_lookup_cache_signature_expiry",
+            "unique": false,
+            "columnNames": [
+              "signature",
+              "expiresAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_lookup_cache_signature_expiry` ON `${TABLE_NAME}` (`signature`, `expiresAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_generation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`generationKey` TEXT NOT NULL, `generation` INTEGER NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`generationKey`))",
+        "fields": [
+          {
+            "fieldPath": "generationKey",
+            "columnName": "generationKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "generationKey"
+          ]
+        }
+      },
+      {
+        "tableName": "notification_outbox",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`eventKey` TEXT NOT NULL, `accountId` INTEGER NOT NULL, `mediaId` INTEGER NOT NULL, `eventKind` TEXT NOT NULL, `identityKey` TEXT NOT NULL, `payload` TEXT NOT NULL, `evidenceKind` TEXT NOT NULL, `observedAt` TEXT NOT NULL, `status` TEXT NOT NULL, `attemptCount` INTEGER NOT NULL, `createdAt` TEXT NOT NULL, `nextAttemptAt` TEXT, `postingLeaseUntil` TEXT, `deliveredAt` TEXT, `cancelledAt` TEXT, `lastError` TEXT, `displayTitle` TEXT, `installmentPayload` TEXT, `track` TEXT, PRIMARY KEY(`eventKey`))",
+        "fields": [
+          {
+            "fieldPath": "eventKey",
+            "columnName": "eventKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaId",
+            "columnName": "mediaId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eventKind",
+            "columnName": "eventKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identityKey",
+            "columnName": "identityKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidenceKind",
+            "columnName": "evidenceKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedAt",
+            "columnName": "observedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attemptCount",
+            "columnName": "attemptCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextAttemptAt",
+            "columnName": "nextAttemptAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "postingLeaseUntil",
+            "columnName": "postingLeaseUntil",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "deliveredAt",
+            "columnName": "deliveredAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "cancelledAt",
+            "columnName": "cancelledAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "displayTitle",
+            "columnName": "displayTitle",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "installmentPayload",
+            "columnName": "installmentPayload",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "track",
+            "columnName": "track",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "eventKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_notification_outbox_account_status_attempt",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "status",
+              "nextAttemptAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_notification_outbox_account_status_attempt` ON `${TABLE_NAME}` (`accountId`, `status`, `nextAttemptAt`)"
+          },
+          {
+            "name": "idx_notification_outbox_status_lease",
+            "unique": false,
+            "columnNames": [
+              "status",
+              "postingLeaseUntil"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_notification_outbox_status_lease` ON `${TABLE_NAME}` (`status`, `postingLeaseUntil`)"
+          },
+          {
+            "name": "idx_notification_outbox_created",
+            "unique": false,
+            "columnNames": [
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_notification_outbox_created` ON `${TABLE_NAME}` (`createdAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "forecast_recheck_work",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workKey` TEXT NOT NULL, `identityKey` TEXT NOT NULL, `streamKey` TEXT NOT NULL, `streamPayload` TEXT NOT NULL, `installmentPayload` TEXT NOT NULL, `forecastAt` TEXT NOT NULL, `runAt` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`workKey`))",
+        "fields": [
+          {
+            "fieldPath": "workKey",
+            "columnName": "workKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identityKey",
+            "columnName": "identityKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamKey",
+            "columnName": "streamKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamPayload",
+            "columnName": "streamPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "installmentPayload",
+            "columnName": "installmentPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "forecastAt",
+            "columnName": "forecastAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "runAt",
+            "columnName": "runAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_forecast_recheck_stream_run",
+            "unique": false,
+            "columnNames": [
+              "streamKey",
+              "runAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_forecast_recheck_stream_run` ON `${TABLE_NAME}` (`streamKey`, `runAt`)"
+          },
+          {
+            "name": "idx_forecast_recheck_run",
+            "unique": false,
+            "columnNames": [
+              "runAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_forecast_recheck_run` ON `${TABLE_NAME}` (`runAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v3_external_mapping",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`mappingSubjectKey` TEXT NOT NULL, `seriesStableKey` TEXT NOT NULL, `siteSlug` TEXT NOT NULL, `subjectType` TEXT NOT NULL, `navigationSeason` INTEGER, `filmNumber` INTEGER, `externalProvider` TEXT NOT NULL, `externalId` TEXT, `mappingSource` TEXT NOT NULL, `mappingStatus` TEXT NOT NULL, `confidence` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `validatedAt` TEXT, `staleAt` TEXT, `provenance` TEXT NOT NULL, `parserVersion` TEXT, PRIMARY KEY(`mappingSubjectKey`, `externalProvider`))",
+        "fields": [
+          {
+            "fieldPath": "mappingSubjectKey",
+            "columnName": "mappingSubjectKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seriesStableKey",
+            "columnName": "seriesStableKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteSlug",
+            "columnName": "siteSlug",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subjectType",
+            "columnName": "subjectType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "navigationSeason",
+            "columnName": "navigationSeason",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "filmNumber",
+            "columnName": "filmNumber",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "externalProvider",
+            "columnName": "externalProvider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "externalId",
+            "columnName": "externalId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "mappingSource",
+            "columnName": "mappingSource",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mappingStatus",
+            "columnName": "mappingStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidence",
+            "columnName": "confidence",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "validatedAt",
+            "columnName": "validatedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "staleAt",
+            "columnName": "staleAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "provenance",
+            "columnName": "provenance",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parserVersion",
+            "columnName": "parserVersion",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "mappingSubjectKey",
+            "externalProvider"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_v3_mapping_series_provider",
+            "unique": false,
+            "columnNames": [
+              "seriesStableKey",
+              "externalProvider"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_mapping_series_provider` ON `${TABLE_NAME}` (`seriesStableKey`, `externalProvider`)"
+          },
+          {
+            "name": "idx_v3_mapping_status_validation",
+            "unique": false,
+            "columnNames": [
+              "mappingStatus",
+              "validatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_mapping_status_validation` ON `${TABLE_NAME}` (`mappingStatus`, `validatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v3_mapping_attempt",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`attemptId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `mappingSubjectKey` TEXT NOT NULL, `seriesStableKey` TEXT NOT NULL, `siteSlug` TEXT NOT NULL, `subjectType` TEXT NOT NULL, `navigationSeason` INTEGER, `filmNumber` INTEGER, `externalProvider` TEXT NOT NULL, `source` TEXT NOT NULL, `attemptedAt` TEXT NOT NULL, `resultKind` TEXT NOT NULL, `diagnostic` TEXT NOT NULL, `httpStatus` INTEGER, `retryAt` TEXT, `cooldownUntil` TEXT, `parserVersion` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "attemptId",
+            "columnName": "attemptId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mappingSubjectKey",
+            "columnName": "mappingSubjectKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seriesStableKey",
+            "columnName": "seriesStableKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteSlug",
+            "columnName": "siteSlug",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subjectType",
+            "columnName": "subjectType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "navigationSeason",
+            "columnName": "navigationSeason",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "filmNumber",
+            "columnName": "filmNumber",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "externalProvider",
+            "columnName": "externalProvider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attemptedAt",
+            "columnName": "attemptedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resultKind",
+            "columnName": "resultKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "diagnostic",
+            "columnName": "diagnostic",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "httpStatus",
+            "columnName": "httpStatus",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "retryAt",
+            "columnName": "retryAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "cooldownUntil",
+            "columnName": "cooldownUntil",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "parserVersion",
+            "columnName": "parserVersion",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "attemptId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_v3_attempt_subject_time",
+            "unique": false,
+            "columnNames": [
+              "mappingSubjectKey",
+              "externalProvider",
+              "attemptedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_attempt_subject_time` ON `${TABLE_NAME}` (`mappingSubjectKey`, `externalProvider`, `attemptedAt`)"
+          },
+          {
+            "name": "idx_v3_attempt_result_time",
+            "unique": false,
+            "columnNames": [
+              "resultKind",
+              "attemptedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_attempt_result_time` ON `${TABLE_NAME}` (`resultKind`, `attemptedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v3_release_evidence",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `canonicalFingerprint` TEXT NOT NULL, `identityKey` TEXT NOT NULL, `sourceType` TEXT NOT NULL, `sourceUrl` TEXT NOT NULL, `sourceHash` TEXT NOT NULL, `parserVersion` TEXT NOT NULL, `observedAt` TEXT NOT NULL, `sourceReportedAt` TEXT, `approximateTime` INTEGER NOT NULL, `siteIdentifierPayload` TEXT, `sourceSeason` INTEGER, `navigationSeason` INTEGER, `installmentPayload` TEXT NOT NULL, `languageTrack` TEXT, `evidenceType` TEXT NOT NULL, `scheduleCondition` TEXT NOT NULL, `confidenceSource` REAL NOT NULL, `confidenceIdentity` REAL NOT NULL, `confidenceInstallment` REAL NOT NULL, `confidenceLanguageTrack` REAL NOT NULL, `confidenceTiming` REAL NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalFingerprint",
+            "columnName": "canonicalFingerprint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identityKey",
+            "columnName": "identityKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceType",
+            "columnName": "sourceType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceUrl",
+            "columnName": "sourceUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceHash",
+            "columnName": "sourceHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parserVersion",
+            "columnName": "parserVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedAt",
+            "columnName": "observedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceReportedAt",
+            "columnName": "sourceReportedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "approximateTime",
+            "columnName": "approximateTime",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteIdentifierPayload",
+            "columnName": "siteIdentifierPayload",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceSeason",
+            "columnName": "sourceSeason",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "navigationSeason",
+            "columnName": "navigationSeason",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "installmentPayload",
+            "columnName": "installmentPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "languageTrack",
+            "columnName": "languageTrack",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "evidenceType",
+            "columnName": "evidenceType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduleCondition",
+            "columnName": "scheduleCondition",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidenceSource",
+            "columnName": "confidenceSource",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidenceIdentity",
+            "columnName": "confidenceIdentity",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidenceInstallment",
+            "columnName": "confidenceInstallment",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidenceLanguageTrack",
+            "columnName": "confidenceLanguageTrack",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidenceTiming",
+            "columnName": "confidenceTiming",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_v3_evidence_identity_observed",
+            "unique": false,
+            "columnNames": [
+              "identityKey",
+              "observedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_evidence_identity_observed` ON `${TABLE_NAME}` (`identityKey`, `observedAt`)"
+          },
+          {
+            "name": "idx_v3_evidence_source_observed",
+            "unique": false,
+            "columnNames": [
+              "sourceType",
+              "observedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_evidence_source_observed` ON `${TABLE_NAME}` (`sourceType`, `observedAt`)"
+          },
+          {
+            "name": "idx_v3_evidence_hash",
+            "unique": false,
+            "columnNames": [
+              "sourceHash"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_evidence_hash` ON `${TABLE_NAME}` (`sourceHash`)"
+          },
+          {
+            "name": "idx_v3_evidence_fingerprint",
+            "unique": true,
+            "columnNames": [
+              "canonicalFingerprint"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `idx_v3_evidence_fingerprint` ON `${TABLE_NAME}` (`canonicalFingerprint`)"
+          },
+          {
+            "name": "idx_v3_evidence_type_observed",
+            "unique": false,
+            "columnNames": [
+              "evidenceType",
+              "observedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_evidence_type_observed` ON `${TABLE_NAME}` (`evidenceType`, `observedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v3_release_decision",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`identityKey` TEXT NOT NULL, `siteIdentifierPayload` TEXT, `sourceSeason` INTEGER, `navigationSeason` INTEGER, `installmentPayload` TEXT NOT NULL, `languageTrack` TEXT, `phase` TEXT NOT NULL, `scheduleCondition` TEXT NOT NULL, `authority` TEXT NOT NULL, `contributingEvidenceIdsPayload` TEXT NOT NULL, `authoritativeEvidenceIdsPayload` TEXT NOT NULL, `releaseAt` TEXT, `lastObservedAt` TEXT, `decidedAt` TEXT NOT NULL, `revision` INTEGER NOT NULL, `diagnosticsPayload` TEXT NOT NULL, PRIMARY KEY(`identityKey`))",
+        "fields": [
+          {
+            "fieldPath": "identityKey",
+            "columnName": "identityKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteIdentifierPayload",
+            "columnName": "siteIdentifierPayload",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceSeason",
+            "columnName": "sourceSeason",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "navigationSeason",
+            "columnName": "navigationSeason",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "installmentPayload",
+            "columnName": "installmentPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "languageTrack",
+            "columnName": "languageTrack",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "phase",
+            "columnName": "phase",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduleCondition",
+            "columnName": "scheduleCondition",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authority",
+            "columnName": "authority",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contributingEvidenceIdsPayload",
+            "columnName": "contributingEvidenceIdsPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authoritativeEvidenceIdsPayload",
+            "columnName": "authoritativeEvidenceIdsPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "releaseAt",
+            "columnName": "releaseAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastObservedAt",
+            "columnName": "lastObservedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "decidedAt",
+            "columnName": "decidedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "diagnosticsPayload",
+            "columnName": "diagnosticsPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "identityKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_v3_decision_phase_authority",
+            "unique": false,
+            "columnNames": [
+              "phase",
+              "authority"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_decision_phase_authority` ON `${TABLE_NAME}` (`phase`, `authority`)"
+          },
+          {
+            "name": "idx_v3_decision_decided",
+            "unique": false,
+            "columnNames": [
+              "decidedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_decision_decided` ON `${TABLE_NAME}` (`decidedAt`)"
+          },
+          {
+            "name": "idx_v3_decision_track_phase",
+            "unique": false,
+            "columnNames": [
+              "languageTrack",
+              "phase"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_decision_track_phase` ON `${TABLE_NAME}` (`languageTrack`, `phase`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v3_source_health",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceType` TEXT NOT NULL, `status` TEXT NOT NULL, `lastAttemptAt` TEXT, `lastSuccessAt` TEXT, `consecutiveFailures` INTEGER NOT NULL, `parserVersion` TEXT, `sourceHash` TEXT, `diagnostic` TEXT, PRIMARY KEY(`sourceType`))",
+        "fields": [
+          {
+            "fieldPath": "sourceType",
+            "columnName": "sourceType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastSuccessAt",
+            "columnName": "lastSuccessAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "consecutiveFailures",
+            "columnName": "consecutiveFailures",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parserVersion",
+            "columnName": "parserVersion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceHash",
+            "columnName": "sourceHash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "diagnostic",
+            "columnName": "diagnostic",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sourceType"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_v3_health_status_attempt",
+            "unique": false,
+            "columnNames": [
+              "status",
+              "lastAttemptAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_health_status_attempt` ON `${TABLE_NAME}` (`status`, `lastAttemptAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v3_forecast_revision",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`revisionId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `identityKey` TEXT NOT NULL, `evidenceId` TEXT NOT NULL, `forecastAt` TEXT NOT NULL, `observedAt` TEXT NOT NULL, `approximateTime` INTEGER NOT NULL, `sourceHash` TEXT NOT NULL, `parserVersion` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "revisionId",
+            "columnName": "revisionId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identityKey",
+            "columnName": "identityKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidenceId",
+            "columnName": "evidenceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "forecastAt",
+            "columnName": "forecastAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedAt",
+            "columnName": "observedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "approximateTime",
+            "columnName": "approximateTime",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceHash",
+            "columnName": "sourceHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parserVersion",
+            "columnName": "parserVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "revisionId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_v3_forecast_identity_observed",
+            "unique": false,
+            "columnNames": [
+              "identityKey",
+              "observedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_forecast_identity_observed` ON `${TABLE_NAME}` (`identityKey`, `observedAt`)"
+          },
+          {
+            "name": "idx_v3_forecast_evidence",
+            "unique": true,
+            "columnNames": [
+              "evidenceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `idx_v3_forecast_evidence` ON `${TABLE_NAME}` (`evidenceId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "v3_evidence_alias",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`aliasId` TEXT NOT NULL, `canonicalEvidenceId` TEXT NOT NULL, `canonicalFingerprint` TEXT NOT NULL, `aliasKind` TEXT NOT NULL, `createdAt` TEXT NOT NULL, PRIMARY KEY(`aliasId`), FOREIGN KEY(`canonicalEvidenceId`) REFERENCES `v3_release_evidence`(`id`) ON UPDATE RESTRICT ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "aliasId",
+            "columnName": "aliasId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalEvidenceId",
+            "columnName": "canonicalEvidenceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalFingerprint",
+            "columnName": "canonicalFingerprint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aliasKind",
+            "columnName": "aliasKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "aliasId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_v3_alias_canonical_evidence",
+            "unique": false,
+            "columnNames": [
+              "canonicalEvidenceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_alias_canonical_evidence` ON `${TABLE_NAME}` (`canonicalEvidenceId`)"
+          },
+          {
+            "name": "idx_v3_alias_fingerprint",
+            "unique": false,
+            "columnNames": [
+              "canonicalFingerprint"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_alias_fingerprint` ON `${TABLE_NAME}` (`canonicalFingerprint`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "v3_release_evidence",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "canonicalEvidenceId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "v3_evidence_duplicate_archive",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`originalId` TEXT NOT NULL, `canonicalEvidenceId` TEXT NOT NULL, `canonicalFingerprint` TEXT NOT NULL, `identityKey` TEXT NOT NULL, `sourceType` TEXT NOT NULL, `sourceUrl` TEXT NOT NULL, `sourceHash` TEXT NOT NULL, `parserVersion` TEXT NOT NULL, `observedAt` TEXT NOT NULL, `sourceReportedAt` TEXT, `approximateTime` INTEGER NOT NULL, `siteIdentifierPayload` TEXT, `sourceSeason` INTEGER, `navigationSeason` INTEGER, `installmentPayload` TEXT NOT NULL, `languageTrack` TEXT, `evidenceType` TEXT NOT NULL, `scheduleCondition` TEXT NOT NULL, `confidenceSource` REAL NOT NULL, `confidenceIdentity` REAL NOT NULL, `confidenceInstallment` REAL NOT NULL, `confidenceLanguageTrack` REAL NOT NULL, `confidenceTiming` REAL NOT NULL, `archivedAt` TEXT NOT NULL, PRIMARY KEY(`originalId`), FOREIGN KEY(`canonicalEvidenceId`) REFERENCES `v3_release_evidence`(`id`) ON UPDATE RESTRICT ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "originalId",
+            "columnName": "originalId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalEvidenceId",
+            "columnName": "canonicalEvidenceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalFingerprint",
+            "columnName": "canonicalFingerprint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identityKey",
+            "columnName": "identityKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceType",
+            "columnName": "sourceType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceUrl",
+            "columnName": "sourceUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceHash",
+            "columnName": "sourceHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parserVersion",
+            "columnName": "parserVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedAt",
+            "columnName": "observedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceReportedAt",
+            "columnName": "sourceReportedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "approximateTime",
+            "columnName": "approximateTime",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteIdentifierPayload",
+            "columnName": "siteIdentifierPayload",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceSeason",
+            "columnName": "sourceSeason",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "navigationSeason",
+            "columnName": "navigationSeason",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "installmentPayload",
+            "columnName": "installmentPayload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "languageTrack",
+            "columnName": "languageTrack",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "evidenceType",
+            "columnName": "evidenceType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduleCondition",
+            "columnName": "scheduleCondition",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidenceSource",
+            "columnName": "confidenceSource",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidenceIdentity",
+            "columnName": "confidenceIdentity",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidenceInstallment",
+            "columnName": "confidenceInstallment",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidenceLanguageTrack",
+            "columnName": "confidenceLanguageTrack",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidenceTiming",
+            "columnName": "confidenceTiming",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "archivedAt",
+            "columnName": "archivedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "originalId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_v3_evidence_archive_canonical",
+            "unique": false,
+            "columnNames": [
+              "canonicalEvidenceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_evidence_archive_canonical` ON `${TABLE_NAME}` (`canonicalEvidenceId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "v3_release_evidence",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "canonicalEvidenceId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "v3_forecast_revision_archive",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`originalRevisionId` INTEGER NOT NULL, `canonicalRevisionId` INTEGER NOT NULL, `identityKey` TEXT NOT NULL, `evidenceId` TEXT NOT NULL, `forecastAt` TEXT NOT NULL, `observedAt` TEXT NOT NULL, `approximateTime` INTEGER NOT NULL, `sourceHash` TEXT NOT NULL, `parserVersion` TEXT NOT NULL, `archivedAt` TEXT NOT NULL, PRIMARY KEY(`originalRevisionId`), FOREIGN KEY(`canonicalRevisionId`) REFERENCES `v3_forecast_revision`(`revisionId`) ON UPDATE RESTRICT ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "originalRevisionId",
+            "columnName": "originalRevisionId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalRevisionId",
+            "columnName": "canonicalRevisionId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identityKey",
+            "columnName": "identityKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidenceId",
+            "columnName": "evidenceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "forecastAt",
+            "columnName": "forecastAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedAt",
+            "columnName": "observedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "approximateTime",
+            "columnName": "approximateTime",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceHash",
+            "columnName": "sourceHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parserVersion",
+            "columnName": "parserVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "archivedAt",
+            "columnName": "archivedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "originalRevisionId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_v3_forecast_archive_canonical",
+            "unique": false,
+            "columnNames": [
+              "canonicalRevisionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_v3_forecast_archive_canonical` ON `${TABLE_NAME}` (`canonicalRevisionId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "v3_forecast_revision",
+            "onDelete": "RESTRICT",
+            "onUpdate": "RESTRICT",
+            "columns": [
+              "canonicalRevisionId"
+            ],
+            "referencedColumns": [
+              "revisionId"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '91b53f67eea0b598344e9ba162f77f73')"
+    ]
+  }
+}

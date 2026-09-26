@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-const val RELEASE_DATABASE_VERSION = 11
+const val RELEASE_DATABASE_VERSION = 12
 
 @Database(
     entities = [
@@ -31,12 +31,18 @@ const val RELEASE_DATABASE_VERSION = 11
         ReleaseEvidenceAliasEntity::class,
         ReleaseEvidenceDuplicateArchiveEntity::class,
         ReleaseForecastRevisionArchiveEntity::class,
+        ObservationCycleEntity::class,
+        CycleSourceObservationEntity::class,
+        CycleEvidenceReceiptEntity::class,
+        ReconciliationEventEntity::class,
+        CanonicalReleaseProjectionEntity::class,
     ],
     version = RELEASE_DATABASE_VERSION,
     exportSchema = true,
 )
 abstract class ReleaseDatabase : RoomDatabase() {
     abstract fun releaseDao(): ReleaseDao
+    abstract fun reconciliationDao(): ReleaseReconciliationDao
 }
 
 val RELEASE_MIGRATION_1_2 = object : Migration(1, 2) {

@@ -36,6 +36,8 @@ class ReleaseAuthorityReducerTest {
         assertEquals(ReleasePhase.EXPECTED, decision.phase)
         assertNotEquals(ReleasePhase.RELEASED, decision.phase)
         assertEquals(ReleaseAuthority.NONE, decision.authority)
+        assertEquals(ScheduleCondition.UNKNOWN, decision.scheduleCondition)
+        assertEquals(null, decision.releaseAt)
         assertTrue(decision.authoritativeEvidenceIds.isEmpty())
     }
 
@@ -109,7 +111,7 @@ class ReleaseAuthorityReducerTest {
     }
 
     @Test
-    fun conflictRemainsStickyUntilAnExplicitFutureResolutionPolicy() {
+    fun exactPositiveCanReleaseAfterLegacyConflict() {
         val conflict = ReleaseDecision(
             siteIdentifier = site,
             sourceSeason = 1,
@@ -131,8 +133,8 @@ class ReleaseAuthorityReducerTest {
             ),
         )
 
-        assertEquals(ReleasePhase.CONFLICT, afterPositiveEvidence.phase)
-        assertEquals(ReleaseAuthority.NONE, afterPositiveEvidence.authority)
+        assertEquals(ReleasePhase.RELEASED, afterPositiveEvidence.phase)
+        assertEquals(ReleaseAuthority.ANIWORLD, afterPositiveEvidence.authority)
     }
 
     @Test

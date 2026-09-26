@@ -30,6 +30,7 @@ import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_7_8
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_8_9
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_9_10
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_10_11
+import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_11_12
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
 import com.axiel7.anihyou.release.data.preferences.ReleasePreferencesStore
@@ -49,6 +50,7 @@ import com.axiel7.anihyou.release.data.repository.RoomReleaseSyncStore
 import com.axiel7.anihyou.release.data.repository.RoomReleaseDecisionRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseEvidenceRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseIntelligencePersistence
+import com.axiel7.anihyou.release.data.repository.RoomReleaseReconciliationRepository
 import com.axiel7.anihyou.release.data.repository.RoomSourceHealthRepository
 import java.time.Clock
 import org.koin.android.ext.koin.androidApplication
@@ -72,6 +74,7 @@ val animetrackerReleaseModule = module {
             RELEASE_MIGRATION_8_9,
             RELEASE_MIGRATION_9_10,
             RELEASE_MIGRATION_10_11,
+            RELEASE_MIGRATION_11_12,
         ).build()
     }
     single<AniWorldHttpTransport> { JdkAniWorldHttpTransport() }
@@ -82,6 +85,7 @@ val animetrackerReleaseModule = module {
     single<ReleaseDecisionRepository> { RoomReleaseDecisionRepository(get()) }
     single<SourceHealthRepository> { RoomSourceHealthRepository(get()) }
     single { RoomReleaseIntelligencePersistence(get(), get()) }
+    single { RoomReleaseReconciliationRepository(get()) }
     single { AniWorldClient(get()) }
     single { AniWorldProvider(client = get(), clock = get()) }
     single { RoomIdentityCandidateStore(get(), get()) }

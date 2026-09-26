@@ -53,6 +53,10 @@ class ReleaseDatabaseMigrationTest {
         "release-persistence-invalid-boolean-test.db",
         "release-persistence-opaque-duplicate-test.db",
         "release-persistence-mismatched-revision-test.db",
+        "release-persistence-v11-to-v12-test.db",
+        "release-persistence-v10-to-v12-test.db",
+        "release-persistence-v8-to-v12-test.db",
+        "release-persistence-v11-invalid-marker-test.db",
     )
     private val observedAt = Instant.parse("2026-09-11T12:00:00Z")
 
@@ -67,6 +71,65 @@ class ReleaseDatabaseMigrationTest {
     @After
     fun cleanup() {
         databaseNames.forEach(context::deleteDatabase)
+    }
+
+    @Test
+    fun genuineVersionElevenMigratesToTwelveWithoutChangingEvidenceTables() {
+        val name = databaseNames[10]
+        migrationTestHelper.createDatabase(name, 11).close()
+        val migrated = migrationTestHelper.runMigrationsAndValidate(name, 12, true,
+            RELEASE_MIGRATION_11_12)
+        try {
+            assertTrue(objectNames(migrated).containsAll(v11Objects))
+            assertTrue(objectNames(migrated).containsAll(setOf(
+                "v3_observation_cycle", "v3_cycle_source_observation", "v3_cycle_evidence_receipt",
+                "v3_reconciliation_event", "v3_canonical_release_projection")))
+            assertEquals(12L, scalarLong(migrated,
+                "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
+        } finally { migrated.close() }
+    }
+
+    @Test
+    fun genuineVersionTenAndEightReachTwelveThroughOriginalSchemas() {
+        val ten = databaseNames[11]
+        migrationTestHelper.createDatabase(ten, 10).close()
+        val migratedTen = migrationTestHelper.runMigrationsAndValidate(ten, 12, true,
+            RELEASE_MIGRATION_10_11, RELEASE_MIGRATION_11_12)
+        try {
+            assertEquals(12L, scalarLong(migratedTen,
+                "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
+        } finally { migratedTen.close() }
+
+        val eight = databaseNames[12]
+        migrationTestHelper.createDatabase(eight, 8).close()
+        val migratedEight = migrationTestHelper.runMigrationsAndValidate(eight, 12, true,
+            RELEASE_MIGRATION_8_9, RELEASE_MIGRATION_9_10, RELEASE_MIGRATION_10_11,
+            RELEASE_MIGRATION_11_12)
+        try {
+            assertEquals(12L, scalarLong(migratedEight,
+                "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
+        } finally { migratedEight.close() }
+    }
+
+    @Test
+    fun v11InvalidMarkerBlocksV12MigrationAndRollsBack() {
+        val name = databaseNames[13]
+        val old = migrationTestHelper.createDatabase(name, 11)
+        old.execSQL("UPDATE schema_meta SET schemaVersion = 999 WHERE key = 'release_schema'")
+        old.close()
+        val failed = runCatching { migrationTestHelper.runMigrationsAndValidate(name, 12, true,
+            RELEASE_MIGRATION_11_12) }
+        assertTrue(failed.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(11L, reopened.rawQuery("PRAGMA user_version", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE name='v3_observation_cycle'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { reopened.close() }
     }
 
     @Test
@@ -137,12 +200,12 @@ class ReleaseDatabaseMigrationTest {
             context,
             ReleaseDatabase::class.java,
             databaseName,
-        ).allowMainThreadQueries().build()
+        ).addMigrations(RELEASE_MIGRATION_11_12).allowMainThreadQueries().build()
         try {
             runBlocking {
                 assertEquals("hash", reopened.releaseDao()
                     .getProviderSnapshot("aniworld/snapshot/EPISODE/1/DE_DUB")?.sourceHash)
-                assertEquals(11, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
+                assertEquals(12, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
             }
         } finally {
             reopened.close()
@@ -336,7 +399,7 @@ class ReleaseDatabaseMigrationTest {
         }
 
         var database = Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName)
-            .allowMainThreadQueries().build()
+            .addMigrations(RELEASE_MIGRATION_11_12).allowMainThreadQueries().build()
         try {
             val evidenceRepository = RoomReleaseEvidenceRepository(database)
             assertEquals(calendarLegacy, evidenceRepository.findById(calendarV2.id))
@@ -378,7 +441,7 @@ class ReleaseDatabaseMigrationTest {
 
             database.close()
             database = Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName)
-                .allowMainThreadQueries().build()
+                .addMigrations(RELEASE_MIGRATION_11_12).allowMainThreadQueries().build()
             val replay = RoomReleaseIntelligencePersistence(
                 database,
                 AniWorldReleaseAuthorityReducer(),

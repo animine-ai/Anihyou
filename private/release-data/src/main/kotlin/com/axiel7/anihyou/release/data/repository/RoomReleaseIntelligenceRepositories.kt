@@ -32,7 +32,7 @@ internal sealed class EvidenceAppendResolution {
     data class Rejected(val reason: String) : EvidenceAppendResolution()
 }
 
-private class RoomReleaseEvidenceStore(private val database: ReleaseDatabase) {
+internal class RoomReleaseEvidenceStore(private val database: ReleaseDatabase) {
     private val dao = database.releaseDao()
 
     suspend fun resolveOrAppend(evidence: ReleaseEvidence): EvidenceAppendResolution {
@@ -327,6 +327,9 @@ class RoomReleaseDecisionRepository(
         }
 
     override suspend fun put(decision: ReleaseDecision): Boolean = database.withTransaction {
+        check(database.reconciliationDao().baselineMarker() == null) {
+            "legacy Decisions are read-only after canonical baseline import"
+        }
         val incoming = try {
             store.canonicalizeDecision(decision)
         } catch (cancellation: CancellationException) {
@@ -382,6 +385,9 @@ class RoomReleaseIntelligencePersistence(
     suspend fun persist(
         results: Collection<SourceResult<List<ReleaseEvidence>>>,
     ): List<ReleaseDecision> = database.withTransaction {
+        check(database.reconciliationDao().baselineMarker() == null) {
+            "legacy ingestion is read-only after canonical baseline import"
+        }
         val decisions = linkedMapOf<String, ReleaseDecision>()
         results.forEach { result ->
             val sourceHealth = when (result) {

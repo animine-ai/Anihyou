@@ -116,7 +116,7 @@ jobs:
           retention-days: 14
 
   release-modules-test:
-    name: Core/Data tests and Room schema 11 export
+    name: Core/Data tests and Room schema 12 export
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -170,24 +170,36 @@ jobs:
       - name: Run Robolectric data tests
         run: ./gradlew --console=plain --stacktrace :private:release-data:testDebugUnitTest
 
-      - name: Validate generated Room schema 11
+      - name: Validate generated Room schema 12
         id: schema
         shell: bash
         run: |
           mkdir -p private/release-data/schemas
-          schema_path="$(find private/release-data/schemas -type f -name "11.json" -print -quit)"
+          schema_path="$(find private/release-data/schemas -type f -name "12.json" -print -quit)"
           if [[ -z "$schema_path" ]]; then
-            echo "Room schema 11.json was not generated"
+            echo "Room schema 12.json was not generated"
             find private/release-data/schemas -type f -print
             exit 1
           fi
           python3 -m json.tool "$schema_path" >/dev/null
           echo "schema_path=$schema_path" >> "$GITHUB_OUTPUT"
 
-      - name: Upload genuine Room schema 11
+      - name: Verify accepted Room schema 11 provenance
+        run: |
+          test "$(sha256sum private/release-data/schemas/com.axiel7.anihyou.release.data.db.ReleaseDatabase/11.json | cut -d ' ' -f 1)" = "$(cat .github/room-schema-11.sha256)"
+
+      - name: Upload accepted Room schema 11
         uses: actions/upload-artifact@v7
         with:
           name: room-schema-11
+          path: private/release-data/schemas/com.axiel7.anihyou.release.data.db.ReleaseDatabase/11.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload genuine Room schema 12
+        uses: actions/upload-artifact@v7
+        with:
+          name: room-schema-12
           path: ${{ steps.schema.outputs.schema_path }}
           if-no-files-found: error
           retention-days: 14
@@ -263,7 +275,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Download generated schemas 8, 9, 10 and 11
+      - name: Download generated schemas 8, 9, 10, accepted 11 and generated 12
         uses: actions/download-artifact@v8.0.1
         with:
           pattern: room-schema-*
@@ -275,7 +287,7 @@ jobs:
         run: |
           schema_dir="private/release-data/schemas/com.axiel7.anihyou.release.data.db.ReleaseDatabase"
           mkdir -p "$schema_dir"
-          for version in 8 9 10 11; do
+          for version in 8 9 10 11 12; do
             schema_path="$(find .ci-room-schemas -type f -name "$version.json" -print -quit)"
             if [[ -z "$schema_path" ]]; then
               echo "Downloaded schema $version.json is missing"
