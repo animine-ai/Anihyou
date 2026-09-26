@@ -52,6 +52,7 @@ class ReleaseDatabaseMigrationTest {
         "release-persistence-orphan-decision-test.db",
         "release-persistence-invalid-boolean-test.db",
         "release-persistence-opaque-duplicate-test.db",
+        "release-persistence-mismatched-revision-test.db",
     )
     private val observedAt = Instant.parse("2026-09-11T12:00:00Z")
 
@@ -461,6 +462,22 @@ class ReleaseDatabaseMigrationTest {
                 evidenceId = "missing-evidence",
             )
             seedForecastRevisionEntity(db, orphan.toEntity())
+        }
+    }
+
+    @Test
+    fun mismatchedForecastRevisionFailsClosed() {
+        assertMigrationRollsBack(databaseNames[9]) { db ->
+            val evidence = v2Evidence(evidence(
+                "mismatched-revision", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST, "mismatched-revision-hash", observedAt,
+                observedAt.plusSeconds(600),
+            ))
+            seedEvidence(db, evidence)
+            val revision = ReleaseForecastRevision.fromEvidence(evidence)!!
+                .toEntity()
+                .copy(sourceHash = "different-revision-hash")
+            seedForecastRevisionEntity(db, revision)
         }
     }
 

@@ -65,8 +65,9 @@ val RELEASE_MIGRATION_10_11 = object : Migration(10, 11) {
             if (row.raw.id != canonical.raw.id) displacedRows += row to canonical
         }
 
+        val evidenceByOldId = evidence.associateBy { it.raw.id }
         val decisionRewrites = readAndPlanDecisions(db, canonicalByOldId)
-        val revisionRewrites = readAndPlanRevisions(db, canonicalByOldId)
+        val revisionRewrites = readAndPlanRevisions(db, evidenceByOldId, canonicalByOldId)
         val originalRevisionSequence = readRevisionSequence(db)
 
         replaceEvidenceTable(db, canonicalByFingerprint.values, timestamp)
@@ -468,6 +469,7 @@ private fun readAndPlanDecisions(
 
 private fun readAndPlanRevisions(
     db: SupportSQLiteDatabase,
+    evidenceByOldId: Map<String, EvidenceSnapshot>,
     canonicalByOldId: Map<String, EvidenceSnapshot>,
 ): List<RevisionRewrite> {
     val snapshots = mutableListOf<RevisionSnapshot>()
@@ -485,12 +487,14 @@ private fun readAndPlanRevisions(
             )
             require(raw.revisionId > 0L) { "invalid ForecastRevision id" }
             val revision = raw.toDomainOrNull() ?: error("malformed ForecastRevision ${raw.revisionId}")
-            val evidence = canonicalByOldId[raw.evidenceId]
+            val originalEvidence = evidenceByOldId[raw.evidenceId]
                 ?: error("orphan ForecastRevision Evidence reference: ${raw.evidenceId}")
-            val expected = ReleaseForecastRevision.fromEvidence(evidence.domain)
+            val canonicalEvidence = canonicalByOldId[raw.evidenceId]
+                ?: error("orphan ForecastRevision Evidence reference: ${raw.evidenceId}")
+            val expected = ReleaseForecastRevision.fromEvidence(originalEvidence.domain)
                 ?: error("ForecastRevision does not derive from Calendar forecast Evidence")
             require(revision == expected) { "ForecastRevision disagrees with its Evidence" }
-            snapshots += RevisionSnapshot(raw, evidence.raw.id)
+            snapshots += RevisionSnapshot(raw, canonicalEvidence.raw.id)
         }
     }
 
