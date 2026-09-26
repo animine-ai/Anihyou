@@ -300,9 +300,11 @@ jobs:
           arch: x86_64
           profile: pixel_7_pro
           script: |
-            set +e
-            ./gradlew --console=plain --stacktrace :private:release-data:connectedDebugAndroidTest
-            test_status=$?
+            if ./gradlew --console=plain --stacktrace :private:release-data:connectedDebugAndroidTest; then
+              test_status=0
+            else
+              test_status=$?
+            fi
             python3 - <<'PY'
             from pathlib import Path
             import xml.etree.ElementTree as ET
@@ -331,3 +333,14 @@ jobs:
                 print(f"Parsed {len(reports)} Android instrumentation XML reports; no failure nodes found.")
             PY
             exit "$test_status"
+
+      - name: Upload Android migration test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-migration-test-reports
+          path: |
+            private/release-data/build/outputs/androidTest-results/connected
+            private/release-data/build/reports/androidTests/connected
+          if-no-files-found: warn
+          retention-days: 14
