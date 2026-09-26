@@ -38,6 +38,66 @@ class AniWorldEvidenceSourcesTest {
     }
 
     @Test
+    fun currentCalendarStructureKeepsZeroSeasonEpisodeAndForecastOnly() = runBlocking {
+        val result = calendar("""
+            <html><body><main><h1>Animekalender</h1>
+              <article data-source-key="alpha" data-source-season="0" data-episode="0">
+                <img class="flag" data-track="DE_SUB" title="Untertitel">
+                <img class="flag" data-track="DE_DUB" title="Synchron">
+                <time datetime="2026-09-26T12:30:00+02:00">~12:30</time>
+              </article>
+            </main></body></html>
+        """.trimIndent())
+        val evidence = evidenceValues(result)
+        assertEquals(setOf(LanguageTrack.DE_SUB, LanguageTrack.DE_DUB),
+            evidence.mapNotNull { it.languageTrack }.toSet())
+        assertTrue(evidence.all { it.sourceSeason == 0 && it.approximateTime &&
+            it.evidenceType == ReleaseEvidenceType.FORECAST &&
+            it.scheduleCondition == ScheduleCondition.UNKNOWN })
+    }
+
+    @Test
+    fun currentRecentStructureKeepsTracksSeparateAndIgnoresForeignRow() = runBlocking {
+        val result = recent("""
+            <html><body><main><h1>Neue Episoden</h1>
+              <article data-source-key="alpha" data-source-season="0" data-episode="0">
+                <img class="flag" data-track="DE_SUB" title="Untertitel">
+                <img class="flag" data-track="DE_DUB" title="Synchron">
+              </article>
+              <article data-source-key="beta" data-source-season="1" data-episode="2">
+                <img class="flag" alt="English language flag">
+              </article>
+            </main></body></html>
+        """.trimIndent())
+        val evidence = evidenceValues(result)
+        assertEquals(2, evidence.size)
+        assertTrue(evidence.all { it.sourceSeason == 0 &&
+            it.evidenceType == ReleaseEvidenceType.CONFIRMATION })
+        assertEquals(setOf(LanguageTrack.DE_SUB, LanguageTrack.DE_DUB),
+            evidence.mapNotNull { it.languageTrack }.toSet())
+    }
+
+    @Test
+    fun rateLimitAndNotModifiedNeverYieldEvidenceOrNegativeCoverage() = runBlocking {
+        for ((status, kind) in listOf(
+            429 to SourceFailureKind.RATE_LIMITED,
+            304 to SourceFailureKind.NOT_MODIFIED_CACHE_MISS,
+        )) {
+            val transport = RoutingTransport(mapOf("/animekalender" to
+                AniWorldHttpResponse(status, null, "https://aniworld.to/animekalender", "",
+                    retryAfter = if (status == 429) "120" else null)))
+            val collection = AniWorldEvidenceIngestionCoordinator(listOf(
+                AniWorldCalendarEvidenceAdapter(AniWorldClient(transport), clock = clock),
+            )).collect()
+            assertTrue(collection.evidence.isEmpty())
+            val failure = collection.results.single() as SourceResult.Failure
+            assertEquals(kind, failure.kind)
+            assertNull(failure.sourceHealth?.lastSuccessAt)
+            if (status == 429) assertEquals(120L, failure.retryAfterSeconds)
+        }
+    }
+
+    @Test
     fun calendarInvalidDateIsRejected() = runBlocking {
         val result = calendar(calendarHtml(time = "2026-13-08T22:10:00+02:00"))
 

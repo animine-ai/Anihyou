@@ -84,7 +84,7 @@ class AniWorldClient(
     private fun parseRetryAfter(header: String?): Long? {
         val value = header?.trim()?.takeIf { it.length in 1..128 } ?: return null
         val seconds = if (value.all(Char::isDigit)) {
-            value.toLongOrNull()
+            value.toLongOrNull() ?: MAX_RETRY_AFTER_SECONDS
         } else {
             val date = runCatching { ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant() }
                 .getOrNull() ?: return null

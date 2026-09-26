@@ -39,10 +39,10 @@ class JdkAniWorldHttpTransport : AniWorldHttpTransport {
                     body = if (oversized) "" else bytes.toString(Charsets.UTF_8),
                     bodyTooLarge = oversized,
                     rawBodyBytes = bytes.size,
-                    location = connection.getHeaderField("Location")?.take(2048),
-                    retryAfter = connection.getHeaderField("Retry-After")?.take(256),
-                    etag = connection.getHeaderField("ETag")?.take(512),
-                    lastModified = connection.getHeaderField("Last-Modified")?.take(256),
+                    location = connection.getHeaderField("Location")?.takeIf { it.length <= 2048 },
+                    retryAfter = connection.getHeaderField("Retry-After")?.takeIf { it.length <= 256 },
+                    etag = connection.getHeaderField("ETag")?.takeIf { it.length <= 512 },
+                    lastModified = connection.getHeaderField("Last-Modified")?.takeIf { it.length <= 256 },
                 )
             } finally {
                 connection.disconnect()
@@ -51,7 +51,7 @@ class JdkAniWorldHttpTransport : AniWorldHttpTransport {
     }
 
 private fun String.safeValidator(): String {
-    require(length in 1..512 && none { it == '\r' || it == '\n' || it.isISOControl() })
+    require(length in 1..512 && none { it.code < 32 || it.code == 127 })
     return this
 }
 
