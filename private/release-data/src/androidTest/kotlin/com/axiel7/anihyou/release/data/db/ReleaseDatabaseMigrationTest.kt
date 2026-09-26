@@ -235,6 +235,7 @@ class ReleaseDatabaseMigrationTest {
 
         val versionTen = migrationTestHelper.createDatabase(databaseName, 10)
         try {
+            seedV10SchemaMetadata(versionTen)
             listOf(
                 calendarLegacy, calendarV2, releasedLegacy, releasedV2,
                 recoveryLegacy, recoveryV2, rewriteLegacy, rewriteV2,
@@ -499,12 +500,20 @@ class ReleaseDatabaseMigrationTest {
         }
     }
 
+    private fun seedV10SchemaMetadata(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            "INSERT INTO schema_meta (key, schemaVersion, value, updatedAt) VALUES (?, ?, ?, ?)",
+            arrayOf<Any?>("release_schema", 10, "wp04a-intelligence", observedAt.toString()),
+        )
+    }
+
     private fun assertMigrationRollsBack(
         databaseName: String,
         seed: (SupportSQLiteDatabase) -> Unit,
     ) {
         val versionTen = migrationTestHelper.createDatabase(databaseName, 10)
         try {
+            seedV10SchemaMetadata(versionTen)
             seed(versionTen)
         } finally {
             versionTen.close()
