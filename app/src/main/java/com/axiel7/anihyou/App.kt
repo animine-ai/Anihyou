@@ -54,7 +54,7 @@ class App : Application(), SingletonImageLoader.Factory {
             )
         }
         if (BuildConfig.DEBUG && AniWorldShadowDebugActivation.enabledForInternalTest) {
-            koinApplication.koin.get(AniWorldShadowScheduler::class).schedule()
+            koinApplication.koin.get<AniWorldShadowScheduler>().schedule()
         }
     }
 

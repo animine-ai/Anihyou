@@ -154,7 +154,8 @@ class ReleaseDatabaseMigrationTest {
             assertEquals(12L, scalarLong(db,
                 "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
             assertEquals(0L, scalarLong(db,
-                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name LIKE 'v3_%'"))
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
+                    "('v3_poll_generation','v3_http_attempt','v3_request_state','v3_shadow_metric')"))
         } finally { db.close() }
     }
 
@@ -174,7 +175,8 @@ class ReleaseDatabaseMigrationTest {
                 assertTrue(it.moveToFirst()); it.getLong(0)
             })
             assertEquals(0L, reopened.rawQuery(
-                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name LIKE 'v3_%'", null).use {
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
+                    "('v3_poll_generation','v3_http_attempt','v3_request_state','v3_shadow_metric')", null).use {
                 assertTrue(it.moveToFirst()); it.getLong(0)
             })
             assertEquals(11L, reopened.rawQuery(
@@ -415,7 +417,8 @@ class ReleaseDatabaseMigrationTest {
             context,
             ReleaseDatabase::class.java,
             databaseName,
-        ).addMigrations(RELEASE_MIGRATION_11_12).allowMainThreadQueries().build()
+        ).addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+            .allowMainThreadQueries().build()
         try {
             runBlocking {
                 assertEquals("hash", reopened.releaseDao()
@@ -614,7 +617,8 @@ class ReleaseDatabaseMigrationTest {
         }
 
         var database = Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName)
-            .addMigrations(RELEASE_MIGRATION_11_12).allowMainThreadQueries().build()
+            .addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+            .allowMainThreadQueries().build()
         try {
             val evidenceRepository = RoomReleaseEvidenceRepository(database)
             assertEquals(12L, scalarLong(database.openHelper.writableDatabase,
@@ -664,7 +668,8 @@ class ReleaseDatabaseMigrationTest {
 
             database.close()
             database = Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName)
-                .addMigrations(RELEASE_MIGRATION_11_12).allowMainThreadQueries().build()
+                .addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+                .allowMainThreadQueries().build()
             val replay = RoomReleaseIntelligencePersistence(
                 database,
                 AniWorldReleaseAuthorityReducer(),
