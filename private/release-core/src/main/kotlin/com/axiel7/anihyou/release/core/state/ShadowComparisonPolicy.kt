@@ -13,6 +13,8 @@ object ShadowComparisonPolicy {
     fun compare(r2: List<ShadowFact>, v3: List<ShadowFact>, now: Instant): ShadowComparison {
         val r2Groups = r2.filter { it.exactKey.isNotBlank() }.groupBy { it.exactKey }
         val v3Groups = v3.filter { it.exactKey.isNotBlank() }.groupBy { it.exactKey }
+        val ambiguousKeys = (r2Groups.filterValues { it.size != 1 }.keys +
+            v3Groups.filterValues { it.size != 1 }.keys).toSet()
         val r = r2Groups.filterValues { it.size == 1 }.mapValues { it.value.single() }
         val v = v3Groups.filterValues { it.size == 1 }.mapValues { it.value.single() }
         val staleKeys = r.filterValues {
@@ -22,9 +24,11 @@ object ShadowComparisonPolicy {
         }.keys
         val common = (r.keys intersect v.keys) - staleKeys
         val same = common.count { r.getValue(it).released == v.getValue(it).released }
-        return ShadowComparison(common.size, same, common.size - same, ((r.keys - v.keys) - staleKeys).size,
-            (v.keys - r.keys).size,
-            r2.count { it.exactKey.isBlank() } + v3.count { it.exactKey.isBlank() } +
-                r2Groups.count { it.value.size > 1 } + v3Groups.count { it.value.size > 1 }, staleKeys.size)
+        val r2Only = ((r.keys - v.keys) - staleKeys - ambiguousKeys).size
+        val v3Only = ((v.keys - r.keys) - ambiguousKeys).size
+        val uncomparable = r2.count { it.exactKey.isBlank() } + v3.count { it.exactKey.isBlank() } +
+            ambiguousKeys.size + staleKeys.size
+        return ShadowComparison(common.size, same, common.size - same, r2Only, v3Only,
+            uncomparable, staleKeys.size)
     }
 }
