@@ -9,6 +9,7 @@ import com.axiel7.anihyou.release.core.api.ShadowGenerationToken
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
 import com.axiel7.anihyou.release.core.api.ShadowRunMetrics
 import com.axiel7.anihyou.release.core.api.ShadowSourceSpec
+import com.axiel7.anihyou.release.core.api.ShadowSourceRunMetric
 import com.axiel7.anihyou.release.core.model.AbsencePolicySnapshot
 import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
 import com.axiel7.anihyou.release.core.model.CompletedObservationCycle
@@ -189,7 +190,20 @@ class AniWorldShadowSyncOrchestrator(
             )
             val snapshot = pollStore.currentGeneration(plan.manifest.token)
                 ?: return@withLock ShadowRefreshOutcome.Failed("stale-generation-token", retryable = false)
-            metrics = metricsFor(plan, snapshot, postponementDiagnostics, runStartNanos, observations)
+            val sourceMetrics = plan.manifest.sources.map { spec ->
+                val physicalId = if (spec.sourceType == ReleaseSourceType.ANIWORLD_DIRECT_PAGE.name)
+                    physicalByUrl.getValue(spec.requestUrl) else spec.instanceId
+                val collected = instancesById[physicalId]
+                val failure = collected?.result as? com.axiel7.anihyou.release.core.api.SourceResult.Failure
+                ShadowSourceRunMetric(
+                    instanceId = spec.instanceId,
+                    sourceType = ReleaseSourceType.valueOf(spec.sourceType),
+                    outcome = observations.single { it.instanceId == spec.instanceId }.result,
+                    elapsedMillis = collected?.elapsedMillis ?: 0,
+                    failureKind = failure?.kind,
+                )
+            }
+            metrics = metricsFor(plan, snapshot, postponementDiagnostics, runStartNanos, observations, sourceMetrics)
             val committed = pollStore.commitGeneration(plan.manifest.token, cycle, metrics)
             if (!committed) {
                 pollStore.abortGeneration(plan.manifest.token, "commit-fenced", clock.instant(), metrics)
@@ -249,6 +263,7 @@ class AniWorldShadowSyncOrchestrator(
         postponement: PostponementParseDiagnostics?,
         startedNanos: Long,
         observations: List<CycleSourceObservation>,
+        sourceMetrics: List<ShadowSourceRunMetric> = emptyList(),
     ): ShadowRunMetrics {
         val incomplete = observations.count { it.result == CycleResult.INCOMPLETE }
         val failures = observations.count { it.result == CycleResult.FAILURE }
@@ -280,6 +295,7 @@ class AniWorldShadowSyncOrchestrator(
             postponementSnapshotHash = postponement?.sourceHash,
             postponementParserVersion = postponement?.parserVersion,
             postponementReasonCounts = reasons,
+            sourceMetrics = sourceMetrics,
         )
     }
 

@@ -1,6 +1,8 @@
 package com.axiel7.anihyou.release.core.api
 
 import com.axiel7.anihyou.release.core.model.CompletedObservationCycle
+import com.axiel7.anihyou.release.core.model.CycleResult
+import com.axiel7.anihyou.release.core.model.ReleaseSourceType
 import com.axiel7.anihyou.release.core.sync.DirectTargetCandidate
 import com.axiel7.anihyou.release.core.state.ShadowComparison
 import java.time.Duration
@@ -77,6 +79,16 @@ data class ShadowRequestOutcome(
     init { require(status.length <= 40 && elapsedMillis >= 0 && (retryAfterSeconds == null || retryAfterSeconds in 0..21_600)) }
 }
 
+data class ShadowSourceRunMetric(
+    val instanceId: String,
+    val sourceType: ReleaseSourceType,
+    val outcome: CycleResult,
+    val elapsedMillis: Long,
+    val failureKind: SourceFailureKind? = null,
+) {
+    init { require(instanceId.length in 1..256 && elapsedMillis >= 0) }
+}
+
 data class ShadowRunMetrics(
     val planned: Int,
     val attempted: Int,
@@ -101,17 +113,23 @@ data class ShadowRunMetrics(
     val postponementSnapshotHash: String? = null,
     val postponementParserVersion: String? = null,
     val postponementReasonCounts: Map<String, Int> = emptyMap(),
+    val completedWireCalls: Int = 0,
+    val uncompletedReservedCalls: Int = 0,
+    val sourceMetrics: List<ShadowSourceRunMetric> = emptyList(),
 ) {
     init {
         val values = listOf(planned, attempted, succeeded, partial, failed, skipped, directEligibleUrls,
             directSelectedUrls, reservedWireCalls, redirectCalls, postponementUnboundRows, comparableKeys,
-            disagreements, elapsedMillis, r2OnlyKeys, v3OnlyKeys, staleKeys, uncomparableKeys,
-            postponementAmbiguousRows, postponementRejectedRows)
-        require(values.all { it >= 0 } && planned <= 11 && directSelectedUrls <= 4 && reservedWireCalls <= 22)
+            disagreements, r2OnlyKeys, v3OnlyKeys, staleKeys, uncomparableKeys,
+            postponementAmbiguousRows, postponementRejectedRows, completedWireCalls, uncompletedReservedCalls)
+        require(values.all { it >= 0 } && elapsedMillis >= 0 && planned <= 11 && directSelectedUrls <= 4 && reservedWireCalls <= 22)
         require(postponementUnboundRows <= 512 && postponementAmbiguousRows <= 512 && postponementRejectedRows <= 512)
         require(postponementSnapshotHash == null || postponementSnapshotHash.matches(Regex("[0-9a-f]{64}")))
         require(postponementParserVersion == null || postponementParserVersion.length <= 64)
         require(postponementReasonCounts.size <= 12 && postponementReasonCounts.all { (k, v) -> k.length in 1..64 && v in 0..512 })
+        require(completedWireCalls <= reservedWireCalls && uncompletedReservedCalls <= reservedWireCalls)
+        require(completedWireCalls + uncompletedReservedCalls <= reservedWireCalls)
+        require(sourceMetrics.size <= 11 && sourceMetrics.map { it.instanceId }.distinct().size == sourceMetrics.size)
     }
 }
 

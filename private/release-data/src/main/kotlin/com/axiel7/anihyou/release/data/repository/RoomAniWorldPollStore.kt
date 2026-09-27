@@ -52,8 +52,13 @@ class RoomAniWorldPollStore(
                 poll.finishGeneration(active.generationId, active.ownerToken, "ABORTED", now.toPollTimestamp(),
                     "ABORTED", "process-restart", null)
                 poll.clearActiveGeneration(active.generationId)
+                val completed = poll.completedAttemptCount(active.generationId)
+                val reserved = poll.attemptCount(active.generationId)
                 poll.insertMetric(ShadowMetricEntity(active.generationId, now.toPollTimestamp(), 1,
-                    metricPayload(ShadowRunMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))))
+                    metricPayload(ShadowRunMetrics(0, 0, 0, 0, 0, 0, 0, 0, reserved.coerceAtMost(MAX_WIRE_CALLS),
+                        poll.redirectCount(active.generationId), 0, 0, 0, 0,
+                        completedWireCalls = completed.coerceAtMost(MAX_WIRE_CALLS),
+                        uncompletedReservedCalls = (reserved - completed).coerceAtLeast(0).coerceAtMost(MAX_WIRE_CALLS)))))
             }
 
             val currentCandidates = readCandidates(now, rememberFirstEligibility = false)
@@ -227,7 +232,11 @@ class RoomAniWorldPollStore(
         val finalMetrics = metrics.copy(comparableKeys = comparison.comparable,
             disagreements = comparison.disagreements, r2OnlyKeys = comparison.r2Only,
             v3OnlyKeys = comparison.v3Only, staleKeys = comparison.stale,
-            uncomparableKeys = comparison.uncomparable)
+            uncomparableKeys = comparison.uncomparable,
+            reservedWireCalls = poll.attemptCount(token.generationId).coerceAtMost(MAX_WIRE_CALLS),
+            redirectCalls = poll.redirectCount(token.generationId).coerceAtMost(MAX_WIRE_CALLS),
+            completedWireCalls = poll.completedAttemptCount(token.generationId).coerceAtMost(MAX_WIRE_CALLS),
+            uncompletedReservedCalls = poll.uncompletedAttemptCount(token.generationId).coerceAtMost(MAX_WIRE_CALLS))
         poll.insertMetric(ShadowMetricEntity(token.generationId, clock.instant().toPollTimestamp(), 1,
             metricPayload(finalMetrics)))
         if (!clock.instant().isBefore(manifest.deadlineAt)) error("generation deadline elapsed inside T4")
@@ -241,10 +250,18 @@ class RoomAniWorldPollStore(
         token: ShadowGenerationToken, reason: String, now: Instant, metrics: ShadowRunMetrics,
     ) = database.withTransaction {
         if (fencedRunning(token) == null) return@withTransaction
+        val reserved = poll.attemptCount(token.generationId)
+        val completed = poll.completedAttemptCount(token.generationId)
+        val finalMetrics = metrics.copy(
+            reservedWireCalls = reserved.coerceAtMost(MAX_WIRE_CALLS),
+            redirectCalls = poll.redirectCount(token.generationId).coerceAtMost(MAX_WIRE_CALLS),
+            completedWireCalls = completed.coerceAtMost(MAX_WIRE_CALLS),
+            uncompletedReservedCalls = poll.uncompletedAttemptCount(token.generationId).coerceAtMost(MAX_WIRE_CALLS),
+        )
         check(poll.finishGeneration(token.generationId, token.ownerToken, "ABORTED", now.toPollTimestamp(),
             "ABORTED", reason.take(160), null) == 1)
         poll.clearActiveGeneration(token.generationId)
-        poll.insertMetric(ShadowMetricEntity(token.generationId, now.toPollTimestamp(), 1, metricPayload(metrics)))
+        poll.insertMetric(ShadowMetricEntity(token.generationId, now.toPollTimestamp(), 1, metricPayload(finalMetrics)))
         val key = scopeKey(SCOPE_ID)
         val old = poll.requestState(key) ?: emptyState(key)
         poll.putRequestState(old.copy(activeGenerationId = null,
@@ -443,11 +460,20 @@ class RoomAniWorldPollStore(
         append(",\"stale\":").append(m.staleKeys)
         append(",\"uncomparable\":").append(m.uncomparableKeys)
         append(",\"elapsedMillis\":").append(m.elapsedMillis)
+        append(",\"completedWireCalls\":").append(m.completedWireCalls)
+        append(",\"uncompletedReservedCalls\":").append(m.uncompletedReservedCalls)
         append(",\"same\":").append((m.comparableKeys - m.disagreements).coerceAtLeast(0))
         m.postponementSnapshotHash?.let { append(",\"postponementSnapshotHash\":\"").append(it).append('"') }
         m.postponementParserVersion?.let {
             append(",\"postponementParserVersion\":\"").append(jsonString(it)).append('"')
         }
+        append(",\"sourceMetrics\":[")
+        append(m.sourceMetrics.joinToString(",") { source ->
+            "{\"instanceId\":\"${jsonString(source.instanceId)}\",\"type\":\"${source.sourceType.name}\"," +
+                "\"outcome\":\"${source.outcome.name}\",\"elapsedMillis\":${source.elapsedMillis}," +
+                "\"failureKind\":${source.failureKind?.let { "\"${it.name}\"" } ?: "null"}}"
+        })
+        append(']')
         append(",\"postponementReasons\":{")
         append(m.postponementReasonCounts.toSortedMap().entries.joinToString(",") { (key, value) ->
             val safeKey = key.filter { it.isLetterOrDigit() || it == '_' }.take(64)

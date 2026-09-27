@@ -13,6 +13,7 @@ import com.axiel7.anihyou.release.core.model.SourceHealthStatus
 import com.axiel7.anihyou.release.data.ReleaseEvidenceFingerprintV2
 import java.net.URI
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.CancellationException
 
@@ -140,8 +141,9 @@ class AniWorldEvidenceIngestionCoordinator(
     private val sources: List<ReleaseEvidenceSource>,
 ) {
     suspend fun collect(): AniWorldEvidenceCollection {
-        val results = sources.map { source ->
-            try {
+        val instances = sources.map { source ->
+            val startedAtNanos = System.nanoTime()
+            val result = try {
                 source.collect()
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -152,12 +154,13 @@ class AniWorldEvidenceIngestionCoordinator(
                         (exception::class.simpleName ?: "source-error"),
                 )
             }
+            CollectedEvidenceSourceInstance(source.sourceInstanceId, source.sourceType, result,
+                Duration.ofNanos((System.nanoTime() - startedAtNanos).coerceAtLeast(0)).toMillis())
         }
+        val results = instances.map { it.result }
         return AniWorldEvidenceCollection(
             results = results,
-            sourceInstances = sources.zip(results).map { (source, result) ->
-                CollectedEvidenceSourceInstance(source.sourceInstanceId, source.sourceType, result)
-            },
+            sourceInstances = instances,
             evidence = results.flatMap { result ->
                 when (result) {
                     is SourceResult.Success -> result.value
@@ -179,6 +182,7 @@ data class CollectedEvidenceSourceInstance(
     val instanceId: String,
     val sourceType: ReleaseSourceType,
     val result: SourceResult<List<ReleaseEvidence>>,
+    val elapsedMillis: Long = 0,
 )
 
 abstract class AbstractAniWorldEvidenceSource(

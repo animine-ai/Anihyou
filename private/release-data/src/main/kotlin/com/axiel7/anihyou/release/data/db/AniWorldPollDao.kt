@@ -17,6 +17,8 @@ interface AniWorldPollDao {
     @Query("SELECT COUNT(*) FROM v3_http_attempt WHERE generationId=:id AND role!='DIRECT'") suspend fun listAttemptCount(id: String): Int
     @Query("SELECT COUNT(*) FROM v3_http_attempt WHERE generationId=:id AND role='DIRECT' AND rootUrl=:root") suspend fun directAttemptCount(id: String, root: String): Int
     @Query("SELECT COUNT(*) FROM v3_http_attempt WHERE generationId=:id AND outcome='REDIRECT'") suspend fun redirectCount(id: String): Int
+    @Query("SELECT COUNT(*) FROM v3_http_attempt WHERE generationId=:id AND completedAt IS NOT NULL") suspend fun completedAttemptCount(id: String): Int
+    @Query("SELECT COUNT(*) FROM v3_http_attempt WHERE generationId=:id AND completedAt IS NULL") suspend fun uncompletedAttemptCount(id: String): Int
     @Query("SELECT * FROM v3_http_attempt WHERE generationId=:id AND ordinal=:ordinal") suspend fun attempt(id: String, ordinal: Int): HttpAttemptEntity?
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertAttempt(row: HttpAttemptEntity)
     @Query("UPDATE v3_http_attempt SET completedAt=:at,outcome=:outcome,retryAfterSeconds=:retryAfter,elapsedMillis=:elapsed WHERE generationId=:id AND ordinal=:ordinal AND completedAt IS NULL")
