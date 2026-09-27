@@ -9,6 +9,7 @@ import com.axiel7.anihyou.release.core.model.ReleaseEvidence
 import com.axiel7.anihyou.release.core.model.ReleaseEvidenceType
 import com.axiel7.anihyou.release.core.model.ReleaseSourceType
 import com.axiel7.anihyou.release.core.model.ScheduleCondition
+import com.axiel7.anihyou.release.core.model.SourceHealthStatus
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
