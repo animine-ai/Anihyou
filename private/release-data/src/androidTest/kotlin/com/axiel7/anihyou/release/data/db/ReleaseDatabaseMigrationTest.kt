@@ -350,7 +350,7 @@ class ReleaseDatabaseMigrationTest {
     }
 
     @Test
-    fun realVersionEightPathPreservesR2DataAndReopensAtEleven() {
+    fun realVersionEightPathPreservesR2DataAndReopensAtThirteen() {
         val databaseName = databaseNames[0]
         val versionEight = migrationTestHelper.createDatabase(databaseName, 8)
         try {
@@ -423,7 +423,7 @@ class ReleaseDatabaseMigrationTest {
             runBlocking {
                 assertEquals("hash", reopened.releaseDao()
                     .getProviderSnapshot("aniworld/snapshot/EPISODE/1/DE_DUB")?.sourceHash)
-                assertEquals(12, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
+                assertEquals(13, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
             }
         } finally {
             reopened.close()
@@ -621,7 +621,7 @@ class ReleaseDatabaseMigrationTest {
             .allowMainThreadQueries().build()
         try {
             val evidenceRepository = RoomReleaseEvidenceRepository(database)
-            assertEquals(12L, scalarLong(database.openHelper.writableDatabase,
+            assertEquals(13L, scalarLong(database.openHelper.writableDatabase,
                 "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
             assertEquals(4L, scalarLong(database.openHelper.writableDatabase,
                 "SELECT COUNT(*) FROM v3_evidence_alias"))
