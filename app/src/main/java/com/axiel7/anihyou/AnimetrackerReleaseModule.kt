@@ -99,7 +99,7 @@ val animetrackerReleaseModule = module {
             pollStore = get(),
             reconciliation = get(),
             clock = get(),
-            enabled = { BuildConfig.DEBUG && AniWorldShadowDebugActivation.enabledForInternalTest },
+            enabled = { AniWorldShadowDebugActivation.enabledForInternalTest },
         )
     }
     single { AniWorldClient(get()) }

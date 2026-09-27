@@ -9,6 +9,9 @@ plugins {
 }
 
 val appPackageName = rootProject.extra["appPackageName"] as String
+val aniWorldShadowCanaryDebugValue = providers.gradleProperty("aniworldShadowCanary").orNull?.also {
+    require(it == "true" || it == "false") { "aniworldShadowCanary must be exactly true or false" }
+} ?: "false"
 
 val versionProps = Properties().also {
     it.load(project.rootProject.file("version.properties").reader())
@@ -56,6 +59,7 @@ android {
 
     buildTypes {
         debug {
+            buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", aniWorldShadowCanaryDebugValue)
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-DEBUG"
             isDebuggable = true
@@ -67,6 +71,7 @@ android {
             )
         }
         release {
+            buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", "false")
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = false
@@ -80,9 +85,11 @@ android {
             }
         }
         create("benchmarkRelease") {
+            buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", "false")
             matchingFallbacks += listOf("release")
         }
         create("nonMinifiedRelease") {
+            buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", "false")
             matchingFallbacks += listOf("debug")
         }
     }

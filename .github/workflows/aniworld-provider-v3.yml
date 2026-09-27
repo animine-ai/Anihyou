@@ -14,6 +14,8 @@ on:
       - "feature/**"
       - "baselineprofile/**"
       - "wearos/**"
+      - "scripts/**"
+      - "docs/aniworld-shadow-canary.md"
       - "build-logic/**"
       - "gradle/**"
       - "build.gradle.kts"
@@ -181,6 +183,14 @@ jobs:
 
       - name: Run worker unit tests
         run: ./gradlew --console=plain --stacktrace :feature:worker:testDebugUnitTest
+
+      - name: Run app debug canary gating tests
+        run: ./gradlew --console=plain --stacktrace :app:testFossDebugUnitTest
+
+      - name: Test bounded shadow report parser
+        run: |
+          python3 -m py_compile scripts/aniworld-shadow-canary-report.py scripts/tests/test_aniworld_shadow_canary_report.py
+          python3 -m unittest discover -s scripts/tests -p 'test_aniworld_shadow_canary_report.py' -v
 
       - name: Export Room schema 13 with KSP
         run: ./gradlew --console=plain --stacktrace :private:release-data:kspDebugKotlin

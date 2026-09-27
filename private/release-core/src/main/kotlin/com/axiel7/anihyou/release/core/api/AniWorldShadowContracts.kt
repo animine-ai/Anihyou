@@ -153,4 +153,4 @@ interface AniWorldShadowPollStore {
 }
 
 fun interface AniWorldShadowRefreshCoordinator { suspend fun refresh(): ShadowRefreshOutcome }
-fun interface AniWorldShadowScheduler { fun schedule() }
+fun interface AniWorldShadowScheduler { fun scheduleCanaryNow() }

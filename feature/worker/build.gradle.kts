@@ -16,4 +16,5 @@ dependencies {
     implementation(libs.koin.workmanager)
 
     testImplementation(libs.junit)
+    testImplementation(libs.mockk)
 }

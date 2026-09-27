@@ -53,8 +53,8 @@ class App : Application(), SingletonImageLoader.Factory {
                 workerModule,
             )
         }
-        if (BuildConfig.DEBUG && AniWorldShadowDebugActivation.enabledForInternalTest) {
-            koinApplication.koin.get<AniWorldShadowScheduler>().schedule()
+        if (AniWorldShadowDebugActivation.enabledForInternalTest) {
+            koinApplication.koin.get<AniWorldShadowScheduler>().scheduleCanaryNow()
         }
     }
 
@@ -84,6 +84,9 @@ class App : Application(), SingletonImageLoader.Factory {
 
 /** Internal instrumentation/debug hook; no product setting enables shadow traffic. */
 internal object AniWorldShadowDebugActivation {
-    @Volatile
-    var enabledForInternalTest: Boolean = false
+    val enabledForInternalTest: Boolean =
+        isEnabled(BuildConfig.DEBUG, BuildConfig.ANIWORLD_SHADOW_CANARY)
+
+    internal fun isEnabled(debugBuild: Boolean, canaryProperty: Boolean): Boolean =
+        debugBuild && canaryProperty
 }
