@@ -166,6 +166,7 @@ jobs:
           ./gradlew --console=plain projects
           ./gradlew --console=plain :private:release-core:tasks --all
           ./gradlew --console=plain :private:release-data:tasks --all
+          ./gradlew --console=plain :feature:worker:tasks --all
           ./gradlew --console=plain :app:tasks --all
 
       - name: Run core tests
@@ -176,6 +177,9 @@ jobs:
 
       - name: Run Robolectric data tests
         run: ./gradlew --console=plain --stacktrace :private:release-data:testDebugUnitTest
+
+      - name: Run worker unit tests
+        run: ./gradlew --console=plain --stacktrace :feature:worker:testDebugUnitTest
 
       - name: Export Room schema 13 with KSP
         run: ./gradlew --console=plain --stacktrace :private:release-data:kspDebugKotlin
