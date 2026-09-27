@@ -3,12 +3,14 @@ package com.axiel7.anihyou.release.data.repository
 import androidx.room.withTransaction
 import com.axiel7.anihyou.release.core.api.*
 import com.axiel7.anihyou.release.core.model.*
+import com.axiel7.anihyou.release.core.state.ShadowFact
 import com.axiel7.anihyou.release.core.state.ShadowComparison
 import com.axiel7.anihyou.release.core.state.ShadowComparisonPolicy
 import com.axiel7.anihyou.release.core.sync.DirectTargetCandidate
 import com.axiel7.anihyou.release.core.sync.DirectTargetSelectionPolicy
 import com.axiel7.anihyou.release.data.aniworld.AniWorldCanonicalRouteParser
 import com.axiel7.anihyou.release.data.aniworld.AniWorldCanonicalRouteResult
+import com.axiel7.anihyou.release.data.aniworld.AniWorldDirectTargetResolver
 import com.axiel7.anihyou.release.data.aniworld.AniWorldParser
 import com.axiel7.anihyou.release.data.db.*
 import java.net.URI
