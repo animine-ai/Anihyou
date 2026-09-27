@@ -11,6 +11,10 @@ val workerModule = module {
     worker<NotificationWorker>()
     worker<ReleaseOutboxDispatcherWorker>()
     worker<ForecastRecheckWorker>()
+    worker<AniWorldShadowWorker>()
     single<ReleaseOutboxScheduler> { WorkManagerReleaseOutboxScheduler(get()) }
     single<ReleaseForecastRecheckScheduler> { WorkManagerReleaseForecastRecheckScheduler(get()) }
+    single<com.axiel7.anihyou.release.core.api.AniWorldShadowScheduler> {
+        WorkManagerAniWorldShadowScheduler(get())
+    }
 }

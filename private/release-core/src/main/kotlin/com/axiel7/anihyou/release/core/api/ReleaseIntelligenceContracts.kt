@@ -86,6 +86,7 @@ enum class SourceFailureKind {
     PARSE,
     UNAVAILABLE,
     UNKNOWN,
+    BUDGET_OR_COOLDOWN,
 }
 
 /** Provider-neutral result that keeps partial source success explicit. */

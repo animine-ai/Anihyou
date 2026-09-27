@@ -2,6 +2,9 @@ package com.axiel7.anihyou
 
 import androidx.room.Room
 import com.axiel7.anihyou.release.core.api.IdentityCandidateSource
+import com.axiel7.anihyou.release.core.api.AniWorldShadowPollStore
+import com.axiel7.anihyou.release.core.api.AniWorldShadowRefreshCoordinator
+import com.axiel7.anihyou.release.core.api.AniWorldShadowScheduler
 import com.axiel7.anihyou.release.core.api.ReleaseAuthorityReducer
 import com.axiel7.anihyou.release.core.api.ReleaseDecisionRepository
 import com.axiel7.anihyou.release.core.api.ReleaseEvidenceRepository
@@ -31,6 +34,7 @@ import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_8_9
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_9_10
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_10_11
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_11_12
+import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_12_13
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
 import com.axiel7.anihyou.release.data.preferences.ReleasePreferencesStore
@@ -51,6 +55,8 @@ import com.axiel7.anihyou.release.data.repository.RoomReleaseDecisionRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseEvidenceRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseIntelligencePersistence
 import com.axiel7.anihyou.release.data.repository.RoomReleaseReconciliationRepository
+import com.axiel7.anihyou.release.data.repository.RoomAniWorldPollStore
+import com.axiel7.anihyou.release.data.repository.AniWorldShadowSyncOrchestrator
 import com.axiel7.anihyou.release.data.repository.RoomSourceHealthRepository
 import java.time.Clock
 import org.koin.android.ext.koin.androidApplication
@@ -75,6 +81,7 @@ val animetrackerReleaseModule = module {
             RELEASE_MIGRATION_9_10,
             RELEASE_MIGRATION_10_11,
             RELEASE_MIGRATION_11_12,
+            RELEASE_MIGRATION_12_13,
         ).build()
     }
     single<AniWorldHttpTransport> { JdkAniWorldHttpTransport() }
@@ -86,6 +93,15 @@ val animetrackerReleaseModule = module {
     single<SourceHealthRepository> { RoomSourceHealthRepository(get()) }
     single { RoomReleaseIntelligencePersistence(get(), get()) }
     single { RoomReleaseReconciliationRepository(get()) }
+    single<AniWorldShadowPollStore> { RoomAniWorldPollStore(get(), get(), get()) }
+    single<AniWorldShadowRefreshCoordinator> {
+        AniWorldShadowSyncOrchestrator(
+            pollStore = get(),
+            reconciliation = get(),
+            clock = get(),
+            enabled = { BuildConfig.DEBUG && AniWorldShadowDebugActivation.enabledForInternalTest },
+        )
+    }
     single { AniWorldClient(get()) }
     single { AniWorldProvider(client = get(), clock = get()) }
     single { RoomIdentityCandidateStore(get(), get()) }

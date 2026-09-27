@@ -183,7 +183,9 @@ class AniWorldEvidenceSourcesTest {
             </main></body></html>
             """.trimIndent(),
         )
-        assertFailure(result, SourceFailureKind.PARSE)
+        val partial = result as SourceResult.PartialSuccess
+        assertTrue(partial.value.isEmpty())
+        assertEquals(SourceHealthStatus.DEGRADED, partial.sourceHealth?.status)
         assertEquals("/support/frage/anime-verschiebungen",
             AniWorldPostponementEvidenceAdapter.DEFAULT_POSTPONEMENT_PATH)
     }
@@ -212,7 +214,9 @@ class AniWorldEvidenceSourcesTest {
             """.trimIndent(),
         )
 
-        assertFailure(result, SourceFailureKind.PARSE)
+        val partial = result as SourceResult.PartialSuccess
+        assertTrue(partial.value.isEmpty())
+        assertEquals(SourceHealthStatus.DEGRADED, partial.sourceHealth?.status)
     }
 
     @Test

@@ -57,6 +57,14 @@ class ReleaseDatabaseMigrationTest {
         "release-persistence-v10-to-v12-test.db",
         "release-persistence-v8-to-v12-test.db",
         "release-persistence-v11-invalid-marker-test.db",
+        "release-persistence-v12-to-v13-test.db",
+        "release-persistence-v11-to-v13-test.db",
+        "release-persistence-v10-to-v13-test.db",
+        "release-persistence-v8-to-v13-test.db",
+        "release-persistence-v12-fault-rollback-test.db",
+        "release-persistence-v12-name-collision-test.db",
+        "release-persistence-v12-bad-marker-test.db",
+        "release-persistence-v12-index-collision-test.db",
     )
     private val observedAt = Instant.parse("2026-09-11T12:00:00Z")
 
@@ -71,6 +79,207 @@ class ReleaseDatabaseMigrationTest {
     @After
     fun cleanup() {
         databaseNames.forEach(context::deleteDatabase)
+    }
+
+    @Test
+    fun wp04b_migration_v12_to_v13_preservesBaselineAndR2AndReopens() = runBlocking {
+        val name = databaseNames[14]
+        val v12 = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(v12, 12)
+        seedBaselineMarker(v12)
+        seedProviderSnapshot(v12)
+        v12.close()
+        val migrated = migrationTestHelper.runMigrationsAndValidate(name, 13, true, RELEASE_MIGRATION_12_13)
+        try {
+            assertEquals(13L, scalarLong(migrated,
+                "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(12L, scalarLong(migrated,
+                "SELECT schemaVersion FROM schema_meta WHERE key='BASELINE_IMPORT_COMPLETE'"))
+            assertEquals("v1", migrated.query(
+                "SELECT value FROM schema_meta WHERE key='BASELINE_IMPORT_COMPLETE'").use {
+                assertTrue(it.moveToFirst()); it.getString(0)
+            })
+            assertEquals("fixture-hash", migrated.query(
+                "SELECT sourceHash FROM provider_snapshot WHERE streamKey='aniworld/v13-preserve'").use {
+                assertTrue(it.moveToFirst()); it.getString(0)
+            })
+            assertEquals(0L, scalarLong(migrated,
+                "SELECT count(*) FROM v3_poll_generation"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_http_attempt"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_request_state"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_shadow_metric"))
+            migrated.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+        } finally { migrated.close() }
+
+        val reopened = Room.databaseBuilder(context, ReleaseDatabase::class.java, name)
+            .addMigrations(RELEASE_MIGRATION_12_13).allowMainThreadQueries().build()
+        try {
+            assertEquals("fixture-hash", reopened.releaseDao().getProviderSnapshot("aniworld/v13-preserve")?.sourceHash)
+            assertEquals(12, reopened.releaseDao().getSchemaMeta("BASELINE_IMPORT_COMPLETE")?.schemaVersion)
+            assertEquals(13, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
+        } finally { reopened.close() }
+    }
+
+    @Test
+    fun wp04b_migration_v11_to_v13_usesCompleteChain() {
+        assertMigrationToV13(databaseNames[15], 11)
+    }
+
+    @Test
+    fun wp04b_migration_v10_to_v13_usesCompleteChain() {
+        assertMigrationToV13(databaseNames[16], 10)
+    }
+
+    @Test
+    fun wp04b_migration_v8_to_v13_usesCompleteChain() {
+        assertMigrationToV13(databaseNames[17], 8)
+    }
+
+    @Test
+    fun wp04b_migration_v12_faultAfterCreateRollsBackAllDdl() {
+        val name = databaseNames[18]
+        val db = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(db, 12)
+        try {
+            db.beginTransaction()
+            val failure = runCatching {
+                migrateReleaseDatabase12To13(db) { error("fault injected after first CREATE") }
+            }
+            assertTrue(failure.isFailure)
+        } finally {
+            if (db.inTransaction()) db.endTransaction()
+        }
+        try {
+            assertEquals(12L, scalarLong(db, "PRAGMA user_version"))
+            assertEquals(12L, scalarLong(db,
+                "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(0L, scalarLong(db,
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name LIKE 'v3_%'"))
+        } finally { db.close() }
+    }
+
+    @Test
+    fun wp04b_migration_v12BadMarkerFailsBeforeAnyCreate() {
+        val name = databaseNames[20]
+        val db = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(db, 11)
+        db.close()
+        val failed = runCatching {
+            migrationTestHelper.runMigrationsAndValidate(name, 13, true, RELEASE_MIGRATION_12_13)
+        }
+        assertTrue(failed.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(12L, reopened.rawQuery("PRAGMA user_version", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name LIKE 'v3_%'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(11L, reopened.rawQuery(
+                "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { reopened.close() }
+    }
+
+    @Test
+    fun wp04b_migration_v12IndexNameCollisionFailsBeforeAnyCreate() {
+        val name = databaseNames[21]
+        val db = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(db, 12)
+        db.execSQL("CREATE INDEX idx_v3_http_attempt_root_time ON provider_snapshot(sourceHash)")
+        db.close()
+        val failed = runCatching {
+            migrationTestHelper.runMigrationsAndValidate(name, 13, true, RELEASE_MIGRATION_12_13)
+        }
+        assertTrue(failed.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(12L, reopened.rawQuery("PRAGMA user_version", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='v3_poll_generation'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(1L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_v3_http_attempt_root_time'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { reopened.close() }
+    }
+
+    @Test
+    fun wp04b_migration_v12NameCollisionFailsBeforeAnyCreate() {
+        val name = databaseNames[19]
+        val db = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(db, 12)
+        db.execSQL("CREATE TABLE v3_http_attempt (legacy TEXT NOT NULL)")
+        db.close()
+        val failed = runCatching {
+            migrationTestHelper.runMigrationsAndValidate(name, 13, true, RELEASE_MIGRATION_12_13)
+        }
+        assertTrue(failed.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(12L, reopened.rawQuery("PRAGMA user_version", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='v3_poll_generation'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(12L, reopened.rawQuery(
+                "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { reopened.close() }
+    }
+
+    private fun assertMigrationToV13(name: String, version: Int) {
+        val old = migrationTestHelper.createDatabase(name, version)
+        seedSchemaMarker(old, version)
+        old.close()
+        val chain = when (version) {
+            11 -> arrayOf(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+            10 -> arrayOf(RELEASE_MIGRATION_10_11, RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+            8 -> arrayOf(RELEASE_MIGRATION_8_9, RELEASE_MIGRATION_9_10, RELEASE_MIGRATION_10_11,
+                RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+            else -> error("unsupported fixture schema")
+        }
+        val migrated = migrationTestHelper.runMigrationsAndValidate(name, 13, true, *chain)
+        try {
+            assertEquals(13L, scalarLong(migrated,
+                "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_poll_generation"))
+            migrated.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+        } finally { migrated.close() }
+    }
+
+    private fun seedBaselineMarker(db: SupportSQLiteDatabase) {
+        db.execSQL("INSERT INTO schema_meta(`key`,schemaVersion,value,updatedAt) " +
+            "VALUES('BASELINE_IMPORT_COMPLETE',12,'v1','2026-09-26T00:00:00Z')")
+    }
+
+    private fun seedProviderSnapshot(db: SupportSQLiteDatabase) {
+        val values = ContentValues().apply {
+            put("streamKey", "aniworld/v13-preserve")
+            put("providerId", "aniworld")
+            put("stableSeriesKey", "snapshot")
+            put("releaseKind", "EPISODE")
+            put("sourceSeason", 1)
+            put("languageTrack", "DE_SUB")
+            put("confirmationsPayload", "")
+            put("forecastsPayload", "")
+            put("freshnessStatus", "FRESH")
+            put("lastSuccessAt", observedAt.toString())
+            put("sourceHash", "fixture-hash")
+            put("sourcePresent", 1)
+            put("snapshotObservedAt", observedAt.toString())
+        }
+        assertTrue(db.insert("provider_snapshot", SQLiteDatabase.CONFLICT_NONE, values) > 0L)
     }
 
     @Test

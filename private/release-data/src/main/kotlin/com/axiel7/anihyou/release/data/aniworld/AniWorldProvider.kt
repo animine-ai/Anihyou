@@ -135,7 +135,8 @@ class AniWorldProvider(
                 AniWorldFailureKind.TRANSPORT_FAILURE,
                 AniWorldFailureKind.NON_HTML_CONTENT,
                 AniWorldFailureKind.OVERSIZED_BODY,
-                AniWorldFailureKind.REDIRECT_HOST -> FailureKind.NETWORK
+                AniWorldFailureKind.REDIRECT_HOST,
+                AniWorldFailureKind.BUDGET_DENIED -> FailureKind.NETWORK
                 AniWorldFailureKind.MISSING_PAGE_ANCHOR,
                 AniWorldFailureKind.CHANGED_SEMANTIC_ANCHOR,
                 AniWorldFailureKind.UNKNOWN_LANGUAGE_MARKER,
@@ -174,7 +175,8 @@ class AniWorldProvider(
                 AniWorldFailureKind.TRANSPORT_FAILURE,
                 AniWorldFailureKind.NON_HTML_CONTENT,
                 AniWorldFailureKind.OVERSIZED_BODY,
-                AniWorldFailureKind.REDIRECT_HOST -> FailureKind.NETWORK
+                AniWorldFailureKind.REDIRECT_HOST,
+                AniWorldFailureKind.BUDGET_DENIED -> FailureKind.NETWORK
             },
             diagnostic = diagnostic,
         )

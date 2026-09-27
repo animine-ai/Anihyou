@@ -22,6 +22,7 @@ class AniWorldCalendarEvidenceAdapter(
     private val parser: AniWorldEvidenceParser = AniWorldEvidenceParser(),
     private val sourceRoot: String = DEFAULT_ANIWORLD_SOURCE_ROOT,
     private val clock: Clock = Clock.systemUTC(),
+    override val sourceInstanceId: String = "aw:list:calendar:v1",
 ) : AbstractAniWorldEvidenceSource(client, parser, clock) {
     override val sourceType: ReleaseSourceType = ReleaseSourceType.ANIWORLD_CALENDAR
 
@@ -38,6 +39,7 @@ class AniWorldRecentEpisodeEvidenceAdapter(
     private val parser: AniWorldEvidenceParser = AniWorldEvidenceParser(),
     private val sourceRoot: String = DEFAULT_ANIWORLD_SOURCE_ROOT,
     private val clock: Clock = Clock.systemUTC(),
+    override val sourceInstanceId: String = "aw:list:recent:v1",
 ) : AbstractAniWorldEvidenceSource(client, parser, clock) {
     override val sourceType: ReleaseSourceType = ReleaseSourceType.ANIWORLD_RECENT
 
@@ -55,6 +57,8 @@ class AniWorldPostponementEvidenceAdapter(
     private val sourceRoot: String = DEFAULT_ANIWORLD_SOURCE_ROOT,
     private val postponementPath: String = DEFAULT_POSTPONEMENT_PATH,
     private val clock: Clock = Clock.systemUTC(),
+    override val sourceInstanceId: String = "aw:list:postponement:v1",
+    private val diagnosticSink: AniWorldPostponementDiagnosticSink? = null,
 ) : AbstractAniWorldEvidenceSource(client, parser, clock) {
     override val sourceType: ReleaseSourceType = ReleaseSourceType.ANIWORLD_POSTPONEMENT
 
@@ -66,6 +70,7 @@ class AniWorldPostponementEvidenceAdapter(
                 kind = when (fetched.kind) {
                     AniWorldFailureKind.RATE_LIMITED -> SourceFailureKind.RATE_LIMITED
                     AniWorldFailureKind.NOT_MODIFIED_CACHE_MISS -> SourceFailureKind.NOT_MODIFIED_CACHE_MISS
+                    AniWorldFailureKind.BUDGET_DENIED -> SourceFailureKind.BUDGET_OR_COOLDOWN
                     else -> SourceFailureKind.NETWORK
                 },
                 diagnostic = fetched.diagnostic.take(256),
@@ -73,14 +78,31 @@ class AniWorldPostponementEvidenceAdapter(
                     lastAttemptAt = observedAt, lastSuccessAt = null, consecutiveFailures = 1),
                 retryAfterSeconds = fetched.retryAfterSeconds,
             )
-            is AniWorldClientResult.Success -> SourceResult.Failure(
-                kind = SourceFailureKind.PARSE,
-                diagnostic = if (AniWorldPostponementSupportList.parse(fetched.response.body, fetched.response.finalUrl) == null)
-                    "support-list structure invalid; no correction can be emitted"
-                else "support-list rows are unbound; no canonical correction can be emitted",
-                sourceHealth = SourceHealth(sourceType, SourceHealthStatus.DEGRADED,
-                    lastAttemptAt = observedAt, lastSuccessAt = null, consecutiveFailures = 1),
-            )
+            is AniWorldClientResult.Success -> {
+                val parsed = AniWorldPostponementSupportList.parseWithDiagnostics(
+                    fetched.response.body, fetched.response.finalUrl,
+                )
+                diagnosticSink?.record(parsed.diagnostics)
+                if (parsed.diagnostics.structureValid) {
+                    SourceResult.PartialSuccess(
+                        value = emptyList(),
+                        diagnostic = "support-list rows remain unbound; no canonical correction can be emitted",
+                        sourceHealth = SourceHealth(sourceType, SourceHealthStatus.DEGRADED,
+                            lastAttemptAt = observedAt, lastSuccessAt = observedAt,
+                            consecutiveFailures = 0, parserVersion = parsed.diagnostics.parserVersion,
+                            sourceHash = parsed.diagnostics.sourceHash),
+                    )
+                } else {
+                    SourceResult.Failure(
+                        kind = SourceFailureKind.PARSE,
+                        diagnostic = "support-list structure invalid; no correction can be emitted",
+                        sourceHealth = SourceHealth(sourceType, SourceHealthStatus.DEGRADED,
+                            lastAttemptAt = observedAt, lastSuccessAt = null, consecutiveFailures = 1,
+                            parserVersion = parsed.diagnostics.parserVersion,
+                            sourceHash = parsed.diagnostics.sourceHash),
+                    )
+                }
+            }
         }
     }
 
@@ -95,15 +117,19 @@ class AniWorldDirectVerificationEvidenceAdapter(
     private val episodeUrl: String,
     private val parser: AniWorldEvidenceParser = AniWorldEvidenceParser(),
     private val clock: Clock = Clock.systemUTC(),
+    override val sourceInstanceId: String = "${ReleaseSourceType.ANIWORLD_DIRECT_PAGE.name}:$episodeUrl",
 ) : AbstractAniWorldEvidenceSource(client, parser, clock) {
     override val sourceType: ReleaseSourceType = ReleaseSourceType.ANIWORLD_DIRECT_PAGE
-    override val sourceInstanceId: String = "${ReleaseSourceType.ANIWORLD_DIRECT_PAGE.name}:$episodeUrl"
 
     override suspend fun collect(): SourceResult<List<ReleaseEvidence>> = collectPage(
         role = AniWorldPageRole.DIRECT_EPISODE,
         url = episodeUrl,
         evidenceType = ReleaseEvidenceType.VERIFICATION,
     )
+}
+
+fun interface AniWorldPostponementDiagnosticSink {
+    fun record(diagnostics: PostponementParseDiagnostics)
 }
 
 /**
@@ -368,6 +394,7 @@ abstract class AbstractAniWorldEvidenceSource(
         AniWorldFailureKind.BLOCKED_PAGE -> SourceFailureKind.BLOCKED
         AniWorldFailureKind.RATE_LIMITED -> SourceFailureKind.RATE_LIMITED
         AniWorldFailureKind.NOT_MODIFIED_CACHE_MISS -> SourceFailureKind.NOT_MODIFIED_CACHE_MISS
+        AniWorldFailureKind.BUDGET_DENIED -> SourceFailureKind.BUDGET_OR_COOLDOWN
         AniWorldFailureKind.HTTP_STATUS,
         AniWorldFailureKind.TRANSPORT_FAILURE,
         AniWorldFailureKind.NON_HTML_CONTENT,

@@ -40,6 +40,7 @@ enum class AniWorldFailureKind {
     TOO_MANY_DAYS,
     EMPTY_STRUCTURE,
     UNSUPPORTED_ROLE,
+    BUDGET_DENIED,
 }
 
 data class AniWorldLimits(

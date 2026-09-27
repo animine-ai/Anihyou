@@ -18,6 +18,7 @@ import com.axiel7.anihyou.core.domain.repositoryModule
 import com.axiel7.anihyou.core.network.apiModule
 import com.axiel7.anihyou.core.network.networkModule
 import com.axiel7.anihyou.feature.worker.workerModule
+import com.axiel7.anihyou.release.core.api.AniWorldShadowScheduler
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.androidx.workmanager.koin.workManagerFactory
@@ -29,7 +30,7 @@ class App : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
 
-        startKoin {
+        val koinApplication = startKoin {
             if (BuildConfig.DEBUG) {
                 androidLogger()
             }
@@ -51,6 +52,9 @@ class App : Application(), SingletonImageLoader.Factory {
                 viewModelModule,
                 workerModule,
             )
+        }
+        if (BuildConfig.DEBUG && AniWorldShadowDebugActivation.enabledForInternalTest) {
+            koinApplication.koin.get(AniWorldShadowScheduler::class).schedule()
         }
     }
 
@@ -76,4 +80,10 @@ class App : Application(), SingletonImageLoader.Factory {
             }
             .crossfade(true)
             .build()
+}
+
+/** Internal instrumentation/debug hook; no product setting enables shadow traffic. */
+internal object AniWorldShadowDebugActivation {
+    @Volatile
+    var enabledForInternalTest: Boolean = false
 }

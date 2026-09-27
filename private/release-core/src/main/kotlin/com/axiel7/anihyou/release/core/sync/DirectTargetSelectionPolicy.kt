@@ -1,0 +1,63 @@
+package com.axiel7.anihyou.release.core.sync
+
+import java.security.MessageDigest
+import java.time.Instant
+
+data class DirectTargetCandidate(
+    val canonicalUrl: String,
+    val exactTargetKey: String,
+    val tracks: Set<String>,
+    val priority: Int,
+    val firstEligibleAt: Instant,
+    val lastAttemptAt: Instant?,
+    val nextEligibleAt: Instant?,
+    val exactTargetKeys: Set<String> = setOf(exactTargetKey),
+) {
+    init {
+        require(canonicalUrl.length in 1..2048 && exactTargetKey.length in 1..2048)
+        require(tracks.isNotEmpty() && tracks.all { it in setOf("DE_SUB", "DE_DUB") })
+        require(priority in 0..2)
+        require(exactTargetKeys.isNotEmpty() && exactTargetKeys.size <= 2 && exactTargetKey in exactTargetKeys)
+    }
+}
+
+object DirectTargetSelectionPolicy {
+    const val MAX_URLS = 4
+    private val order = compareBy<DirectTargetCandidate>({ it.priority },
+        { it.lastAttemptAt ?: Instant.MIN }, { it.firstEligibleAt }, { it.canonicalUrl })
+
+    fun select(candidates: List<DirectTargetCandidate>, now: Instant, limit: Int = MAX_URLS): List<DirectTargetCandidate> {
+        require(limit in 0..MAX_URLS)
+        require(candidates.flatMap { it.exactTargetKeys }.distinct().size == candidates.sumOf { it.exactTargetKeys.size })
+        val eligible = candidates.filter { it.nextEligibleAt?.isAfter(now) != true }
+            .groupBy { it.canonicalUrl }.map { (_, group) ->
+                val selected = group.minWith(order)
+                val allKeys = group.flatMap { it.exactTargetKeys }.toSet()
+                require(allKeys.size <= 2) { "one Direct URL cannot fan out to more than two exact targets" }
+                selected.copy(tracks = group.flatMap { it.tracks }.toSet(), exactTargetKeys = allKeys,
+                    priority = group.minOf { it.priority }, firstEligibleAt = group.minOf { it.firstEligibleAt },
+                    lastAttemptAt = group.mapNotNull { it.lastAttemptAt }.minOrNull(),
+                    nextEligibleAt = group.mapNotNull { it.nextEligibleAt }.maxOrNull())
+            }
+        if (eligible.isEmpty() || limit == 0) return emptyList()
+        val ordered = eligible.sortedWith(order)
+        val fairness = eligible.minWith(compareBy<DirectTargetCandidate>(
+            { it.lastAttemptAt ?: Instant.MIN }, { it.firstEligibleAt }, { it.canonicalUrl }))
+        val selected = ordered.take(limit - 1).toMutableList()
+        if (selected.none { it.canonicalUrl == fairness.canonicalUrl }) selected += fairness
+        if (selected.size < limit) ordered.filterNot { c -> selected.any { it.canonicalUrl == c.canonicalUrl } }
+            .take(limit - selected.size).forEach(selected::add)
+        return selected.take(limit)
+    }
+
+    fun snapshotDigest(candidates: List<DirectTargetCandidate>): String {
+        require(candidates.flatMap { it.exactTargetKeys }.distinct().size == candidates.sumOf { it.exactTargetKeys.size })
+        val value = candidates.sortedBy { it.exactTargetKey }.joinToString("\n") { c ->
+            listOf(c.exactTargetKeys.sorted().joinToString(","), c.canonicalUrl,
+                c.tracks.sorted().joinToString(","), c.priority.toString(),
+                c.firstEligibleAt.toString(), c.lastAttemptAt?.toString() ?: "-", c.nextEligibleAt?.toString() ?: "-")
+                .joinToString("|")
+        }
+        return MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+}
