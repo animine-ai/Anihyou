@@ -63,7 +63,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p tools/ep01-android/results
-          adb logcat -d > tools/ep01-android/results/logcat.txt 2>&1 || true
+          timeout 15 adb logcat -d > tools/ep01-android/results/logcat.txt 2>&1 || true
       - name: Upload APK and exact execution evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
