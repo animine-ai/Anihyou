@@ -390,9 +390,6 @@ object ExtensionWireCodec {
             },
             diagnostics = diagnostics,
         )
-        ensure(observation.installment.number == null || observation.installment.number.matches(DECIMAL_EPISODE)) {
-            wireError(ExtensionWireErrorCode.INVALID_FIELD, "$path.installment.number is not a plain nonnegative decimal")
-        }
         return observation
     }
 

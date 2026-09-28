@@ -297,7 +297,7 @@ class ExtensionHostCoordinator(
             require(bytes.size <= MAX_BODY_BYTES && response.sourceHash == sha256(bytes))
         } else {
             require(response.bodyUtf8 == null && response.sourceHash == null)
-            if (response.finalUrl != null) validateRequestUrl(request.copy(url = response.finalUrl), grantedHosts)
+            response.finalUrl?.let { validateRequestUrl(request.copy(url = it), grantedHosts) }
         }
     }
 
