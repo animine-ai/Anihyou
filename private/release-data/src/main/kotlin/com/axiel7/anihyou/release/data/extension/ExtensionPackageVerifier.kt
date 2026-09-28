@@ -66,7 +66,7 @@ internal class AuthorizedExtensionPublisherKey(
 }
 
 /** The production implementation must inspect Wasm features/imports/exports before activation. */
-internal fun interface WasmCoreModuleProfileVerifier {
+fun interface WasmCoreModuleProfileVerifier {
     /** Check the exact release exports and the exports allowed by the signed capability set. */
     fun verify(moduleBytes: ByteArray, navigationCapabilities: Set<NavigationCapability>)
 }
