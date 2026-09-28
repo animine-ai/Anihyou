@@ -6,11 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
-import android.os.Handler
-import android.os.HandlerThread
+import android.os.Binder
 import android.os.IBinder
-import android.os.Message
-import android.os.Messenger
+import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
 import com.axiel7.anihyou.release.core.extension.ExtensionExecutionLimits
@@ -24,8 +22,10 @@ import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CompletableDeferred
@@ -83,38 +83,17 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     private val sessionMutex = Mutex()
     private val closed = AtomicBoolean(false)
     private val nextGeneration = AtomicLong(1)
-    private val callbackThread = HandlerThread("arex-runtime-replies").apply { start() }
-    private val pending = ConcurrentHashMap<Long, Pending>()
-    private val started = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
+    private val transportThread = AtomicLong(1)
+    private val transportExecutor = Executors.newFixedThreadPool(2) { runnable ->
+        Thread(runnable, "arex-binder-" + transportThread.getAndIncrement()).apply { isDaemon = true }
+    }
     private val lateResultRejections = AtomicLong(0)
 
     @Volatile private var session: Session? = null
     @Volatile private var activeToken: Long = 0
-    @Volatile private var lastFenced: Pair<Long, Long>? = null
+    @Volatile private var lastFenced: FencedInvocation? = null
     @Volatile var lastDiagnostics: ExtensionRuntimeCallDiagnostics? = null
         private set
-
-    private val callbackMessenger = Messenger(Handler(callbackThread.looper) { message ->
-        val data = message.data
-        val token = data.getLong(RuntimeProtocol.KEY_TOKEN)
-        val generation = data.getLong(RuntimeProtocol.KEY_GENERATION)
-        if (data.getString(RuntimeProtocol.KEY_STATUS) == RuntimeProtocol.STATUS_STARTED) {
-            started[token]?.complete(Unit)
-            return@Handler true
-        }
-        val current = pending[token]
-        if (current == null || current.generation != generation) {
-            lateResultRejections.incrementAndGet()
-            return@Handler true
-        }
-        if (pending.remove(token, current)) {
-            started.remove(token)
-            current.reply.complete(RuntimeReply.from(data))
-        } else {
-            lateResultRejections.incrementAndGet()
-        }
-        true
-    })
 
     override suspend fun execute(
         moduleDigest: String,
@@ -174,8 +153,9 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     }
 
     /**
-     * Executes one IPC attempt. A stale host cache hint is recoverable exactly once by the caller;
-     * all guest execution, timeout and cancellation failures remain fail-closed.
+     * One synchronous Binder request/reply per logical attempt. Binder work runs on a bounded host
+     * executor so cancellation and the independent host deadline can fence and kill a wedged
+     * isolated process without waiting for a blocked Binder transaction to return.
      */
     private suspend fun executeAttempt(
         activeSession: Session,
@@ -193,13 +173,10 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.INVALID_INPUT),
             )
         }
+
         val token = nextInvocationId()
         val generation = activeSession.generation
         activeToken = token
-        val replyDeferred = CompletableDeferred<RuntimeReply>()
-        val startedDeferred = CompletableDeferred<Unit>()
-        pending[token] = Pending(generation, replyDeferred)
-        started[token] = startedDeferred
 
         try {
             return coroutineScope {
@@ -219,41 +196,45 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                     }
                 }
 
-                val message = Message.obtain(null, RuntimeProtocol.MSG_EXECUTE).apply {
-                    replyTo = callbackMessenger
-                    data = Bundle().apply {
-                        putLong(RuntimeProtocol.KEY_TOKEN, token)
-                        putLong(RuntimeProtocol.KEY_GENERATION, generation)
-                        putString(RuntimeProtocol.KEY_DIGEST, moduleDigest)
-                        putString(RuntimeProtocol.KEY_EXPORT, exportName)
-                        putLong(RuntimeProtocol.KEY_MAX_OUTPUT, limits.maxOutputBytes.toLong())
-                        putLong(RuntimeProtocol.KEY_MEMORY, limits.memoryBytes.toLong())
-                        putLong(RuntimeProtocol.KEY_FUEL, limits.fuel)
-                        putLong(RuntimeProtocol.KEY_DEADLINE, limits.deadlineMillis)
-                        if (inputInline) putByteArray(RuntimeProtocol.KEY_INPUT_INLINE, inputUtf8)
-                        else inputPipe?.let { putParcelable(RuntimeProtocol.KEY_INPUT_FD, it[0]) }
-                        if (moduleInline) putByteArray(RuntimeProtocol.KEY_MODULE_INLINE, moduleBytes)
-                        else modulePipe?.let { putParcelable(RuntimeProtocol.KEY_MODULE_FD, it[0]) }
-                    }
+                val request = Bundle().apply {
+                    putLong(RuntimeProtocol.KEY_TOKEN, token)
+                    putLong(RuntimeProtocol.KEY_GENERATION, generation)
+                    putString(RuntimeProtocol.KEY_DIGEST, moduleDigest)
+                    putString(RuntimeProtocol.KEY_EXPORT, exportName)
+                    putLong(RuntimeProtocol.KEY_MAX_OUTPUT, limits.maxOutputBytes.toLong())
+                    putLong(RuntimeProtocol.KEY_MEMORY, limits.memoryBytes.toLong())
+                    putLong(RuntimeProtocol.KEY_FUEL, limits.fuel)
+                    putLong(RuntimeProtocol.KEY_DEADLINE, limits.deadlineMillis)
+                    if (inputInline) putByteArray(RuntimeProtocol.KEY_INPUT_INLINE, inputUtf8)
+                    else inputPipe?.let { putParcelable(RuntimeProtocol.KEY_INPUT_FD, it[0]) }
+                    if (moduleInline) putByteArray(RuntimeProtocol.KEY_MODULE_INLINE, moduleBytes)
+                    else modulePipe?.let { putParcelable(RuntimeProtocol.KEY_MODULE_FD, it[0]) }
                 }
 
+                val replyDeferred = CompletableDeferred<RuntimeReply>()
                 try {
-                    activeSession.messenger.send(message)
-                } catch (error: RemoteException) {
-                    fence(token, generation)
-                    invalidate(activeSession)
-                    throw error
-                } finally {
+                    transportExecutor.execute {
+                        try {
+                            replyDeferred.complete(transactExecute(activeSession.binder, request))
+                        } catch (error: Throwable) {
+                            replyDeferred.completeExceptionally(error)
+                        } finally {
+                            inputPipe?.get(0)?.close()
+                            modulePipe?.get(0)?.close()
+                        }
+                    }
+                } catch (rejected: RejectedExecutionException) {
                     inputPipe?.get(0)?.close()
                     modulePipe?.get(0)?.close()
+                    throw rejected
                 }
 
                 val reply = withTimeoutOrNull(limits.deadlineMillis + HOST_DEADLINE_GRACE_MILLIS) {
                     replyDeferred.await()
                 }
                 if (reply == null) {
-                    fence(token, generation)
-                    sendCancel(activeSession, token, generation)
+                    fence(activeSession, token, generation)
+                    sendCancel(activeSession, token)
                     terminate(activeSession)
                     try { inputWriter?.await() } catch (_: Exception) {}
                     try { moduleWriter?.await() } catch (_: Exception) {}
@@ -264,6 +245,13 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
 
                 inputWriter?.await()
                 moduleWriter?.await()
+
+                if (!acceptReply(activeSession, token, generation, reply)) {
+                    reply.outputFd?.close()
+                    return@coroutineScope RuntimeAttempt.Failure(
+                        ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
+                    )
+                }
 
                 if (reply.status != RuntimeProtocol.STATUS_OK) {
                     reply.outputFd?.close()
@@ -276,7 +264,13 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 }
 
                 val output = reply.outputInline ?: reply.outputFd?.let { fd ->
-                    ParcelFileDescriptor.AutoCloseInputStream(fd).use { readBounded(it, limits.maxOutputBytes) }
+                    try {
+                        ParcelFileDescriptor.AutoCloseInputStream(fd).use {
+                            readBounded(it, limits.maxOutputBytes)
+                        }
+                    } finally {
+                        releaseOutput(activeSession, token)
+                    }
                 } ?: return@coroutineScope RuntimeAttempt.Failure(
                     ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.OUTPUT_LIMIT)
                 )
@@ -296,20 +290,18 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 RuntimeAttempt.Success(output)
             }
         } catch (cancelled: CancellationException) {
-            fence(token, generation)
-            sendCancel(activeSession, token, generation)
+            fence(activeSession, token, generation)
+            sendCancel(activeSession, token)
             terminate(activeSession)
             throw cancelled
         } catch (_: Exception) {
-            fence(token, generation)
+            fence(activeSession, token, generation)
             if (!activeSession.binder.isBinderAlive) invalidate(activeSession)
             return RuntimeAttempt.Failure(
                 ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
             )
         } finally {
             if (activeToken == token) activeToken = 0
-            started.remove(token)
-            pending.remove(token)
         }
     }
 
@@ -344,55 +336,60 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         }
     }
 
-    suspend fun awaitActiveInvocationForTesting(timeoutMillis: Long = 5_000): Boolean =
-        withTimeoutOrNull(timeoutMillis) {
-            while (true) {
-                val token = activeToken
-                val signal = token.takeIf { it != 0L }?.let(started::get)
-                if (signal != null) {
-                    signal.await()
-                    return@withTimeoutOrNull true
-                }
-                delay(5)
+    suspend fun awaitActiveInvocationForTesting(timeoutMillis: Long = 5_000): Boolean {
+        val token = activeToken
+        val activeSession = session ?: return false
+        if (token == 0L) return false
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMillis
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            if (session?.binder !== activeSession.binder || !activeSession.binder.isBinderAlive) return false
+            val active = withContext(Dispatchers.IO) {
+                runCatching {
+                    transactBoolean(activeSession.binder, RuntimeProtocol.TX_IS_ACTIVE, token)
+                }.getOrDefault(false)
             }
-            @Suppress("UNREACHABLE_CODE")
-            false
-        } ?: false
+            if (active) return true
+            delay(5)
+        }
+        return false
+    }
 
     fun cancelActiveForTesting(): Boolean {
         val token = activeToken
         val activeSession = session ?: return false
         if (token == 0L) return false
-        sendCancel(activeSession, token, activeSession.generation)
-        return true
+        return runCatching {
+            transactBoolean(activeSession.binder, RuntimeProtocol.TX_CANCEL, token)
+        }.getOrDefault(false)
     }
 
     fun killServiceForTesting(): Boolean {
         val activeSession = session ?: return false
-        return try {
-            activeSession.messenger.send(Message.obtain(null, RuntimeProtocol.MSG_KILL))
+        return runCatching {
+            transactOneWay(activeSession.binder, RuntimeProtocol.TX_KILL)
             true
-        } catch (_: RemoteException) {
-            false
-        }
+        }.getOrDefault(false)
     }
 
-    suspend fun proveLateResultFenceForTesting(): Boolean {
+    fun proveLateResultFenceForTesting(): Boolean {
         val fenced = lastFenced ?: return false
         val before = lateResultRejections.get()
-        callbackMessenger.send(Message.obtain().apply {
-            data = Bundle().apply {
-                putLong(RuntimeProtocol.KEY_TOKEN, fenced.first)
-                putLong(RuntimeProtocol.KEY_GENERATION, fenced.second)
-                putString(RuntimeProtocol.KEY_STATUS, RuntimeProtocol.STATUS_OK)
-                putInt(RuntimeProtocol.KEY_OUTPUT_BYTES, 0)
-            }
-        })
-        repeat(20) {
-            if (lateResultRejections.get() > before) return true
-            delay(10)
-        }
-        return false
+        val fake = RuntimeReply(
+            token = fenced.token,
+            generation = fenced.generation,
+            status = RuntimeProtocol.STATUS_OK,
+            error = null,
+            outputBytes = 0,
+            outputInline = ByteArray(0),
+            outputFd = null,
+            nativeMetrics = "{}",
+            readMicros = 0,
+            servicePid = 0,
+            serviceUid = 0,
+            serviceInternetPermissionGranted = false,
+        )
+        val accepted = acceptReply(fenced.session, fenced.token, fenced.generation, fake)
+        return !accepted && lateResultRejections.get() > before
     }
 
     fun clearInProcessCacheForTesting() = WasmtimeNativeBridge.nativeClearModuleCache()
@@ -415,14 +412,14 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         lateinit var connection: ServiceConnection
         connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
-                val created = Session(generation, service, Messenger(service), connection)
+                val created = Session(generation, service, connection)
                 try {
-                    service.linkToDeath({
-                        onBinderDeath(created)
-                    }, 0)
+                    service.linkToDeath({ onBinderDeath(created) }, 0)
                 } catch (_: RemoteException) {
                     onBinderDeath(created)
-                    if (continuation.isActive) continuation.resumeWithException(RemoteException("service already dead"))
+                    if (continuation.isActive) {
+                        continuation.resumeWithException(RemoteException("service already dead"))
+                    }
                     return
                 }
                 if (continuation.isActive) continuation.resume(created)
@@ -443,31 +440,16 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
             Context.BIND_AUTO_CREATE,
         )
         if (!bound) continuation.resumeWithException(IllegalStateException("unable to bind isolated runtime"))
-        continuation.invokeOnCancellation { if (bound) runCatching { appContext.unbindService(connection) } }
+        continuation.invokeOnCancellation {
+            if (bound) runCatching { appContext.unbindService(connection) }
+        }
     }
 
     private fun onBinderDeath(dead: Session) {
         if (session?.binder === dead.binder) session = null
         dead.knownDigests.clear()
-        pending.entries.toList().forEach { (token, value) ->
-            if (value.generation == dead.generation && pending.remove(token, value)) {
-                lastFenced = token to value.generation
-                value.reply.complete(
-                    RuntimeReply(
-                        status = RuntimeProtocol.STATUS_DEAD,
-                        error = "SERVICE_DEATH",
-                        outputBytes = 0,
-                        outputInline = null,
-                        outputFd = null,
-                        nativeMetrics = "{}",
-                        readMicros = 0,
-                        servicePid = 0,
-                        serviceUid = 0,
-                        serviceInternetPermissionGranted = false,
-                    )
-                )
-            }
-        }
+        val token = activeToken
+        if (token != 0L) lastFenced = FencedInvocation(token, dead.generation, dead)
     }
 
     private fun invalidate(value: Session) {
@@ -476,35 +458,85 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         runCatching { appContext.unbindService(value.connection) }
     }
 
-    private fun fence(token: Long, generation: Long) {
-        pending.remove(token)?.let {
-            lastFenced = token to generation
-            it.reply.cancel()
-        }
-        started.remove(token)?.cancel()
+    private fun fence(activeSession: Session, token: Long, generation: Long) {
+        lastFenced = FencedInvocation(token, generation, activeSession)
     }
 
-    private fun sendCancel(activeSession: Session, token: Long, generation: Long) {
-        runCatching {
-            activeSession.messenger.send(Message.obtain(null, RuntimeProtocol.MSG_CANCEL).apply {
-                data = Bundle().apply {
-                    putLong(RuntimeProtocol.KEY_TOKEN, token)
-                    putLong(RuntimeProtocol.KEY_GENERATION, generation)
-                }
-            })
-        }
+    private fun acceptReply(
+        activeSession: Session,
+        token: Long,
+        generation: Long,
+        reply: RuntimeReply,
+    ): Boolean {
+        val current = session
+        val accepted = reply.token == token &&
+            reply.generation == generation &&
+            current?.binder === activeSession.binder &&
+            current.generation == generation &&
+            activeSession.binder.isBinderAlive
+        if (!accepted) lateResultRejections.incrementAndGet()
+        return accepted
     }
 
-    /**
-     * A timed-out or coroutine-cancelled invocation is no longer trusted to have stopped.
-     * Killing only on failure keeps steady-state warm while guaranteeing the next invocation
-     * cannot queue behind an unfenced guest.
-     */
+    private fun sendCancel(activeSession: Session, token: Long) {
+        runCatching { transactBoolean(activeSession.binder, RuntimeProtocol.TX_CANCEL, token) }
+    }
+
+    private fun releaseOutput(activeSession: Session, token: Long) {
+        runCatching { transactBoolean(activeSession.binder, RuntimeProtocol.TX_RELEASE_OUTPUT, token) }
+    }
+
     private fun terminate(activeSession: Session) {
-        runCatching {
-            activeSession.messenger.send(Message.obtain(null, RuntimeProtocol.MSG_KILL))
-        }
+        runCatching { transactOneWay(activeSession.binder, RuntimeProtocol.TX_KILL) }
         invalidate(activeSession)
+    }
+
+    private fun transactExecute(binder: IBinder, request: Bundle): RuntimeReply {
+        val data = Parcel.obtain()
+        val reply = Parcel.obtain()
+        try {
+            data.writeInterfaceToken(RuntimeProtocol.DESCRIPTOR)
+            data.writeBundle(request)
+            check(binder.transact(RuntimeProtocol.TX_EXECUTE, data, reply, 0)) {
+                "isolated runtime rejected execute transaction"
+            }
+            reply.readException()
+            val response = reply.readBundle(WasmtimeRuntimeService::class.java.classLoader)
+                ?: error("isolated runtime returned no response")
+            return RuntimeReply.from(response)
+        } finally {
+            reply.recycle()
+            data.recycle()
+        }
+    }
+
+    private fun transactBoolean(binder: IBinder, code: Int, token: Long): Boolean {
+        val data = Parcel.obtain()
+        val reply = Parcel.obtain()
+        try {
+            data.writeInterfaceToken(RuntimeProtocol.DESCRIPTOR)
+            data.writeLong(token)
+            check(binder.transact(code, data, reply, 0)) {
+                "isolated runtime rejected control transaction"
+            }
+            reply.readException()
+            return reply.readInt() != 0
+        } finally {
+            reply.recycle()
+            data.recycle()
+        }
+    }
+
+    private fun transactOneWay(binder: IBinder, code: Int) {
+        val data = Parcel.obtain()
+        try {
+            data.writeInterfaceToken(RuntimeProtocol.DESCRIPTOR)
+            check(binder.transact(code, data, null, IBinder.FLAG_ONEWAY)) {
+                "isolated runtime rejected one-way transaction"
+            }
+        } finally {
+            data.recycle()
+        }
     }
 
     private fun parseDiagnostics(
@@ -557,11 +589,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         val activeSession = session
         session = null
         if (activeSession != null) runCatching { appContext.unbindService(activeSession.connection) }
-        pending.values.forEach { it.reply.cancel() }
-        pending.clear()
-        started.values.forEach { it.cancel() }
-        started.clear()
-        callbackThread.quitSafely()
+        transportExecutor.shutdownNow()
     }
 
     private data class SessionAcquisition(
@@ -572,12 +600,15 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     private data class Session(
         val generation: Long,
         val binder: IBinder,
-        val messenger: Messenger,
         val connection: ServiceConnection,
         val knownDigests: MutableSet<String> = ConcurrentHashMap.newKeySet(),
     )
 
-    private data class Pending(val generation: Long, val reply: CompletableDeferred<RuntimeReply>)
+    private data class FencedInvocation(
+        val token: Long,
+        val generation: Long,
+        val session: Session,
+    )
 
     private sealed interface RuntimeAttempt {
         data class Success(val output: ByteArray) : RuntimeAttempt
@@ -602,8 +633,10 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         const val INLINE_PAYLOAD_BYTES = 48 * 1024
         val SHA256 = Regex("[0-9a-f]{64}")
         val ALLOWED_EXPORTS = setOf("plan_requests", "parse_responses", "plan_navigation", "parse_navigation")
+
         fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
         fun readBounded(input: InputStream, maximum: Int): ByteArray {
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(16 * 1024)
@@ -619,135 +652,181 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     }
 }
 
-/** Warm isolated process. Binder carries bounded inline payloads or file descriptors. */
+/** Warm isolated process. One Binder roundtrip carries the steady-state control path. */
 class WasmtimeRuntimeService : Service() {
-    private val worker = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "arex-wasm-worker") }
-    private lateinit var endpoint: Messenger
-
-    override fun onCreate() {
-        super.onCreate()
-        endpoint = Messenger(Handler(mainLooper, ::receive))
+    private val executionLock = ReentrantLock()
+    private val activeToken = AtomicLong(0)
+    private val outputWriter = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "arex-output-writer").apply { isDaemon = true }
     }
+    private val retainedOutputReaders = ConcurrentHashMap<Long, ParcelFileDescriptor>()
 
-    override fun onBind(intent: Intent): IBinder = endpoint.binder
-
-    private fun receive(message: Message): Boolean {
-        when (message.what) {
-            RuntimeProtocol.MSG_KILL -> {
-                android.os.Process.killProcess(android.os.Process.myPid())
+    private val endpoint = object : Binder() {
+        override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+            if (code == IBinder.INTERFACE_TRANSACTION) {
+                reply?.writeString(RuntimeProtocol.DESCRIPTOR)
                 return true
             }
-            RuntimeProtocol.MSG_CANCEL -> {
-                WasmtimeNativeBridge.nativeCancel(message.data.getLong(RuntimeProtocol.KEY_TOKEN))
-                return true
-            }
-            RuntimeProtocol.MSG_EXECUTE -> {
-                val reply = message.replyTo
-                val data = message.data
-                val token = data.getLong(RuntimeProtocol.KEY_TOKEN)
-                val generation = data.getLong(RuntimeProtocol.KEY_GENERATION)
-                worker.execute { execute(reply, token, generation, data) }
-                return true
+            data.enforceInterface(RuntimeProtocol.DESCRIPTOR)
+            return try {
+                when (code) {
+                    RuntimeProtocol.TX_EXECUTE -> {
+                        val request = data.readBundle(WasmtimeRuntimeService::class.java.classLoader)
+                            ?: throw IllegalArgumentException("runtime request missing")
+                        val response = executeRequest(request)
+                        requireNotNull(reply).writeNoException()
+                        reply.writeBundle(response)
+                        true
+                    }
+                    RuntimeProtocol.TX_CANCEL -> {
+                        val token = data.readLong()
+                        val cancelled = activeToken.get() == token &&
+                            WasmtimeNativeBridge.nativeCancel(token)
+                        requireNotNull(reply).writeNoException()
+                        reply.writeInt(if (cancelled) 1 else 0)
+                        true
+                    }
+                    RuntimeProtocol.TX_IS_ACTIVE -> {
+                        val token = data.readLong()
+                        requireNotNull(reply).writeNoException()
+                        reply.writeInt(if (activeToken.get() == token) 1 else 0)
+                        true
+                    }
+                    RuntimeProtocol.TX_RELEASE_OUTPUT -> {
+                        val token = data.readLong()
+                        retainedOutputReaders.remove(token)?.close()
+                        requireNotNull(reply).writeNoException()
+                        reply.writeInt(1)
+                        true
+                    }
+                    RuntimeProtocol.TX_KILL -> {
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                        true
+                    }
+                    else -> super.onTransact(code, data, reply, flags)
+                }
+            } catch (error: Throwable) {
+                if (reply != null) {
+                    reply.writeException(IllegalStateException(error.message ?: error.javaClass.simpleName))
+                    true
+                } else {
+                    false
+                }
             }
         }
-        return false
     }
 
-    private fun execute(reply: Messenger, token: Long, generation: Long, data: Bundle) {
-        respond(reply, token, generation, RuntimeProtocol.STATUS_STARTED)
+    override fun onBind(intent: Intent): IBinder = endpoint
+
+    private fun executeRequest(request: Bundle): Bundle {
+        executionLock.lock()
         try {
+            val token = request.getLong(RuntimeProtocol.KEY_TOKEN)
+            val generation = request.getLong(RuntimeProtocol.KEY_GENERATION)
+            require(token > 0 && generation > 0) { "invalid runtime invocation identity" }
+
             val readStarted = System.nanoTime()
-            val module = data.getByteArray(RuntimeProtocol.KEY_MODULE_INLINE)
-                ?: data.parcelFileDescriptor(RuntimeProtocol.KEY_MODULE_FD)?.let {
-                    ParcelFileDescriptor.AutoCloseInputStream(it).use { input -> readBounded(input, 8 * 1024 * 1024) }
+            val module = request.getByteArray(RuntimeProtocol.KEY_MODULE_INLINE)
+                ?: request.parcelFileDescriptor(RuntimeProtocol.KEY_MODULE_FD)?.let {
+                    ParcelFileDescriptor.AutoCloseInputStream(it).use { input ->
+                        readBounded(input, MAX_MODULE_BYTES)
+                    }
                 } ?: ByteArray(0)
-            val input = data.getByteArray(RuntimeProtocol.KEY_INPUT_INLINE)
-                ?: data.parcelFileDescriptor(RuntimeProtocol.KEY_INPUT_FD)?.let {
-                    ParcelFileDescriptor.AutoCloseInputStream(it).use { input -> readBounded(input, 4 * 1024 * 1024) }
+            val input = request.getByteArray(RuntimeProtocol.KEY_INPUT_INLINE)
+                ?: request.parcelFileDescriptor(RuntimeProtocol.KEY_INPUT_FD)?.let {
+                    ParcelFileDescriptor.AutoCloseInputStream(it).use { input ->
+                        readBounded(input, MAX_INPUT_BYTES)
+                    }
                 } ?: throw IllegalArgumentException("runtime input missing")
             val readMicros = (System.nanoTime() - readStarted) / 1_000
-            val digest = requireNotNull(data.getString(RuntimeProtocol.KEY_DIGEST))
-            require(SHA256.matches(digest)) { "invalid module digest" }
-            if (module.isNotEmpty()) {
-                require(sha256(module) == digest) { "module digest mismatch" }
-            }
 
-            val output = WasmtimeNativeBridge.nativeExecute(
-                digest,
-                module,
-                requireNotNull(data.getString(RuntimeProtocol.KEY_EXPORT)),
-                input,
-                data.getLong(RuntimeProtocol.KEY_MAX_OUTPUT),
-                data.getLong(RuntimeProtocol.KEY_MEMORY),
-                data.getLong(RuntimeProtocol.KEY_FUEL),
-                data.getLong(RuntimeProtocol.KEY_DEADLINE),
-                token,
-            )
+            val digest = requireNotNull(request.getString(RuntimeProtocol.KEY_DIGEST))
+            require(SHA256.matches(digest)) { "invalid module digest" }
+            if (module.isNotEmpty()) require(sha256(module) == digest) { "module digest mismatch" }
+
+            activeToken.set(token)
+            val output = try {
+                WasmtimeNativeBridge.nativeExecute(
+                    digest,
+                    module,
+                    requireNotNull(request.getString(RuntimeProtocol.KEY_EXPORT)),
+                    input,
+                    request.getLong(RuntimeProtocol.KEY_MAX_OUTPUT),
+                    request.getLong(RuntimeProtocol.KEY_MEMORY),
+                    request.getLong(RuntimeProtocol.KEY_FUEL),
+                    request.getLong(RuntimeProtocol.KEY_DEADLINE),
+                    token,
+                )
+            } finally {
+                activeToken.compareAndSet(token, 0)
+            }
             val nativeMetrics = WasmtimeNativeBridge.nativeMetrics()
-            if (output.size <= INLINE_PAYLOAD_BYTES) {
-                respond(reply, token, generation, RuntimeProtocol.STATUS_OK) {
-                    putInt(RuntimeProtocol.KEY_OUTPUT_BYTES, output.size)
+
+            return response(token, generation, RuntimeProtocol.STATUS_OK) {
+                putInt(RuntimeProtocol.KEY_OUTPUT_BYTES, output.size)
+                putString(RuntimeProtocol.KEY_NATIVE_METRICS, nativeMetrics)
+                putLong(RuntimeProtocol.KEY_READ_MICROS, readMicros)
+                putInt(RuntimeProtocol.KEY_SERVICE_PID, android.os.Process.myPid())
+                putInt(RuntimeProtocol.KEY_SERVICE_UID, android.os.Process.myUid())
+                putBoolean(
+                    RuntimeProtocol.KEY_SERVICE_INTERNET,
+                    checkSelfPermission(android.Manifest.permission.INTERNET) ==
+                        android.content.pm.PackageManager.PERMISSION_GRANTED,
+                )
+                if (output.size <= INLINE_PAYLOAD_BYTES) {
                     putByteArray(RuntimeProtocol.KEY_OUTPUT_INLINE, output)
-                    putString(RuntimeProtocol.KEY_NATIVE_METRICS, nativeMetrics)
-                    putLong(RuntimeProtocol.KEY_READ_MICROS, readMicros)
-                    putInt(RuntimeProtocol.KEY_SERVICE_PID, android.os.Process.myPid())
-                    putInt(RuntimeProtocol.KEY_SERVICE_UID, android.os.Process.myUid())
-                    putBoolean(RuntimeProtocol.KEY_SERVICE_INTERNET,
-                        checkSelfPermission(android.Manifest.permission.INTERNET) == android.content.pm.PackageManager.PERMISSION_GRANTED)
-                }
-            } else {
-                val pipe = ParcelFileDescriptor.createPipe()
-                val sent = respond(reply, token, generation, RuntimeProtocol.STATUS_OK) {
-                    putInt(RuntimeProtocol.KEY_OUTPUT_BYTES, output.size)
-                    putParcelable(RuntimeProtocol.KEY_OUTPUT_FD, pipe[0])
-                    putString(RuntimeProtocol.KEY_NATIVE_METRICS, nativeMetrics)
-                    putLong(RuntimeProtocol.KEY_READ_MICROS, readMicros)
-                    putInt(RuntimeProtocol.KEY_SERVICE_PID, android.os.Process.myPid())
-                    putInt(RuntimeProtocol.KEY_SERVICE_UID, android.os.Process.myUid())
-                    putBoolean(RuntimeProtocol.KEY_SERVICE_INTERNET,
-                        checkSelfPermission(android.Manifest.permission.INTERNET) == android.content.pm.PackageManager.PERMISSION_GRANTED)
-                }
-                pipe[0].close()
-                if (sent) {
-                    ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { it.write(output) }
                 } else {
-                    pipe[1].close()
+                    putParcelable(RuntimeProtocol.KEY_OUTPUT_FD, retainOutputPipe(token, output))
                 }
             }
         } catch (error: Throwable) {
-            respond(reply, token, generation, RuntimeProtocol.STATUS_ERROR) {
+            val token = request.getLong(RuntimeProtocol.KEY_TOKEN)
+            val generation = request.getLong(RuntimeProtocol.KEY_GENERATION)
+            return response(token, generation, RuntimeProtocol.STATUS_ERROR) {
                 putString(RuntimeProtocol.KEY_ERROR, error.message ?: error.javaClass.simpleName)
             }
+        } finally {
+            executionLock.unlock()
         }
     }
 
+    private fun retainOutputPipe(token: Long, output: ByteArray): ParcelFileDescriptor {
+        val pipe = ParcelFileDescriptor.createPipe()
+        retainedOutputReaders.put(token, pipe[0])?.close()
+        try {
+            outputWriter.execute {
+                try {
+                    ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { it.write(output) }
+                } catch (_: Exception) {
+                    runCatching { pipe[1].close() }
+                }
+            }
+        } catch (error: RejectedExecutionException) {
+            retainedOutputReaders.remove(token)?.close()
+            pipe[1].close()
+            throw error
+        }
+        return pipe[0]
+    }
+
     override fun onDestroy() {
-        worker.shutdownNow()
+        retainedOutputReaders.values.forEach { runCatching { it.close() } }
+        retainedOutputReaders.clear()
+        outputWriter.shutdownNow()
         super.onDestroy()
-        // The service is warm for its bound lifetime. Once that lifecycle ends, discard all
-        // compiled guest state rather than leaving a detached isolated process resident.
         android.os.Process.killProcess(android.os.Process.myPid())
     }
 
-    private fun respond(
-        reply: Messenger,
+    private fun response(
         token: Long,
         generation: Long,
         status: String,
         block: Bundle.() -> Unit = {},
-    ): Boolean = try {
-        reply.send(Message.obtain().apply {
-            data = Bundle().apply {
-                putLong(RuntimeProtocol.KEY_TOKEN, token)
-                putLong(RuntimeProtocol.KEY_GENERATION, generation)
-                putString(RuntimeProtocol.KEY_STATUS, status)
-                block()
-            }
-        })
-        true
-    } catch (_: RemoteException) {
-        // The host fenced or died. Results are intentionally dropped.
-        false
+    ): Bundle = Bundle().apply {
+        putLong(RuntimeProtocol.KEY_TOKEN, token)
+        putLong(RuntimeProtocol.KEY_GENERATION, generation)
+        putString(RuntimeProtocol.KEY_STATUS, status)
+        block()
     }
 
     private fun Bundle.parcelFileDescriptor(key: String): ParcelFileDescriptor? {
@@ -757,6 +836,8 @@ class WasmtimeRuntimeService : Service() {
 
     private companion object {
         const val INLINE_PAYLOAD_BYTES = 48 * 1024
+        const val MAX_MODULE_BYTES = 8 * 1024 * 1024
+        const val MAX_INPUT_BYTES = 4 * 1024 * 1024
         val SHA256 = Regex("[0-9a-f]{64}")
 
         fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
@@ -802,6 +883,8 @@ internal object WasmtimeNativeBridge {
 }
 
 private data class RuntimeReply(
+    val token: Long,
+    val generation: Long,
     val status: String,
     val error: String?,
     val outputBytes: Int,
@@ -815,6 +898,8 @@ private data class RuntimeReply(
 ) {
     companion object {
         fun from(bundle: Bundle) = RuntimeReply(
+            token = bundle.getLong(RuntimeProtocol.KEY_TOKEN),
+            generation = bundle.getLong(RuntimeProtocol.KEY_GENERATION),
             status = bundle.getString(RuntimeProtocol.KEY_STATUS) ?: RuntimeProtocol.STATUS_ERROR,
             error = bundle.getString(RuntimeProtocol.KEY_ERROR),
             outputBytes = bundle.getInt(RuntimeProtocol.KEY_OUTPUT_BYTES),
@@ -835,13 +920,15 @@ private fun Bundle.parcelFileDescriptorCompat(key: String): ParcelFileDescriptor
 }
 
 private object RuntimeProtocol {
-    const val MSG_EXECUTE = 1
-    const val MSG_CANCEL = 2
-    const val MSG_KILL = 3
-    const val STATUS_STARTED = "started"
+    const val DESCRIPTOR = "com.axiel7.anihyou.release.data.extension.IWasmtimeRuntime"
+    const val TX_EXECUTE = IBinder.FIRST_CALL_TRANSACTION
+    const val TX_CANCEL = IBinder.FIRST_CALL_TRANSACTION + 1
+    const val TX_IS_ACTIVE = IBinder.FIRST_CALL_TRANSACTION + 2
+    const val TX_RELEASE_OUTPUT = IBinder.FIRST_CALL_TRANSACTION + 3
+    const val TX_KILL = IBinder.FIRST_CALL_TRANSACTION + 4
+
     const val STATUS_OK = "ok"
     const val STATUS_ERROR = "error"
-    const val STATUS_DEAD = "dead"
     const val ERROR_MODULE_MISS = "MODULE_MISS"
 
     const val KEY_TOKEN = "token"
