@@ -1,0 +1,21 @@
+[package]
+name = "arex-runtime-android"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[lib]
+name = "arex_runtime"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "=1.0.100"
+jni = { version = "=0.21.1", default-features = false }
+wasmtime = { version = "=48.0.3", default-features = false, features = ["runtime", "cranelift", "std"] }
+
+[profile.release]
+opt-level = 2
+lto = false
+codegen-units = 16
+strip = "debuginfo"
