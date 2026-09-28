@@ -11,7 +11,7 @@ use jni::{
     JNIEnv,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     panic::{catch_unwind, AssertUnwindSafe},
     ptr,
     sync::{
@@ -39,7 +39,7 @@ const CANCEL_EPOCH_JUMP: usize = (MAX_DEADLINE_MILLIS / EPOCH_TICK_MILLIS + 2) a
 
 static ENGINE: OnceLock<Engine> = OnceLock::new();
 static ENGINE_INIT: Mutex<()> = Mutex::new(());
-static MODULES: OnceLock<Mutex<HashMap<String, Module>>> = OnceLock::new();
+static MODULES: OnceLock<Mutex<ModuleCache>> = OnceLock::new();
 static ACTIVE_INVOCATION: AtomicU64 = AtomicU64::new(0);
 static INTERRUPT_REASON: AtomicU8 = AtomicU8::new(0);
 static LAST_METRICS: OnceLock<Mutex<String>> = OnceLock::new();
@@ -49,6 +49,39 @@ struct State {
     limits: StoreLimits,
     diagnostic_calls: u32,
     diagnostic_bytes: usize,
+}
+
+#[derive(Default)]
+struct ModuleCache {
+    modules: HashMap<String, Module>,
+    lru: VecDeque<String>,
+}
+
+impl ModuleCache {
+    fn get(&mut self, digest: &str) -> Option<Module> {
+        let module = self.modules.get(digest)?.clone();
+        self.lru.retain(|value| value != digest);
+        self.lru.push_back(digest.to_owned());
+        Some(module)
+    }
+
+    fn insert(&mut self, digest: String, module: Module) {
+        self.lru.retain(|value| value != &digest);
+        while self.modules.len() >= MAX_MODULE_CACHE {
+            let Some(evicted) = self.lru.pop_front() else {
+                self.modules.clear();
+                break;
+            };
+            self.modules.remove(&evicted);
+        }
+        self.modules.insert(digest.clone(), module);
+        self.lru.push_back(digest);
+    }
+
+    fn clear(&mut self) {
+        self.modules.clear();
+        self.lru.clear();
+    }
 }
 
 struct Host {
@@ -117,8 +150,8 @@ fn engine() -> Result<&'static Engine> {
     ENGINE.get().ok_or_else(|| anyhow!("engine unavailable"))
 }
 
-fn modules() -> &'static Mutex<HashMap<String, Module>> {
-    MODULES.get_or_init(|| Mutex::new(HashMap::new()))
+fn modules() -> &'static Mutex<ModuleCache> {
+    MODULES.get_or_init(|| Mutex::new(ModuleCache::default()))
 }
 
 fn metrics() -> &'static Mutex<String> {
@@ -245,16 +278,13 @@ fn module_for(digest: &str, bytes: &[u8]) -> Result<(Module, bool, u128)> {
     ensure!(digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()), "INVALID_INPUT");
     let mut cache = modules().lock().map_err(|_| anyhow!("module cache lock poisoned"))?;
     if let Some(module) = cache.get(digest) {
-        return Ok((module.clone(), true, 0));
+        return Ok((module, true, 0));
     }
     ensure!(!bytes.is_empty(), "MODULE_MISS");
     ensure!(bytes.len() <= MAX_MODULE_BYTES, "INVALID_INPUT");
     let started = Instant::now();
     let module = Module::new(engine()?, bytes)?;
     let compile_micros = started.elapsed().as_micros();
-    if cache.len() >= MAX_MODULE_CACHE {
-        cache.clear();
-    }
     cache.insert(digest.to_owned(), module.clone());
     Ok((module, false, compile_micros))
 }
