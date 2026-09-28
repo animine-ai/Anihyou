@@ -5,7 +5,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
-import android.os.Bundle
 import android.os.Binder
 import android.os.IBinder
 import android.os.Parcel
@@ -192,20 +191,20 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                     }
                 }
 
-                val request = Bundle().apply {
-                    putLong(RuntimeProtocol.KEY_TOKEN, token)
-                    putLong(RuntimeProtocol.KEY_GENERATION, generation)
-                    putString(RuntimeProtocol.KEY_DIGEST, moduleDigest)
-                    putString(RuntimeProtocol.KEY_EXPORT, exportName)
-                    putLong(RuntimeProtocol.KEY_MAX_OUTPUT, limits.maxOutputBytes.toLong())
-                    putLong(RuntimeProtocol.KEY_MEMORY, limits.memoryBytes.toLong())
-                    putLong(RuntimeProtocol.KEY_FUEL, limits.fuel)
-                    putLong(RuntimeProtocol.KEY_DEADLINE, limits.deadlineMillis)
-                    if (inputInline) putByteArray(RuntimeProtocol.KEY_INPUT_INLINE, inputUtf8)
-                    else inputPipe?.let { putParcelable(RuntimeProtocol.KEY_INPUT_FD, it[0]) }
-                    if (moduleInline) putByteArray(RuntimeProtocol.KEY_MODULE_INLINE, moduleBytes)
-                    else modulePipe?.let { putParcelable(RuntimeProtocol.KEY_MODULE_FD, it[0]) }
-                }
+                val request = RuntimeRequest(
+                    token = token,
+                    generation = generation,
+                    moduleDigest = moduleDigest,
+                    exportName = exportName,
+                    maxOutputBytes = limits.maxOutputBytes.toLong(),
+                    memoryBytes = limits.memoryBytes.toLong(),
+                    fuel = limits.fuel,
+                    deadlineMillis = limits.deadlineMillis,
+                    inputInline = inputUtf8.takeIf { inputInline },
+                    inputFd = inputPipe?.get(0),
+                    moduleInline = moduleBytes.takeIf { moduleInline },
+                    moduleFd = modulePipe?.get(0),
+                )
 
                 val reply = withTimeoutOrNull(limits.deadlineMillis + HOST_DEADLINE_GRACE_MILLIS) {
                     suspendCancellableCoroutine<RuntimeReply> { continuation ->
@@ -492,19 +491,17 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         invalidate(activeSession)
     }
 
-    private fun transactExecute(binder: IBinder, request: Bundle): RuntimeReply {
+    private fun transactExecute(binder: IBinder, request: RuntimeRequest): RuntimeReply {
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
         try {
             data.writeInterfaceToken(RuntimeProtocol.DESCRIPTOR)
-            data.writeBundle(request)
+            request.writeTo(data)
             check(binder.transact(RuntimeProtocol.TX_EXECUTE, data, reply, 0)) {
                 "isolated runtime rejected execute transaction"
             }
             reply.readException()
-            val response = reply.readBundle(WasmtimeRuntimeService::class.java.classLoader)
-                ?: error("isolated runtime returned no response")
-            return RuntimeReply.from(response)
+            return RuntimeReply.readFrom(reply)
         } finally {
             reply.recycle()
             data.recycle()
@@ -671,11 +668,10 @@ class WasmtimeRuntimeService : Service() {
             return try {
                 when (code) {
                     RuntimeProtocol.TX_EXECUTE -> {
-                        val request = data.readBundle(WasmtimeRuntimeService::class.java.classLoader)
-                            ?: throw IllegalArgumentException("runtime request missing")
+                        val request = RuntimeRequest.readFrom(data)
                         val response = executeRequest(request)
                         requireNotNull(reply).writeNoException()
-                        reply.writeBundle(response)
+                        response.writeTo(reply)
                         true
                     }
                     RuntimeProtocol.TX_CANCEL -> {
@@ -718,73 +714,86 @@ class WasmtimeRuntimeService : Service() {
 
     override fun onBind(intent: Intent): IBinder = endpoint
 
-    private fun executeRequest(request: Bundle): Bundle {
+    private fun executeRequest(request: RuntimeRequest): RuntimeReply {
         executionLock.lock()
         try {
-            val token = request.getLong(RuntimeProtocol.KEY_TOKEN)
-            val generation = request.getLong(RuntimeProtocol.KEY_GENERATION)
-            require(token > 0 && generation > 0) { "invalid runtime invocation identity" }
+            require(request.token > 0 && request.generation > 0) {
+                "invalid runtime invocation identity"
+            }
 
             val readStarted = System.nanoTime()
-            val module = request.getByteArray(RuntimeProtocol.KEY_MODULE_INLINE)
-                ?: request.parcelFileDescriptor(RuntimeProtocol.KEY_MODULE_FD)?.let {
-                    ParcelFileDescriptor.AutoCloseInputStream(it).use { input ->
+            val module = request.moduleInline
+                ?: request.moduleFd?.let { descriptor ->
+                    ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
                         readBounded(input, MAX_MODULE_BYTES)
                     }
                 } ?: ByteArray(0)
-            val input = request.getByteArray(RuntimeProtocol.KEY_INPUT_INLINE)
-                ?: request.parcelFileDescriptor(RuntimeProtocol.KEY_INPUT_FD)?.let {
-                    ParcelFileDescriptor.AutoCloseInputStream(it).use { input ->
+            val input = request.inputInline
+                ?: request.inputFd?.let { descriptor ->
+                    ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
                         readBounded(input, MAX_INPUT_BYTES)
                     }
                 } ?: throw IllegalArgumentException("runtime input missing")
             val readMicros = (System.nanoTime() - readStarted) / 1_000
 
-            val digest = requireNotNull(request.getString(RuntimeProtocol.KEY_DIGEST))
-            require(SHA256.matches(digest)) { "invalid module digest" }
-            if (module.isNotEmpty()) require(sha256(module) == digest) { "module digest mismatch" }
+            require(SHA256.matches(request.moduleDigest)) { "invalid module digest" }
+            if (module.isNotEmpty()) {
+                require(sha256(module) == request.moduleDigest) { "module digest mismatch" }
+            }
 
-            activeToken.set(token)
+            activeToken.set(request.token)
             val output = try {
                 WasmtimeNativeBridge.nativeExecute(
-                    digest,
+                    request.moduleDigest,
                     module,
-                    requireNotNull(request.getString(RuntimeProtocol.KEY_EXPORT)),
+                    request.exportName,
                     input,
-                    request.getLong(RuntimeProtocol.KEY_MAX_OUTPUT),
-                    request.getLong(RuntimeProtocol.KEY_MEMORY),
-                    request.getLong(RuntimeProtocol.KEY_FUEL),
-                    request.getLong(RuntimeProtocol.KEY_DEADLINE),
-                    token,
+                    request.maxOutputBytes,
+                    request.memoryBytes,
+                    request.fuel,
+                    request.deadlineMillis,
+                    request.token,
                 )
             } finally {
-                activeToken.compareAndSet(token, 0)
+                activeToken.compareAndSet(request.token, 0)
             }
             val nativeMetrics = WasmtimeNativeBridge.nativeMetrics()
-
-            return response(token, generation, RuntimeProtocol.STATUS_OK) {
-                putInt(RuntimeProtocol.KEY_OUTPUT_BYTES, output.size)
-                putString(RuntimeProtocol.KEY_NATIVE_METRICS, nativeMetrics)
-                putLong(RuntimeProtocol.KEY_READ_MICROS, readMicros)
-                putInt(RuntimeProtocol.KEY_SERVICE_PID, android.os.Process.myPid())
-                putInt(RuntimeProtocol.KEY_SERVICE_UID, android.os.Process.myUid())
-                putBoolean(
-                    RuntimeProtocol.KEY_SERVICE_INTERNET,
+            val outputFd = if (output.size > INLINE_PAYLOAD_BYTES) {
+                retainOutputPipe(request.token, output)
+            } else {
+                null
+            }
+            return RuntimeReply(
+                token = request.token,
+                generation = request.generation,
+                status = RuntimeProtocol.STATUS_OK,
+                error = null,
+                outputBytes = output.size,
+                outputInline = output.takeIf { outputFd == null },
+                outputFd = outputFd,
+                nativeMetrics = nativeMetrics,
+                readMicros = readMicros,
+                servicePid = android.os.Process.myPid(),
+                serviceUid = android.os.Process.myUid(),
+                serviceInternetPermissionGranted =
                     checkSelfPermission(android.Manifest.permission.INTERNET) ==
                         android.content.pm.PackageManager.PERMISSION_GRANTED,
-                )
-                if (output.size <= INLINE_PAYLOAD_BYTES) {
-                    putByteArray(RuntimeProtocol.KEY_OUTPUT_INLINE, output)
-                } else {
-                    putParcelable(RuntimeProtocol.KEY_OUTPUT_FD, retainOutputPipe(token, output))
-                }
-            }
+            )
         } catch (error: Throwable) {
-            val token = request.getLong(RuntimeProtocol.KEY_TOKEN)
-            val generation = request.getLong(RuntimeProtocol.KEY_GENERATION)
-            return response(token, generation, RuntimeProtocol.STATUS_ERROR) {
-                putString(RuntimeProtocol.KEY_ERROR, error.message ?: error.javaClass.simpleName)
-            }
+            return RuntimeReply(
+                token = request.token,
+                generation = request.generation,
+                status = RuntimeProtocol.STATUS_ERROR,
+                error = error.message ?: error.javaClass.simpleName,
+                outputBytes = 0,
+                outputInline = null,
+                outputFd = null,
+                nativeMetrics = "{}",
+                readMicros = 0,
+                servicePid = android.os.Process.myPid(),
+                serviceUid = android.os.Process.myUid(),
+                serviceInternetPermissionGranted = false,
+            )
         } finally {
             executionLock.unlock()
         }
@@ -817,22 +826,6 @@ class WasmtimeRuntimeService : Service() {
         android.os.Process.killProcess(android.os.Process.myPid())
     }
 
-    private fun response(
-        token: Long,
-        generation: Long,
-        status: String,
-        block: Bundle.() -> Unit = {},
-    ): Bundle = Bundle().apply {
-        putLong(RuntimeProtocol.KEY_TOKEN, token)
-        putLong(RuntimeProtocol.KEY_GENERATION, generation)
-        putString(RuntimeProtocol.KEY_STATUS, status)
-        block()
-    }
-
-    private fun Bundle.parcelFileDescriptor(key: String): ParcelFileDescriptor? {
-        @Suppress("DEPRECATION")
-        return getParcelable(key)
-    }
 
     private companion object {
         const val INLINE_PAYLOAD_BYTES = 48 * 1024
@@ -882,6 +875,97 @@ internal object WasmtimeNativeBridge {
     @JvmStatic external fun nativeClearModuleCache()
 }
 
+private data class RuntimeRequest(
+    val token: Long,
+    val generation: Long,
+    val moduleDigest: String,
+    val exportName: String,
+    val maxOutputBytes: Long,
+    val memoryBytes: Long,
+    val fuel: Long,
+    val deadlineMillis: Long,
+    val inputInline: ByteArray?,
+    val inputFd: ParcelFileDescriptor?,
+    val moduleInline: ByteArray?,
+    val moduleFd: ParcelFileDescriptor?,
+) {
+    fun writeTo(parcel: Parcel) {
+        parcel.writeLong(token)
+        parcel.writeLong(generation)
+        parcel.writeString(moduleDigest)
+        parcel.writeString(exportName)
+        parcel.writeLong(maxOutputBytes)
+        parcel.writeLong(memoryBytes)
+        parcel.writeLong(fuel)
+        parcel.writeLong(deadlineMillis)
+        writePayload(parcel, inputInline, inputFd, allowMissing = false)
+        writePayload(parcel, moduleInline, moduleFd, allowMissing = true)
+    }
+
+    companion object {
+        fun readFrom(parcel: Parcel): RuntimeRequest {
+            val token = parcel.readLong()
+            val generation = parcel.readLong()
+            val moduleDigest = requireNotNull(parcel.readString()) { "module digest missing" }
+            val exportName = requireNotNull(parcel.readString()) { "export name missing" }
+            val maxOutputBytes = parcel.readLong()
+            val memoryBytes = parcel.readLong()
+            val fuel = parcel.readLong()
+            val deadlineMillis = parcel.readLong()
+            val input = readPayload(parcel, allowMissing = false)
+            val module = readPayload(parcel, allowMissing = true)
+            return RuntimeRequest(
+                token = token,
+                generation = generation,
+                moduleDigest = moduleDigest,
+                exportName = exportName,
+                maxOutputBytes = maxOutputBytes,
+                memoryBytes = memoryBytes,
+                fuel = fuel,
+                deadlineMillis = deadlineMillis,
+                inputInline = input.first,
+                inputFd = input.second,
+                moduleInline = module.first,
+                moduleFd = module.second,
+            )
+        }
+
+        private fun readPayload(parcel: Parcel, allowMissing: Boolean): Pair<ByteArray?, ParcelFileDescriptor?> =
+            when (val mode = parcel.readInt()) {
+                RuntimeProtocol.PAYLOAD_NONE -> {
+                    require(allowMissing) { "required runtime payload missing" }
+                    null to null
+                }
+                RuntimeProtocol.PAYLOAD_INLINE -> requireNotNull(parcel.createByteArray()) {
+                    "inline runtime payload missing"
+                } to null
+                RuntimeProtocol.PAYLOAD_FD -> null to ParcelFileDescriptor.CREATOR.createFromParcel(parcel)
+                else -> throw IllegalArgumentException("invalid runtime payload mode: $mode")
+            }
+
+        private fun writePayload(
+            parcel: Parcel,
+            inline: ByteArray?,
+            fd: ParcelFileDescriptor?,
+            allowMissing: Boolean,
+        ) {
+            when {
+                inline != null -> {
+                    require(fd == null) { "payload has both inline bytes and fd" }
+                    parcel.writeInt(RuntimeProtocol.PAYLOAD_INLINE)
+                    parcel.writeByteArray(inline)
+                }
+                fd != null -> {
+                    parcel.writeInt(RuntimeProtocol.PAYLOAD_FD)
+                    fd.writeToParcel(parcel, 0)
+                }
+                allowMissing -> parcel.writeInt(RuntimeProtocol.PAYLOAD_NONE)
+                else -> error("required runtime payload missing")
+            }
+        }
+    }
+}
+
 private data class RuntimeReply(
     val token: Long,
     val generation: Long,
@@ -896,27 +980,64 @@ private data class RuntimeReply(
     val serviceUid: Int,
     val serviceInternetPermissionGranted: Boolean,
 ) {
-    companion object {
-        fun from(bundle: Bundle) = RuntimeReply(
-            token = bundle.getLong(RuntimeProtocol.KEY_TOKEN),
-            generation = bundle.getLong(RuntimeProtocol.KEY_GENERATION),
-            status = bundle.getString(RuntimeProtocol.KEY_STATUS) ?: RuntimeProtocol.STATUS_ERROR,
-            error = bundle.getString(RuntimeProtocol.KEY_ERROR),
-            outputBytes = bundle.getInt(RuntimeProtocol.KEY_OUTPUT_BYTES),
-            outputInline = bundle.getByteArray(RuntimeProtocol.KEY_OUTPUT_INLINE),
-            outputFd = bundle.parcelFileDescriptorCompat(RuntimeProtocol.KEY_OUTPUT_FD),
-            nativeMetrics = bundle.getString(RuntimeProtocol.KEY_NATIVE_METRICS) ?: "{}",
-            readMicros = bundle.getLong(RuntimeProtocol.KEY_READ_MICROS),
-            servicePid = bundle.getInt(RuntimeProtocol.KEY_SERVICE_PID),
-            serviceUid = bundle.getInt(RuntimeProtocol.KEY_SERVICE_UID),
-            serviceInternetPermissionGranted = bundle.getBoolean(RuntimeProtocol.KEY_SERVICE_INTERNET),
-        )
+    fun writeTo(parcel: Parcel) {
+        parcel.writeLong(token)
+        parcel.writeLong(generation)
+        parcel.writeString(status)
+        parcel.writeString(error)
+        parcel.writeInt(outputBytes)
+        when {
+            outputInline != null -> {
+                require(outputFd == null)
+                parcel.writeInt(RuntimeProtocol.PAYLOAD_INLINE)
+                parcel.writeByteArray(outputInline)
+            }
+            outputFd != null -> {
+                parcel.writeInt(RuntimeProtocol.PAYLOAD_FD)
+                outputFd.writeToParcel(parcel, 0)
+            }
+            else -> parcel.writeInt(RuntimeProtocol.PAYLOAD_NONE)
+        }
+        parcel.writeString(nativeMetrics)
+        parcel.writeLong(readMicros)
+        parcel.writeInt(servicePid)
+        parcel.writeInt(serviceUid)
+        parcel.writeInt(if (serviceInternetPermissionGranted) 1 else 0)
     }
-}
 
-private fun Bundle.parcelFileDescriptorCompat(key: String): ParcelFileDescriptor? {
-    @Suppress("DEPRECATION")
-    return getParcelable(key)
+    companion object {
+        fun readFrom(parcel: Parcel): RuntimeReply {
+            val token = parcel.readLong()
+            val generation = parcel.readLong()
+            val status = requireNotNull(parcel.readString()) { "runtime status missing" }
+            val error = parcel.readString()
+            val outputBytes = parcel.readInt()
+            var outputInline: ByteArray? = null
+            var outputFd: ParcelFileDescriptor? = null
+            when (val mode = parcel.readInt()) {
+                RuntimeProtocol.PAYLOAD_NONE -> Unit
+                RuntimeProtocol.PAYLOAD_INLINE ->
+                    outputInline = requireNotNull(parcel.createByteArray()) { "runtime output missing" }
+                RuntimeProtocol.PAYLOAD_FD ->
+                    outputFd = ParcelFileDescriptor.CREATOR.createFromParcel(parcel)
+                else -> throw IllegalArgumentException("invalid runtime output mode: $mode")
+            }
+            return RuntimeReply(
+                token = token,
+                generation = generation,
+                status = status,
+                error = error,
+                outputBytes = outputBytes,
+                outputInline = outputInline,
+                outputFd = outputFd,
+                nativeMetrics = requireNotNull(parcel.readString()) { "runtime metrics missing" },
+                readMicros = parcel.readLong(),
+                servicePid = parcel.readInt(),
+                serviceUid = parcel.readInt(),
+                serviceInternetPermissionGranted = parcel.readInt() != 0,
+            )
+        }
+    }
 }
 
 private object RuntimeProtocol {
@@ -931,28 +1052,10 @@ private object RuntimeProtocol {
     const val STATUS_ERROR = "error"
     const val ERROR_MODULE_MISS = "MODULE_MISS"
 
-    const val KEY_TOKEN = "token"
-    const val KEY_GENERATION = "generation"
-    const val KEY_STATUS = "status"
-    const val KEY_ERROR = "error"
-    const val KEY_DIGEST = "digest"
-    const val KEY_EXPORT = "export"
-    const val KEY_MAX_OUTPUT = "maxOutput"
-    const val KEY_MEMORY = "memory"
-    const val KEY_FUEL = "fuel"
-    const val KEY_DEADLINE = "deadline"
-    const val KEY_INPUT_INLINE = "inputInline"
-    const val KEY_INPUT_FD = "inputFd"
-    const val KEY_MODULE_INLINE = "moduleInline"
-    const val KEY_MODULE_FD = "moduleFd"
-    const val KEY_OUTPUT_INLINE = "outputInline"
-    const val KEY_OUTPUT_FD = "outputFd"
-    const val KEY_OUTPUT_BYTES = "outputBytes"
-    const val KEY_NATIVE_METRICS = "nativeMetrics"
-    const val KEY_READ_MICROS = "readMicros"
-    const val KEY_SERVICE_PID = "servicePid"
-    const val KEY_SERVICE_UID = "serviceUid"
-    const val KEY_SERVICE_INTERNET = "serviceInternet"
+    const val PAYLOAD_NONE = 0
+    const val PAYLOAD_INLINE = 1
+    const val PAYLOAD_FD = 2
+
 }
 
 private fun mapError(message: String?): ExtensionRuntimeErrorCode = when {
