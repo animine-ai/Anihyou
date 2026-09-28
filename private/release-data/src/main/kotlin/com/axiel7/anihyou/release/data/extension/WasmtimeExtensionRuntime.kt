@@ -336,23 +336,24 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         }
     }
 
-    suspend fun awaitActiveInvocationForTesting(timeoutMillis: Long = 5_000): Boolean {
-        val token = activeToken
-        val activeSession = session ?: return false
-        if (token == 0L) return false
-        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMillis
-        while (android.os.SystemClock.elapsedRealtime() < deadline) {
-            if (session?.binder !== activeSession.binder || !activeSession.binder.isBinderAlive) return false
-            val active = withContext(Dispatchers.IO) {
-                runCatching {
-                    transactBoolean(activeSession.binder, RuntimeProtocol.TX_IS_ACTIVE, token)
-                }.getOrDefault(false)
+    suspend fun awaitActiveInvocationForTesting(timeoutMillis: Long = 5_000): Boolean =
+        withTimeoutOrNull(timeoutMillis) {
+            while (true) {
+                val token = activeToken
+                val activeSession = session
+                if (token != 0L && activeSession != null && activeSession.binder.isBinderAlive) {
+                    val active = withContext(Dispatchers.IO) {
+                        runCatching {
+                            transactBoolean(activeSession.binder, RuntimeProtocol.TX_IS_ACTIVE, token)
+                        }.getOrDefault(false)
+                    }
+                    if (active) return@withTimeoutOrNull true
+                }
+                delay(5)
             }
-            if (active) return true
-            delay(5)
-        }
-        return false
-    }
+            @Suppress("UNREACHABLE_CODE")
+            false
+        } ?: false
 
     fun cancelActiveForTesting(): Boolean {
         val token = activeToken
