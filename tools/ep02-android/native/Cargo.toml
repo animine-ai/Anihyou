@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 [dependencies]
 anyhow = "=1.0.100"
 jni = { version = "=0.21.1", default-features = false }
-wasmtime = { version = "=48.0.3", default-features = false, features = ["runtime", "cranelift", "std"] }
+wasmtime = { version = "=48.0.3", default-features = false, features = ["runtime", "cranelift", "std", "anyhow"] }
 
 [profile.release]
 opt-level = 2
