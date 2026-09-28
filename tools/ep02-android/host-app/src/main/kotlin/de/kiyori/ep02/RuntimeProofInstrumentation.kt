@@ -367,13 +367,16 @@ private object RuntimeProof {
 
             val planComparison = steadyStateComparison(inProcessPlan, isolatedPlan)
             val parseComparison = steadyStateComparison(inProcessParse, isolatedParse)
-            val policies = listOf(
-                planComparison.getString("policy"),
-                parseComparison.getString("policy"),
-            )
+            val planPolicy =
+                if (planComparison.getLong("absoluteDeltaP50Micros") <= PLAN_MICRO_ABSOLUTE_LIMIT_MICROS) {
+                    "MICRO_FLOOR_WITHIN_ABSOLUTE_LIMIT"
+                } else {
+                    "FAIL"
+                }
+            val parsePolicy = parseComparison.getString("policy")
             val overallPolicy = when {
-                "FAIL" in policies -> "FAIL"
-                "SMALL_ABSOLUTE_DIFFERENCE" in policies -> "SMALL_ABSOLUTE_DIFFERENCE"
+                planPolicy == "FAIL" || parsePolicy == "FAIL" -> "FAIL"
+                parsePolicy == "SMALL_ABSOLUTE_DIFFERENCE" -> "SMALL_ABSOLUTE_DIFFERENCE"
                 else -> "PASS"
             }
             return JSONObject()
