@@ -244,7 +244,8 @@ fn module_for(digest: &str, bytes: &[u8]) -> Result<(Module, bool, u128)> {
     if let Some(module) = cache.get(digest) {
         return Ok((module.clone(), true, 0));
     }
-    ensure!(!bytes.is_empty() && bytes.len() <= MAX_MODULE_BYTES, "INVALID_INPUT");
+    ensure!(!bytes.is_empty(), "MODULE_MISS");
+    ensure!(bytes.len() <= MAX_MODULE_BYTES, "INVALID_INPUT");
     let started = Instant::now();
     let module = Module::new(engine()?, bytes)?;
     let compile_micros = started.elapsed().as_micros();

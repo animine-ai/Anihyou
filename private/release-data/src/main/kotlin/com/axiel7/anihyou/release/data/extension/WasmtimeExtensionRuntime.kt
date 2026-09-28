@@ -128,11 +128,57 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         ) {
             return@withLock ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.INVALID_INPUT)
         }
+
         val activeSession = try {
             ensureSession()
         } catch (_: Exception) {
             return@withLock ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
         }
+        val logicalStartedAt = System.nanoTime()
+        var sendModule = !activeSession.knownDigests.contains(moduleDigest)
+
+        repeat(2) { attemptIndex ->
+            when (val attempt = executeAttempt(
+                activeSession = activeSession,
+                moduleDigest = moduleDigest,
+                moduleBytes = moduleBytes,
+                exportName = exportName,
+                inputUtf8 = inputUtf8,
+                limits = limits,
+                sendModule = sendModule,
+                logicalStartedAt = logicalStartedAt,
+            )) {
+                is RuntimeAttempt.Success -> {
+                    activeSession.knownDigests += moduleDigest
+                    return@withLock ExtensionRuntimeResult.Success(attempt.output)
+                }
+                RuntimeAttempt.ModuleMiss -> {
+                    activeSession.knownDigests.remove(moduleDigest)
+                    if (sendModule || attemptIndex != 0) {
+                        return@withLock ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
+                    }
+                    sendModule = true
+                }
+                is RuntimeAttempt.Failure -> return@withLock attempt.result
+            }
+        }
+        ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
+    }
+
+    /**
+     * Executes one IPC attempt. A stale host cache hint is recoverable exactly once by the caller;
+     * all guest execution, timeout and cancellation failures remain fail-closed.
+     */
+    private suspend fun executeAttempt(
+        activeSession: Session,
+        moduleDigest: String,
+        moduleBytes: ByteArray,
+        exportName: String,
+        inputUtf8: ByteArray,
+        limits: ExtensionExecutionLimits,
+        sendModule: Boolean,
+        logicalStartedAt: Long,
+    ): RuntimeAttempt {
         val token = nextToken.getAndIncrement().also { if (it <= 0) error("runtime token overflow") }
         val generation = activeSession.generation
         activeToken = token
@@ -140,11 +186,9 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         val startedDeferred = CompletableDeferred<Unit>()
         pending[token] = Pending(generation, replyDeferred)
         started[token] = startedDeferred
-        val startedAt = System.nanoTime()
 
         try {
-            coroutineScope {
-                val sendModule = !activeSession.knownDigests.contains(moduleDigest)
+            return coroutineScope {
                 val inputInline = inputUtf8.size <= INLINE_PAYLOAD_BYTES
                 val moduleInline = sendModule && moduleBytes.size <= INLINE_PAYLOAD_BYTES
                 val inputPipe = if (inputInline) null else ParcelFileDescriptor.createPipe()
@@ -178,13 +222,12 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                         else modulePipe?.let { putParcelable(RuntimeProtocol.KEY_MODULE_FD, it[0]) }
                     }
                 }
+
                 try {
                     activeSession.messenger.send(message)
                 } catch (error: RemoteException) {
                     fence(token, generation)
                     invalidate(activeSession)
-                    inputPipe?.get(0)?.close()
-                    modulePipe?.get(0)?.close()
                     throw error
                 } finally {
                     inputPipe?.get(0)?.close()
@@ -194,29 +237,44 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 val reply = withTimeoutOrNull(limits.deadlineMillis + HOST_DEADLINE_GRACE_MILLIS) {
                     replyDeferred.await()
                 }
-                inputWriter?.await()
-                moduleWriter?.await()
-
                 if (reply == null) {
                     fence(token, generation)
                     sendCancel(activeSession, token, generation)
                     terminate(activeSession)
-                    return@coroutineScope ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.DEADLINE)
+                    try { inputWriter?.await() } catch (_: Exception) {}
+                    try { moduleWriter?.await() } catch (_: Exception) {}
+                    return@coroutineScope RuntimeAttempt.Failure(
+                        ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.DEADLINE)
+                    )
                 }
+
+                inputWriter?.await()
+                moduleWriter?.await()
+
                 if (reply.status != RuntimeProtocol.STATUS_OK) {
                     reply.outputFd?.close()
-                    return@coroutineScope ExtensionRuntimeResult.Failure(mapError(reply.error))
+                    if (!sendModule && reply.error?.contains(RuntimeProtocol.ERROR_MODULE_MISS) == true) {
+                        return@coroutineScope RuntimeAttempt.ModuleMiss
+                    }
+                    return@coroutineScope RuntimeAttempt.Failure(
+                        ExtensionRuntimeResult.Failure(mapError(reply.error))
+                    )
                 }
+
                 val output = reply.outputInline ?: reply.outputFd?.let { fd ->
                     ParcelFileDescriptor.AutoCloseInputStream(fd).use { readBounded(it, limits.maxOutputBytes) }
-                } ?: return@coroutineScope ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.OUTPUT_LIMIT)
+                } ?: return@coroutineScope RuntimeAttempt.Failure(
+                    ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.OUTPUT_LIMIT)
+                )
                 if (output.size != reply.outputBytes || output.size > limits.maxOutputBytes) {
-                    return@coroutineScope ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.OUTPUT_LIMIT)
+                    return@coroutineScope RuntimeAttempt.Failure(
+                        ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.OUTPUT_LIMIT)
+                    )
                 }
-                if (sendModule) activeSession.knownDigests += moduleDigest
-                val totalMicros = (System.nanoTime() - startedAt) / 1_000
+
+                val totalMicros = (System.nanoTime() - logicalStartedAt) / 1_000
                 lastDiagnostics = parseDiagnostics(reply, totalMicros, generation)
-                ExtensionRuntimeResult.Success(output)
+                RuntimeAttempt.Success(output)
             }
         } catch (cancelled: CancellationException) {
             fence(token, generation)
@@ -226,9 +284,11 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         } catch (_: Exception) {
             fence(token, generation)
             if (!activeSession.binder.isBinderAlive) invalidate(activeSession)
-            ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
+            return RuntimeAttempt.Failure(
+                ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
+            )
         } finally {
-            activeToken = 0
+            if (activeToken == token) activeToken = 0
             started.remove(token)
             pending.remove(token)
         }
@@ -452,6 +512,12 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     )
 
     private data class Pending(val generation: Long, val reply: CompletableDeferred<RuntimeReply>)
+
+    private sealed interface RuntimeAttempt {
+        data class Success(val output: ByteArray) : RuntimeAttempt
+        data class Failure(val result: ExtensionRuntimeResult.Failure) : RuntimeAttempt
+        data object ModuleMiss : RuntimeAttempt
+    }
 
     private companion object {
         const val MAX_MODULE_BYTES = 8 * 1024 * 1024
@@ -700,6 +766,7 @@ private object RuntimeProtocol {
     const val STATUS_OK = "ok"
     const val STATUS_ERROR = "error"
     const val STATUS_DEAD = "dead"
+    const val ERROR_MODULE_MISS = "MODULE_MISS"
 
     const val KEY_TOKEN = "token"
     const val KEY_GENERATION = "generation"
