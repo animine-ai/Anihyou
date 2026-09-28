@@ -145,7 +145,7 @@ object NavigationWireCodecV1 {
                 require(source != null && source.status == ExtensionResponseStatus.OK &&
                     source.sourceHash == sourceHash && source.finalUrl != null &&
                     source.httpStatus?.let { it in 200..299 } == true) { "navigation source provenance mismatch" }
-                validateUrl(source!!.finalUrl!!, allowedHosts)
+                validateUrl(source.finalUrl!!, allowedHosts)
             }
             val diagnostics = value.getValue("diagnostics").array("diagnostics", 16).map { diagnostic ->
                 val detail = diagnostic.obj("diagnostic").exact(setOf("code", "message"), "diagnostic")
