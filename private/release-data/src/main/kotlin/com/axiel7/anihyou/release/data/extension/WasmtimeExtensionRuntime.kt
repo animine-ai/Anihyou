@@ -478,18 +478,18 @@ class WasmtimeRuntimeService : Service() {
 
     private fun execute(reply: Messenger, token: Long, generation: Long, data: Bundle) {
         respond(reply, token, generation, RuntimeProtocol.STATUS_STARTED)
-        var outputFd: ParcelFileDescriptor? = null
         try {
             val readStarted = System.nanoTime()
-            val moduleFd = data.parcelFileDescriptor(RuntimeProtocol.KEY_MODULE_FD)
-            val module = moduleFd?.let {
-                ParcelFileDescriptor.AutoCloseInputStream(it).use { input -> readBounded(input, 8 * 1024 * 1024) }
-            } ?: ByteArray(0)
-            val inputFd = requireNotNull(data.parcelFileDescriptor(RuntimeProtocol.KEY_INPUT_FD))
-            val input = ParcelFileDescriptor.AutoCloseInputStream(inputFd).use { readBounded(it, 4 * 1024 * 1024) }
+            val module = data.getByteArray(RuntimeProtocol.KEY_MODULE_INLINE)
+                ?: data.parcelFileDescriptor(RuntimeProtocol.KEY_MODULE_FD)?.let {
+                    ParcelFileDescriptor.AutoCloseInputStream(it).use { input -> readBounded(input, 8 * 1024 * 1024) }
+                } ?: ByteArray(0)
+            val input = data.getByteArray(RuntimeProtocol.KEY_INPUT_INLINE)
+                ?: data.parcelFileDescriptor(RuntimeProtocol.KEY_INPUT_FD)?.let {
+                    ParcelFileDescriptor.AutoCloseInputStream(it).use { input -> readBounded(input, 4 * 1024 * 1024) }
+                } ?: throw IllegalArgumentException("runtime input missing")
             val readMicros = (System.nanoTime() - readStarted) / 1_000
 
-            outputFd = requireNotNull(data.parcelFileDescriptor(RuntimeProtocol.KEY_OUTPUT_FD))
             val output = WasmtimeNativeBridge.nativeExecute(
                 requireNotNull(data.getString(RuntimeProtocol.KEY_DIGEST)),
                 module,
@@ -501,18 +501,30 @@ class WasmtimeRuntimeService : Service() {
                 data.getLong(RuntimeProtocol.KEY_DEADLINE),
                 token,
             )
-            val writeStarted = System.nanoTime()
-            ParcelFileDescriptor.AutoCloseOutputStream(outputFd).use { it.write(output) }
-            outputFd = null
-            val writeMicros = (System.nanoTime() - writeStarted) / 1_000
-            respond(reply, token, generation, RuntimeProtocol.STATUS_OK) {
-                putInt(RuntimeProtocol.KEY_OUTPUT_BYTES, output.size)
-                putString(RuntimeProtocol.KEY_NATIVE_METRICS, WasmtimeNativeBridge.nativeMetrics())
-                putLong(RuntimeProtocol.KEY_READ_MICROS, readMicros)
-                putLong(RuntimeProtocol.KEY_WRITE_MICROS, writeMicros)
+            val nativeMetrics = WasmtimeNativeBridge.nativeMetrics()
+            if (output.size <= INLINE_PAYLOAD_BYTES) {
+                respond(reply, token, generation, RuntimeProtocol.STATUS_OK) {
+                    putInt(RuntimeProtocol.KEY_OUTPUT_BYTES, output.size)
+                    putByteArray(RuntimeProtocol.KEY_OUTPUT_INLINE, output)
+                    putString(RuntimeProtocol.KEY_NATIVE_METRICS, nativeMetrics)
+                    putLong(RuntimeProtocol.KEY_READ_MICROS, readMicros)
+                }
+            } else {
+                val pipe = ParcelFileDescriptor.createPipe()
+                val sent = respond(reply, token, generation, RuntimeProtocol.STATUS_OK) {
+                    putInt(RuntimeProtocol.KEY_OUTPUT_BYTES, output.size)
+                    putParcelable(RuntimeProtocol.KEY_OUTPUT_FD, pipe[0])
+                    putString(RuntimeProtocol.KEY_NATIVE_METRICS, nativeMetrics)
+                    putLong(RuntimeProtocol.KEY_READ_MICROS, readMicros)
+                }
+                pipe[0].close()
+                if (sent) {
+                    ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { it.write(output) }
+                } else {
+                    pipe[1].close()
+                }
             }
         } catch (error: Throwable) {
-            runCatching { outputFd?.close() }
             respond(reply, token, generation, RuntimeProtocol.STATUS_ERROR) {
                 putString(RuntimeProtocol.KEY_ERROR, error.message ?: error.javaClass.simpleName)
             }
@@ -530,19 +542,19 @@ class WasmtimeRuntimeService : Service() {
         generation: Long,
         status: String,
         block: Bundle.() -> Unit = {},
-    ) {
-        try {
-            reply.send(Message.obtain().apply {
-                data = Bundle().apply {
-                    putLong(RuntimeProtocol.KEY_TOKEN, token)
-                    putLong(RuntimeProtocol.KEY_GENERATION, generation)
-                    putString(RuntimeProtocol.KEY_STATUS, status)
-                    block()
-                }
-            })
-        } catch (_: RemoteException) {
-            // The host fenced or died. Results are intentionally dropped.
-        }
+    ): Boolean = try {
+        reply.send(Message.obtain().apply {
+            data = Bundle().apply {
+                putLong(RuntimeProtocol.KEY_TOKEN, token)
+                putLong(RuntimeProtocol.KEY_GENERATION, generation)
+                putString(RuntimeProtocol.KEY_STATUS, status)
+                block()
+            }
+        })
+        true
+    } catch (_: RemoteException) {
+        // The host fenced or died. Results are intentionally dropped.
+        false
     }
 
     private fun Bundle.parcelFileDescriptor(key: String): ParcelFileDescriptor? {
@@ -551,6 +563,7 @@ class WasmtimeRuntimeService : Service() {
     }
 
     private companion object {
+        const val INLINE_PAYLOAD_BYTES = 48 * 1024
         fun readBounded(input: InputStream, maximum: Int): ByteArray {
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(16 * 1024)
@@ -593,6 +606,8 @@ private data class RuntimeReply(
     val status: String,
     val error: String?,
     val outputBytes: Int,
+    val outputInline: ByteArray?,
+    val outputFd: ParcelFileDescriptor?,
     val nativeMetrics: String,
     val readMicros: Long,
     val writeMicros: Long,
@@ -602,11 +617,18 @@ private data class RuntimeReply(
             status = bundle.getString(RuntimeProtocol.KEY_STATUS) ?: RuntimeProtocol.STATUS_ERROR,
             error = bundle.getString(RuntimeProtocol.KEY_ERROR),
             outputBytes = bundle.getInt(RuntimeProtocol.KEY_OUTPUT_BYTES),
+            outputInline = bundle.getByteArray(RuntimeProtocol.KEY_OUTPUT_INLINE),
+            outputFd = bundle.parcelFileDescriptorCompat(RuntimeProtocol.KEY_OUTPUT_FD),
             nativeMetrics = bundle.getString(RuntimeProtocol.KEY_NATIVE_METRICS) ?: "{}",
             readMicros = bundle.getLong(RuntimeProtocol.KEY_READ_MICROS),
             writeMicros = bundle.getLong(RuntimeProtocol.KEY_WRITE_MICROS),
         )
     }
+}
+
+private fun Bundle.parcelFileDescriptorCompat(key: String): ParcelFileDescriptor? {
+    @Suppress("DEPRECATION")
+    return getParcelable(key)
 }
 
 private object RuntimeProtocol {
@@ -628,9 +650,12 @@ private object RuntimeProtocol {
     const val KEY_MEMORY = "memory"
     const val KEY_FUEL = "fuel"
     const val KEY_DEADLINE = "deadline"
+    const val KEY_INPUT_INLINE = "inputInline"
     const val KEY_INPUT_FD = "inputFd"
-    const val KEY_OUTPUT_FD = "outputFd"
+    const val KEY_MODULE_INLINE = "moduleInline"
     const val KEY_MODULE_FD = "moduleFd"
+    const val KEY_OUTPUT_INLINE = "outputInline"
+    const val KEY_OUTPUT_FD = "outputFd"
     const val KEY_OUTPUT_BYTES = "outputBytes"
     const val KEY_NATIVE_METRICS = "nativeMetrics"
     const val KEY_READ_MICROS = "readMicros"
