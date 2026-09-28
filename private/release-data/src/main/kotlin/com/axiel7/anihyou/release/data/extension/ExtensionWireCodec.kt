@@ -565,6 +565,9 @@ object ExtensionWireCodec {
         }
     }
 
+    /** Strict syntax parser for signed metadata: duplicate keys and invalid UTF-8 are rejected first. */
+    internal fun parseStrictJson(bytes: ByteArray, maxBytes: Int): JsonElement = decode(bytes, maxBytes)
+
     private fun JsonElement.obj(path: String): JsonObject = this as? JsonObject
         ?: throw wireError(ExtensionWireErrorCode.INVALID_FIELD, "$path must be an object")
 

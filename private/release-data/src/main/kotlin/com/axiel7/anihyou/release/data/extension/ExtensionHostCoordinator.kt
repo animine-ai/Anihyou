@@ -49,12 +49,15 @@ class VerifiedExtensionPackage internal constructor(
     val packageDigest: String,
     val manifestDigest: String,
     val moduleDigest: String,
-    val moduleBytes: ByteArray,
+    moduleBytes: ByteArray,
     val grantedRoles: Set<SourceRole>,
     /** Host-policy intersection with signed manifest grants; exact DNS names only. */
     val grantedHosts: Set<String>,
     val runtimeVersion: String,
-)
+) {
+    private val moduleContent = moduleBytes.copyOf()
+    val moduleBytes: ByteArray get() = moduleContent.copyOf()
+}
 
 /**
  * The repository must return an already signature- and digest-verified package,

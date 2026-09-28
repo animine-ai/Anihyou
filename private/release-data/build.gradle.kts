@@ -34,6 +34,9 @@ ksp {
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.apache.commons.compress)
+    implementation(libs.bouncycastle.provider)
+    implementation(libs.java.json.canonicalization)
     implementation(project(":core:base"))
     implementation(project(":core:domain"))
     implementation(project(":core:model"))
