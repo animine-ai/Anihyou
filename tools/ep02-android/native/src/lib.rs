@@ -334,6 +334,7 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
         );
         let module_bytes = read_bytes(&mut env, &module, MAX_MODULE_BYTES)?;
         let input = read_bytes(&mut env, &input, MAX_INPUT_BYTES)?;
+        let native_started = Instant::now();
         let (module, cache_hit, compile_micros) = module_for(&digest, &module_bytes)?;
 
         let engine = engine()?;
@@ -347,9 +348,9 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
         )?;
         INTERRUPT_REASON.store(0, Ordering::Release);
         ACTIVE_INVOCATION.store(invocation_id as u64, Ordering::Release);
-        let started = Instant::now();
+        let guest_started = Instant::now();
         let call_result = host.call(&export_name, &input);
-        let elapsed = started.elapsed();
+        let guest_elapsed = guest_started.elapsed();
         let _ = ACTIVE_INVOCATION.compare_exchange(
             invocation_id as u64,
             0,
@@ -360,7 +361,7 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
         let output = match call_result {
             Ok(value) => value,
             Err(error) if reason == 1 => bail!("CANCELLED:{error:#}"),
-            Err(error) if elapsed >= Duration::from_millis(deadline_millis.saturating_sub(10) as u64) => {
+            Err(error) if guest_elapsed >= Duration::from_millis(deadline_millis.saturating_sub(10) as u64) => {
                 bail!("DEADLINE:{error:#}")
             }
             Err(error) => return Err(error),
