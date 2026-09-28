@@ -157,24 +157,30 @@ impl Host {
         linker.func_wrap(
             "arex_v1",
             "diagnostic",
-            |mut caller: Caller<'_, State>, pointer: i32, length: i32| -> Result<i32> {
+            |mut caller: Caller<'_, State>, pointer: i32, length: i32| -> wasmtime::Result<i32> {
                 let next_calls = caller.data().diagnostic_calls.saturating_add(1);
-                ensure!(next_calls <= MAX_DIAGNOSTIC_CALLS, "IMPORT_LIMIT");
+                if next_calls > MAX_DIAGNOSTIC_CALLS {
+                    return Err(wasmtime::Error::msg("IMPORT_LIMIT"));
+                }
                 let memory = caller
                     .get_export("memory")
                     .and_then(|value| value.into_memory())
-                    .ok_or_else(|| anyhow!("ABI_MISMATCH"))?;
+                    .ok_or_else(|| wasmtime::Error::msg("ABI_MISMATCH"))?;
                 let range = checked_range(
                     pointer as u32,
                     length as u32,
                     memory.data_size(&caller),
                     256,
                 )
-                .map_err(|_| anyhow!("IMPORT_LIMIT"))?;
+                .map_err(|_| wasmtime::Error::msg("IMPORT_LIMIT"))?;
                 let next_bytes = caller.data().diagnostic_bytes.saturating_add(range.len());
-                ensure!(next_bytes <= MAX_DIAGNOSTIC_BYTES, "IMPORT_LIMIT");
+                if next_bytes > MAX_DIAGNOSTIC_BYTES {
+                    return Err(wasmtime::Error::msg("IMPORT_LIMIT"));
+                }
                 let mut scratch = [0u8; 256];
-                memory.read(&caller, range.start, &mut scratch[..range.len()])?;
+                memory
+                    .read(&caller, range.start, &mut scratch[..range.len()])
+                    .map_err(|error| wasmtime::Error::msg(error.to_string()))?;
                 caller.data_mut().diagnostic_calls = next_calls;
                 caller.data_mut().diagnostic_bytes = next_bytes;
                 Ok(0)
