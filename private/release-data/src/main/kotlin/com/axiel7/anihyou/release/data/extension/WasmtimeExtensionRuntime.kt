@@ -140,22 +140,20 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
 
         try {
             coroutineScope {
-                val inputPipe = ParcelFileDescriptor.createPipe()
-                val outputPipe = ParcelFileDescriptor.createPipe()
                 val sendModule = !activeSession.knownDigests.contains(moduleDigest)
-                val modulePipe = if (sendModule) ParcelFileDescriptor.createPipe() else null
+                val inputInline = inputUtf8.size <= INLINE_PAYLOAD_BYTES
+                val moduleInline = sendModule && moduleBytes.size <= INLINE_PAYLOAD_BYTES
+                val inputPipe = if (inputInline) null else ParcelFileDescriptor.createPipe()
+                val modulePipe = if (sendModule && !moduleInline) ParcelFileDescriptor.createPipe() else null
 
-                val inputWriter = async(Dispatchers.IO) {
-                    ParcelFileDescriptor.AutoCloseOutputStream(inputPipe[1]).use { it.write(inputUtf8) }
+                val inputWriter = inputPipe?.let { pipe ->
+                    async(Dispatchers.IO) {
+                        ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { it.write(inputUtf8) }
+                    }
                 }
                 val moduleWriter = modulePipe?.let { pipe ->
                     async(Dispatchers.IO) {
                         ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { it.write(moduleBytes) }
-                    }
-                }
-                val outputReader = async(Dispatchers.IO) {
-                    ParcelFileDescriptor.AutoCloseInputStream(outputPipe[0]).use {
-                        readBounded(it, limits.maxOutputBytes)
                     }
                 }
 
@@ -170,9 +168,10 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                         putLong(RuntimeProtocol.KEY_MEMORY, limits.memoryBytes.toLong())
                         putLong(RuntimeProtocol.KEY_FUEL, limits.fuel)
                         putLong(RuntimeProtocol.KEY_DEADLINE, limits.deadlineMillis)
-                        putParcelable(RuntimeProtocol.KEY_INPUT_FD, inputPipe[0])
-                        putParcelable(RuntimeProtocol.KEY_OUTPUT_FD, outputPipe[1])
-                        modulePipe?.let { putParcelable(RuntimeProtocol.KEY_MODULE_FD, it[0]) }
+                        if (inputInline) putByteArray(RuntimeProtocol.KEY_INPUT_INLINE, inputUtf8)
+                        else inputPipe?.let { putParcelable(RuntimeProtocol.KEY_INPUT_FD, it[0]) }
+                        if (moduleInline) putByteArray(RuntimeProtocol.KEY_MODULE_INLINE, moduleBytes)
+                        else modulePipe?.let { putParcelable(RuntimeProtocol.KEY_MODULE_FD, it[0]) }
                     }
                 }
                 try {
@@ -180,33 +179,32 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 } catch (error: RemoteException) {
                     fence(token, generation)
                     invalidate(activeSession)
-                    inputPipe[0].close()
-                    outputPipe[1].close()
+                    inputPipe?.get(0)?.close()
                     modulePipe?.get(0)?.close()
                     throw error
                 } finally {
-                    inputPipe[0].close()
-                    outputPipe[1].close()
+                    inputPipe?.get(0)?.close()
                     modulePipe?.get(0)?.close()
                 }
 
                 val reply = withTimeoutOrNull(limits.deadlineMillis + HOST_DEADLINE_GRACE_MILLIS) {
                     replyDeferred.await()
                 }
-                inputWriter.await()
+                inputWriter?.await()
                 moduleWriter?.await()
 
                 if (reply == null) {
                     fence(token, generation)
                     sendCancel(activeSession, token, generation)
-                    outputReader.cancel()
                     return@coroutineScope ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.DEADLINE)
                 }
                 if (reply.status != RuntimeProtocol.STATUS_OK) {
-                    outputReader.cancel()
+                    reply.outputFd?.close()
                     return@coroutineScope ExtensionRuntimeResult.Failure(mapError(reply.error))
                 }
-                val output = outputReader.await()
+                val output = reply.outputInline ?: reply.outputFd?.let { fd ->
+                    ParcelFileDescriptor.AutoCloseInputStream(fd).use { readBounded(it, limits.maxOutputBytes) }
+                } ?: return@coroutineScope ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.OUTPUT_LIMIT)
                 if (output.size != reply.outputBytes || output.size > limits.maxOutputBytes) {
                     return@coroutineScope ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.OUTPUT_LIMIT)
                 }
@@ -424,6 +422,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         const val MAX_OUTPUT_BYTES = 1024 * 1024
         const val MAX_MEMORY_BYTES = 32 * 1024 * 1024
         const val HOST_DEADLINE_GRACE_MILLIS = 750L
+        const val INLINE_PAYLOAD_BYTES = 48 * 1024
         val SHA256 = Regex("[0-9a-f]{64}")
         val ALLOWED_EXPORTS = setOf("plan_requests", "parse_responses", "plan_navigation", "parse_navigation")
         fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes)
