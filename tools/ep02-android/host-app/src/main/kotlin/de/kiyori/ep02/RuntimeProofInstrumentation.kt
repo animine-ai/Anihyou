@@ -478,7 +478,6 @@ private object RuntimeProof {
         .put("compileMicros", value.compileMicros)
         .put("instantiateMicros", value.instantiateMicros)
         .put("cacheHit", value.cacheHit)
-        .put("serviceWriteMicros", value.serviceWriteMicros)
         .put("servicePid", value.servicePid)
         .put("serviceUid", value.serviceUid)
         .put("serviceGeneration", value.serviceGeneration)
