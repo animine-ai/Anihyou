@@ -159,7 +159,7 @@ internal class ArexZipArchiveReader(
         val name = input.asciiName(nameLength)
         validateName(name)
         val extra = input.bytes(extraLength)
-        validateExtra(extra)
+        validateExtra(extra, allowZip64Placeholder = false)
         if (isUnixSymlink(versionMadeBy, externalAttributes)) invalid("symbolic links are forbidden")
         if (externalAttributes and DOS_DIRECTORY_ATTRIBUTE != 0L) invalid("directory entries are forbidden")
 
@@ -205,7 +205,7 @@ internal class ArexZipArchiveReader(
                 invalid("local and central ZIP flags or methods differ")
             }
             if (input.asciiName(nameLength) != metadata.name) invalid("local and central entry names differ")
-            validateExtra(input.bytes(extraLength))
+            validateExtra(input.bytes(extraLength), allowZip64Placeholder = true)
 
             val dataOffset = input.filePointer
             val dataEnd = checkedAdd(dataOffset, metadata.compressedSize)
@@ -298,7 +298,7 @@ internal class ArexZipArchiveReader(
         }
     }
 
-    private fun validateExtra(extra: ByteArray) {
+    private fun validateExtra(extra: ByteArray, allowZip64Placeholder: Boolean) {
         var offset = 0
         while (offset < extra.size) {
             if (extra.size - offset < 4) invalid("truncated ZIP extra field")
@@ -306,8 +306,21 @@ internal class ArexZipArchiveReader(
             val size = extra.u16(offset + 2)
             offset += 4
             if (size > extra.size - offset) invalid("truncated ZIP extra field payload")
-            if (id == ZIP64_EXTRA_ID || id == AES_EXTRA_ID || id == UNICODE_PATH_EXTRA_ID) {
-                invalid("ZIP64, AES, or alternate Unicode path metadata is forbidden")
+
+            when (id) {
+                ZIP64_EXTRA_ID -> {
+                    // Commons Compress reserves 16 zero bytes in the local header while sizes are
+                    // unknown, then rewrites the normal ZIP32 size fields and removes ZIP64 from
+                    // the central directory. Accept only that inert seekable-writer placeholder.
+                    val end = offset + size
+                    if (!allowZip64Placeholder || size != ZIP64_LOCAL_PLACEHOLDER_BYTES ||
+                        extra.copyOfRange(offset, end).any { it != 0.toByte() }
+                    ) {
+                        invalid("semantic ZIP64 metadata is outside the AREX profile")
+                    }
+                }
+                AES_EXTRA_ID -> invalid("AES ZIP metadata is forbidden")
+                UNICODE_PATH_EXTRA_ID -> invalid("alternate Unicode path metadata is forbidden")
             }
             offset += size
         }
@@ -411,6 +424,7 @@ internal class ArexZipArchiveReader(
         const val SIGNED_DATA_DESCRIPTOR_BYTES = 16
         const val MAX_NAME_BYTES = 256
         const val MAX_ZIP_VERSION = 20
+        const val ZIP64_LOCAL_PLACEHOLDER_BYTES = 16
 
         const val LOCAL_SIGNATURE = 0x04034b50L
         const val CENTRAL_SIGNATURE = 0x02014b50L
