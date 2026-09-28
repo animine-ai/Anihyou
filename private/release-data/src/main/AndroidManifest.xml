@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <service
+            android:name="com.axiel7.anihyou.release.data.extension.WasmtimeRuntimeService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":arex_wasm"
+            android:stopWithTask="false" />
+    </application>
+</manifest>
