@@ -4,7 +4,6 @@ import com.axiel7.anihyou.release.core.extension.ExtensionId
 import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import com.axiel7.anihyou.release.core.extension.ProviderId
 import com.axiel7.anihyou.release.core.extension.SourceRole
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.net.URI
@@ -12,16 +11,11 @@ import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Instant
-import java.util.Enumeration
 import java.util.Locale
-import java.util.zip.CRC32
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
-import org.apache.commons.compress.archivers.zip.ZipFile
-import org.apache.commons.compress.archivers.zip.ZipMethod
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.bouncycastle.util.encoders.Base64
@@ -204,91 +198,21 @@ internal class ExtensionPackageVerifier(
         )
     }
 
-    private fun readArchive(file: File): Map<String, ByteArray> {
-        val result = LinkedHashMap<String, ByteArray>()
-        val spans = ArrayList<ArchiveSpan>(EXPECTED_ENTRIES.size)
-        var totalBytes = 0L
-        try {
-            ZipFile(file).use { zip ->
-                val entries: Enumeration<ZipArchiveEntry> = zip.entries
-                while (entries.hasMoreElements()) {
-                    val entry = entries.nextElement()
-                    if (result.size >= EXPECTED_ENTRIES.size) {
-                        fail(ExtensionPackageFailure.ARCHIVE_INVALID, "archive contains too many entries")
-                    }
-                    val name = entry.name
-                    if (name !in EXPECTED_ENTRIES || '/' in name || '\\' in name ||
-                        entry.isDirectory || entry.isUnixSymlink ||
-                        entry.generalPurposeBit.usesEncryption() ||
-                        entry.method !in setOf(ZipMethod.STORED.code, ZipMethod.DEFLATED.code) ||
-                        !zip.canReadEntryData(entry)
-                    ) {
-                        fail(ExtensionPackageFailure.ARCHIVE_INVALID, "archive entry violates the frozen package layout")
-                    }
-                    if (result.containsKey(name)) {
-                        fail(ExtensionPackageFailure.ARCHIVE_INVALID, "archive contains a duplicate entry")
-                    }
-                    val perEntryLimit = ENTRY_LIMITS.getValue(name)
-                    if (entry.size < 0L || entry.compressedSize < 0L || entry.size > perEntryLimit) {
-                        fail(ExtensionPackageFailure.SIZE_LIMIT, "archive entry exceeds its declared bound")
-                    }
-                    totalBytes += entry.size
-                    if (totalBytes > MAX_UNCOMPRESSED_BYTES) {
-                        fail(ExtensionPackageFailure.SIZE_LIMIT, "archive exceeds the total uncompressed bound")
-                    }
-                    val headerOffset = entry.localHeaderOffset
-                    val dataOffset = entry.dataOffset
-                    val dataEnd = checkedAdd(dataOffset, entry.compressedSize)
-                    if (headerOffset < 0L || dataOffset <= headerOffset || dataEnd > file.length()) {
-                        fail(ExtensionPackageFailure.ARCHIVE_INVALID, "archive entry offsets are inconsistent")
-                    }
-                    spans += ArchiveSpan(headerOffset, dataEnd)
-                    result[name] = readEntry(zip, entry, perEntryLimit)
-                }
-            }
-        } catch (failure: ExtensionPackageVerificationException) {
-            throw failure
-        } catch (error: Exception) {
-            throw ExtensionPackageVerificationException(
-                ExtensionPackageFailure.ARCHIVE_INVALID,
-                "package archive is malformed or unreadable",
-                error,
-            )
-        }
-        if (result.keys != EXPECTED_ENTRIES) {
-            fail(ExtensionPackageFailure.ARCHIVE_INVALID, "archive does not contain the exact required root entries")
-        }
-        val orderedSpans = spans.sortedBy(ArchiveSpan::start)
-        for (index in 1 until orderedSpans.size) {
-            if (orderedSpans[index - 1].endExclusive > orderedSpans[index].start) {
-                fail(ExtensionPackageFailure.ARCHIVE_INVALID, "archive entries overlap")
-            }
-        }
-        return result
-    }
-
-    private fun readEntry(zip: ZipFile, entry: ZipArchiveEntry, limit: Int): ByteArray {
-        val out = ByteArrayOutputStream(entry.size.toInt())
-        val crc = CRC32()
-        val buffer = ByteArray(8192)
-        var count = 0L
-        zip.getInputStream(entry).use { input ->
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                if (read == 0) continue
-                count += read
-                if (count > limit || count > entry.size) {
-                    fail(ExtensionPackageFailure.SIZE_LIMIT, "decompressed entry exceeds its bound")
-                }
-                crc.update(buffer, 0, read)
-                out.write(buffer, 0, read)
-            }
-        }
-        if (count != entry.size || crc.value != entry.crc) {
-            fail(ExtensionPackageFailure.ARCHIVE_INVALID, "entry size or CRC does not match its directory record")
-        }
-        return out.toByteArray()
+    private fun readArchive(file: File): Map<String, ByteArray> = try {
+        ArexZipArchiveReader(
+            expectedEntries = EXPECTED_ENTRIES,
+            entryLimits = ENTRY_LIMITS,
+            maxUncompressedBytes = MAX_UNCOMPRESSED_BYTES,
+        ).read(file)
+    } catch (failure: ArexZipArchiveException) {
+        throw ExtensionPackageVerificationException(
+            failure = when (failure.failure) {
+                ArexZipFailure.INVALID -> ExtensionPackageFailure.ARCHIVE_INVALID
+                ArexZipFailure.SIZE_LIMIT -> ExtensionPackageFailure.SIZE_LIMIT
+            },
+            message = failure.message ?: "package archive is malformed or unreadable",
+            cause = failure,
+        )
     }
 
     private fun parseManifest(bytes: ByteArray): ParsedManifest {
@@ -574,10 +498,6 @@ internal class ExtensionPackageVerifier(
         throw ExtensionPackageVerificationException(ExtensionPackageFailure.INVALID_MANIFEST, "manifest provider identifier is invalid", error)
     }
 
-    private fun checkedAdd(left: Long, right: Long): Long = try { Math.addExact(left, right) } catch (error: ArithmeticException) {
-        throw ExtensionPackageVerificationException(ExtensionPackageFailure.ARCHIVE_INVALID, "archive offset overflow", error)
-    }
-
     private fun hasWellFormedSurrogates(text: String): Boolean {
         var index = 0
         while (index < text.length) {
@@ -605,7 +525,6 @@ internal class ExtensionPackageVerifier(
 
     private data class ContentDigest(val sha256: String, val bytes: Long)
     private data class ContentDigests(val module: ContentDigest, val provenance: ContentDigest, val notice: ContentDigest)
-    private data class ArchiveSpan(val start: Long, val endExclusive: Long)
 
     private data class ParsedManifest(
         val extensionId: ExtensionId,

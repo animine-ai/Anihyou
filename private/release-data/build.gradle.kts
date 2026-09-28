@@ -35,7 +35,6 @@ ksp {
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.apache.commons.compress)
     implementation(libs.bouncycastle.provider)
     implementation(libs.java.json.canonicalization)
     implementation(project(":core:base"))
@@ -49,6 +48,7 @@ dependencies {
     ksp("androidx.room:room-compiler:2.8.5")
 
     testImplementation(libs.junit)
+    testImplementation(libs.apache.commons.compress)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("androidx.room:room-testing:2.8.5")
     testImplementation("androidx.test:core:1.7.0")
