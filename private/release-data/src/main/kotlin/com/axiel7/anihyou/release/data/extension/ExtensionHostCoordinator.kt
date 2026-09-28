@@ -125,10 +125,10 @@ class ExtensionHostCoordinator(
         try {
             val packageInfo = repository.loadUsable(request.providerId)
                 ?: return ExtensionHostResult.Failed(ExtensionHostFailureCode.NO_TRUSTED_EXTENSION)
-            if (packageInfo.moduleBytes.size !in MIN_MODULE_BYTES..MAX_MODULE_BYTES) {
+            val moduleBytes = packageInfo.moduleBytes
+            if (moduleBytes.size !in MIN_MODULE_BYTES..MAX_MODULE_BYTES) {
                 return ExtensionHostResult.Failed(ExtensionHostFailureCode.HOST_VALIDATION_FAILED)
             }
-            val moduleBytes = packageInfo.moduleBytes.copyOf()
             if (!validPackage(packageInfo, request, moduleBytes)) {
                 return ExtensionHostResult.Failed(ExtensionHostFailureCode.HOST_VALIDATION_FAILED)
             }
@@ -245,7 +245,7 @@ class ExtensionHostCoordinator(
         }
         return when (val result = runtime.execute(
             moduleDigest = packageInfo.moduleDigest,
-            moduleBytes = moduleBytes.copyOf(),
+            moduleBytes = moduleBytes,
             exportName = exportName,
             inputUtf8 = input,
             limits = limits,
