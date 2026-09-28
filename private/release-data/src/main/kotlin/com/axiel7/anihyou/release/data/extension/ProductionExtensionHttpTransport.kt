@@ -19,11 +19,14 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import okhttp3.Authenticator
@@ -80,6 +83,19 @@ internal data class ExtensionFetchedResponse(
     val bodyBytes: Int, val destination: String?, val redirects: Int,
 )
 
+/** Host-produced metadata; never accepted from WASM output. */
+data class ExtensionResponseProvenance(
+    val requestId: String,
+    val finalUrl: String,
+    val httpStatus: Int,
+    val responseHeaders: Map<String, String>,
+    val sourceHash: String,
+    val bodyBytes: Int,
+    val redirectCount: Int,
+    val destinationAddress: String,
+    val completedAt: Instant,
+)
+
 /** One session pins package and generation, budgets and every authenticated network hop. */
 internal class ProductionExtensionHttpTransport(
     private val ledger: ExtensionNetworkLedger,
@@ -125,6 +141,7 @@ internal class ProductionExtensionHttpTransport(
         private var wire = 0
         private var totalBytes = 0L
         private val seenLogical = HashSet<String>()
+        val provenance = ArrayList<ExtensionResponseProvenance>()
 
         suspend fun fetch(requestId: String, role: String, url: String): ExtensionFetchedResponse {
             cancellation.check()
@@ -147,7 +164,9 @@ internal class ProductionExtensionHttpTransport(
                 var outcome = "TRANSPORT_FAILURE"
                 var retryAfter: Long? = null
                 try {
-                    val addresses = resolver.resolve(host)
+                    val dnsRemaining = Duration.between(clock.instant(), started.plus(OPERATION_DEADLINE)).toMillis()
+                    require(dnsRemaining > 0)
+                    val addresses = withTimeout(minOf(MAX_HOP_MILLIS, dnsRemaining)) { resolver.resolve(host) }
                     cancellation.check()
                     coroutineContext.ensureActive()
                     require(addresses.isNotEmpty() && addresses.size <= 16 && addresses.distinct().size == addresses.size)
@@ -185,12 +204,20 @@ internal class ProductionExtensionHttpTransport(
                         .decode(java.nio.ByteBuffer.wrap(response.body)).toString()
                     cancellation.check()
                     coroutineContext.ensureActive()
+                    val sourceHash = sha(response.body)
+                    provenance += ExtensionResponseProvenance(requestId, current, response.status,
+                        response.headers, sourceHash, response.body.size, redirects,
+                        response.destination.hostAddress, clock.instant())
                     return ExtensionFetchedResponse(requestId, ExtensionResponseStatus.OK, response.status,
-                        current, body, sha(response.body), response.body.size, response.destination.hostAddress, redirects)
+                        current, body, sourceHash, response.body.size, response.destination.hostAddress, redirects)
                 } catch (cancelled: CancellationException) {
                     outcome = "CANCELLED"
                     cancellation.cancel()
                     throw cancelled
+                } catch (failure: IOException) {
+                    cancellation.check()
+                    return ExtensionFetchedResponse(requestId, ExtensionResponseStatus.TRANSPORT_FAILURE,
+                        null, current, null, null, 0, null, redirects)
                 } finally {
                     withContext(NonCancellable) {
                         ledger.complete(reservation, outcome, retryAfter, clock.instant())
@@ -244,7 +271,8 @@ internal class ProductionExtensionHttpTransport(
                 val c = bytes[2].toInt() and 255
                 return a !in setOf(0, 10, 127) && a < 224 &&
                     !(a == 100 && b in 64..127) && !(a == 169 && b == 254) &&
-                    !(a == 172 && b in 16..31) && !(a == 192 && (b == 168 || b == 0 && c == 0 || b == 0 && c == 2 || b == 88 && c == 99)) &&
+                    !(a == 172 && b in 16..31) && !(a == 192 &&
+                        (b == 168 || b == 0 && c in setOf(0, 2) || b == 88 && c == 99)) &&
                     !(a == 198 && (b in 18..19 || b == 51 && c == 100)) &&
                     !(a == 203 && b == 0 && c == 113)
             }
@@ -256,7 +284,8 @@ internal class ProductionExtensionHttpTransport(
             if (a !in 0x20..0x3f || a == 0x20 && b == 0x02) return false
             if (a == 0x20 && b == 0x01) {
                 val c = bytes[2].toInt() and 255
-                if (c <= 0x03 || c == 0x0d && (bytes[3].toInt() and 255) == 0xb8) return false
+                if (c <= 0x03 || c in setOf(0x10, 0x20) ||
+                    c == 0x0d && (bytes[3].toInt() and 255) == 0xb8) return false
             }
             return true
         }
@@ -274,7 +303,10 @@ internal class ProductionExtensionHttpTransport(
 }
 
 /** A fresh client per hop prevents connection pooling across trust decisions. */
-internal class OkHttpBoundHttpsHopExecutor : BoundHttpsHopExecutor {
+internal class OkHttpBoundHttpsHopExecutor(
+    private val tlsSocketFactory: SSLSocketFactory? = null,
+    private val trustManager: X509TrustManager? = null,
+) : BoundHttpsHopExecutor {
     override suspend fun fetch(url: String, host: String, addresses: List<InetAddress>, timeoutMillis: Long,
         cancellation: NetworkCancellation): BoundHopResponse = suspendCancellableCoroutine { continuation ->
         val allowed = addresses.toSet()
@@ -299,14 +331,15 @@ internal class OkHttpBoundHttpsHopExecutor : BoundHttpsHopExecutor {
                 connected = connection.socket().inetAddress
             }
         }
-        val client = OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .dns(dns).proxy(Proxy.NO_PROXY).cookieJar(CookieJar.NO_COOKIES)
             .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE)
-            .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
+            .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(true)
             .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
             .protocols(listOf(Protocol.HTTP_1_1))
             .eventListener(listener).callTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
-            .build()
+        if (tlsSocketFactory != null) builder.sslSocketFactory(tlsSocketFactory, requireNotNull(trustManager))
+        val client = builder.build()
         val request = Request.Builder().url(url).get().header("Accept-Encoding", "identity")
             .header("User-Agent", "AnimetrackerExtension/1").build()
         val call = client.newCall(request)
@@ -325,6 +358,8 @@ internal class OkHttpBoundHttpsHopExecutor : BoundHttpsHopExecutor {
                         require(headers.size <= 64 && headers.byteCount() <= 16 * 1024)
                         require(headers.values("content-encoding").all { it.equals("identity", true) })
                         require((response.body?.contentLength() ?: 0) <= 2L * 1024 * 1024)
+                        val bodyLimit = if (response.code in setOf(301, 302, 303, 307, 308)) 4096
+                            else 2 * 1024 * 1024
                         val stream = response.body?.byteStream()
                         val output = java.io.ByteArrayOutputStream()
                         val buffer = ByteArray(8192)
@@ -332,7 +367,7 @@ internal class OkHttpBoundHttpsHopExecutor : BoundHttpsHopExecutor {
                             cancellation.check()
                             val n = stream.read(buffer)
                             if (n < 0) break
-                            require(output.size() + n <= 2 * 1024 * 1024)
+                            require(output.size() + n <= bodyLimit)
                             output.write(buffer, 0, n)
                         }
                         val permitted = setOf("location", "retry-after", "content-type", "content-length", "content-encoding")

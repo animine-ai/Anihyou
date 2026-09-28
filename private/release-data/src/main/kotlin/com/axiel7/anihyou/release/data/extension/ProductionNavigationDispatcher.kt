@@ -14,6 +14,11 @@ import java.util.concurrent.CancellationException
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
 
+data class NavigationDispatchResult(
+    val target: ProviderNavigationTargetV1,
+    val responseProvenance: List<ExtensionResponseProvenance>,
+)
+
 /** Navigation shares the release transport and never creates a release observation. */
 class ProductionNavigationDispatcher(
     private val repository: VerifiedExtensionRepository,
@@ -21,9 +26,14 @@ class ProductionNavigationDispatcher(
     private val transport: DestinationBoundExtensionTransport,
     private val clock: Clock = Clock.systemUTC(),
 ) {
-    suspend fun navigate(request: NavigationContextV1, generation: String): ProviderNavigationTargetV1? {
+    suspend fun navigate(request: NavigationContextV1, generation: String): ProviderNavigationTargetV1? =
+        navigateWithProvenance(request, generation)?.target
+
+    suspend fun navigateWithProvenance(request: NavigationContextV1, generation: String): NavigationDispatchResult? {
         require(generation.isNotBlank() && generation.length <= 128)
         NavigationWireCodecV1.encodeContext(request)
+        if (!ExtensionExecutionSlot.active.compareAndSet(false, true)) return null
+        try {
         val extension = repository.loadUsable(request.providerId) ?: return null
         val capability = when (request.targetKind) {
             NavigationTargetKind.OVERVIEW -> NavigationCapability.OVERVIEW_NAVIGATION
@@ -55,11 +65,14 @@ class ProductionNavigationDispatcher(
                 invoke(extension.moduleDigest, pinnedModule, "parse_navigation", input),
                 context, responses, extension.grantedHosts).targets
             coroutineContext.ensureActive()
-            return targets.singleOrNull()
+            return targets.singleOrNull()?.let { NavigationDispatchResult(it, session.provenance.toList()) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } finally {
             session.close()
+        }
+        } finally {
+            ExtensionExecutionSlot.active.set(false)
         }
     }
 

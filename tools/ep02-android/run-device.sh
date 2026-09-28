@@ -36,10 +36,21 @@ assert report['api']==int(sys.argv[2]), report
 f=report['functional']
 for key in [
     'releasePlanParse','navigationOverview','navigationEpisode',
+    'productionTransportFactoryBoundary','productionNavigationDispatcherGate',
     'moduleCacheEvictionRecovery','cancellation','deadline','fuel',
     'serviceKill','lateResultRejected','rebind','fixtureOnlyNoFallback'
 ]:
     assert key in f, (key,report)
+factory=f['productionTransportFactoryBoundary']
+assert factory['factoryCreated'] is True and factory['dnsDestinationBindingVerified'] is True, factory
+assert factory['httpRejectedBeforeReservation'] is True, factory
+assert factory['untrustedHostRejectedBeforeReservation'] is True, factory
+assert factory['networkLedgerUncreated'] is True and factory['networkAttempted'] is False, factory
+assert factory['successfulSocketPathExercised'] is False, factory
+dispatch=f['productionNavigationDispatcherGate']
+assert dispatch['unprovenTransportRejected'] is True and dispatch['planExecutedBeforeGate'] is True, dispatch
+assert dispatch['transportExecuteCalls']==0 and dispatch['networkAttempted'] is False, dispatch
+assert dispatch['productionTransportReached'] is False, dispatch
 p=report['performance']
 assert p['sampleCount']>=50 and p['fixtureParseOnlyNoNetwork'] is True
 policy=p['steadyState']['policy']

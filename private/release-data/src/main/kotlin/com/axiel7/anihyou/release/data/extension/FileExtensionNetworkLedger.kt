@@ -10,6 +10,8 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** Durable host-owned budget. A crashed reservation remains charged for its deadline window. */
@@ -56,14 +58,18 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
             val keys = (listOf(attempt.key, attempt.aux) +
                 if (outcome == "HTTP_429") listOf(attempt.host) else emptyList()).distinct()
             keys.forEach { key ->
+                val prior = rows.filter { it.kind == 'C' && it.key == key }.maxByOrNull { it.at }
                 rows.removeAll { it.kind == 'C' && it.key == key }
-                rows += Row('C', attempt.scope, key, "", "", "", now.epochSecond + cooldown, "", "")
+                val next = now.epochSecond + cooldown
+                rows += Row('C', if (prior != null && prior.at >= next) prior.scope else attempt.scope,
+                    key, "", "", "", maxOf(next, prior?.at ?: 0), "", "")
             }
             Unit
         }
     }
 
-    private suspend fun <T> transaction(block: (MutableList<Row>) -> T): T = withContext(Dispatchers.IO) {
+    private suspend fun <T> transaction(block: (MutableList<Row>) -> T): T = PROCESS_MUTEX.withLock {
+        withContext(Dispatchers.IO) {
         require(directory.isDirectory || directory.mkdirs())
         RandomAccessFile(lock, "rw").use { raf ->
             raf.channel.lock().use {
@@ -72,6 +78,7 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
                 write(rows)
                 result
             }
+        }
         }
     }
 
@@ -120,6 +127,8 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
 
     private data class Row(val kind: Char, val scope: String, val key: String, val aux: String,
         val role: String, val token: String, val at: Long, val outcome: String, val host: String)
+
+    private companion object { val PROCESS_MUTEX = Mutex() }
 }
 
 /** The caller supplies an app-private directory; no cookies, credentials or ambient client exist. */

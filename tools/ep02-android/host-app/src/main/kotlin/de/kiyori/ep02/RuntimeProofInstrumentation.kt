@@ -8,6 +8,7 @@ import android.os.Process
 import com.axiel7.anihyou.release.core.extension.ExtensionContextV1
 import com.axiel7.anihyou.release.core.extension.ExtensionExecutionLimits
 import com.axiel7.anihyou.release.core.extension.ExtensionId
+import com.axiel7.anihyou.release.core.extension.ExtensionMethod
 import com.axiel7.anihyou.release.core.extension.ExtensionResponseStatus
 import com.axiel7.anihyou.release.core.extension.ExtensionRuntimeErrorCode
 import com.axiel7.anihyou.release.core.extension.ExtensionRuntimeResult
@@ -30,9 +31,12 @@ import com.axiel7.anihyou.release.data.extension.ExtensionRunRequest
 import com.axiel7.anihyou.release.data.extension.ExtensionRuntimeCallDiagnostics
 import com.axiel7.anihyou.release.data.extension.ExtensionWireCodec
 import com.axiel7.anihyou.release.data.extension.NavigationWireCodecV1
+import com.axiel7.anihyou.release.data.extension.ProductionExtensionTransportFactory
+import com.axiel7.anihyou.release.data.extension.ProductionNavigationDispatcher
 import com.axiel7.anihyou.release.data.extension.VerifiedExtensionPackage
 import com.axiel7.anihyou.release.data.extension.VerifiedExtensionRepository
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
@@ -122,6 +126,8 @@ private object RuntimeProof {
             functional.put("releasePlanParse", runReleaseHost(runtime, verified))
             functional.put("navigationOverview", runNavigation(runtime, verified, NavigationTargetKind.OVERVIEW))
             functional.put("navigationEpisode", runNavigation(runtime, verified, NavigationTargetKind.EPISODE))
+            functional.put("productionTransportFactoryBoundary", proveProductionTransportFactoryBoundary(context, verified))
+            functional.put("productionNavigationDispatcherGate", proveProductionNavigationDispatcherGate(runtime, verified))
             functional.put("moduleCacheEvictionRecovery", proveModuleCacheEvictionRecovery(runtime, verified, module))
 
             val identityBeforeKill = requireNotNull(runtime.lastDiagnostics)
@@ -280,6 +286,84 @@ private object RuntimeProof {
         return JSONObject().put("kind", kind.name).put("url", target.url)
             .put("providerEpisode", target.providerEpisode ?: JSONObject.NULL)
             .put("track", target.track?.name ?: JSONObject.NULL)
+    }
+
+    /**
+     * Android can reach the public factory, but not the release-data module's injected resolver
+     * and hop seams. Exercise the real factory with requests that production must reject before
+     * reservation, DNS or socket use, and assert that the ledger was never even created.
+     */
+    private suspend fun proveProductionTransportFactoryBoundary(
+        context: Context,
+        verified: VerifiedExtensionPackage,
+    ): JSONObject {
+        val ledgerDirectory = File(context.cacheDir, "ep02-transport-api-boundary")
+        check(!ledgerDirectory.exists() || ledgerDirectory.deleteRecursively())
+        val transport = ProductionExtensionTransportFactory.create(ledgerDirectory)
+        check(transport.dnsDestinationBindingVerified)
+
+        suspend fun rejectedBeforeNetwork(url: String, requestId: String): Boolean = try {
+            transport.execute(verified, RequestSpec(
+                requestId, SourceRole.CALENDAR, url, ExtensionMethod.GET, null))
+            false
+        } catch (_: IllegalArgumentException) {
+            true
+        }
+
+        val rejectedHttp = rejectedBeforeNetwork("http://example.org/calendar", "boundary-http")
+        val rejectedUntrustedHost = rejectedBeforeNetwork(
+            "https://ungranted.example/calendar", "boundary-untrusted")
+        check(rejectedHttp && rejectedUntrustedHost)
+        check(!ledgerDirectory.exists())
+        return JSONObject()
+            .put("factoryCreated", true)
+            .put("dnsDestinationBindingVerified", transport.dnsDestinationBindingVerified)
+            .put("httpRejectedBeforeReservation", rejectedHttp)
+            .put("untrustedHostRejectedBeforeReservation", rejectedUntrustedHost)
+            .put("networkLedgerUncreated", true)
+            .put("networkAttempted", false)
+            .put("successfulSocketPathExercised", false)
+    }
+
+    /** The dispatcher must refuse a transport that merely claims DNS binding. */
+    private suspend fun proveProductionNavigationDispatcherGate(
+        runtime: AndroidIsolatedExtensionRuntime,
+        verified: VerifiedExtensionPackage,
+    ): JSONObject {
+        var fakeExecuteCalls = 0
+        val repository = object : VerifiedExtensionRepository {
+            override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? =
+                verified.takeIf { it.providerId == providerId }
+        }
+        val unprovenTransport = object : DestinationBoundExtensionTransport {
+            override val dnsDestinationBindingVerified: Boolean = true
+            override suspend fun execute(
+                extension: VerifiedExtensionPackage,
+                request: RequestSpec,
+            ): ResponseEnvelope {
+                fakeExecuteCalls++
+                error("the dispatcher must not execute a generic transport")
+            }
+        }
+        val dispatcher = ProductionNavigationDispatcher(repository, runtime, unprovenTransport)
+        val request = NavigationContextV1(
+            1, verified.extensionId, verified.providerId, "2026-09-28T12:00:00Z",
+            NavigationTargetKind.OVERVIEW, "overview-gate", "series-1", null, 2, null, null,
+        )
+        val rejection = try {
+            dispatcher.navigate(request, "ep02-navigation-dispatch-gate")
+            null
+        } catch (error: IllegalStateException) {
+            error
+        }
+        check(rejection?.message == "navigation requires the production bound transport")
+        check(fakeExecuteCalls == 0)
+        return JSONObject()
+            .put("unprovenTransportRejected", true)
+            .put("planExecutedBeforeGate", true)
+            .put("transportExecuteCalls", fakeExecuteCalls)
+            .put("networkAttempted", false)
+            .put("productionTransportReached", false)
     }
 
     /**

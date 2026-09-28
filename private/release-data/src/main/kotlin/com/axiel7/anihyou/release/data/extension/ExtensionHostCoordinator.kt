@@ -99,6 +99,7 @@ sealed interface ExtensionHostResult {
         val receipt: ExtensionExecutionReceipt,
         val observations: List<ProviderObservationV1>,
         val reports: List<ResponseReportV1>,
+        val responseProvenance: List<ExtensionResponseProvenance> = emptyList(),
     ) : ExtensionHostResult
 
     data class Failed(val code: ExtensionHostFailureCode) : ExtensionHostResult
@@ -159,6 +160,7 @@ class ExtensionHostCoordinator(
             val fetchedResponses = HashMap<PhysicalRequestKey, ResponseEnvelope>()
             val networkSession = (networkTransport as? ProductionExtensionHttpTransport)
                 ?.open(packageInfo, request.generationId)
+            var hostProvenance: List<ExtensionResponseProvenance> = emptyList()
             try {
             for (planned in plan.requests) {
                 validateRequestUrl(planned, packageInfo.grantedHosts)
@@ -198,6 +200,7 @@ class ExtensionHostCoordinator(
                 }
             }
             } finally {
+                hostProvenance = networkSession?.provenance?.toList() ?: emptyList()
                 networkSession?.close()
             }
 
@@ -223,7 +226,7 @@ class ExtensionHostCoordinator(
                 startedAt = startedAt.toString(),
                 completedAt = completedAt.toString(),
             )
-            return ExtensionHostResult.Completed(receipt, allObservations, allReports)
+            return ExtensionHostResult.Completed(receipt, allObservations, allReports, hostProvenance)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: ExtensionWireException) {
@@ -364,7 +367,7 @@ class ExtensionHostCoordinator(
 }
 
 /** Singleton slot prevents multiple coordinator instances from running guests concurrently. */
-private object ExtensionExecutionSlot {
+internal object ExtensionExecutionSlot {
     val active = AtomicBoolean(false)
 }
 
