@@ -157,6 +157,9 @@ class ExtensionHostCoordinator(
             val allObservations = ArrayList<ProviderObservationV1>()
             val allReports = ArrayList<ResponseReportV1>()
             val fetchedResponses = HashMap<PhysicalRequestKey, ResponseEnvelope>()
+            val networkSession = (networkTransport as? ProductionExtensionHttpTransport)
+                ?.open(packageInfo, request.generationId)
+            try {
             for (planned in plan.requests) {
                 validateRequestUrl(planned, packageInfo.grantedHosts)
                 val requestKey = PhysicalRequestKey(planned.method, normalizeUrl(planned.url))
@@ -164,7 +167,11 @@ class ExtensionHostCoordinator(
                 val response = fetchedResponses[requestKey]?.copy(
                     requestId = planned.requestId,
                     sourceRole = planned.sourceRole,
-                ) ?: networkTransport.execute(packageInfo, physicalRequest).also { fetched ->
+                ) ?: (networkSession?.fetch(physicalRequest.requestId, physicalRequest.sourceRole.name,
+                    physicalRequest.url)?.let { fetched ->
+                    ResponseEnvelope(fetched.requestId, physicalRequest.sourceRole, fetched.status,
+                        fetched.httpStatus, fetched.finalUrl, fetched.bodyUtf8, fetched.sourceHash)
+                } ?: networkTransport.execute(packageInfo, physicalRequest)).also { fetched ->
                     validateResponse(planned, fetched, packageInfo.grantedHosts)
                     fetchedResponses[requestKey] = fetched
                 }
@@ -189,6 +196,9 @@ class ExtensionHostCoordinator(
                 if (allObservations.size > 4096) {
                     return ExtensionHostResult.Failed(ExtensionHostFailureCode.HOST_VALIDATION_FAILED)
                 }
+            }
+            } finally {
+                networkSession?.close()
             }
 
             if (allObservations.any { !observationPolicy.allows(packageInfo, it) }) {

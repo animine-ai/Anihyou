@@ -37,6 +37,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.bouncycastle.provider)
     implementation(libs.java.json.canonicalization)
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation(project(":core:base"))
     implementation(project(":core:domain"))
     implementation(project(":core:model"))
