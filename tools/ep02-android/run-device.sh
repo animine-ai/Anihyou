@@ -27,7 +27,7 @@ line=next(line for line in text.splitlines() if line.startswith('INSTRUMENTATION
 report=json.loads(line.split('=',1)[1])
 assert report['passed'] is True and report['api']==int(sys.argv[2]), report
 f=report['functional']
-for key in ['releasePlanParse','navigationOverview','navigationEpisode','moduleCacheEvictionRecovery','cancellation','serviceKill','lateResultRejected','rebind','fixtureOnlyNoFallback']:
+for key in ['releasePlanParse','navigationOverview','navigationEpisode','moduleCacheEvictionRecovery','cancellation','deadline','fuel','serviceKill','lateResultRejected','rebind','fixtureOnlyNoFallback']:
     assert key in f, (key,report)
 p=report['performance']
 assert p['sampleCount']>=50 and p['fixtureParseOnlyNoNetwork'] is True
