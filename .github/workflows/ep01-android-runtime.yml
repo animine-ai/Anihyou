@@ -83,7 +83,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: ${{ matrix.api }}
-          target: default
+          target: google_apis
           arch: x86_64
           profile: pixel_2
           emulator-boot-timeout: 900
