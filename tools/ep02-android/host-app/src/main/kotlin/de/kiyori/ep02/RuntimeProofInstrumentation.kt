@@ -139,7 +139,7 @@ private object RuntimeProof {
             }
             check(killed is ExtensionRuntimeResult.Failure)
             check(runtime.proveLateResultFenceForTesting())
-            functional.put("serviceKill", (killed as ExtensionRuntimeResult.Failure).code.name)
+            functional.put("serviceKill", killed.code.name)
             functional.put("lateResultRejected", true)
 
             val planContext = ExtensionContextV1(
