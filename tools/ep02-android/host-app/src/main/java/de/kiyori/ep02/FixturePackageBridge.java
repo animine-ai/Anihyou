@@ -11,6 +11,7 @@ import com.axiel7.anihyou.release.data.extension.VerifiedExtensionPackage;
 import com.axiel7.anihyou.release.data.extension.WasmtimeNativeModuleProfileVerifier;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -63,7 +64,7 @@ public final class FixturePackageBridge {
 
         File archive = new File(directory, "ep02-runtime-fixture.arex");
         writeDeterministicZip(archive, entries);
-        byte[] archiveBytes = java.nio.file.Files.readAllBytes(archive.toPath());
+        byte[] archiveBytes = readFileBounded(archive, 16 * 1024 * 1024);
 
         VerifiedCatalogPackageBinding catalog = new VerifiedCatalogPackageBinding(
             "fixture.release",
@@ -149,6 +150,25 @@ public final class FixturePackageBridge {
             "\"dependencyLockDigest\":\"" + repeat("b", 64) + "\",\"reproducibleBuildCommand\":\"cargo build --locked --release\"," +
             "\"workflowIdentity\":\".github/workflows/ep02-runtime-android-proof.yml\",\"moduleDigest\":\"" + sha256(module) + "\"}";
         return value.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] readFileBounded(File file, int maximumBytes) throws Exception {
+        long declaredLength = file.length();
+        if (declaredLength < 0 || declaredLength > maximumBytes) {
+            throw new IllegalArgumentException("fixture archive exceeds bound");
+        }
+        ByteArrayOutputStream output = new ByteArrayOutputStream((int) declaredLength);
+        byte[] buffer = new byte[8192];
+        try (FileInputStream input = new FileInputStream(file)) {
+            for (int count; (count = input.read(buffer)) >= 0;) {
+                if (count == 0) continue;
+                if (output.size() + count > maximumBytes) {
+                    throw new IllegalArgumentException("fixture archive exceeds bound");
+                }
+                output.write(buffer, 0, count);
+            }
+        }
+        return output.toByteArray();
     }
 
     private static void writeDeterministicZip(File file, Map<String, byte[]> entries) throws Exception {
