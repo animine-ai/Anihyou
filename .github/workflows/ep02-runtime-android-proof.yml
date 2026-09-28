@@ -47,7 +47,7 @@ jobs:
           retention-days: 14
 
   native:
-    name: Wasmtime 48.0.3 LTS Android API 24 native
+    name: Wasmtime 48.0.3 LTS Android API 24 x86_64 + arm64
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -62,7 +62,7 @@ jobs:
       - name: Upload production runtime and exact lock
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: ep02-native-wasmtime-48.0.3-x86_64
+          name: ep02-native-wasmtime-48.0.3-android
           path: |
             tools/ep02-android/native-out/
             tools/ep02-android/results/native/
@@ -95,17 +95,22 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
-          name: ep02-native-wasmtime-48.0.3-x86_64
+          name: ep02-native-wasmtime-48.0.3-android
           path: tools/ep02-android/native-artifact
       - name: Build deterministic fixture and Kotlin-host APK
         shell: bash
         run: |
-          native_so=tools/ep02-android/native-artifact/native-out/libarex_runtime.so
+          native_x86=tools/ep02-android/native-artifact/native-out/x86_64/libarex_runtime.so
+          native_arm64=tools/ep02-android/native-artifact/native-out/arm64-v8a/libarex_runtime.so
           native_lock=tools/ep02-android/native-artifact/native-out/Cargo.lock
-          test -f "$native_so"
+          test -f "$native_x86"
+          test -f "$native_arm64"
           test -f "$native_lock"
-          mkdir -p tools/ep02-android/host-app/src/main/jniLibs/x86_64
-          cp "$native_so" tools/ep02-android/host-app/src/main/jniLibs/x86_64/
+          mkdir -p \
+            tools/ep02-android/host-app/src/main/jniLibs/x86_64 \
+            tools/ep02-android/host-app/src/main/jniLibs/arm64-v8a
+          cp "$native_x86" tools/ep02-android/host-app/src/main/jniLibs/x86_64/
+          cp "$native_arm64" tools/ep02-android/host-app/src/main/jniLibs/arm64-v8a/
           bash tools/ep02-android/build-fixture.sh
           git rev-parse HEAD > tools/ep02-android/source-commit.txt
           task=":tools:ep02-runtime-app:assemble${{ matrix.variant == 'release' && 'Release' || 'Debug' }}"
