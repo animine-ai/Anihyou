@@ -1,0 +1,14 @@
+[build]
+target = "wasm32-unknown-unknown"
+
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "link-arg=--no-entry",
+  "-C", "link-arg=--export-memory",
+  "-C", "link-arg=--export=arex_alloc",
+  "-C", "link-arg=--export=arex_free",
+  "-C", "link-arg=--export=plan_requests",
+  "-C", "link-arg=--export=parse_responses",
+  "-C", "link-arg=--export=plan_navigation",
+  "-C", "link-arg=--export=parse_navigation",
+]
