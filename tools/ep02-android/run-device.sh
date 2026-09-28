@@ -20,19 +20,39 @@ timeout 15 adb logcat -d > "$out/logcat.txt" 2>&1 || true
 python3 - "$out" "$expected_api" "$variant" <<'PY'
 from pathlib import Path
 import json,sys
-root=Path(sys.argv[1]); text=(root/'instrumentation.txt').read_text()
-assert 'EP02_ANDROID_PASS' in text and 'EP02_ANDROID_FAIL' not in text, text
-assert 'INSTRUMENTATION_CODE: -1' in text, text
-line=next(line for line in text.splitlines() if line.startswith('INSTRUMENTATION_RESULT: ep02='))
+
+root=Path(sys.argv[1])
+text=(root/'instrumentation.txt').read_text()
+line=next(
+    (line for line in text.splitlines() if line.startswith('INSTRUMENTATION_RESULT: ep02=')),
+    None,
+)
+assert line is not None, text
 report=json.loads(line.split('=',1)[1])
-assert report['passed'] is True and report['api']==int(sys.argv[2]), report
+report['variant']=sys.argv[3]
+(root/'report.json').write_text(json.dumps(report,indent=2)+'\n')
+
+assert report['api']==int(sys.argv[2]), report
 f=report['functional']
-for key in ['releasePlanParse','navigationOverview','navigationEpisode','moduleCacheEvictionRecovery','cancellation','deadline','fuel','serviceKill','lateResultRejected','rebind','fixtureOnlyNoFallback']:
+for key in [
+    'releasePlanParse','navigationOverview','navigationEpisode',
+    'moduleCacheEvictionRecovery','cancellation','deadline','fuel',
+    'serviceKill','lateResultRejected','rebind','fixtureOnlyNoFallback'
+]:
     assert key in f, (key,report)
 p=report['performance']
 assert p['sampleCount']>=50 and p['fixtureParseOnlyNoNetwork'] is True
-assert p['steadyState']['policy'] in ['PASS','SMALL_ABSOLUTE_DIFFERENCE'], p
-report['variant']=sys.argv[3]
-(root/'report.json').write_text(json.dumps(report,indent=2)+'\n')
-print('EP02 VERIFIED',json.dumps(report,separators=(',',':')))
+policy=p['steadyState']['policy']
+
+if report['passed']:
+    assert 'EP02_ANDROID_PASS' in text and 'EP02_ANDROID_FAIL' not in text, text
+    assert 'INSTRUMENTATION_CODE: -1' in text, text
+    assert policy in ['PASS','SMALL_ABSOLUTE_DIFFERENCE'], p
+    print('EP02 VERIFIED',json.dumps(report,separators=(',',':')))
+else:
+    assert 'EP02_ANDROID_PERFORMANCE_FAIL' in text, text
+    assert 'INSTRUMENTATION_CODE: 0' in text, text
+    assert policy == 'FAIL', p
+    print('EP02 PERFORMANCE GATE FAILED',json.dumps(report,separators=(',',':')))
+    raise SystemExit(4)
 PY
