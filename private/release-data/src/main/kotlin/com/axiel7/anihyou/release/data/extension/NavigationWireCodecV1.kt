@@ -123,8 +123,10 @@ object NavigationWireCodecV1 {
         OffsetDateTime.parse(context.observedAt)
         when (context.targetKind) {
             NavigationTargetKind.OVERVIEW -> require(context.providerEpisode == null && context.track == null)
-            NavigationTargetKind.EPISODE -> require(context.providerEpisode != null &&
-                context.providerEpisode.matches(DECIMAL) && context.providerEpisode.length <= 32)
+            NavigationTargetKind.EPISODE -> {
+                val episode = context.providerEpisode
+                require(episode != null && episode.matches(DECIMAL) && episode.length <= 32)
+            }
         }
     }
 
