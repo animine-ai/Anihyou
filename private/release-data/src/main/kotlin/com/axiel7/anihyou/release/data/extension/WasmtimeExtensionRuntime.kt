@@ -195,7 +195,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         serviceBindMicros: Long,
     ): RuntimeAttempt {
         if (sendModule && sha256(moduleBytes) != moduleDigest) {
-            return RuntimeAttempt.Completed(
+            return RuntimeAttempt.Failure(
                 ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.INVALID_INPUT),
             )
         }
