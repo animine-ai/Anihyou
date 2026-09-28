@@ -29,19 +29,37 @@ import org.junit.Test
 /** Exercises the real OkHttp executor against a loopback-only TLS MockWebServer. */
 class OkHttpBoundHttpsHopExecutorTest {
     @Test
+    fun connectFallbackUsesOnlyTheValidatedAddressSetBeforeSendingHttp() {
+        withTlsServer { fixture ->
+            fixture.server.enqueue(MockResponse.Builder().body("fallback").build())
+            val refused = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 2))
+            val response = runBlocking {
+                fixture.executor.fetch("https://$HOST:${fixture.server.port}/transport-test", HOST,
+                    listOf(refused, fixture.loopback), 10_000, NetworkCancellation())
+            }
+            assertEquals(fixture.loopback, response.destination)
+            assertEquals("fallback", String(response.body))
+            assertNotNull(fixture.server.takeRequest(3, TimeUnit.SECONDS))
+            assertEquals(1, fixture.server.requestCount)
+        }
+    }
+
+    @Test
     fun tlsVerifiesOriginalHostnameAndDoesNotUseAmbientCookieOrAuthenticator() {
         withTlsServer { fixture ->
             val cookieHandlerInvoked = AtomicBoolean(false)
             val authenticatorInvoked = AtomicBoolean(false)
             val previousCookieHandler = CookieHandler.getDefault()
-            val previousAuthenticator = JdkAuthenticator.getDefault()
             CookieHandler.setDefault(object : CookieHandler() {
-                override fun get(uri: URI, requestHeaders: Map<String, List<String>>): Map<String, List<String>> {
+                override fun get(
+                    uri: URI,
+                    requestHeaders: MutableMap<String, MutableList<String>>,
+                ): MutableMap<String, MutableList<String>> {
                     cookieHandlerInvoked.set(true)
-                    return mapOf("Cookie" to listOf("ambient=secret"))
+                    return mutableMapOf("Cookie" to mutableListOf("ambient=secret"))
                 }
 
-                override fun put(uri: URI, responseHeaders: Map<String, List<String>>) = Unit
+                override fun put(uri: URI, responseHeaders: MutableMap<String, MutableList<String>>) = Unit
             })
             JdkAuthenticator.setDefault(object : JdkAuthenticator() {
                 override fun getPasswordAuthentication(): PasswordAuthentication {
@@ -73,7 +91,7 @@ class OkHttpBoundHttpsHopExecutorTest {
                 assertFalse("OkHttp must bypass the JDK Authenticator", authenticatorInvoked.get())
             } finally {
                 CookieHandler.setDefault(previousCookieHandler)
-                JdkAuthenticator.setDefault(previousAuthenticator)
+                JdkAuthenticator.setDefault(null)
             }
         }
     }
@@ -143,7 +161,7 @@ class OkHttpBoundHttpsHopExecutorTest {
             val call = activeCall(cancellation)
             pending.cancelAndJoin()
 
-            assertTrue("cancellation must reach the active OkHttp call", call.isCanceled)
+            assertTrue("cancellation must reach the active OkHttp call", call.isCanceled())
         }
     }
 
@@ -167,7 +185,7 @@ class OkHttpBoundHttpsHopExecutorTest {
             val call = activeCall(cancellation)
             pending.cancelAndJoin()
 
-            assertTrue("cancellation must close the active body read", call.isCanceled)
+            assertTrue("cancellation must close the active body read", call.isCanceled())
         }
     }
 
@@ -177,7 +195,7 @@ class OkHttpBoundHttpsHopExecutorTest {
         val loopback: InetAddress,
     )
 
-    private fun withTlsServer(block: (Fixture) -> Unit) {
+    private inline fun withTlsServer(block: (Fixture) -> Unit) {
         val certificate = HeldCertificate.Builder()
             .commonName(HOST)
             .addSubjectAlternativeName(HOST)

@@ -207,7 +207,7 @@ internal class ProductionExtensionHttpTransport(
                     val sourceHash = sha(response.body)
                     provenance += ExtensionResponseProvenance(requestId, current, response.status,
                         response.headers, sourceHash, response.body.size, redirects,
-                        response.destination.hostAddress, clock.instant())
+                        requireNotNull(response.destination.hostAddress), clock.instant())
                     return ExtensionFetchedResponse(requestId, ExtensionResponseStatus.OK, response.status,
                         current, body, sourceHash, response.body.size, response.destination.hostAddress, redirects)
                 } catch (cancelled: CancellationException) {
@@ -308,14 +308,35 @@ internal class OkHttpBoundHttpsHopExecutor(
     private val trustManager: X509TrustManager? = null,
 ) : BoundHttpsHopExecutor {
     override suspend fun fetch(url: String, host: String, addresses: List<InetAddress>, timeoutMillis: Long,
+        cancellation: NetworkCancellation): BoundHopResponse {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        var failure: IOException? = null
+        for (address in addresses) {
+            cancellation.check()
+            val remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
+            if (remaining <= 0) break
+            try {
+                return fetchOne(url, host, address, remaining, cancellation)
+            } catch (error: PreTlsConnectFailure) {
+                failure = error.cause as? IOException ?: error
+            }
+        }
+        throw failure ?: IOException("no validated address connected within deadline")
+    }
+
+    private class PreTlsConnectFailure(cause: IOException) : IOException(cause)
+
+    private suspend fun fetchOne(url: String, host: String, address: InetAddress, timeoutMillis: Long,
         cancellation: NetworkCancellation): BoundHopResponse = suspendCancellableCoroutine { continuation ->
-        val allowed = addresses.toSet()
+        val allowed = setOf(address)
         val dns = Dns { name ->
             cancellation.check()
             if (name != host) throw UnknownHostException("unexpected DNS hostname")
-            addresses
+            listOf(address)
         }
         var connected: InetAddress? = null
+        val tlsStarted = AtomicBoolean(false)
+        val requestStarted = AtomicBoolean(false)
         val listener = object : EventListener() {
             override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) {
                 if (proxy != Proxy.NO_PROXY || inetSocketAddress.address !in allowed) {
@@ -330,11 +351,13 @@ internal class OkHttpBoundHttpsHopExecutor(
                 }
                 connected = connection.socket().inetAddress
             }
+            override fun secureConnectStart(call: Call) { tlsStarted.set(true) }
+            override fun requestHeadersStart(call: Call) { requestStarted.set(true) }
         }
         val builder = OkHttpClient.Builder()
             .dns(dns).proxy(Proxy.NO_PROXY).cookieJar(CookieJar.NO_COOKIES)
             .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE)
-            .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(true)
+            .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
             .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
             .protocols(listOf(Protocol.HTTP_1_1))
             .eventListener(listener).callTimeout(timeoutMillis, TimeUnit.MILLISECONDS)
@@ -348,7 +371,9 @@ internal class OkHttpBoundHttpsHopExecutor(
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) {
                 cancellation.clear(call)
-                if (continuation.isActive) continuation.resumeWithException(error)
+                if (continuation.isActive) continuation.resumeWithException(
+                    if (!tlsStarted.get() && !requestStarted.get() && !call.isCanceled)
+                        PreTlsConnectFailure(error) else error)
             }
             override fun onResponse(call: Call, response: Response) {
                 response.use {

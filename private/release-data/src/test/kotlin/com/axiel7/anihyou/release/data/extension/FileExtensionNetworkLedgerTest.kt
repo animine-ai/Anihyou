@@ -38,7 +38,7 @@ class FileExtensionNetworkLedgerTest {
 
         val quotaLedger = FileExtensionNetworkLedger(temporaryFolder.newFolder("logical-root-quota"))
 
-        repeat(3) { ordinal ->
+        repeat(18) { ordinal ->
             val logicalAttempt = requireNotNull(
                 reserve(
                     quotaLedger,
@@ -63,7 +63,7 @@ class FileExtensionNetworkLedgerTest {
                 root = url("logical-fresh-id"),
                 digest = "c".repeat(64),
                 role = "CALENDAR",
-                at = NOW.plusSeconds(4),
+                at = NOW.plusSeconds(19),
             ),
         )
 
@@ -74,7 +74,7 @@ class FileExtensionNetworkLedgerTest {
                 root = url("logical-fresh-generation"),
                 generation = "generation-b",
                 role = "CALENDAR",
-                at = NOW.plusSeconds(4),
+                at = NOW.plusSeconds(19),
             ),
         )
     }
@@ -93,7 +93,7 @@ class FileExtensionNetworkLedgerTest {
                 restarted,
                 root = root,
                 generation = "generation-b",
-                at = NOW.plusSeconds(59),
+                at = NOW.plusSeconds(1_799),
             ),
         )
         assertNotNull(
@@ -101,7 +101,7 @@ class FileExtensionNetworkLedgerTest {
                 restarted,
                 root = root,
                 generation = "generation-b",
-                at = NOW.plusSeconds(60),
+                at = NOW.plusSeconds(1_800),
             ),
         )
 
@@ -109,7 +109,7 @@ class FileExtensionNetworkLedgerTest {
         val retryLedger = FileExtensionNetworkLedger(retryDirectory)
         val limitedRoot = url("rate-limited")
         val retryReservation = requireNotNull(reserve(retryLedger, root = limitedRoot, at = NOW))
-        retryLedger.complete(retryReservation, "HTTP_429", retryAfterSeconds = 300, now = NOW)
+        retryLedger.complete(retryReservation, "HTTP_429", retryAfterSeconds = 3_600, now = NOW)
 
         val differentRootOnSameHost = url("other-root")
         val restartedRetryLedger = FileExtensionNetworkLedger(retryDirectory)
@@ -118,7 +118,7 @@ class FileExtensionNetworkLedgerTest {
                 restartedRetryLedger,
                 root = differentRootOnSameHost,
                 generation = "generation-b",
-                at = NOW.plusSeconds(299),
+                at = NOW.plusSeconds(3_599),
             ),
         )
         assertNotNull(
@@ -126,7 +126,7 @@ class FileExtensionNetworkLedgerTest {
                 restartedRetryLedger,
                 root = differentRootOnSameHost,
                 generation = "generation-b",
-                at = NOW.plusSeconds(300),
+                at = NOW.plusSeconds(3_600),
             ),
         )
 
@@ -138,7 +138,7 @@ class FileExtensionNetworkLedgerTest {
             reserve(staleLedger, root = staleRoot, generation = "generation-new", at = NOW.plusSeconds(1)),
         )
 
-        staleLedger.complete(newer, "HTTP_429", retryAfterSeconds = 600, now = NOW.plusSeconds(10))
+        staleLedger.complete(newer, "HTTP_429", retryAfterSeconds = 7_200, now = NOW.plusSeconds(10))
         // The older request finishes later with a short success cooldown.
         staleLedger.complete(older, "HTTP_2XX", retryAfterSeconds = null, now = NOW.plusSeconds(20))
 
@@ -148,7 +148,7 @@ class FileExtensionNetworkLedgerTest {
                 restartedStaleLedger,
                 root = staleRoot,
                 generation = "generation-later",
-                at = NOW.plusSeconds(609),
+                at = NOW.plusSeconds(21_619),
             ),
         )
         assertNotNull(
@@ -156,7 +156,7 @@ class FileExtensionNetworkLedgerTest {
                 restartedStaleLedger,
                 root = staleRoot,
                 generation = "generation-later",
-                at = NOW.plusSeconds(610),
+                at = NOW.plusSeconds(21_620),
             ),
         )
     }

@@ -31,7 +31,9 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
         val active = attempts.count { it.outcome == "RESERVED" && it.at + 240 > now.epochSecond }
         if (attempts.size >= 22 || active >= 2 ||
             (role == "DIRECT" && roleCount >= 4) ||
-            (role != "DIRECT" && role != "NAVIGATION" && attempts.count { it.role != "DIRECT" && it.role != "NAVIGATION" } >= 3) ||
+            (role != "DIRECT" && role != "NAVIGATION" && attempts.count {
+                it.role != "DIRECT" && it.role != "NAVIGATION"
+            } >= 18) ||
             (role == "NAVIGATION" && roleCount >= 7) ||
             rows.any { it.kind == 'C' && it.key in setOf(root, hop, host) &&
                 (it.scope != scope || it.key == host) && it.at > now.epochSecond } ||
@@ -50,10 +52,15 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
             val index = rows.indexOf(attempt)
             rows[index] = attempt.copy(outcome = outcome.take(40))
             val failure = outcome !in setOf("HTTP_2XX", "REDIRECT")
+            val priorFailures = rows.filter { it.kind == 'C' && it.key == attempt.key }
+                .maxByOrNull { it.at }?.outcome?.toIntOrNull() ?: 0
+            val failures = if (failure) (priorFailures + 1).coerceAtMost(5) else 0
+            val backoff = (1_800L * (1L shl (failures.coerceAtLeast(1) - 1))).coerceAtMost(21_600)
             val cooldown = when {
-                outcome == "HTTP_429" -> maxOf(60, retryAfterSeconds?.coerceIn(0, 21_600) ?: 0)
-                failure -> 60L
-                else -> 30L
+                outcome == "HTTP_429" -> maxOf(backoff, retryAfterSeconds?.coerceIn(0, 21_600) ?: 0)
+                outcome == "HTTP_304" -> 1_800L
+                failure -> backoff
+                else -> 21_600L
             }
             val keys = (listOf(attempt.key, attempt.aux) +
                 if (outcome == "HTTP_429") listOf(attempt.host) else emptyList()).distinct()
@@ -62,7 +69,8 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
                 rows.removeAll { it.kind == 'C' && it.key == key }
                 val next = now.epochSecond + cooldown
                 rows += Row('C', if (prior != null && prior.at >= next) prior.scope else attempt.scope,
-                    key, "", "", "", maxOf(next, prior?.at ?: 0), "", "")
+                    key, "", "", "", maxOf(next, prior?.at ?: 0),
+                    if (prior != null && prior.at >= next) prior.outcome else failures.toString(), "")
             }
             Unit
         }
