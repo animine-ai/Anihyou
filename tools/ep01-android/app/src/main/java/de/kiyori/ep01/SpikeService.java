@@ -23,12 +23,17 @@ public class SpikeService extends Service {
   if(message.what==HELLO){
    try{
     int privateErrno=0,socketErrno=0;FileDescriptor privateFile=null,socket=null;
-    try{privateFile=Os.open(message.getData().getString("privatePath"),OsConstants.O_RDONLY,0);}catch(ErrnoException denied){privateErrno=denied.errno;}finally{if(privateFile!=null)Os.close(privateFile);}
+    String privatePath=message.getData().getString("privatePath");
+    try{privateFile=Os.open(privatePath,OsConstants.O_RDONLY,0);}catch(ErrnoException denied){privateErrno=denied.errno;}finally{if(privateFile!=null)Os.close(privateFile);}
     try{socket=Os.socket(OsConstants.AF_INET,OsConstants.SOCK_STREAM,0);}catch(ErrnoException denied){socketErrno=denied.errno;}finally{if(socket!=null)Os.close(socket);}
-    boolean privateDenied=privateErrno==OsConstants.EACCES||privateErrno==OsConstants.EPERM;
+    // Android 11+ hides app data directories from isolated process mount namespaces.
+    // The host verifies that this exact path remains readable before and after the probe.
+    boolean hidden=Build.VERSION.SDK_INT>=30&&privateErrno==OsConstants.ENOENT;
+    boolean privateDenied=privateErrno==OsConstants.EACCES||privateErrno==OsConstants.EPERM||hidden;
     boolean socketDenied=socketErrno==OsConstants.EACCES||socketErrno==OsConstants.EPERM;
     JSONObject report=new JSONObject().put("pid",android.os.Process.myPid()).put("uid",android.os.Process.myUid())
       .put("privateFileDenied",privateDenied).put("privateFileErrno",privateErrno).put("socketDenied",socketDenied).put("socketErrno",socketErrno)
+      .put("privatePath",privatePath).put("privateFileHidden",hidden)
       .put("internetPermissionDenied",checkSelfPermission("android.permission.INTERNET")!=PackageManager.PERMISSION_GRANTED);
     respond(reply,id,"ok",report.toString());
    }catch(Throwable e){respond(reply,id,"error",e.toString());}

@@ -9,6 +9,11 @@ import org.json.*;
 
 public class HostChecks {
  static void require(boolean condition,String message){if(!condition)throw new AssertionError(message);}
+ static void verifyCanary(File secret)throws Exception{
+  byte[] expected="not-for-isolated-uid".getBytes("UTF-8"),actual=new byte[expected.length];
+  try(DataInputStream in=new DataInputStream(new FileInputStream(secret))){in.readFully(actual);require(in.read()==-1,"canary length");}
+  require(java.util.Arrays.equals(expected,actual),"host can read exact private canary");
+ }
  static class Session implements AutoCloseable,ServiceConnection {
   final Context context;final CountDownLatch connected=new CountDownLatch(1),dead=new CountDownLatch(1);
   final BlockingQueue<Message> replies=new LinkedBlockingQueue<>();
@@ -31,16 +36,20 @@ public class HostChecks {
  static JSONObject object(Message m)throws Exception{Bundle b=m.getData();require("ok".equals(b.getString("status")),b.getString("value"));return new JSONObject(b.getString("value"));}
  public static JSONObject run(Context context)throws Exception{
   File secret=new File(context.getFilesDir(),"host-only-canary.txt");try(FileOutputStream out=new FileOutputStream(secret)){out.write("not-for-isolated-uid".getBytes("UTF-8"));}
+  verifyCanary(secret);
   JSONArray isolation=new JSONArray();JSONObject runtime,hello,rebound;
   long bindStart=System.nanoTime();long bindMicros;
   try(Session first=new Session(context)){
    bindMicros=(System.nanoTime()-bindStart)/1000;hello=first.hello(secret);
+   verifyCanary(secret);android.util.Log.i("EP01","ISOLATION "+hello);
+   require(secret.getAbsolutePath().equals(hello.getString("privatePath")),"exact canary path probed");
+   isolation.put("host private canary read verified before and after isolated probe");
    require(hello.getInt("uid")!=android.os.Process.myUid(),"different isolated UID");isolation.put("different isolated UID");
    require(hello.getInt("pid")!=android.os.Process.myPid(),"different process");isolation.put("different process");
-   require(hello.getBoolean("privateFileDenied"),"private app file denied");isolation.put("private app file denied");
+   require(hello.getBoolean("privateFileDenied"),"private app file denied: "+hello);isolation.put("private app file denied");
    require(hello.getBoolean("internetPermissionDenied"),"INTERNET denied in isolated service");isolation.put("INTERNET denied");
    require(hello.getBoolean("socketDenied"),"raw socket denied");isolation.put("raw socket denied");
-   runtime=first.suite();require(runtime.getJSONArray("checks").length()>=13,"complete runtime assertions");
+   runtime=first.suite();require(runtime.getJSONArray("checks").length()>=15,"complete runtime assertions");
    first.send(SpikeService.SPIN,3,null);Message started=first.await(3,15);require("started".equals(started.getData().getString("status")),"hostile loop started");
    final IBinder originalBinder=first.binder;
    ScheduledExecutorService watchdog=Executors.newSingleThreadScheduledExecutor();AtomicReference<Throwable> watchdogFailure=new AtomicReference<>();
@@ -54,7 +63,10 @@ public class HostChecks {
   }
   try(Session second=new Session(context)){
    rebound=second.hello(secret);require(rebound.getInt("pid")!=hello.getInt("pid"),"fresh process after termination");
-   JSONObject again=second.suite();require(again.getJSONArray("checks").length()>=13,"fresh service usable after crash");
+   verifyCanary(secret);
+   require(secret.getAbsolutePath().equals(rebound.getString("privatePath")),"exact rebound canary path");
+   require(rebound.getInt("uid")!=android.os.Process.myUid()&&rebound.getBoolean("privateFileDenied")&&rebound.getBoolean("internetPermissionDenied")&&rebound.getBoolean("socketDenied"),"rebound service still isolated: "+rebound);
+   JSONObject again=second.suite();require(again.getJSONArray("checks").length()>=15,"fresh service usable after crash");
    isolation.put("new process bound and full runtime suite passed again");
   }
   secret.delete();
