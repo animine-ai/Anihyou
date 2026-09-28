@@ -114,6 +114,20 @@ private object RuntimeProof {
             check(cancellation == ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.CANCELLED))
             functional.put("cancellation", "CANCELLED")
 
+            val deadline = runtime.execute(
+                digest, module, "plan_requests", byteArrayOf(0x7f),
+                spinLimits.copy(deadlineMillis = 100),
+            )
+            check(deadline == ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.DEADLINE))
+            functional.put("deadline", "DEADLINE")
+
+            val fuel = runtime.execute(
+                digest, module, "plan_requests", byteArrayOf(0x7f),
+                spinLimits.copy(fuel = 10_000, deadlineMillis = 2_000),
+            )
+            check(fuel == ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP))
+            functional.put("fuel", "OUT_OF_FUEL_TRAP")
+
             val killed = coroutineScope {
                 val call = async(Dispatchers.Default) {
                     runtime.execute(digest, module, "plan_requests", byteArrayOf(0x7f), spinLimits)
