@@ -75,8 +75,10 @@ private object RuntimeProof {
     private const val WARMUP_COUNT = 10
     private const val STEADY_STATE_LIMIT_PERCENT = 40.0
     private const val SMALL_ABSOLUTE_DELTA_MICROS = 100L
-    private const val PLAN_MICRO_ABSOLUTE_LIMIT_MICROS = 5_000L
+    private const val PLAN_MICRO_ABSOLUTE_LIMIT_MICROS = 1_000L
 
+    // A sub-millisecond plan guest makes relative percentages meaningless. Up to 1 ms absolute
+    // process/IPC delta is the only exception; larger plan overhead remains a hard failure.
     /**
      * Provider-neutral parser fixture. The old 36-byte body measured Binder's fixed scheduling
      * floor, not a parser workload. This ~26 KiB document keeps the benchmark network-free while
