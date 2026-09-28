@@ -45,7 +45,7 @@ import org.json.JSONObject
 class WasmtimeNativeModuleProfileVerifier : WasmCoreModuleProfileVerifier {
     override fun verify(moduleBytes: ByteArray, navigationCapabilities: Set<NavigationCapability>) {
         require(moduleBytes.size in 8..MAX_MODULE_BYTES)
-        val error = WasmtimeNativeBridge.nativeValidate(moduleBytes.copyOf())
+        val error = WasmtimeNativeBridge.nativeValidate(moduleBytes)
         require(error == null) { "Wasmtime rejected the frozen module profile: $error" }
     }
 
@@ -133,7 +133,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         if (closed.get()) {
             return@withLock ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
         }
-        if (!SHA256.matches(moduleDigest) || sha256(moduleBytes) != moduleDigest ||
+        if (!SHA256.matches(moduleDigest) ||
             exportName !in ALLOWED_EXPORTS || moduleBytes.size !in 8..MAX_MODULE_BYTES ||
             inputUtf8.size > limits.maxInputBytes || limits.maxOutputBytes > MAX_OUTPUT_BYTES ||
             limits.memoryBytes > MAX_MEMORY_BYTES
@@ -194,6 +194,11 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         logicalStartedAt: Long,
         serviceBindMicros: Long,
     ): RuntimeAttempt {
+        if (sendModule && sha256(moduleBytes) != moduleDigest) {
+            return RuntimeAttempt.Completed(
+                ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.INVALID_INPUT),
+            )
+        }
         val token = nextInvocationId()
         val generation = activeSession.generation
         activeToken = token
