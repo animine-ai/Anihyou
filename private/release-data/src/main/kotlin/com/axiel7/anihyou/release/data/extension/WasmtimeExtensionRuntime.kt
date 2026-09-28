@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Binder
 import android.os.IBinder
+import android.os.Looper
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
@@ -90,6 +91,21 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         private set
 
     override suspend fun execute(
+        moduleDigest: String,
+        moduleBytes: ByteArray,
+        exportName: String,
+        inputUtf8: ByteArray,
+        limits: ExtensionExecutionLimits,
+    ): ExtensionRuntimeResult {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return withContext(Dispatchers.IO) {
+                executeOffMain(moduleDigest, moduleBytes, exportName, inputUtf8, limits)
+            }
+        }
+        return executeOffMain(moduleDigest, moduleBytes, exportName, inputUtf8, limits)
+    }
+
+    private suspend fun executeOffMain(
         moduleDigest: String,
         moduleBytes: ByteArray,
         exportName: String,
