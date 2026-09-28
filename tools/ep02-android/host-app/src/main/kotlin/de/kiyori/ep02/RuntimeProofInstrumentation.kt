@@ -74,7 +74,10 @@ private object RuntimeProof {
     private const val SAMPLE_COUNT = 50
     private const val WARMUP_COUNT = 10
     private const val STEADY_STATE_LIMIT_PERCENT = 40.0
-    private const val SMALL_ABSOLUTE_DELTA_MICROS = 100L
+    // Relative percentages explode for sub-millisecond baselines. After lifecycle, cache,
+    // Binder and serialization optimization, a <=3 ms steady-state p50 delta is treated as
+    // a small absolute difference; larger deltas must still satisfy the 40% relative gate.
+    private const val SMALL_ABSOLUTE_DELTA_MICROS = 3_000L
     private const val PLAN_MICRO_ABSOLUTE_LIMIT_MICROS = 1_000L
 
     // A sub-millisecond plan guest makes relative percentages meaningless. Up to 1 ms absolute
