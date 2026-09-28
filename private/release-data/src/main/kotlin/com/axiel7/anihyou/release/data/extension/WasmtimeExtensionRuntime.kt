@@ -584,6 +584,13 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     }
 
     private companion object {
+        private val NEXT_INVOCATION_ID = AtomicLong(1)
+
+        fun nextInvocationId(): Long =
+            NEXT_INVOCATION_ID.getAndIncrement().also {
+                check(it > 0) { "runtime invocation id overflow" }
+            }
+
         const val MAX_MODULE_BYTES = 8 * 1024 * 1024
         const val MAX_OUTPUT_BYTES = 1024 * 1024
         const val MAX_MEMORY_BYTES = 32 * 1024 * 1024
