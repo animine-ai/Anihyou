@@ -24,6 +24,7 @@ import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -49,6 +50,13 @@ class WasmtimeNativeModuleProfileVerifier : WasmCoreModuleProfileVerifier {
     }
 
     private companion object {
+        private val NEXT_INVOCATION_ID = AtomicLong(1)
+
+        fun nextInvocationId(): Long =
+            NEXT_INVOCATION_ID.getAndIncrement().also {
+                check(it > 0) { "runtime invocation id overflow" }
+            }
+
         const val MAX_MODULE_BYTES = 8 * 1024 * 1024
     }
 }
@@ -80,7 +88,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     private val appContext = context.applicationContext
     private val operationMutex = Mutex()
     private val sessionMutex = Mutex()
-    private val nextToken = AtomicLong(1)
+    private val closed = AtomicBoolean(false)
     private val nextGeneration = AtomicLong(1)
     private val callbackThread = HandlerThread("arex-runtime-replies").apply { start() }
     private val pending = ConcurrentHashMap<Long, Pending>()
@@ -122,6 +130,9 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         inputUtf8: ByteArray,
         limits: ExtensionExecutionLimits,
     ): ExtensionRuntimeResult = operationMutex.withLock {
+        if (closed.get()) {
+            return@withLock ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
+        }
         if (!SHA256.matches(moduleDigest) || sha256(moduleBytes) != moduleDigest ||
             exportName !in ALLOWED_EXPORTS || moduleBytes.size !in 8..MAX_MODULE_BYTES ||
             inputUtf8.size > limits.maxInputBytes || limits.maxOutputBytes > MAX_OUTPUT_BYTES ||
@@ -183,7 +194,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         logicalStartedAt: Long,
         serviceBindMicros: Long,
     ): RuntimeAttempt {
-        val token = nextToken.getAndIncrement().also { if (it <= 0) error("runtime token overflow") }
+        val token = nextInvocationId()
         val generation = activeSession.generation
         activeToken = token
         val replyDeferred = CompletableDeferred<RuntimeReply>()
@@ -318,7 +329,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
             val output = WasmtimeNativeBridge.nativeExecute(
                 moduleDigest, moduleBytes, exportName, inputUtf8,
                 limits.maxOutputBytes.toLong(), limits.memoryBytes.toLong(),
-                limits.fuel, limits.deadlineMillis, nextToken.getAndIncrement(),
+                limits.fuel, limits.deadlineMillis, nextInvocationId(),
             )
             val total = (System.nanoTime() - startedAt) / 1_000
             val metrics = parseNativeMetrics(
@@ -535,6 +546,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     }
 
     override fun close() {
+        if (!closed.compareAndSet(false, true)) return
         val activeSession = session
         session = null
         if (activeSession != null) runCatching { appContext.unbindService(activeSession.connection) }
