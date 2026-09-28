@@ -37,7 +37,7 @@ enum class ExtensionHostFailureCode {
 }
 
 /** Metadata and module bytes are returned only by a verifier-backed repository. */
-data class VerifiedExtensionPackage internal constructor(
+class VerifiedExtensionPackage internal constructor(
     val extensionId: ExtensionId,
     val providerId: ProviderId,
     val publisherId: String,

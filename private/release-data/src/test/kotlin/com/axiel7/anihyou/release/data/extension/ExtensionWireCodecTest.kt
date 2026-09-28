@@ -124,12 +124,16 @@ class ExtensionWireCodecTest {
     fun `guest cannot relabel source role claim or host response provenance`() {
         val input = ExtensionWireCodec.decodeParseInput(parseInput(ExtensionResponseStatus.OK))
 
-        val wrongClaim = validParseOutput().replace("\"claimKind\":\"FORECAST\"", "\"claimKind\":\"RELEASE_LISTING\"")
+        val wrongClaim = validParseOutput().toString(Charsets.UTF_8)
+            .replace("\"claimKind\":\"FORECAST\"", "\"claimKind\":\"RELEASE_LISTING\"")
+            .toByteArray(Charsets.UTF_8)
         assertWireError(ExtensionWireErrorCode.INVALID_FIELD) {
             ExtensionWireCodec.decodeParseOutput(wrongClaim, input)
         }
 
-        val wrongHash = validParseOutput().replace(HASH, "${"a".repeat(64)}")
+        val wrongHash = validParseOutput().toString(Charsets.UTF_8)
+            .replace(HASH, "${"a".repeat(64)}")
+            .toByteArray(Charsets.UTF_8)
         assertWireError(ExtensionWireErrorCode.INVALID_FIELD) {
             ExtensionWireCodec.decodeParseOutput(wrongHash, input)
         }

@@ -44,7 +44,7 @@ class ExtensionHostCoordinatorTest {
     fun `unproven DNS destination binding refuses before planning or network`() = runBlocking {
         val repository = FakeRepository(extensionPackage())
         val runtime = FixtureRuntime()
-        val transport = FixtureTransport(bindingVerified = false)
+        val transport = FixtureTransport(dnsDestinationBindingVerified = false)
         val coordinator = coordinator(repository, runtime, transport, enabled = true)
 
         assertEquals(ExtensionHostResult.Failed(ExtensionHostFailureCode.TRANSPORT_NOT_READY), coordinator.execute(runRequest()))
