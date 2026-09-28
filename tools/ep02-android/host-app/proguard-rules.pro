@@ -1,4 +1,2 @@
 -keep public class de.kiyori.ep02.RuntimeProofInstrumentation { public <init>(); }
 -keep class de.kiyori.ep02.FixturePackageBridge { *; }
--keep class com.axiel7.anihyou.release.data.extension.WasmtimeNativeBridge { native <methods>; }
--keep public class com.axiel7.anihyou.release.data.extension.WasmtimeRuntimeService { public <init>(); }
