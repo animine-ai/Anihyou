@@ -50,13 +50,6 @@ class WasmtimeNativeModuleProfileVerifier : WasmCoreModuleProfileVerifier {
     }
 
     private companion object {
-        private val NEXT_INVOCATION_ID = AtomicLong(1)
-
-        fun nextInvocationId(): Long =
-            NEXT_INVOCATION_ID.getAndIncrement().also {
-                check(it > 0) { "runtime invocation id overflow" }
-            }
-
         const val MAX_MODULE_BYTES = 8 * 1024 * 1024
     }
 }
