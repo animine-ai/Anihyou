@@ -33,7 +33,7 @@ internal class StrictWasmModuleProfileVerifier : WasmCoreModuleProfileVerifier {
                 // Other custom sections are inert metadata; they remain bounded by the module cap.
                 continue
             }
-            require(section in 1..12 && section > lastSection) { "unsupported or repeated wasm section" }
+            require(section in 1..11 && section > lastSection) { "unsupported or repeated wasm section" }
             lastSection = section
             when (section) {
                 1 -> repeat(part.count(10_001)) {
@@ -90,10 +90,10 @@ internal class StrictWasmModuleProfileVerifier : WasmCoreModuleProfileVerifier {
                     require(part.count(4096) >= 0)
                     part.skip(part.remaining)
                 }
-                12 -> require(part.u32() == codeCount) { "data-count mismatch" }
             }
             require(part.remaining == 0) { "trailing bytes in section $section" }
         }
+        require(importedFunctions == 1) { "exactly one diagnostic import is required" }
         require(memoryCount == 1) { "exactly one defined memory is required" }
         require(tableCount <= 1 && definedFunctionCount == codeCount) { "table/code count mismatch" }
         val expected = linkedMapOf(
