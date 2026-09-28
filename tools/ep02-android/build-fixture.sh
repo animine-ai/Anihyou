@@ -3,19 +3,17 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")" && pwd)"
 rust_toolchain=1.95.0
+target=wasm32-unknown-unknown
 manifest="$root/fixture/Cargo.toml"
+target_dir="$root/fixture/target"
 
 rustup toolchain install "$rust_toolchain" --profile minimal
-rustup target add --toolchain "$rust_toolchain" wasm32-unknown-unknown
+rustup target add --toolchain "$rust_toolchain" "$target"
 
-target_dir="$(
-  cargo +"$rust_toolchain" metadata     --no-deps     --format-version 1     --manifest-path "$manifest" |
-  python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])'
-)"
-cargo +"$rust_toolchain" build --locked --release --manifest-path "$manifest"
+cargo +"$rust_toolchain" build   --locked   --release   --target "$target"   --target-dir "$target_dir"   --manifest-path "$manifest"
 
-wasm="$target_dir/wasm32-unknown-unknown/release/ep02_runtime_fixture.wasm"
-test -f "$wasm"
+wasm="$target_dir/$target/release/ep02_runtime_fixture.wasm"
+test -s "$wasm"
 
 assets="$root/host-app/src/main/assets"
 mkdir -p "$assets"
