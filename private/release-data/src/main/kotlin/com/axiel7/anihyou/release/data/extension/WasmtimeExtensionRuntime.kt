@@ -344,12 +344,20 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         }
     }
 
-    suspend fun awaitActiveInvocationForTesting(timeoutMillis: Long = 5_000): Boolean {
-        val token = activeToken
-        if (token == 0L) return false
-        val signal = started[token] ?: return false
-        return withTimeoutOrNull(timeoutMillis) { signal.await(); true } ?: false
-    }
+    suspend fun awaitActiveInvocationForTesting(timeoutMillis: Long = 5_000): Boolean =
+        withTimeoutOrNull(timeoutMillis) {
+            while (true) {
+                val token = activeToken
+                val signal = token.takeIf { it != 0L }?.let(started::get)
+                if (signal != null) {
+                    signal.await()
+                    return@withTimeoutOrNull true
+                }
+                delay(5)
+            }
+            @Suppress("UNREACHABLE_CODE")
+            false
+        } ?: false
 
     fun cancelActiveForTesting(): Boolean {
         val token = activeToken
