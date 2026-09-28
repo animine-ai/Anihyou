@@ -13,8 +13,15 @@ export AR_x86_64_linux_android=llvm-ar
 export CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback
 export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
 mkdir -p "$root/results/native" "$root/native-out"
-if [[ ! -f "$root/native/Cargo.lock" ]]; then
+lock="$root/native/Cargo.lock"
+if [[ ! -f "$lock" ]]; then
   cargo +"$rust_toolchain" generate-lockfile --manifest-path "$root/native/Cargo.toml"
+fi
+expected_lock_sha256="0f1caff29b8444068b46e96c3a3641d3d805d86c827a4b2ed9189b86a00fd7df"
+actual_lock_sha256="$(sha256sum "$lock" | awk '{print $1}')"
+if [[ "$actual_lock_sha256" != "$expected_lock_sha256" ]]; then
+  printf 'EP02 native dependency graph drift: expected %s, got %s\n' "$expected_lock_sha256" "$actual_lock_sha256" >&2
+  exit 4
 fi
 cargo +"$rust_toolchain" build --locked --release --target x86_64-linux-android --manifest-path "$root/native/Cargo.toml" 2>&1 | tee "$root/results/native/build.txt"
 cp "$root/native/target/x86_64-linux-android/release/libarex_runtime.so" "$root/native-out/"
