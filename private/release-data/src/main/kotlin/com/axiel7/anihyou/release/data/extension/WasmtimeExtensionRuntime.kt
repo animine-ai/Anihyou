@@ -65,6 +65,9 @@ data class ExtensionRuntimeCallDiagnostics(
     val diagnosticCalls: Int,
     val diagnosticBytes: Int,
     val serviceGeneration: Long,
+    val servicePid: Int,
+    val serviceUid: Int,
+    val serviceInternetPermissionGranted: Boolean,
 )
 
 /**
@@ -345,7 +348,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         pending.entries.toList().forEach { (token, value) ->
             if (value.generation == dead.generation && pending.remove(token, value)) {
                 lastFenced = token to value.generation
-                value.reply.complete(RuntimeReply(RuntimeProtocol.STATUS_DEAD, "SERVICE_DEATH", 0, null, null, "{}", 0, 0))
+                value.reply.complete(RuntimeReply(RuntimeProtocol.STATUS_DEAD, "SERVICE_DEATH", 0, null, null, "{}", 0, 0, 0, 0, false))
             }
         }
     }
@@ -376,7 +379,16 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     }
 
     private fun parseDiagnostics(reply: RuntimeReply, totalMicros: Long, generation: Long): ExtensionRuntimeCallDiagnostics =
-        parseNativeMetrics(reply.nativeMetrics, totalMicros, reply.readMicros, reply.writeMicros, generation)
+        parseNativeMetrics(
+            reply.nativeMetrics,
+            totalMicros,
+            reply.readMicros,
+            reply.writeMicros,
+            generation,
+            reply.servicePid,
+            reply.serviceUid,
+            reply.serviceInternetPermissionGranted,
+        )
 
     private fun parseNativeMetrics(
         raw: String,
@@ -384,6 +396,9 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         readMicros: Long,
         writeMicros: Long,
         generation: Long,
+        servicePid: Int = android.os.Process.myPid(),
+        serviceUid: Int = android.os.Process.myUid(),
+        serviceInternetPermissionGranted: Boolean = true,
     ): ExtensionRuntimeCallDiagnostics {
         val json = JSONObject(raw)
         return ExtensionRuntimeCallDiagnostics(
@@ -397,6 +412,9 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
             diagnosticCalls = json.optInt("diagnosticCalls"),
             diagnosticBytes = json.optInt("diagnosticBytes"),
             serviceGeneration = generation,
+            servicePid = servicePid,
+            serviceUid = serviceUid,
+            serviceInternetPermissionGranted = serviceInternetPermissionGranted,
         )
     }
 
@@ -510,6 +528,10 @@ class WasmtimeRuntimeService : Service() {
                     putByteArray(RuntimeProtocol.KEY_OUTPUT_INLINE, output)
                     putString(RuntimeProtocol.KEY_NATIVE_METRICS, nativeMetrics)
                     putLong(RuntimeProtocol.KEY_READ_MICROS, readMicros)
+                    putInt(RuntimeProtocol.KEY_SERVICE_PID, android.os.Process.myPid())
+                    putInt(RuntimeProtocol.KEY_SERVICE_UID, android.os.Process.myUid())
+                    putBoolean(RuntimeProtocol.KEY_SERVICE_INTERNET,
+                        checkSelfPermission(android.Manifest.permission.INTERNET) == android.content.pm.PackageManager.PERMISSION_GRANTED)
                 }
             } else {
                 val pipe = ParcelFileDescriptor.createPipe()
@@ -518,6 +540,10 @@ class WasmtimeRuntimeService : Service() {
                     putParcelable(RuntimeProtocol.KEY_OUTPUT_FD, pipe[0])
                     putString(RuntimeProtocol.KEY_NATIVE_METRICS, nativeMetrics)
                     putLong(RuntimeProtocol.KEY_READ_MICROS, readMicros)
+                    putInt(RuntimeProtocol.KEY_SERVICE_PID, android.os.Process.myPid())
+                    putInt(RuntimeProtocol.KEY_SERVICE_UID, android.os.Process.myUid())
+                    putBoolean(RuntimeProtocol.KEY_SERVICE_INTERNET,
+                        checkSelfPermission(android.Manifest.permission.INTERNET) == android.content.pm.PackageManager.PERMISSION_GRANTED)
                 }
                 pipe[0].close()
                 if (sent) {
@@ -613,6 +639,9 @@ private data class RuntimeReply(
     val nativeMetrics: String,
     val readMicros: Long,
     val writeMicros: Long,
+    val servicePid: Int,
+    val serviceUid: Int,
+    val serviceInternetPermissionGranted: Boolean,
 ) {
     companion object {
         fun from(bundle: Bundle) = RuntimeReply(
@@ -624,6 +653,9 @@ private data class RuntimeReply(
             nativeMetrics = bundle.getString(RuntimeProtocol.KEY_NATIVE_METRICS) ?: "{}",
             readMicros = bundle.getLong(RuntimeProtocol.KEY_READ_MICROS),
             writeMicros = bundle.getLong(RuntimeProtocol.KEY_WRITE_MICROS),
+            servicePid = bundle.getInt(RuntimeProtocol.KEY_SERVICE_PID),
+            serviceUid = bundle.getInt(RuntimeProtocol.KEY_SERVICE_UID),
+            serviceInternetPermissionGranted = bundle.getBoolean(RuntimeProtocol.KEY_SERVICE_INTERNET),
         )
     }
 }
@@ -662,6 +694,9 @@ private object RuntimeProtocol {
     const val KEY_NATIVE_METRICS = "nativeMetrics"
     const val KEY_READ_MICROS = "readMicros"
     const val KEY_WRITE_MICROS = "writeMicros"
+    const val KEY_SERVICE_PID = "servicePid"
+    const val KEY_SERVICE_UID = "serviceUid"
+    const val KEY_SERVICE_INTERNET = "serviceInternet"
 }
 
 private fun mapError(message: String?): ExtensionRuntimeErrorCode = when {
