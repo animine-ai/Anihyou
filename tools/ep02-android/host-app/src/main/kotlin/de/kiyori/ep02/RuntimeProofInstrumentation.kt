@@ -95,6 +95,7 @@ private object RuntimeProof {
             functional.put("releasePlanParse", runReleaseHost(runtime, verified))
             functional.put("navigationOverview", runNavigation(runtime, verified, NavigationTargetKind.OVERVIEW))
             functional.put("navigationEpisode", runNavigation(runtime, verified, NavigationTargetKind.EPISODE))
+            functional.put("moduleCacheEvictionRecovery", proveModuleCacheEvictionRecovery(runtime, verified, module))
 
             val identityBeforeKill = requireNotNull(runtime.lastDiagnostics)
             check(identityBeforeKill.servicePid != Process.myPid())
@@ -238,6 +239,46 @@ private object RuntimeProof {
             .put("track", target.track?.name ?: JSONObject.NULL)
     }
 
+    /**
+     * Test-only cache pressure. Custom sections preserve the executable fixture contract while
+     * producing distinct immutable digests, forcing the bounded native cache to evict the original.
+     */
+    private suspend fun proveModuleCacheEvictionRecovery(
+        runtime: AndroidIsolatedExtensionRuntime,
+        verified: VerifiedExtensionPackage,
+        module: ByteArray,
+    ): JSONObject {
+        val context = ExtensionContextV1(
+            verified.extensionId, verified.providerId, listOf(SourceRole.CALENDAR),
+            "2026-09-28T12:00:00Z", emptyList())
+        val input = ExtensionWireCodec.encodePlanInput(PlanInputV1(1, context))
+        val generation = requireNotNull(runtime.lastDiagnostics).serviceGeneration
+
+        repeat(8) { index ->
+            val variant = appendCacheMarker(module, index)
+            val result = runtime.execute(
+                sha256(variant), variant, "plan_requests", input, planLimits)
+            check(result is ExtensionRuntimeResult.Success)
+        }
+
+        val recovered = executeSuccess(runtime, verified, "plan_requests", input, planLimits)
+        val diagnostics = requireNotNull(runtime.lastDiagnostics)
+        check(recovered.isNotEmpty())
+        check(diagnostics.serviceGeneration == generation)
+        check(!diagnostics.cacheHit)
+        return JSONObject()
+            .put("pressureModules", 8)
+            .put("sameServiceGeneration", true)
+            .put("transparentRetryRecompiled", true)
+    }
+
+    private fun appendCacheMarker(module: ByteArray, index: Int): ByteArray {
+        val name = "cache-$index".toByteArray(Charsets.UTF_8)
+        check(name.size < 127)
+        val payloadSize = name.size + 1
+        return module + byteArrayOf(0, payloadSize.toByte(), name.size.toByte()) + name
+    }
+
     private suspend fun benchmark(
         context: Context,
         verified: VerifiedExtensionPackage,
@@ -323,6 +364,9 @@ private object RuntimeProof {
                 .put("fixtureParseOnlyNoNetwork", true)
                 .put("coldVsCached", JSONObject()
                     .put("isolatedColdMicros", isolatedCold.totalMicros)
+                    .put("isolatedColdBindMicros", isolatedCold.serviceBindMicros)
+                    .put("isolatedColdCompileMicros", isolatedCold.compileMicros)
+                    .put("isolatedColdStoreInstanceMicros", isolatedCold.instantiateMicros)
                     .put("isolatedCachedParseP50Micros",
                         percentile(isolatedParse.map { it.totalMicros }, 0.50))
                     .put("firstCompileMicros", isolatedCold.compileMicros)
@@ -403,7 +447,9 @@ private object RuntimeProof {
             isolated.map { (it.totalMicros - it.nativeMicros).coerceAtLeast(0) }, 0.50))
         .put("inProcessJniP50Micros", percentile(
             inProcess.map { (it.totalMicros - it.nativeMicros).coerceAtLeast(0) }, 0.50))
+        .put("serviceBindP50Micros", percentile(isolated.map { it.serviceBindMicros }, 0.50))
         .put("serviceReadP50Micros", percentile(isolated.map { it.serviceReadMicros }, 0.50))
+        .put("storeInstanceP50Micros", percentile(isolated.map { it.instantiateMicros }, 0.50))
         .put("outputTransportIncludedInHostIpc", true)
 
     private fun relativePercent(delta: Long, baseline: Long): Double =
@@ -424,11 +470,14 @@ private object RuntimeProof {
     private fun diagnosticsJson(value: ExtensionRuntimeCallDiagnostics): JSONObject = JSONObject()
         .put("totalMicros", value.totalMicros)
         .put("totalMillis", value.totalMicros / 1000.0)
+        .put("serviceBindMicros", value.serviceBindMicros)
+        .put("serviceBindMillis", value.serviceBindMicros / 1000.0)
+        .put("serviceReadMicros", value.serviceReadMicros)
         .put("nativeMicros", value.nativeMicros)
         .put("guestMicros", value.guestMicros)
         .put("compileMicros", value.compileMicros)
+        .put("instantiateMicros", value.instantiateMicros)
         .put("cacheHit", value.cacheHit)
-        .put("serviceReadMicros", value.serviceReadMicros)
         .put("serviceWriteMicros", value.serviceWriteMicros)
         .put("servicePid", value.servicePid)
         .put("serviceUid", value.serviceUid)

@@ -340,6 +340,7 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
         let (module, cache_hit, compile_micros) = module_for(&digest, &module_bytes)?;
 
         let engine = engine()?;
+        let instantiate_started = Instant::now();
         let mut host = Host::new(
             engine,
             &module,
@@ -348,6 +349,7 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
             deadline_millis as u64,
             max_output as usize,
         )?;
+        let instantiate_micros = instantiate_started.elapsed().as_micros();
         INTERRUPT_REASON.store(0, Ordering::Release);
         ACTIVE_INVOCATION.store(invocation_id as u64, Ordering::Release);
         let guest_started = Instant::now();
@@ -374,9 +376,10 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
         let native_micros = native_started.elapsed().as_micros();
         let guest_micros = guest_elapsed.as_micros();
         let text = format!(
-            "{{\"runtime\":\"Wasmtime 48.0.3 Cranelift\",\"cacheHit\":{},\"compileMicros\":{},\"nativeMicros\":{},\"guestMicros\":{},\"diagnosticCalls\":{},\"diagnosticBytes\":{}}}",
+            "{{\"runtime\":\"Wasmtime 48.0.3 Cranelift\",\"cacheHit\":{},\"compileMicros\":{},\"instantiateMicros\":{},\"nativeMicros\":{},\"guestMicros\":{},\"diagnosticCalls\":{},\"diagnosticBytes\":{}}}",
             cache_hit,
             compile_micros,
+            instantiate_micros,
             native_micros,
             guest_micros,
             host.store.data().diagnostic_calls,

@@ -56,11 +56,12 @@ class WasmtimeNativeModuleProfileVerifier : WasmCoreModuleProfileVerifier {
 /** One-call timings used by the Android proof and production diagnostics. */
 data class ExtensionRuntimeCallDiagnostics(
     val totalMicros: Long,
+    val serviceBindMicros: Long,
     val serviceReadMicros: Long,
-    val serviceWriteMicros: Long,
     val nativeMicros: Long,
     val guestMicros: Long,
     val compileMicros: Long,
+    val instantiateMicros: Long,
     val cacheHit: Boolean,
     val diagnosticCalls: Int,
     val diagnosticBytes: Int,
@@ -129,12 +130,13 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
             return@withLock ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.INVALID_INPUT)
         }
 
-        val activeSession = try {
-            ensureSession()
+        val logicalStartedAt = System.nanoTime()
+        val acquisition = try {
+            acquireSession()
         } catch (_: Exception) {
             return@withLock ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
         }
-        val logicalStartedAt = System.nanoTime()
+        val activeSession = acquisition.session
         var sendModule = !activeSession.knownDigests.contains(moduleDigest)
 
         repeat(2) { attemptIndex ->
@@ -147,6 +149,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 limits = limits,
                 sendModule = sendModule,
                 logicalStartedAt = logicalStartedAt,
+                serviceBindMicros = acquisition.bindMicros,
             )) {
                 is RuntimeAttempt.Success -> {
                     activeSession.knownDigests += moduleDigest
@@ -178,6 +181,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         limits: ExtensionExecutionLimits,
         sendModule: Boolean,
         logicalStartedAt: Long,
+        serviceBindMicros: Long,
     ): RuntimeAttempt {
         val token = nextToken.getAndIncrement().also { if (it <= 0) error("runtime token overflow") }
         val generation = activeSession.generation
@@ -273,7 +277,12 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 }
 
                 val totalMicros = (System.nanoTime() - logicalStartedAt) / 1_000
-                lastDiagnostics = parseDiagnostics(reply, totalMicros, generation)
+                lastDiagnostics = parseDiagnostics(
+                    reply = reply,
+                    totalMicros = totalMicros,
+                    generation = generation,
+                    serviceBindMicros = serviceBindMicros,
+                )
                 RuntimeAttempt.Success(output)
             }
         } catch (cancelled: CancellationException) {
@@ -312,7 +321,13 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 limits.fuel, limits.deadlineMillis, nextToken.getAndIncrement(),
             )
             val total = (System.nanoTime() - startedAt) / 1_000
-            val metrics = parseNativeMetrics(WasmtimeNativeBridge.nativeMetrics(), total, 0, 0, 0)
+            val metrics = parseNativeMetrics(
+                raw = WasmtimeNativeBridge.nativeMetrics(),
+                totalMicros = total,
+                serviceBindMicros = 0,
+                readMicros = 0,
+                generation = 0,
+            )
             ExtensionRuntimeResult.Success(output) to metrics
         } catch (error: RuntimeException) {
             ExtensionRuntimeResult.Failure(mapError(error.message)) to null
@@ -364,8 +379,17 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
 
     fun clearInProcessCacheForTesting() = WasmtimeNativeBridge.nativeClearModuleCache()
 
-    private suspend fun ensureSession(): Session = sessionMutex.withLock {
-        session?.takeIf { it.binder.isBinderAlive } ?: bind().also { session = it }
+    private suspend fun acquireSession(): SessionAcquisition = sessionMutex.withLock {
+        session?.takeIf { it.binder.isBinderAlive }?.let {
+            return@withLock SessionAcquisition(it, bindMicros = 0)
+        }
+        val startedAt = System.nanoTime()
+        val created = bind()
+        session = created
+        SessionAcquisition(
+            session = created,
+            bindMicros = (System.nanoTime() - startedAt) / 1_000,
+        )
     }
 
     private suspend fun bind(): Session = suspendCancellableCoroutine { continuation ->
@@ -410,7 +434,20 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         pending.entries.toList().forEach { (token, value) ->
             if (value.generation == dead.generation && pending.remove(token, value)) {
                 lastFenced = token to value.generation
-                value.reply.complete(RuntimeReply(RuntimeProtocol.STATUS_DEAD, "SERVICE_DEATH", 0, null, null, "{}", 0, 0, 0, 0, false))
+                value.reply.complete(
+                    RuntimeReply(
+                        status = RuntimeProtocol.STATUS_DEAD,
+                        error = "SERVICE_DEATH",
+                        outputBytes = 0,
+                        outputInline = null,
+                        outputFd = null,
+                        nativeMetrics = "{}",
+                        readMicros = 0,
+                        servicePid = 0,
+                        serviceUid = 0,
+                        serviceInternetPermissionGranted = false,
+                    )
+                )
             }
         }
     }
@@ -452,23 +489,27 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         invalidate(activeSession)
     }
 
-    private fun parseDiagnostics(reply: RuntimeReply, totalMicros: Long, generation: Long): ExtensionRuntimeCallDiagnostics =
-        parseNativeMetrics(
-            reply.nativeMetrics,
-            totalMicros,
-            reply.readMicros,
-            reply.writeMicros,
-            generation,
-            reply.servicePid,
-            reply.serviceUid,
-            reply.serviceInternetPermissionGranted,
-        )
+    private fun parseDiagnostics(
+        reply: RuntimeReply,
+        totalMicros: Long,
+        generation: Long,
+        serviceBindMicros: Long,
+    ): ExtensionRuntimeCallDiagnostics = parseNativeMetrics(
+        raw = reply.nativeMetrics,
+        totalMicros = totalMicros,
+        serviceBindMicros = serviceBindMicros,
+        readMicros = reply.readMicros,
+        generation = generation,
+        servicePid = reply.servicePid,
+        serviceUid = reply.serviceUid,
+        serviceInternetPermissionGranted = reply.serviceInternetPermissionGranted,
+    )
 
     private fun parseNativeMetrics(
         raw: String,
         totalMicros: Long,
+        serviceBindMicros: Long,
         readMicros: Long,
-        writeMicros: Long,
         generation: Long,
         servicePid: Int = android.os.Process.myPid(),
         serviceUid: Int = android.os.Process.myUid(),
@@ -477,11 +518,12 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         val json = JSONObject(raw)
         return ExtensionRuntimeCallDiagnostics(
             totalMicros = totalMicros,
+            serviceBindMicros = serviceBindMicros,
             serviceReadMicros = readMicros,
-            serviceWriteMicros = writeMicros,
             nativeMicros = json.optLong("nativeMicros"),
             guestMicros = json.optLong("guestMicros"),
             compileMicros = json.optLong("compileMicros"),
+            instantiateMicros = json.optLong("instantiateMicros"),
             cacheHit = json.optBoolean("cacheHit"),
             diagnosticCalls = json.optInt("diagnosticCalls"),
             diagnosticBytes = json.optInt("diagnosticBytes"),
@@ -502,6 +544,11 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         started.clear()
         callbackThread.quitSafely()
     }
+
+    private data class SessionAcquisition(
+        val session: Session,
+        val bindMicros: Long,
+    )
 
     private data class Session(
         val generation: Long,
@@ -649,6 +696,9 @@ class WasmtimeRuntimeService : Service() {
     override fun onDestroy() {
         worker.shutdownNow()
         super.onDestroy()
+        // The service is warm for its bound lifetime. Once that lifecycle ends, discard all
+        // compiled guest state rather than leaving a detached isolated process resident.
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     private fun respond(
@@ -731,7 +781,6 @@ private data class RuntimeReply(
     val outputFd: ParcelFileDescriptor?,
     val nativeMetrics: String,
     val readMicros: Long,
-    val writeMicros: Long,
     val servicePid: Int,
     val serviceUid: Int,
     val serviceInternetPermissionGranted: Boolean,
@@ -745,7 +794,6 @@ private data class RuntimeReply(
             outputFd = bundle.parcelFileDescriptorCompat(RuntimeProtocol.KEY_OUTPUT_FD),
             nativeMetrics = bundle.getString(RuntimeProtocol.KEY_NATIVE_METRICS) ?: "{}",
             readMicros = bundle.getLong(RuntimeProtocol.KEY_READ_MICROS),
-            writeMicros = bundle.getLong(RuntimeProtocol.KEY_WRITE_MICROS),
             servicePid = bundle.getInt(RuntimeProtocol.KEY_SERVICE_PID),
             serviceUid = bundle.getInt(RuntimeProtocol.KEY_SERVICE_UID),
             serviceInternetPermissionGranted = bundle.getBoolean(RuntimeProtocol.KEY_SERVICE_INTERNET),
@@ -787,7 +835,6 @@ private object RuntimeProtocol {
     const val KEY_OUTPUT_BYTES = "outputBytes"
     const val KEY_NATIVE_METRICS = "nativeMetrics"
     const val KEY_READ_MICROS = "readMicros"
-    const val KEY_WRITE_MICROS = "writeMicros"
     const val KEY_SERVICE_PID = "servicePid"
     const val KEY_SERVICE_UID = "serviceUid"
     const val KEY_SERVICE_INTERNET = "serviceInternet"
