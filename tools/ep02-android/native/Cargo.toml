@@ -10,7 +10,7 @@ name = "arex_runtime"
 crate-type = ["cdylib"]
 
 [dependencies]
-anyhow = "=1.0.100"
+anyhow = "=1.0.104"
 jni = { version = "=0.21.1", default-features = false }
 wasmtime = { version = "=48.0.3", default-features = false, features = ["runtime", "cranelift", "std", "anyhow"] }
 
