@@ -15,7 +15,7 @@ use std::{
     panic::{catch_unwind, AssertUnwindSafe},
     ptr,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
+        atomic::{AtomicU64, AtomicU8, Ordering},
         Mutex, OnceLock,
     },
     thread,
@@ -39,7 +39,6 @@ const CANCEL_EPOCH_JUMP: usize = (MAX_DEADLINE_MILLIS / EPOCH_TICK_MILLIS + 2) a
 
 static ENGINE: OnceLock<Engine> = OnceLock::new();
 static ENGINE_INIT: Mutex<()> = Mutex::new(());
-static TICKER_STARTED: AtomicBool = AtomicBool::new(false);
 static MODULES: OnceLock<Mutex<HashMap<String, Module>>> = OnceLock::new();
 static ACTIVE_INVOCATION: AtomicU64 = AtomicU64::new(0);
 static INTERRUPT_REASON: AtomicU8 = AtomicU8::new(0);
@@ -106,15 +105,13 @@ fn engine() -> Result<&'static Engine> {
         if ENGINE.get().is_none() {
             let value = build_engine()?;
             let ticker_engine = value.clone();
-            let _ = ENGINE.set(value);
-            if !TICKER_STARTED.swap(true, Ordering::AcqRel) {
-                thread::Builder::new()
-                    .name("arex-epoch".into())
-                    .spawn(move || loop {
-                        thread::sleep(Duration::from_millis(EPOCH_TICK_MILLIS));
-                        ticker_engine.increment_epoch();
-                    })?;
-            }
+            thread::Builder::new()
+                .name("arex-epoch".into())
+                .spawn(move || loop {
+                    thread::sleep(Duration::from_millis(EPOCH_TICK_MILLIS));
+                    ticker_engine.increment_epoch();
+                })?;
+            ensure!(ENGINE.set(value).is_ok(), "engine initialized concurrently");
         }
     }
     ENGINE.get().ok_or_else(|| anyhow!("engine unavailable"))
