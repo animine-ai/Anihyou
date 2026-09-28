@@ -55,8 +55,10 @@ class RuntimeProofInstrumentation : Instrumentation() {
         try {
             val report = runBlocking { RuntimeProof.run(targetContext) }
             result.putString("ep02", report.toString())
-            result.putString("stream", "EP02_ANDROID_PASS\n$report\n")
-            finish(-1, result)
+            val passed = report.optBoolean("passed", false)
+            val marker = if (passed) "EP02_ANDROID_PASS" else "EP02_ANDROID_PERFORMANCE_FAIL"
+            result.putString("stream", "$marker\n$report\n")
+            finish(if (passed) -1 else 0, result)
         } catch (error: Throwable) {
             result.putString("stream", "EP02_ANDROID_FAIL\n" + android.util.Log.getStackTraceString(error))
             finish(0, result)
@@ -166,8 +168,10 @@ private object RuntimeProof {
 
         delay(200)
         val performance = benchmark(context, verified, module, digest, validationMicros)
+        val performancePassed =
+            performance.getJSONObject("steadyState").getString("policy") != "FAIL"
         return JSONObject()
-            .put("passed", true)
+            .put("passed", performancePassed)
             .put("api", Build.VERSION.SDK_INT)
             .put("abis", JSONArray(Build.SUPPORTED_ABIS))
             .put("runtimePin", "Wasmtime 48.0.3 LTS / Cranelift")
@@ -348,10 +352,6 @@ private object RuntimeProof {
                 "SMALL_ABSOLUTE_DIFFERENCE" in policies -> "SMALL_ABSOLUTE_DIFFERENCE"
                 else -> "PASS"
             }
-            check(overallPolicy != "FAIL") {
-                "steady-state isolation overhead exceeds policy: plan=$planComparison parse=$parseComparison"
-            }
-
             return JSONObject()
                 .put("sampleCount", SAMPLE_COUNT)
                 .put("samples", JSONObject()
