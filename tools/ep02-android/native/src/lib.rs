@@ -356,7 +356,7 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
             .as_ref()
             .err()
             .and_then(|error| error.downcast_ref::<Trap>())
-            .is_some_and(|trap| *trap == Trap::Interrupt);
+            .is_some_and(|trap| trap == &Trap::Interrupt);
         let _ = ACTIVE_INVOCATION.compare_exchange(
             invocation_id as u64,
             0,

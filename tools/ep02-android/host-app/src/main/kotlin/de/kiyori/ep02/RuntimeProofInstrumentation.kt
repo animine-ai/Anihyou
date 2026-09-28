@@ -70,6 +70,8 @@ private object RuntimeProof {
     private const val NAV_BODY = "fixture navigation"
     private const val NAV_HASH = "96dfb9bbcd4f46a63e8b521bdef0b5b5357f2bd5ddf9cae543f098069b8478fb"
     private const val SAMPLE_COUNT = 50
+    private const val STEADY_STATE_LIMIT_PERCENT = 40.0
+    private const val SMALL_ABSOLUTE_DELTA_MICROS = 100L
 
     private val planLimits = ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
     private val parseLimits = ExtensionExecutionLimits(4 * 1024 * 1024, 1024 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
@@ -243,11 +245,12 @@ private object RuntimeProof {
         digest: String,
         validationMicros: Long,
     ): JSONObject {
-        val parseContext = ExtensionContextV1(
+        val planContext = ExtensionContextV1(
             verified.extensionId, verified.providerId, listOf(SourceRole.CALENDAR),
             "2026-09-28T12:00:00Z", emptyList())
+        val planInput = ExtensionWireCodec.encodePlanInput(PlanInputV1(1, planContext))
         val parseInput = ExtensionWireCodec.encodeParseInput(ParseInputV1(
-            1, parseContext,
+            1, planContext,
             listOf(ResponseEnvelope("calendar-1", SourceRole.CALENDAR, ExtensionResponseStatus.OK,
                 200, "https://example.org/calendar", RELEASE_BODY, RELEASE_HASH))))
 
@@ -260,14 +263,10 @@ private object RuntimeProof {
             val inProcessColdDiag = requireNotNull(inProcessCold)
             check(!inProcessColdDiag.cacheHit)
 
-            val inProcess = ArrayList<ExtensionRuntimeCallDiagnostics>(SAMPLE_COUNT)
-            repeat(SAMPLE_COUNT) {
-                val (value, diagnostics) = runtime.executeInProcessForBenchmark(
-                    digest, module, "parse_responses", parseInput, parseLimits)
-                check(value is ExtensionRuntimeResult.Success)
-                inProcess += requireNotNull(diagnostics)
-            }
-            check(inProcess.all { it.cacheHit })
+            val inProcessPlan = sampleInProcess(
+                runtime, digest, module, "plan_requests", planInput, planLimits)
+            val inProcessParse = sampleInProcess(
+                runtime, digest, module, "parse_responses", parseInput, parseLimits)
 
             check(executeSuccess(runtime, verified, "parse_responses", parseInput, parseLimits).isNotEmpty())
             val isolatedCold = requireNotNull(runtime.lastDiagnostics)
@@ -276,57 +275,139 @@ private object RuntimeProof {
             check(isolatedCold.serviceUid != Process.myUid())
             check(!isolatedCold.serviceInternetPermissionGranted)
 
-            val isolated = ArrayList<ExtensionRuntimeCallDiagnostics>(SAMPLE_COUNT)
-            repeat(SAMPLE_COUNT) {
-                executeSuccess(runtime, verified, "parse_responses", parseInput, parseLimits)
-                isolated += requireNotNull(runtime.lastDiagnostics)
-            }
-            check(isolated.all { it.cacheHit })
-            check(isolated.map { it.servicePid }.distinct().size == 1)
+            val isolatedPlan = sampleIsolated(
+                runtime, verified, "plan_requests", planInput, planLimits)
+            val isolatedParse = sampleIsolated(
+                runtime, verified, "parse_responses", parseInput, parseLimits)
+            check((isolatedPlan + isolatedParse).all { it.cacheHit })
+            check((isolatedPlan + isolatedParse).map { it.servicePid }.distinct().size == 1)
 
-            val inProcTotals = inProcess.map { it.totalMicros }
-            val isolatedTotals = isolated.map { it.totalMicros }
-            val inP50 = percentile(inProcTotals, 0.50)
-            val isoP50 = percentile(isolatedTotals, 0.50)
-            val delta = isoP50 - inP50
-            val relative = if (inP50 == 0L) 0.0 else delta.toDouble() * 100.0 / inP50
-            val policy = when {
-                relative <= 50.0 -> "PASS"
-                delta <= 250L -> "SMALL_ABSOLUTE_DIFFERENCE"
-                else -> "FAIL"
+            val planComparison = steadyStateComparison(inProcessPlan, isolatedPlan)
+            val parseComparison = steadyStateComparison(inProcessParse, isolatedParse)
+            val policies = listOf(
+                planComparison.getString("policy"),
+                parseComparison.getString("policy"),
+            )
+            val overallPolicy = when {
+                "FAIL" in policies -> "FAIL"
+                "SMALL_ABSOLUTE_DIFFERENCE" in policies -> "SMALL_ABSOLUTE_DIFFERENCE"
+                else -> "PASS"
             }
-            check(policy != "FAIL") {
-                "steady-state isolation overhead unacceptable: p50 delta=${delta}us relative=${relative}%"
+            check(overallPolicy != "FAIL") {
+                "steady-state isolation overhead exceeds policy: plan=$planComparison parse=$parseComparison"
             }
 
             return JSONObject()
                 .put("sampleCount", SAMPLE_COUNT)
-                .put("validation", JSONObject().put("micros", validationMicros).put("millis", validationMicros / 1000.0))
+                .put("samples", JSONObject()
+                    .put("plan", SAMPLE_COUNT)
+                    .put("parse", SAMPLE_COUNT))
+                .put("validation", JSONObject()
+                    .put("micros", validationMicros)
+                    .put("millis", validationMicros / 1000.0))
                 .put("inProcessCold", diagnosticsJson(inProcessColdDiag))
                 .put("isolatedCold", diagnosticsJson(isolatedCold))
-                .put("inProcessCachedParse", statsJson(inProcTotals))
-                .put("isolatedCachedParse", statsJson(isolatedTotals))
+                .put("inProcessCachedPlan", statsJson(inProcessPlan.map { it.totalMicros }))
+                .put("isolatedCachedPlan", statsJson(isolatedPlan.map { it.totalMicros }))
+                .put("inProcessCachedParse", statsJson(inProcessParse.map { it.totalMicros }))
+                .put("isolatedCachedParse", statsJson(isolatedParse.map { it.totalMicros }))
                 .put("binderJni", JSONObject()
-                    .put("isolatedHostIpcP50Micros", percentile(isolated.map { (it.totalMicros - it.nativeMicros).coerceAtLeast(0) }, 0.50))
-                    .put("inProcessJniP50Micros", percentile(inProcess.map { (it.totalMicros - it.nativeMicros).coerceAtLeast(0) }, 0.50))
-                    .put("serviceReadP50Micros", percentile(isolated.map { it.serviceReadMicros }, 0.50))
-                    .put("serviceWriteP50Micros", percentile(isolated.map { it.serviceWriteMicros }, 0.50)))
+                    .put("plan", transportBreakdown(inProcessPlan, isolatedPlan))
+                    .put("parse", transportBreakdown(inProcessParse, isolatedParse)))
                 .put("steadyState", JSONObject()
-                    .put("absoluteDeltaP50Micros", delta)
-                    .put("relativeP50Percent", relative)
-                    .put("policy", policy))
+                    .put("policy", overallPolicy)
+                    .put("hardRelativeLimitPercent", STEADY_STATE_LIMIT_PERCENT)
+                    .put("smallAbsoluteDeltaMicros", SMALL_ABSOLUTE_DELTA_MICROS)
+                    .put("plan", planComparison)
+                    .put("parse", parseComparison))
                 .put("fixtureParseOnlyNoNetwork", true)
                 .put("coldVsCached", JSONObject()
                     .put("isolatedColdMicros", isolatedCold.totalMicros)
-                    .put("isolatedCachedP50Micros", isoP50)
+                    .put("isolatedCachedParseP50Micros",
+                        percentile(isolatedParse.map { it.totalMicros }, 0.50))
                     .put("firstCompileMicros", isolatedCold.compileMicros)
                     .put("inProcessColdMicros", inProcessColdDiag.totalMicros)
-                    .put("inProcessCachedP50Micros", inP50)
+                    .put("inProcessCachedParseP50Micros",
+                        percentile(inProcessParse.map { it.totalMicros }, 0.50))
                     .put("inProcessFirstCompileMicros", inProcessColdDiag.compileMicros))
         } finally {
             runtime.close()
         }
     }
+
+    private suspend fun sampleInProcess(
+        runtime: AndroidIsolatedExtensionRuntime,
+        digest: String,
+        module: ByteArray,
+        exportName: String,
+        input: ByteArray,
+        limits: ExtensionExecutionLimits,
+    ): List<ExtensionRuntimeCallDiagnostics> = buildList(SAMPLE_COUNT) {
+        repeat(SAMPLE_COUNT) {
+            val (result, diagnostics) = runtime.executeInProcessForBenchmark(
+                digest, module, exportName, input, limits)
+            check(result is ExtensionRuntimeResult.Success)
+            add(requireNotNull(diagnostics))
+        }
+        check(all { it.cacheHit })
+    }
+
+    private suspend fun sampleIsolated(
+        runtime: AndroidIsolatedExtensionRuntime,
+        verified: VerifiedExtensionPackage,
+        exportName: String,
+        input: ByteArray,
+        limits: ExtensionExecutionLimits,
+    ): List<ExtensionRuntimeCallDiagnostics> = buildList(SAMPLE_COUNT) {
+        repeat(SAMPLE_COUNT) {
+            executeSuccess(runtime, verified, exportName, input, limits)
+            add(requireNotNull(runtime.lastDiagnostics))
+        }
+    }
+
+    private fun steadyStateComparison(
+        inProcess: List<ExtensionRuntimeCallDiagnostics>,
+        isolated: List<ExtensionRuntimeCallDiagnostics>,
+    ): JSONObject {
+        val baselineP50 = percentile(inProcess.map { it.totalMicros }, 0.50)
+        val isolatedP50 = percentile(isolated.map { it.totalMicros }, 0.50)
+        val baselineP95 = percentile(inProcess.map { it.totalMicros }, 0.95)
+        val isolatedP95 = percentile(isolated.map { it.totalMicros }, 0.95)
+        val deltaP50 = isolatedP50 - baselineP50
+        val deltaP95 = isolatedP95 - baselineP95
+        val relativeP50 = relativePercent(deltaP50, baselineP50)
+        val relativeP95 = relativePercent(deltaP95, baselineP95)
+        val policy = when {
+            deltaP50 <= 0L -> "PASS"
+            deltaP50 <= SMALL_ABSOLUTE_DELTA_MICROS -> "SMALL_ABSOLUTE_DIFFERENCE"
+            relativeP50 < STEADY_STATE_LIMIT_PERCENT -> "PASS"
+            else -> "FAIL"
+        }
+        return JSONObject()
+            .put("baselineP50Micros", baselineP50)
+            .put("isolatedP50Micros", isolatedP50)
+            .put("absoluteDeltaP50Micros", deltaP50)
+            .put("relativeP50Percent", relativeP50)
+            .put("baselineP95Micros", baselineP95)
+            .put("isolatedP95Micros", isolatedP95)
+            .put("absoluteDeltaP95Micros", deltaP95)
+            .put("relativeP95Percent", relativeP95)
+            .put("policy", policy)
+    }
+
+    private fun transportBreakdown(
+        inProcess: List<ExtensionRuntimeCallDiagnostics>,
+        isolated: List<ExtensionRuntimeCallDiagnostics>,
+    ): JSONObject = JSONObject()
+        .put("isolatedHostIpcP50Micros", percentile(
+            isolated.map { (it.totalMicros - it.nativeMicros).coerceAtLeast(0) }, 0.50))
+        .put("inProcessJniP50Micros", percentile(
+            inProcess.map { (it.totalMicros - it.nativeMicros).coerceAtLeast(0) }, 0.50))
+        .put("serviceReadP50Micros", percentile(isolated.map { it.serviceReadMicros }, 0.50))
+        .put("outputTransportIncludedInHostIpc", true)
+
+    private fun relativePercent(delta: Long, baseline: Long): Double =
+        if (baseline <= 0L) 0.0 else delta.toDouble() * 100.0 / baseline
 
     private suspend fun executeSuccess(
         runtime: AndroidIsolatedExtensionRuntime,
