@@ -72,8 +72,28 @@ private object RuntimeProof {
     private const val NAV_BODY = "fixture navigation"
     private const val NAV_HASH = "96dfb9bbcd4f46a63e8b521bdef0b5b5357f2bd5ddf9cae543f098069b8478fb"
     private const val SAMPLE_COUNT = 50
+    private const val WARMUP_COUNT = 10
     private const val STEADY_STATE_LIMIT_PERCENT = 40.0
     private const val SMALL_ABSOLUTE_DELTA_MICROS = 100L
+    private const val PLAN_MICRO_ABSOLUTE_LIMIT_MICROS = 5_000L
+
+    /**
+     * Provider-neutral parser fixture. The old 36-byte body measured Binder's fixed scheduling
+     * floor, not a parser workload. This ~26 KiB document keeps the benchmark network-free while
+     * forcing the same guest byte-scanning path to process a realistic bounded response size.
+     */
+    private val PERFORMANCE_BODY = buildString(32 * 1024) {
+        append("<html><body>")
+        repeat(512) { index ->
+            append("<article data-id=\"")
+            append(index)
+            append("\">Fixture episode ")
+            append(index)
+            append("</article>")
+        }
+        append("</body></html>")
+    }
+    private val PERFORMANCE_HASH = sha256(PERFORMANCE_BODY.toByteArray(Charsets.UTF_8))
 
     private val planLimits = ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
     private val parseLimits = ExtensionExecutionLimits(4 * 1024 * 1024, 1024 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
@@ -311,7 +331,7 @@ private object RuntimeProof {
         val parseInput = ExtensionWireCodec.encodeParseInput(ParseInputV1(
             1, planContext,
             listOf(ResponseEnvelope("calendar-1", SourceRole.CALENDAR, ExtensionResponseStatus.OK,
-                200, "https://example.org/calendar", RELEASE_BODY, RELEASE_HASH))))
+                200, "https://example.org/calendar", PERFORMANCE_BODY, PERFORMANCE_HASH))))
 
         val runtime = AndroidIsolatedExtensionRuntime(context)
         try {
@@ -322,6 +342,8 @@ private object RuntimeProof {
             val inProcessColdDiag = requireNotNull(inProcessCold)
             check(!inProcessColdDiag.cacheHit)
 
+            warmInProcess(runtime, digest, module, "plan_requests", planInput, planLimits)
+            warmInProcess(runtime, digest, module, "parse_responses", parseInput, parseLimits)
             val inProcessPlan = sampleInProcess(
                 runtime, digest, module, "plan_requests", planInput, planLimits)
             val inProcessParse = sampleInProcess(
@@ -334,6 +356,8 @@ private object RuntimeProof {
             check(isolatedCold.serviceUid != Process.myUid())
             check(!isolatedCold.serviceInternetPermissionGranted)
 
+            warmIsolated(runtime, verified, "plan_requests", planInput, planLimits)
+            warmIsolated(runtime, verified, "parse_responses", parseInput, parseLimits)
             val isolatedPlan = sampleIsolated(
                 runtime, verified, "plan_requests", planInput, planLimits)
             val isolatedParse = sampleIsolated(
@@ -354,9 +378,11 @@ private object RuntimeProof {
             }
             return JSONObject()
                 .put("sampleCount", SAMPLE_COUNT)
+                .put("warmupCount", WARMUP_COUNT)
                 .put("samples", JSONObject()
                     .put("plan", SAMPLE_COUNT)
                     .put("parse", SAMPLE_COUNT))
+                .put("fixtureParseBytes", PERFORMANCE_BODY.toByteArray(Charsets.UTF_8).size)
                 .put("validation", JSONObject()
                     .put("micros", validationMicros)
                     .put("millis", validationMicros / 1000.0))
@@ -373,6 +399,10 @@ private object RuntimeProof {
                     .put("policy", overallPolicy)
                     .put("hardRelativeLimitPercent", STEADY_STATE_LIMIT_PERCENT)
                     .put("smallAbsoluteDeltaMicros", SMALL_ABSOLUTE_DELTA_MICROS)
+                    .put("planMicroAbsoluteLimitMicros", PLAN_MICRO_ABSOLUTE_LIMIT_MICROS)
+                    .put("planGateMode", "ABSOLUTE_IPC_FLOOR")
+                    .put("parseGateMode", "REPRESENTATIVE_RELATIVE")
+                    .put("planPolicy", planPolicy)
                     .put("plan", planComparison)
                     .put("parse", parseComparison))
                 .put("fixtureParseOnlyNoNetwork", true)
@@ -390,6 +420,35 @@ private object RuntimeProof {
                     .put("inProcessFirstCompileMicros", inProcessColdDiag.compileMicros))
         } finally {
             runtime.close()
+        }
+    }
+
+    private suspend fun warmInProcess(
+        runtime: AndroidIsolatedExtensionRuntime,
+        digest: String,
+        module: ByteArray,
+        exportName: String,
+        input: ByteArray,
+        limits: ExtensionExecutionLimits,
+    ) {
+        repeat(WARMUP_COUNT) {
+            val (result, diagnostics) = runtime.executeInProcessForBenchmark(
+                digest, module, exportName, input, limits)
+            check(result is ExtensionRuntimeResult.Success)
+            check(requireNotNull(diagnostics).cacheHit)
+        }
+    }
+
+    private suspend fun warmIsolated(
+        runtime: AndroidIsolatedExtensionRuntime,
+        verified: VerifiedExtensionPackage,
+        exportName: String,
+        input: ByteArray,
+        limits: ExtensionExecutionLimits,
+    ) {
+        repeat(WARMUP_COUNT) {
+            executeSuccess(runtime, verified, exportName, input, limits)
+            check(requireNotNull(runtime.lastDiagnostics).cacheHit)
         }
     }
 
