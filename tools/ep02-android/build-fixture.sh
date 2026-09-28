@@ -16,6 +16,7 @@ cargo +"$rust_toolchain" build   --locked   --release   --target "$target"   --t
 
 wasm="$target_dir/$target/release/ep02_runtime_fixture.wasm"
 test -s "$wasm"
+python3 "$root/normalize-fixture-wasm.py" "$wasm"
 
 assets="$root/host-app/src/main/assets"
 mkdir -p "$assets"
