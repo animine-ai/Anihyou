@@ -65,9 +65,10 @@ class StrictWasmModuleProfileVerifierTest {
             if (navigation) listOf("plan_navigation", "parse_navigation") else emptyList()
         section(7, ByteArrayOutputStream().apply {
             write(names.size)
+            val functionIndexBase = if (includeDiagnosticImport) 1 else 0
             names.forEachIndexed { index, name ->
                 name(name); write(if (index == 0) 2 else 0)
-                write(if (index == 0) 0 else index)
+                write(if (index == 0) 0 else functionIndexBase + index - 1)
             }
         }.toByteArray())
         if (start) section(8, bytes(1))
