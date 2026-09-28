@@ -1,0 +1,35 @@
+name: EP02 Production Runtime Android Proof
+on:
+  push:
+    branches: [feature/aniworld-provider-v3]
+    paths:
+      - "tools/ep02-android/**"
+      - "private/release-core/**"
+      - "private/release-data/**"
+      - ".github/workflows/ep02-runtime-android-proof.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ep02-runtime-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Wasmtime 48.0.3 LTS Android API 24 native
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Build production native runtime
+        run: bash tools/ep02-android/build-native.sh
+      - name: Upload production runtime and exact lock
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ep02-native-wasmtime-48.0.3-x86_64
+          path: |
+            tools/ep02-android/native-out/
+            tools/ep02-android/results/native/
+          if-no-files-found: error
+          retention-days: 14
