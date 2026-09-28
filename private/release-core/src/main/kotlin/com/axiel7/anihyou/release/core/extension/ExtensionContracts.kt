@@ -1,5 +1,8 @@
 package com.axiel7.anihyou.release.core.extension
 
+/** Optional exports in the same signed package and isolated runtime as release ingestion. */
+enum class NavigationCapability { OVERVIEW_NAVIGATION, EPISODE_NAVIGATION }
+
 /** Stable, provider-neutral identifiers used only by the extension host boundary. */
 @JvmInline
 value class ExtensionId private constructor(val value: String) {

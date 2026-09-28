@@ -1,6 +1,7 @@
 package com.axiel7.anihyou.release.data.extension
 
 import com.axiel7.anihyou.release.core.extension.SourceRole
+import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -38,6 +39,8 @@ class ExtensionPackageVerifierTest {
 
         assertEquals("aniworld.release", verified.extensionId.value)
         assertEquals("aniworld", verified.providerId.value)
+        assertEquals("AniWorld", verified.displayName)
+        assertEquals(emptySet<NavigationCapability>(), verified.navigationCapabilities)
         assertEquals(setOf(SourceRole.CALENDAR), verified.grantedRoles)
         assertEquals(setOf("aniworld.to"), verified.grantedHosts)
         assertArrayEquals(fixture.module, verified.moduleBytes)
@@ -85,7 +88,7 @@ class ExtensionPackageVerifierTest {
     @Test
     fun `module profile rejection prevents package activation`() {
         val fixture = fixture()
-        val verifier = ExtensionPackageVerifier(WasmCoreModuleProfileVerifier {
+        val verifier = ExtensionPackageVerifier(WasmCoreModuleProfileVerifier { _, _ ->
             throw IllegalArgumentException("unexpected import")
         })
 
@@ -101,6 +104,41 @@ class ExtensionPackageVerifierTest {
         val failure = reject(fixture, hostAllowedHosts = emptySet())
 
         assertEquals(ExtensionPackageFailure.KEY_UNAUTHORIZED, failure.failure)
+    }
+
+    @Test
+    fun `signed navigation capabilities reach the wasm profile verifier`() {
+        val fixture = fixture(navigation = "\"OVERVIEW_NAVIGATION\",\"EPISODE_NAVIGATION\"")
+        var seen: Set<NavigationCapability> = emptySet()
+        val verifier = ExtensionPackageVerifier(WasmCoreModuleProfileVerifier { _, capabilities -> seen = capabilities })
+        val verified = verifier.verify(fixture.archive, fixture.catalog, fixture.publisherKey,
+            setOf(SourceRole.CALENDAR), setOf("aniworld.to"), 1, "wasmtime-37.0.0", NOW)
+        assertEquals(setOf(NavigationCapability.OVERVIEW_NAVIGATION, NavigationCapability.EPISODE_NAVIGATION), seen)
+        assertEquals(seen, verified.navigationCapabilities)
+    }
+
+    @Test
+    fun `display name controls and bidi markers fail closed`() {
+        for (name in listOf("", "bad\nname", "bad\u202ename", "bad\u2066name", "x".repeat(65))) {
+            assertEquals(ExtensionPackageFailure.INVALID_MANIFEST, reject(fixture(displayName = name)).failure)
+        }
+    }
+
+    @Test
+    fun `unknown and duplicated navigation capabilities fail closed`() {
+        for (navigation in listOf("\"OTHER\"", "\"OVERVIEW_NAVIGATION\",\"OVERVIEW_NAVIGATION\"")) {
+            assertEquals(ExtensionPackageFailure.INVALID_MANIFEST, reject(fixture(navigation = navigation)).failure)
+        }
+    }
+
+    @Test
+    fun `catalog presentation and capabilities must match the signed manifest`() {
+        val fixture = fixture()
+        assertEquals(ExtensionPackageFailure.UNTRUSTED_BINDING,
+            reject(fixture.copy(catalog = fixture.catalog.copy(displayName = "Other"))).failure)
+        assertEquals(ExtensionPackageFailure.UNTRUSTED_BINDING,
+            reject(fixture.copy(catalog = fixture.catalog.copy(
+                navigationCapabilities = setOf(NavigationCapability.OVERVIEW_NAVIGATION)))).failure)
     }
 
     private fun reject(
@@ -125,7 +163,7 @@ class ExtensionPackageVerifierTest {
         throw AssertionError("expected package verification to fail")
     }
 
-    private fun verifier() = ExtensionPackageVerifier(WasmCoreModuleProfileVerifier { module ->
+    private fun verifier() = ExtensionPackageVerifier(WasmCoreModuleProfileVerifier { module, _ ->
         assertTrue(module.contentEquals(WASM_MODULE))
     })
 
@@ -134,11 +172,13 @@ class ExtensionPackageVerifierTest {
         duplicateManifestKey: Boolean = false,
         extraEntry: Pair<String, ByteArray>? = null,
         moduleOverride: ByteArray? = null,
+        displayName: String = "AniWorld",
+        navigation: String = "",
     ): Fixture {
         val module = WASM_MODULE
         val provenance = provenance(module)
         val notice = "SPDX-License-Identifier: MIT\n".toByteArray(StandardCharsets.UTF_8)
-        val manifest = manifest(module, provenance, notice)
+        val manifest = manifest(module, provenance, notice, displayName.replace("\n", "\\n"), navigation)
         val canonicalManifest = JsonCanonicalizer(manifest).encodedString.toByteArray(StandardCharsets.UTF_8)
         val privateKey = Ed25519PrivateKeyParameters(ByteArray(32) { (it + 1).toByte() }, 0)
         val signer = Ed25519Signer()
@@ -177,6 +217,8 @@ class ExtensionPackageVerifierTest {
         val catalog = VerifiedCatalogPackageBinding(
             extensionId = "aniworld.release",
             providerId = "aniworld",
+            displayName = displayName,
+            navigationCapabilities = NavigationCapability.entries.filter { navigation.contains(it.name) }.toSet(),
             publisherId = "animine-ai",
             keyId = "publisher-key-1",
             version = "1.0.0",
@@ -194,6 +236,7 @@ class ExtensionPackageVerifierTest {
             publicKey = privateKey.generatePublicKey().encoded,
             trustRootVersion = 1,
             allowedRoles = setOf(SourceRole.CALENDAR),
+            allowedNavigationCapabilities = NavigationCapability.entries.toSet(),
             allowedHosts = setOf("aniworld.to"),
             notBefore = Instant.parse("2026-01-01T00:00:00Z"),
             expiresAt = Instant.parse("2027-01-01T00:00:00Z"),
@@ -202,8 +245,8 @@ class ExtensionPackageVerifierTest {
         return Fixture(archive, catalog, publisherKey, module)
     }
 
-    private fun manifest(module: ByteArray, provenance: ByteArray, notice: ByteArray): String =
-        """{"schemaVersion":1,"extensionId":"aniworld.release","providerId":"aniworld","version":"1.0.0","releaseSequence":1,"hostApiMin":1,"hostApiMax":1,"capabilities":["CALENDAR"],"allowedHosts":["aniworld.to"],"digests":{"module":{"sha256":"${sha256(module)}","bytes":${module.size}},"provenance":{"sha256":"${sha256(provenance)}","bytes":${provenance.size}},"notice":{"sha256":"${sha256(notice)}","bytes":${notice.size}}},"publisherId":"animine-ai","keyId":"publisher-key-1","sourceRepository":"https://github.com/animine-ai/Anihyou","sourceCommit":"${"a".repeat(40)}","build":{"toolchainVersion":"rustc-1.88.0","target":"wasm32-wasip1","lockfileDigest":"${"b".repeat(64)}","workflowIdentity":".github/workflows/extension-build.yml"}}"""
+    private fun manifest(module: ByteArray, provenance: ByteArray, notice: ByteArray, displayName: String, navigation: String): String =
+        """{"schemaVersion":1,"extensionId":"aniworld.release","providerId":"aniworld","displayName":"$displayName","version":"1.0.0","releaseSequence":1,"hostApiMin":1,"hostApiMax":1,"capabilities":["CALENDAR"],"navigationCapabilities":[$navigation],"allowedHosts":["aniworld.to"],"digests":{"module":{"sha256":"${sha256(module)}","bytes":${module.size}},"provenance":{"sha256":"${sha256(provenance)}","bytes":${provenance.size}},"notice":{"sha256":"${sha256(notice)}","bytes":${notice.size}}},"publisherId":"animine-ai","keyId":"publisher-key-1","sourceRepository":"https://github.com/animine-ai/Anihyou","sourceCommit":"${"a".repeat(40)}","build":{"toolchainVersion":"rustc-1.88.0","target":"wasm32-wasip1","lockfileDigest":"${"b".repeat(64)}","workflowIdentity":".github/workflows/extension-build.yml"}}"""
 
     private fun provenance(module: ByteArray): ByteArray =
         """{"schemaVersion":1,"sourceRepository":"https://github.com/animine-ai/Anihyou","sourceCommit":"${"a".repeat(40)}","licenseSpdx":["MIT"],"components":[],"localModifications":[],"compilerVersion":"rustc-1.88.0","sdkVersion":"wasm32-wasip1","dependencyLockDigest":"${"b".repeat(64)}","reproducibleBuildCommand":"cargo build --locked --release --target wasm32-wasip1","workflowIdentity":".github/workflows/extension-build.yml","moduleDigest":"${sha256(module)}"}"""

@@ -25,11 +25,13 @@ The manifest is a JSON object with exactly these fields:
   "schemaVersion": 1,
   "extensionId": "aniworld.release",
   "providerId": "aniworld",
+  "displayName": "AniWorld",
   "version": "1.0.0",
   "releaseSequence": 1,
   "hostApiMin": 1,
   "hostApiMax": 1,
   "capabilities": ["CALENDAR"],
+  "navigationCapabilities": ["OVERVIEW_NAVIGATION", "EPISODE_NAVIGATION"],
   "allowedHosts": ["aniworld.to"],
   "digests": {
     "module": {"sha256": "<lowercase SHA-256>", "bytes": 8},
@@ -49,13 +51,13 @@ The manifest is a JSON object with exactly these fields:
 }
 ```
 
-Numbers must be safe integers. Release sequence is positive. The host API range must be exactly `1..1`. Capabilities are unique `SourceRole` names. Host grants are unique lowercase DNS names without wildcards or IP literals. Repository URLs use HTTPS without credentials, query, or fragment. Unknown and duplicate object keys are rejected.
+Numbers must be safe integers. Release sequence is positive. The host API range must be exactly `1..1`. `capabilities` contains unique release `SourceRole` names; `navigationCapabilities` contains unique known navigation capability names and may be empty. At least one capability across both lists is required. `displayName` is authenticated presentation text of 1..64 Unicode scalar values, with controls and bidi formatting characters rejected; it is never a trust or Authority identifier. Host grants are unique lowercase DNS names without wildcards or IP literals. Repository URLs use HTTPS without credentials, query, or fragment. Unknown and duplicate object keys are rejected.
 
 ## Signature and provenance
 
 All signed JSON is parsed as strict UTF-8, rejects duplicate keys, and is canonicalized with RFC 8785 JCS. The canonical manifest SHA-256 must match the authenticated catalog entry. `package.sig` has exactly `algorithm`, `keyId`, and `signature`; the algorithm is `Ed25519`, and the signature is canonical standard Base64 encoding of 64 bytes.
 
-The signature input is the UTF-8 bytes of `AREX-PACKAGE-V1`, followed by one LF byte, followed by the JCS canonical manifest bytes. The signing key must be authorized for the exact publisher, extension, provider, roles, and destinations. Effective roles and destinations are the intersection of manifest grants, publisher-key scope, and host policy.
+The signature input is the UTF-8 bytes of `AREX-PACKAGE-V1`, followed by one LF byte, followed by the JCS canonical manifest bytes. The signing key must be authorized for the exact publisher, extension, provider, release roles, navigation capabilities, and destinations. The authenticated catalog must bind `displayName` and navigation capabilities exactly to the signed manifest. No signed grant may exceed publisher/host scope. The capability set is passed to the Wasm profile verifier for export allowlisting.
 
 `provenance.json` has exactly `schemaVersion`, `sourceRepository`, `sourceCommit`, `licenseSpdx`, `components`, `localModifications`, `compilerVersion`, `sdkVersion`, `dependencyLockDigest`, `reproducibleBuildCommand`, `workflowIdentity`, and `moduleDigest`. Repository, commit, lock digest, workflow identity, and module digest must match the signed manifest. Every content entry is checked against its signed byte count and SHA-256 before the package can be returned.
 

@@ -1,6 +1,7 @@
 package com.axiel7.anihyou.release.data.extension
 
 import com.axiel7.anihyou.release.core.extension.ExtensionId
+import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import com.axiel7.anihyou.release.core.extension.ProviderId
 import com.axiel7.anihyou.release.core.extension.SourceRole
 import java.io.ByteArrayOutputStream
@@ -30,6 +31,8 @@ import org.erdtman.jcs.JsonCanonicalizer
 internal data class VerifiedCatalogPackageBinding(
     val extensionId: String,
     val providerId: String,
+    val displayName: String,
+    val navigationCapabilities: Set<NavigationCapability>,
     val publisherId: String,
     val keyId: String,
     val version: String,
@@ -49,6 +52,7 @@ internal class AuthorizedExtensionPublisherKey(
     publicKey: ByteArray,
     val trustRootVersion: Long,
     allowedRoles: Set<SourceRole>,
+    allowedNavigationCapabilities: Set<NavigationCapability>,
     allowedHosts: Set<String>,
     val notBefore: Instant,
     val expiresAt: Instant,
@@ -57,12 +61,14 @@ internal class AuthorizedExtensionPublisherKey(
     private val keyContent = publicKey.copyOf()
     val publicKey: ByteArray get() = keyContent.copyOf()
     val allowedRoles: Set<SourceRole> = allowedRoles.toSet()
+    val allowedNavigationCapabilities: Set<NavigationCapability> = allowedNavigationCapabilities.toSet()
     val allowedHosts: Set<String> = allowedHosts.toSet()
 }
 
 /** The production implementation must inspect Wasm features/imports/exports before activation. */
 internal fun interface WasmCoreModuleProfileVerifier {
-    fun verify(moduleBytes: ByteArray)
+    /** Check the exact release exports and the exports allowed by the signed capability set. */
+    fun verify(moduleBytes: ByteArray, navigationCapabilities: Set<NavigationCapability>)
 }
 
 internal enum class ExtensionPackageFailure {
@@ -142,6 +148,8 @@ internal class ExtensionPackageVerifier(
         }
         if (manifest.extensionId.value != catalog.extensionId ||
             manifest.providerId.value != catalog.providerId ||
+            manifest.displayName != catalog.displayName ||
+            manifest.navigationCapabilities != catalog.navigationCapabilities ||
             manifest.publisherId != catalog.publisherId ||
             manifest.keyId != catalog.keyId ||
             manifest.version != catalog.version ||
@@ -157,12 +165,16 @@ internal class ExtensionPackageVerifier(
         verifyProvenance(provenanceBytes, manifest)
 
         val grantedRoles = manifest.capabilities.intersect(publisherKey.allowedRoles).intersect(hostAllowedRoles)
+        val grantedNavigation = manifest.navigationCapabilities.intersect(publisherKey.allowedNavigationCapabilities)
         val grantedHosts = manifest.allowedHosts.intersect(publisherKey.allowedHosts).intersect(hostAllowedHosts)
-        if (grantedRoles.isEmpty() || grantedHosts.isEmpty()) {
-            fail(ExtensionPackageFailure.KEY_UNAUTHORIZED, "package has no host-approved role or destination")
+        if (grantedRoles != manifest.capabilities || grantedNavigation != manifest.navigationCapabilities ||
+            grantedHosts != manifest.allowedHosts || grantedHosts.isEmpty() ||
+            (grantedRoles.isEmpty() && grantedNavigation.isEmpty())
+        ) {
+            fail(ExtensionPackageFailure.KEY_UNAUTHORIZED, "signed capability or destination is outside trusted scope")
         }
         try {
-            wasmProfileVerifier.verify(moduleBytes.copyOf())
+            wasmProfileVerifier.verify(moduleBytes.copyOf(), grantedNavigation)
         } catch (error: Exception) {
             throw ExtensionPackageVerificationException(
                 ExtensionPackageFailure.MODULE_PROFILE_REJECTED,
@@ -174,6 +186,7 @@ internal class ExtensionPackageVerifier(
         return VerifiedExtensionPackage(
             extensionId = manifest.extensionId,
             providerId = manifest.providerId,
+            displayName = manifest.displayName,
             publisherId = manifest.publisherId,
             signingKeyId = manifest.keyId,
             trustRootVersion = publisherKey.trustRootVersion,
@@ -185,6 +198,7 @@ internal class ExtensionPackageVerifier(
             moduleDigest = manifest.digests.module.sha256,
             moduleBytes = moduleBytes,
             grantedRoles = grantedRoles,
+            navigationCapabilities = grantedNavigation,
             grantedHosts = grantedHosts,
             runtimeVersion = runtimeVersion,
         )
@@ -281,8 +295,8 @@ internal class ExtensionPackageVerifier(
         val root = strictObject(bytes, MAX_MANIFEST_BYTES, "manifest")
         val fields = root.exactFields(
             setOf(
-                "schemaVersion", "extensionId", "providerId", "version", "releaseSequence",
-                "hostApiMin", "hostApiMax", "capabilities", "allowedHosts", "digests",
+                "schemaVersion", "extensionId", "providerId", "displayName", "version", "releaseSequence",
+                "hostApiMin", "hostApiMax", "capabilities", "navigationCapabilities", "allowedHosts", "digests",
                 "publisherId", "keyId", "sourceRepository", "sourceCommit", "build",
             ),
             "manifest",
@@ -290,6 +304,7 @@ internal class ExtensionPackageVerifier(
         if (fields.int("schemaVersion") != 1) fail(ExtensionPackageFailure.UNSUPPORTED_ABI, "manifest schema is unsupported")
         val extensionId = parseExtensionId(fields.string("extensionId", 128))
         val providerId = parseProviderId(fields.string("providerId", 128))
+        val displayName = validateDisplayName(fields.string("displayName", MAX_MANIFEST_BYTES))
         val version = fields.string("version", 128)
         if (!SEMVER.matches(version)) fail(ExtensionPackageFailure.INVALID_MANIFEST, "manifest version is not SemVer")
         val sequence = fields.safeLong("releaseSequence")
@@ -304,9 +319,17 @@ internal class ExtensionPackageVerifier(
             SourceRole.entries.firstOrNull { it.name == name }
                 ?: fail(ExtensionPackageFailure.INVALID_MANIFEST, "manifest has an unknown source role")
         }.toSet()
-        if (roles.isEmpty() || roles.size != fields.array("capabilities", SourceRole.entries.size).size) {
-            fail(ExtensionPackageFailure.INVALID_MANIFEST, "manifest capabilities must be nonempty and unique")
+        if (roles.size != fields.array("capabilities", SourceRole.entries.size).size) {
+            fail(ExtensionPackageFailure.INVALID_MANIFEST, "manifest release roles must be unique")
         }
+        val navigation = fields.array("navigationCapabilities", NavigationCapability.entries.size).map { item ->
+            val name = item.string("navigationCapability", 64)
+            NavigationCapability.entries.firstOrNull { it.name == name }
+                ?: fail(ExtensionPackageFailure.INVALID_MANIFEST, "manifest has an unknown navigation capability")
+        }.toSet()
+        if (navigation.size != fields.array("navigationCapabilities", NavigationCapability.entries.size).size ||
+            (roles.isEmpty() && navigation.isEmpty())
+        ) fail(ExtensionPackageFailure.INVALID_MANIFEST, "manifest capabilities must be unique and nonempty together")
         val hosts = fields.array("allowedHosts", MAX_HOSTS).map { item ->
             val host = item.string("allowedHost", 253)
             if (!DNS_NAME.matches(host) || host != host.lowercase(Locale.ROOT) || looksLikeIpLiteral(host)) {
@@ -339,9 +362,11 @@ internal class ExtensionPackageVerifier(
         return ParsedManifest(
             extensionId = extensionId,
             providerId = providerId,
+            displayName = displayName,
             version = version,
             releaseSequence = sequence,
             capabilities = roles,
+            navigationCapabilities = navigation,
             allowedHosts = hosts,
             digests = digests,
             publisherId = publisherId,
@@ -465,6 +490,7 @@ internal class ExtensionPackageVerifier(
     }
 
     private fun validateBinding(binding: VerifiedCatalogPackageBinding) {
+        validateDisplayName(binding.displayName)
         if (!SHA256.matches(binding.archiveSha256) || !SHA256.matches(binding.canonicalManifestSha256) ||
             binding.archiveBytes !in MIN_ARCHIVE_BYTES.toLong()..MAX_ARCHIVE_BYTES.toLong() ||
             binding.releaseSequence <= 0L || !SEMVER.matches(binding.version) ||
@@ -474,6 +500,19 @@ internal class ExtensionPackageVerifier(
         }
         parseExtensionId(binding.extensionId)
         parseProviderId(binding.providerId)
+        if (binding.navigationCapabilities.size > NavigationCapability.entries.size) {
+            fail(ExtensionPackageFailure.UNTRUSTED_BINDING, "catalog has invalid navigation capabilities")
+        }
+    }
+
+    private fun validateDisplayName(value: String): String {
+        if (!hasWellFormedSurrogates(value) || value.codePointCount(0, value.length) !in 1..64 ||
+            value.codePoints().anyMatch { codePoint ->
+                Character.isISOControl(codePoint) ||
+                    codePoint in 0x202A..0x202E || codePoint in 0x2066..0x2069
+            }
+        ) fail(ExtensionPackageFailure.INVALID_MANIFEST, "displayName contains forbidden or excessive characters")
+        return value
     }
 
     private fun strictObject(bytes: ByteArray, maximumBytes: Int, field: String): JsonObject {
@@ -571,9 +610,11 @@ internal class ExtensionPackageVerifier(
     private data class ParsedManifest(
         val extensionId: ExtensionId,
         val providerId: ProviderId,
+        val displayName: String,
         val version: String,
         val releaseSequence: Long,
         val capabilities: Set<SourceRole>,
+        val navigationCapabilities: Set<NavigationCapability>,
         val allowedHosts: Set<String>,
         val digests: ContentDigests,
         val publisherId: String,

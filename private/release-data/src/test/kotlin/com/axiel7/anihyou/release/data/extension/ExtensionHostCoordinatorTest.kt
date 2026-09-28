@@ -195,6 +195,7 @@ class ExtensionHostCoordinatorTest {
         return VerifiedExtensionPackage(
             extensionId = ExtensionId.parse("de.aniworld"),
             providerId = ProviderId.parse("de.aniworld"),
+            displayName = "AniWorld",
             publisherId = "fixture-publisher",
             signingKeyId = "fixture-key-1",
             trustRootVersion = 1,
@@ -206,6 +207,7 @@ class ExtensionHostCoordinatorTest {
             moduleDigest = sha256(module),
             moduleBytes = module,
             grantedRoles = roles,
+            navigationCapabilities = emptySet(),
             grantedHosts = setOf("aniworld.to"),
             runtimeVersion = "fixture-runtime",
         )

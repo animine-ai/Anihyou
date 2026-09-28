@@ -5,6 +5,7 @@ import com.axiel7.anihyou.release.core.extension.ExtensionExecutionLimits
 import com.axiel7.anihyou.release.core.extension.ExtensionExecutionReceipt
 import com.axiel7.anihyou.release.core.extension.ExtensionId
 import com.axiel7.anihyou.release.core.extension.ExtensionMethod
+import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import com.axiel7.anihyou.release.core.extension.ExtensionResponseStatus
 import com.axiel7.anihyou.release.core.extension.ExtensionRuntime
 import com.axiel7.anihyou.release.core.extension.ExtensionRuntimeResult
@@ -40,6 +41,7 @@ enum class ExtensionHostFailureCode {
 class VerifiedExtensionPackage internal constructor(
     val extensionId: ExtensionId,
     val providerId: ProviderId,
+    val displayName: String,
     val publisherId: String,
     val signingKeyId: String,
     val trustRootVersion: Long,
@@ -51,6 +53,7 @@ class VerifiedExtensionPackage internal constructor(
     val moduleDigest: String,
     moduleBytes: ByteArray,
     val grantedRoles: Set<SourceRole>,
+    val navigationCapabilities: Set<NavigationCapability>,
     /** Host-policy intersection with signed manifest grants; exact DNS names only. */
     val grantedHosts: Set<String>,
     val runtimeVersion: String,
