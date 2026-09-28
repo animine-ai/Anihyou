@@ -28,12 +28,23 @@ class StrictWasmModuleProfileVerifierTest {
         assertThrows(IllegalArgumentException::class.java) { verifier.verify(module(memoryFlags = 4), emptySet()) }
     }
 
+    @Test fun `missing diagnostic import and data-count section are rejected`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            verifier.verify(module(includeDiagnosticImport = false), emptySet())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            verifier.verify(module(dataCount = true), emptySet())
+        }
+    }
+
     private fun module(
         navigation: Boolean = false,
         importName: String = "diagnostic",
         memoryFlags: Int = 1,
         start: Boolean = false,
         wrongSignature: Boolean = false,
+        includeDiagnosticImport: Boolean = true,
+        dataCount: Boolean = false,
     ): ByteArray = ByteArrayOutputStream().apply {
         write(byteArrayOf(0, 97, 115, 109, 1, 0, 0, 0))
         // Four function types: diagnostic, allocator, free, operation.
@@ -41,9 +52,11 @@ class StrictWasmModuleProfileVerifierTest {
             0x60, 1, 0x7f, 1, 0x7f,
             0x60, 2, 0x7f, 0x7f, 0,
             0x60, 2, 0x7f, 0x7f, 1, 0x7e))
-        section(2, ByteArrayOutputStream().apply {
-            write(1); name("arex_v1"); name(importName); write(0); write(0)
-        }.toByteArray())
+        if (includeDiagnosticImport) {
+            section(2, ByteArrayOutputStream().apply {
+                write(1); name("arex_v1"); name(importName); write(0); write(0)
+            }.toByteArray())
+        }
         val types = (if (navigation) listOf(1, 2, 3, 3, 3, 3) else listOf(1, 2, 3, 3))
             .toMutableList().also { if (wrongSignature) it[2] = 2 }
         section(3, bytes(types.size, *types.toIntArray()))
@@ -58,6 +71,7 @@ class StrictWasmModuleProfileVerifierTest {
             }
         }.toByteArray())
         if (start) section(8, bytes(1))
+        if (dataCount) section(12, bytes(0))
         section(10, ByteArrayOutputStream().apply {
             write(types.size)
             types.forEachIndexed { index, _ ->
