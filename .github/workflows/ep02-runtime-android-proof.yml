@@ -100,8 +100,12 @@ jobs:
       - name: Build deterministic fixture and Kotlin-host APK
         shell: bash
         run: |
+          native_so=tools/ep02-android/native-artifact/native-out/libarex_runtime.so
+          native_lock=tools/ep02-android/native-artifact/native-out/Cargo.lock
+          test -f "$native_so"
+          test -f "$native_lock"
           mkdir -p tools/ep02-android/host-app/src/main/jniLibs/x86_64
-          cp tools/ep02-android/native-artifact/libarex_runtime.so tools/ep02-android/host-app/src/main/jniLibs/x86_64/
+          cp "$native_so" tools/ep02-android/host-app/src/main/jniLibs/x86_64/
           bash tools/ep02-android/build-fixture.sh
           git rev-parse HEAD > tools/ep02-android/source-commit.txt
           task=":tools:ep02-runtime-app:assemble${{ matrix.variant == 'release' && 'Release' || 'Debug' }}"
@@ -133,7 +137,7 @@ jobs:
           mkdir -p tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}
           cp tools/ep02-android/source-commit.txt tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}/ 2>/dev/null || true
           cp tools/ep02-android/apk.sha256 tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}/ 2>/dev/null || true
-          cp tools/ep02-android/native-artifact/Cargo.lock tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}/ 2>/dev/null || true
+          cp tools/ep02-android/native-artifact/native-out/Cargo.lock tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}/ 2>/dev/null || true
           timeout 15 adb logcat -d > tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}/cleanup-logcat.txt 2>&1 || true
       - name: Upload EP02 host APK, R8 and runtime evidence
         if: always()
