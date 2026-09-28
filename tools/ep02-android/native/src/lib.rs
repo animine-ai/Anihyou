@@ -23,7 +23,7 @@ use std::{
 };
 use wasmtime::{
     Caller, Config, Engine, Instance, Linker, Memory, Module, Store, StoreLimits,
-    StoreLimitsBuilder, Strategy,
+    StoreLimitsBuilder, Strategy, Trap,
 };
 
 const MAX_MODULE_BYTES: usize = 8 * 1024 * 1024;
@@ -34,7 +34,8 @@ const MAX_MODULE_CACHE: usize = 8;
 const MAX_DIAGNOSTIC_CALLS: u32 = 32;
 const MAX_DIAGNOSTIC_BYTES: usize = 8 * 1024;
 const EPOCH_TICK_MILLIS: u64 = 5;
-const CANCEL_EPOCH_JUMP: usize = 10_000;
+const MAX_DEADLINE_MILLIS: u64 = 60_000;
+const CANCEL_EPOCH_JUMP: usize = (MAX_DEADLINE_MILLIS / EPOCH_TICK_MILLIS + 2) as usize;
 
 static ENGINE: OnceLock<Engine> = OnceLock::new();
 static ENGINE_INIT: Mutex<()> = Mutex::new(());
@@ -322,7 +323,7 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
         ensure!(max_output > 0 && max_output as usize <= MAX_OUTPUT_BYTES, "OUTPUT_LIMIT");
         ensure!(memory_bytes > 0 && memory_bytes as usize <= MAX_MEMORY_BYTES, "MEMORY_LIMIT");
         ensure!(fuel > 0, "INVALID_INPUT");
-        ensure!(deadline_millis > 0 && deadline_millis <= 60_000, "INVALID_INPUT");
+        ensure!(deadline_millis > 0 && deadline_millis <= MAX_DEADLINE_MILLIS as jlong, "INVALID_INPUT");
         let digest = read_string(&mut env, &digest, 64)?;
         let export_name = read_string(&mut env, &export_name, 64)?;
         ensure!(
@@ -351,6 +352,11 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
         let guest_started = Instant::now();
         let call_result = host.call(&export_name, &input);
         let guest_elapsed = guest_started.elapsed();
+        let interrupted = call_result
+            .as_ref()
+            .err()
+            .and_then(|error| error.downcast_ref::<Trap>())
+            .is_some_and(|trap| *trap == Trap::Interrupt);
         let _ = ACTIVE_INVOCATION.compare_exchange(
             invocation_id as u64,
             0,
@@ -360,10 +366,8 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
         let reason = INTERRUPT_REASON.swap(0, Ordering::AcqRel);
         let output = match call_result {
             Ok(value) => value,
-            Err(error) if reason == 1 => bail!("CANCELLED:{error:#}"),
-            Err(error) if guest_elapsed >= Duration::from_millis(deadline_millis.saturating_sub(10) as u64) => {
-                bail!("DEADLINE:{error:#}")
-            }
+            Err(error) if reason == 1 && interrupted => bail!("CANCELLED:{error:#}"),
+            Err(error) if interrupted => bail!("DEADLINE:{error:#}"),
             Err(error) => return Err(error),
         };
         let native_micros = native_started.elapsed().as_micros();

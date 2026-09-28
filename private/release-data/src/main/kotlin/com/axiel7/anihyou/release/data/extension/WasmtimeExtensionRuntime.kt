@@ -200,6 +200,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 if (reply == null) {
                     fence(token, generation)
                     sendCancel(activeSession, token, generation)
+                    terminate(activeSession)
                     return@coroutineScope ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.DEADLINE)
                 }
                 if (reply.status != RuntimeProtocol.STATUS_OK) {
@@ -220,6 +221,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         } catch (cancelled: CancellationException) {
             fence(token, generation)
             sendCancel(activeSession, token, generation)
+            terminate(activeSession)
             throw cancelled
         } catch (_: Exception) {
             fence(token, generation)
@@ -378,6 +380,18 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         }
     }
 
+    /**
+     * A timed-out or coroutine-cancelled invocation is no longer trusted to have stopped.
+     * Killing only on failure keeps steady-state warm while guaranteeing the next invocation
+     * cannot queue behind an unfenced guest.
+     */
+    private fun terminate(activeSession: Session) {
+        runCatching {
+            activeSession.messenger.send(Message.obtain(null, RuntimeProtocol.MSG_KILL))
+        }
+        invalidate(activeSession)
+    }
+
     private fun parseDiagnostics(reply: RuntimeReply, totalMicros: Long, generation: Long): ExtensionRuntimeCallDiagnostics =
         parseNativeMetrics(
             reply.nativeMetrics,
@@ -424,6 +438,8 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         if (activeSession != null) runCatching { appContext.unbindService(activeSession.connection) }
         pending.values.forEach { it.reply.cancel() }
         pending.clear()
+        started.values.forEach { it.cancel() }
+        started.clear()
         callbackThread.quitSafely()
     }
 
@@ -509,9 +525,14 @@ class WasmtimeRuntimeService : Service() {
                     ParcelFileDescriptor.AutoCloseInputStream(it).use { input -> readBounded(input, 4 * 1024 * 1024) }
                 } ?: throw IllegalArgumentException("runtime input missing")
             val readMicros = (System.nanoTime() - readStarted) / 1_000
+            val digest = requireNotNull(data.getString(RuntimeProtocol.KEY_DIGEST))
+            require(SHA256.matches(digest)) { "invalid module digest" }
+            if (module.isNotEmpty()) {
+                require(sha256(module) == digest) { "module digest mismatch" }
+            }
 
             val output = WasmtimeNativeBridge.nativeExecute(
-                requireNotNull(data.getString(RuntimeProtocol.KEY_DIGEST)),
+                digest,
                 module,
                 requireNotNull(data.getString(RuntimeProtocol.KEY_EXPORT)),
                 input,
@@ -592,6 +613,12 @@ class WasmtimeRuntimeService : Service() {
 
     private companion object {
         const val INLINE_PAYLOAD_BYTES = 48 * 1024
+        val SHA256 = Regex("[0-9a-f]{64}")
+
+        fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
         fun readBounded(input: InputStream, maximum: Int): ByteArray {
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(16 * 1024)
