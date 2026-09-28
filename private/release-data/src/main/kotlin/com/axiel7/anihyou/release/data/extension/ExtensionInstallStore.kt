@@ -46,7 +46,7 @@ internal class ExtensionInstallStore(
     }
 
     fun acceptRoot(envelope: ByteArray, now: Instant) = serialized {
-        require(state.roots.size < 32)
+        require(state.roots.size < 16)
         val current = roots(state).lastOrNull()
         val next = trust.root(envelope, current, effectiveTime(now))
         val updated = state.copy(roots = state.roots + SignedRecord(envelope.copyOf(), effectiveTime(now)),
@@ -56,13 +56,13 @@ internal class ExtensionInstallStore(
     }
 
     fun acceptIndex(envelope: ByteArray, now: Instant) = serialized {
-        require(state.indexes.size < 128)
         val root = roots(state).lastOrNull() ?: error("no pinned root")
         val previous = latestIndex(state)
         val acceptedAt = effectiveTime(now)
         val next = trust.index(envelope, root, previous, acceptedAt)
+        require(previous?.sequence == next.sequence || state.indexes.size < 16)
         val revoked = state.revoked + next.packages.filter { it.revoked }.map { it.binding.archiveSha256 }
-        val updated = state.copy(indexes = state.indexes + SignedRecord(envelope.copyOf(), acceptedAt),
+        val updated = state.copy(indexes = if (previous?.sequence == next.sequence) state.indexes else state.indexes + SignedRecord(envelope.copyOf(), acceptedAt),
             indexHigh = maxOf(state.indexHigh, next.sequence), indexDigest = next.digest,
             revoked = revoked, clock = acceptedAt)
         commit(updated)
@@ -225,7 +225,7 @@ internal class ExtensionInstallStore(
         "acceptedAt" to JsonPrimitive(r.acceptedAt.toString()),
     ))
     private fun decode(bytes: ByteArray): State {
-        val o = ExtensionWireCodec.parseStrictJson(bytes, 1048576) as JsonObject
+        val o = ExtensionWireCodec.parseStrictJson(bytes, 8 * 1048576) as JsonObject
         fun record(v: JsonElement) = (v as JsonObject).let { SignedRecord(Base64.getDecoder().decode((it["bytes"] as JsonPrimitive).content), Instant.parse((it["at"] as JsonPrimitive).content)) }
         fun receipt(v: JsonElement?): InstallReceipt? = if (v == null || v == JsonNull) null else (v as JsonObject).let {
             InstallReceipt((it["digest"] as JsonPrimitive).content, (it["manifest"] as JsonPrimitive).content,
