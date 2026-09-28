@@ -79,7 +79,7 @@ class ExtensionTrustVerifierTest {
         assertEquals(7L, signedIndex.sequence)
         assertEquals(indexDoc.digest, signedIndex.digest)
         assertEquals("demo.extension", packageEntry.binding.extensionId)
-        assertEquals("https://cdn.example/packages/demo-1.arex", packageEntry.url)
+        assertEquals("https://cdn.example/packages/$ARCHIVE_DIGEST.arex", packageEntry.url)
         assertEquals(1234L, packageEntry.binding.archiveBytes)
         assertEquals(ARCHIVE_DIGEST, packageEntry.binding.archiveSha256)
         assertEquals(MANIFEST_DIGEST, packageEntry.binding.canonicalManifestSha256)
@@ -202,7 +202,7 @@ class ExtensionTrustVerifierTest {
             rootVersion: Long,
             sequence: Long,
             displayName: String = "Demo",
-            packageUrl: String = "https://cdn.example/packages/demo-1.arex",
+            packageUrl: String = "https://cdn.example/packages/$ARCHIVE_DIGEST.arex",
             publisherId: String = "publisher-key",
             yanked: Boolean = false,
             revoked: Boolean = false,

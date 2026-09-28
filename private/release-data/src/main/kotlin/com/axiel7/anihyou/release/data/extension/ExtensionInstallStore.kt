@@ -139,7 +139,7 @@ internal class ExtensionInstallStore(
         commit(state.copy(active = fallback, quarantine = newlyQuarantined, rollbackUsed = true,
             knownGood = fallback, previousGood = null, clock = effectiveTime(now)))
         failure.at(InstallBoundary.QUARANTINE)
-        fallback
+        return fallback
     }
 
     override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? = serialized {

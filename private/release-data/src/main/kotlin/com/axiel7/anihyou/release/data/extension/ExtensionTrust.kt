@@ -137,19 +137,21 @@ internal class ExtensionTrustVerifier(private val pin: AppTrustPin) {
             val o = entry as? JsonObject ?: error("entry object")
             o.fields("extensionId", "providerId", "displayName", "navigationCapabilities", "publisherId", "keyId", "version", "releaseSequence", "hostApiMin", "hostApiMax", "packageUrl", "archiveSha256", "archiveBytes", "manifestSha256", "yanked", "revoked")
             require(o.long("hostApiMin") == 1L && o.long("hostApiMax") == 1L)
+            val archive = o.str("archiveSha256", 64)
+            val manifest = o.str("manifestSha256", 64)
+            require(listOf(archive, manifest).all { it.matches(Regex("[0-9a-f]{64}")) })
+            require(o.long("archiveBytes") in 1..(8L * 1024 * 1024))
             val url = o.str("packageUrl", 2048)
             val uri = URI(url)
             require(uri.scheme == "https" && uri.rawUserInfo == null && uri.rawFragment == null && uri.rawQuery == null &&
                 uri.port == -1 && uri.host != null && !uri.host.all { it.isDigit() || it == '.' } && ':' !in uri.host &&
-                "https://${uri.host}" in pin.distributionOrigins && uri.path.endsWith(".arex"))
+                "https://${uri.host}" in pin.distributionOrigins && uri.rawPath != null && '%' !in uri.rawPath &&
+                ".." !in uri.rawPath && uri.rawPath.endsWith("/$archive.arex"))
             val publisher = o.str("publisherId", 128)
             val extension = o.str("extensionId", 128)
             val provider = o.str("providerId", 128)
             val key = o.str("keyId", 64)
             require(root.publishers.any { it.publisherId == publisher && it.extensionId == extension && it.providerId == provider && it.keyId == key && now >= it.notBefore && now < it.expiresAt })
-            val archive = o.str("archiveSha256", 64)
-            val manifest = o.str("manifestSha256", 64)
-            require(listOf(archive, manifest).all { it.matches(Regex("[0-9a-f]{64}")) })
             val navigation = o.array("navigationCapabilities", 4).map { NavigationCapability.valueOf((it as JsonPrimitive).content) }.toSet()
             val binding = VerifiedCatalogPackageBinding(extension, provider, o.str("displayName", 256), navigation, publisher, key,
                 o.str("version", 128), o.long("releaseSequence"), archive, o.long("archiveBytes"), manifest, o.bool("yanked"))

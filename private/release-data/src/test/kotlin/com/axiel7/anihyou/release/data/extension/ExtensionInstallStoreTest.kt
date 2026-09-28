@@ -266,7 +266,7 @@ class ExtensionInstallStoreTest {
                     "releaseSequence" to number(binding.releaseSequence),
                     "hostApiMin" to number(1),
                     "hostApiMax" to number(1),
-                    "packageUrl" to string("$CDN_ORIGIN/packages/demo-${binding.releaseSequence}.arex"),
+                    "packageUrl" to string("$CDN_ORIGIN/packages/${binding.archiveSha256}.arex"),
                     "archiveSha256" to string(binding.archiveSha256),
                     "archiveBytes" to number(binding.archiveBytes),
                     "manifestSha256" to string(binding.canonicalManifestSha256),
