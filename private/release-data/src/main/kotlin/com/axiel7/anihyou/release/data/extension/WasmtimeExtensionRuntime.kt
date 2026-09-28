@@ -83,10 +83,6 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     private val sessionMutex = Mutex()
     private val closed = AtomicBoolean(false)
     private val nextGeneration = AtomicLong(1)
-    private val transportThread = AtomicLong(1)
-    private val transportExecutor = Executors.newFixedThreadPool(2) { runnable ->
-        Thread(runnable, "arex-binder-" + transportThread.getAndIncrement()).apply { isDaemon = true }
-    }
     private val lateResultRejections = AtomicLong(0)
 
     @Volatile private var session: Session? = null
@@ -153,9 +149,10 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     }
 
     /**
-     * One synchronous Binder request/reply per logical attempt. Binder work runs on a bounded host
-     * executor so cancellation and the independent host deadline can fence and kill a wedged
-     * isolated process without waiting for a blocked Binder transaction to return.
+     * One synchronous Binder request/reply per logical attempt. The transaction runs directly on
+     * the caller thread to avoid an extra scheduling hop. The cancellable continuation is already
+     * registered with the parent job while Binder is blocked, so timeout/cancellation can arrive
+     * on another thread, cancel the guest and kill/fence the isolated process fail-closed.
      */
     private suspend fun executeAttempt(
         activeSession: Session,
@@ -211,31 +208,29 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                     else modulePipe?.let { putParcelable(RuntimeProtocol.KEY_MODULE_FD, it[0]) }
                 }
 
-                val replyDeferred = CompletableDeferred<RuntimeReply>()
-                try {
-                    transportExecutor.execute {
+                val reply = withTimeoutOrNull(limits.deadlineMillis + HOST_DEADLINE_GRACE_MILLIS) {
+                    suspendCancellableCoroutine<RuntimeReply> { continuation ->
+                        continuation.invokeOnCancellation {
+                            abortInvocation(activeSession, token, generation)
+                        }
                         try {
-                            replyDeferred.complete(transactExecute(activeSession.binder, request))
+                            val response = transactExecute(activeSession.binder, request)
+                            if (continuation.isActive) {
+                                continuation.resume(response)
+                            } else {
+                                response.outputFd?.close()
+                            }
                         } catch (error: Throwable) {
-                            replyDeferred.completeExceptionally(error)
+                            if (continuation.isActive) {
+                                continuation.resumeWithException(error)
+                            }
                         } finally {
                             inputPipe?.get(0)?.close()
                             modulePipe?.get(0)?.close()
                         }
                     }
-                } catch (rejected: RejectedExecutionException) {
-                    inputPipe?.get(0)?.close()
-                    modulePipe?.get(0)?.close()
-                    throw rejected
-                }
-
-                val reply = withTimeoutOrNull(limits.deadlineMillis + HOST_DEADLINE_GRACE_MILLIS) {
-                    replyDeferred.await()
                 }
                 if (reply == null) {
-                    fence(activeSession, token, generation)
-                    sendCancel(activeSession, token)
-                    terminate(activeSession)
                     try { inputWriter?.await() } catch (_: Exception) {}
                     try { moduleWriter?.await() } catch (_: Exception) {}
                     return@coroutineScope RuntimeAttempt.Failure(
@@ -290,9 +285,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 RuntimeAttempt.Success(output)
             }
         } catch (cancelled: CancellationException) {
-            fence(activeSession, token, generation)
-            sendCancel(activeSession, token)
-            terminate(activeSession)
+            abortInvocation(activeSession, token, generation)
             throw cancelled
         } catch (_: Exception) {
             fence(activeSession, token, generation)
@@ -479,6 +472,14 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         return accepted
     }
 
+    private fun abortInvocation(activeSession: Session, token: Long, generation: Long) {
+        fence(activeSession, token, generation)
+        if (session?.binder === activeSession.binder) {
+            sendCancel(activeSession, token)
+            terminate(activeSession)
+        }
+    }
+
     private fun sendCancel(activeSession: Session, token: Long) {
         runCatching { transactBoolean(activeSession.binder, RuntimeProtocol.TX_CANCEL, token) }
     }
@@ -590,7 +591,6 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         val activeSession = session
         session = null
         if (activeSession != null) runCatching { appContext.unbindService(activeSession.connection) }
-        transportExecutor.shutdownNow()
     }
 
     private data class SessionAcquisition(
