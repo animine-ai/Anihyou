@@ -74,8 +74,8 @@ data class ExtensionRuntimeCallDiagnostics(
 
 /**
  * Production ExtensionRuntime. The service stays warm. Module bytes cross process only on a cache
- * miss and are keyed by the caller-verified immutable SHA-256 digest. Inputs/outputs use pipes,
- * avoiding Binder transaction-size coupling. Every guest call still gets a new Store/Instance.
+ * miss and are keyed by the caller-verified immutable SHA-256 digest. Small bounded payloads use
+ * Binder inline; larger payloads use pipes. Every guest call still gets a new Store/Instance.
  */
 class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, AutoCloseable {
     private val appContext = context.applicationContext
@@ -611,7 +611,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     }
 }
 
-/** Warm isolated process. Binder carries only control metadata and file descriptors. */
+/** Warm isolated process. Binder carries bounded inline payloads or file descriptors. */
 class WasmtimeRuntimeService : Service() {
     private val worker = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "arex-wasm-worker") }
     private lateinit var endpoint: Messenger
