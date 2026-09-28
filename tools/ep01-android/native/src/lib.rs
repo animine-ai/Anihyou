@@ -24,6 +24,9 @@ struct Host { store: Store<State>, instance: Instance, memory: Memory }
 fn engine(metered: bool) -> Result<Engine> {
     let mut config = Config::new();
     config.consume_fuel(metered).epoch_interruption(metered);
+    // AREX v1 is wasm32 only. Keeping memory64 disabled is also a required
+    // mitigation for GHSA-jhxm-h53p-jm7w on Wasmtime 37's AArch64 Cranelift path.
+    config.wasm_memory64(false);
     // Explicit checks avoid installing a competing signal handler in Android ART.
     // The StoreLimits cap is independent of these virtual-memory reservations.
     config.signals_based_traps(false).memory_reservation(MEMORY_LIMIT as u64)
@@ -124,6 +127,10 @@ fn expect_trap<T>(result: Result<T>, trap: Trap) -> Result<()> {
 // Each interrupt owns its Engine: an epoch bump cannot cancel an unrelated Store.
 fn epoch_test(wasm: &[u8], delay: Duration) -> Result<u128> {
     let engine = engine(true)?;
+    // memory64 is outside the accepted ABI and must be rejected by the Engine,
+    // before any guest exports or host imports can be instantiated.
+    let memory64_module = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x03, 0x01, 0x04, 0x01];
+    ensure!(Module::new(&engine, &memory64_module).is_err(), "memory64 feature disabled");
     let module = Module::new(&engine, wasm)?;
     let mut host = Host::new(&engine, &module, u64::MAX)?;
     host.store.set_epoch_deadline(1);
@@ -145,12 +152,15 @@ fn suite(wasm: &[u8], plan_input: &[u8], plan_output: &[u8],
     let start = Instant::now();
     let cold = Instant::now();
     let engine = engine(true)?;
+    let mut checks = Vec::<String>::new();
+    let memory64_module = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x03, 0x01, 0x04, 0x01];
+    ensure!(Module::new(&engine, &memory64_module).is_err(), "memory64 feature disabled");
+    checks.push("memory64 disabled at Engine configuration".into());
     let module = Module::new(&engine, wasm)?;
     let compile_micros = cold.elapsed().as_micros();
     let cold = Instant::now();
     let mut host = Host::new(&engine, &module, NORMAL_FUEL)?;
     let cold_micros = cold.elapsed().as_micros();
-    let mut checks = Vec::<String>::new();
     let mut diagnostic_calls = 0;
     let mut diagnostic_bytes = 0;
     for (name, function, input, expected) in [

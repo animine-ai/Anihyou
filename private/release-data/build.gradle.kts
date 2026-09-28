@@ -33,6 +33,7 @@ ksp {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
     implementation(project(":core:base"))
     implementation(project(":core:domain"))
     implementation(project(":core:model"))
