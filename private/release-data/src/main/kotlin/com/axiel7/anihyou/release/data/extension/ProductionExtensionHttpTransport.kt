@@ -136,7 +136,7 @@ internal class ProductionExtensionHttpTransport(
     ) : AutoCloseable {
         val packageDigest: String = extension.packageDigest
         private val cancellation = NetworkCancellation()
-        private val started = clock.instant()
+        private val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(240)
         private var logical = 0
         private var wire = 0
         private var totalBytes = 0L
@@ -156,7 +156,7 @@ internal class ProductionExtensionHttpTransport(
                 cancellation.check()
                 coroutineContext.ensureActive()
                 require(visited.add(current) && redirects <= MAX_REDIRECTS) { "redirect loop or limit" }
-                require(++wire <= MAX_WIRE && Duration.between(started, clock.instant()) < OPERATION_DEADLINE)
+                require(++wire <= MAX_WIRE && remainingMillis() > 0)
                 val uri = URI(current)
                 val host = requireNotNull(uri.host)
                 val reservation = ledger.reserve(extension.providerId.value, packageDigest, generation,
@@ -164,14 +164,14 @@ internal class ProductionExtensionHttpTransport(
                 var outcome = "TRANSPORT_FAILURE"
                 var retryAfter: Long? = null
                 try {
-                    val dnsRemaining = Duration.between(clock.instant(), started.plus(OPERATION_DEADLINE)).toMillis()
+                    val dnsRemaining = remainingMillis()
                     require(dnsRemaining > 0)
                     val addresses = withTimeout(minOf(MAX_HOP_MILLIS, dnsRemaining)) { resolver.resolve(host) }
                     cancellation.check()
                     coroutineContext.ensureActive()
                     require(addresses.isNotEmpty() && addresses.size <= 16 && addresses.distinct().size == addresses.size)
                     require(addresses.all(::isPublicDestination)) { "forbidden DNS answer" }
-                    val remaining = Duration.between(clock.instant(), started.plus(OPERATION_DEADLINE)).toMillis()
+                    val remaining = remainingMillis()
                     require(remaining > 0)
                     val response = hop.fetch(current, host, addresses, minOf(MAX_HOP_MILLIS, remaining), cancellation)
                     cancellation.check()
@@ -227,6 +227,8 @@ internal class ProductionExtensionHttpTransport(
         }
 
         override fun close() = cancellation.cancel()
+        private fun remainingMillis(): Long =
+            TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime())
         private fun denied(id: String, url: String, redirects: Int) = ExtensionFetchedResponse(id,
             ExtensionResponseStatus.BUDGET_DENIED, null, url, null, null, 0, null, redirects)
     }
@@ -238,7 +240,6 @@ internal class ProductionExtensionHttpTransport(
         private val REQUEST_ID = Regex("[A-Za-z0-9_-]{1,64}")
         private val ROLES = setOf("CALENDAR", "RECENT", "POSTPONEMENT", "DIRECT", "NAVIGATION")
         private val REDIRECTS = setOf(301, 302, 303, 307, 308)
-        private val OPERATION_DEADLINE = Duration.ofSeconds(240)
         private const val MAX_LOGICAL = 7
         private const val MAX_WIRE = 22
         private const val MAX_REDIRECTS = 5
@@ -372,7 +373,7 @@ internal class OkHttpBoundHttpsHopExecutor(
             override fun onFailure(call: Call, error: IOException) {
                 cancellation.clear(call)
                 if (continuation.isActive) continuation.resumeWithException(
-                    if (!tlsStarted.get() && !requestStarted.get() && !call.isCanceled)
+                    if (!tlsStarted.get() && !requestStarted.get() && !call.isCanceled())
                         PreTlsConnectFailure(error) else error)
             }
             override fun onResponse(call: Call, response: Response) {

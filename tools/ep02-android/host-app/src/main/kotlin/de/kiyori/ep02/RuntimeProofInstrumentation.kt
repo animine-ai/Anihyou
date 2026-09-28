@@ -348,7 +348,7 @@ private object RuntimeProof {
         val dispatcher = ProductionNavigationDispatcher(repository, runtime, unprovenTransport)
         val request = NavigationContextV1(
             1, verified.extensionId, verified.providerId, "2026-09-28T12:00:00Z",
-            NavigationTargetKind.OVERVIEW, "overview-gate", "series-1", null, 2, null, null,
+            NavigationTargetKind.OVERVIEW, "overview-1", "series-1", null, 2, null, null,
         )
         val rejection = try {
             dispatcher.navigate(request, "ep02-navigation-dispatch-gate")

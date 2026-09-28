@@ -124,9 +124,7 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
     }
 
     private fun prune(rows: MutableList<Row>, now: Long) {
-        rows.removeAll { row ->
-            if (row.kind == 'C') row.at <= now else row.at + 86_400 < now
-        }
+        rows.removeAll { row -> row.at + 86_400 < now }
         require(rows.size < 20_000) { "network ledger full" }
     }
 

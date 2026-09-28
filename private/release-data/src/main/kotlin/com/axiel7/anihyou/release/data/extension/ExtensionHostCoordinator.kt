@@ -158,15 +158,16 @@ class ExtensionHostCoordinator(
             val allObservations = ArrayList<ProviderObservationV1>()
             val allReports = ArrayList<ResponseReportV1>()
             val fetchedResponses = HashMap<PhysicalRequestKey, ResponseEnvelope>()
+            val allProvenance = ArrayList<ExtensionResponseProvenance>()
             val networkSession = (networkTransport as? ProductionExtensionHttpTransport)
                 ?.open(packageInfo, request.generationId)
-            var hostProvenance: List<ExtensionResponseProvenance> = emptyList()
             try {
             for (planned in plan.requests) {
                 validateRequestUrl(planned, packageInfo.grantedHosts)
                 val requestKey = PhysicalRequestKey(planned.method, normalizeUrl(planned.url))
                 val physicalRequest = planned.copy(url = requestKey.normalizedUrl)
-                val response = fetchedResponses[requestKey]?.copy(
+                val cachedResponse = fetchedResponses[requestKey]
+                val response = cachedResponse?.copy(
                     requestId = planned.requestId,
                     sourceRole = planned.sourceRole,
                 ) ?: (networkSession?.fetch(physicalRequest.requestId, physicalRequest.sourceRole.name,
@@ -178,6 +179,9 @@ class ExtensionHostCoordinator(
                     fetchedResponses[requestKey] = fetched
                 }
                 validateResponse(planned, response, packageInfo.grantedHosts)
+                networkSession?.provenance?.lastOrNull {
+                    it.requestId == (cachedResponse?.requestId ?: planned.requestId)
+                }?.let { allProvenance += it.copy(requestId = planned.requestId) }
                 val parseInput = ParseInputV1(schemaVersion = 1, context = context, responses = listOf(response))
                 val parsedBytes = executeRuntime(
                     packageInfo,
@@ -200,7 +204,6 @@ class ExtensionHostCoordinator(
                 }
             }
             } finally {
-                hostProvenance = networkSession?.provenance?.toList() ?: emptyList()
                 networkSession?.close()
             }
 
@@ -226,7 +229,7 @@ class ExtensionHostCoordinator(
                 startedAt = startedAt.toString(),
                 completedAt = completedAt.toString(),
             )
-            return ExtensionHostResult.Completed(receipt, allObservations, allReports, hostProvenance)
+            return ExtensionHostResult.Completed(receipt, allObservations, allReports, allProvenance)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: ExtensionWireException) {
