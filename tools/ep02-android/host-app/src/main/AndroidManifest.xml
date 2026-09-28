@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:allowBackup="false"
+        android:label="EP02 Runtime Host Proof"
+        android:usesCleartextTraffic="false" />
+    <instrumentation
+        android:name=".RuntimeProofInstrumentation"
+        android:targetPackage="de.kiyori.ep02"
+        android:label="EP02 Kotlin Host Runtime Proof" />
+</manifest>

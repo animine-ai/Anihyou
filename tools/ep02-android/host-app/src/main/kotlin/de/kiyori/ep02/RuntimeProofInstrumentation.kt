@@ -1,0 +1,391 @@
+package de.kiyori.ep02
+
+import android.app.Instrumentation
+import android.content.Context
+import android.os.Build
+import android.os.Bundle
+import android.os.Process
+import com.axiel7.anihyou.release.core.extension.ExtensionContextV1
+import com.axiel7.anihyou.release.core.extension.ExtensionExecutionLimits
+import com.axiel7.anihyou.release.core.extension.ExtensionId
+import com.axiel7.anihyou.release.core.extension.ExtensionResponseStatus
+import com.axiel7.anihyou.release.core.extension.ExtensionRuntimeErrorCode
+import com.axiel7.anihyou.release.core.extension.ExtensionRuntimeResult
+import com.axiel7.anihyou.release.core.extension.NavigationContextV1
+import com.axiel7.anihyou.release.core.extension.NavigationResponseEnvelopeV1
+import com.axiel7.anihyou.release.core.extension.NavigationTargetKind
+import com.axiel7.anihyou.release.core.extension.ObservationTrack
+import com.axiel7.anihyou.release.core.extension.ParseInputV1
+import com.axiel7.anihyou.release.core.extension.PlanInputV1
+import com.axiel7.anihyou.release.core.extension.ProviderId
+import com.axiel7.anihyou.release.core.extension.RequestSpec
+import com.axiel7.anihyou.release.core.extension.ResponseEnvelope
+import com.axiel7.anihyou.release.core.extension.SourceRole
+import com.axiel7.anihyou.release.data.extension.AndroidIsolatedExtensionRuntime
+import com.axiel7.anihyou.release.data.extension.DestinationBoundExtensionTransport
+import com.axiel7.anihyou.release.data.extension.ExtensionHostCoordinator
+import com.axiel7.anihyou.release.data.extension.ExtensionHostResult
+import com.axiel7.anihyou.release.data.extension.ExtensionObservationPolicy
+import com.axiel7.anihyou.release.data.extension.ExtensionRunRequest
+import com.axiel7.anihyou.release.data.extension.ExtensionRuntimeCallDiagnostics
+import com.axiel7.anihyou.release.data.extension.ExtensionWireCodec
+import com.axiel7.anihyou.release.data.extension.NavigationWireCodecV1
+import com.axiel7.anihyou.release.data.extension.VerifiedExtensionPackage
+import com.axiel7.anihyou.release.data.extension.VerifiedExtensionRepository
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.security.MessageDigest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.json.JSONArray
+import org.json.JSONObject
+
+class RuntimeProofInstrumentation : Instrumentation() {
+    override fun onCreate(arguments: Bundle?) {
+        super.onCreate(arguments)
+        start()
+    }
+
+    override fun onStart() {
+        val result = Bundle()
+        try {
+            val report = runBlocking { RuntimeProof.run(targetContext) }
+            result.putString("ep02", report.toString())
+            result.putString("stream", "EP02_ANDROID_PASS\n$report\n")
+            finish(-1, result)
+        } catch (error: Throwable) {
+            result.putString("stream", "EP02_ANDROID_FAIL\n" + android.util.Log.getStackTraceString(error))
+            finish(0, result)
+        }
+    }
+}
+
+private object RuntimeProof {
+    private const val RELEASE_BODY = "<article>Fixture episode 1</article>"
+    private const val RELEASE_HASH = "6de0c15da0c1d5de1b834632f25bbd74d9ef0587035936acf1d9e99ed9ba370b"
+    private const val NAV_BODY = "fixture navigation"
+    private const val NAV_HASH = "96dfb9bbcd4f46a63e8b521bdef0b5b5357f2bd5ddf9cae543f098069b8478fb"
+    private const val SAMPLE_COUNT = 50
+
+    private val planLimits = ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
+    private val parseLimits = ExtensionExecutionLimits(4 * 1024 * 1024, 1024 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
+    private val spinLimits = ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000_000L, 5_000)
+
+    suspend fun run(context: Context): JSONObject {
+        val module = asset(context, "fixture.wasm", 8 * 1024 * 1024)
+        val digest = sha256(module)
+        val validationStarted = System.nanoTime()
+        val verified = FixturePackageBridge.verify(context.cacheDir, module)
+        val validationMicros = (System.nanoTime() - validationStarted) / 1_000
+        check(verified.moduleDigest == digest)
+        check(verified.extensionId == ExtensionId.parse("fixture.release"))
+        check(verified.providerId == ProviderId.parse("fixture"))
+        check(verified.displayName == "Runtime Fixture")
+        FixturePackageBridge.assertNativeFeatureGateRejectsSimd()
+
+        val functional = JSONObject()
+        val runtime = AndroidIsolatedExtensionRuntime(context)
+        try {
+            functional.put("releasePlanParse", runReleaseHost(runtime, verified))
+            functional.put("navigationOverview", runNavigation(runtime, verified, NavigationTargetKind.OVERVIEW))
+            functional.put("navigationEpisode", runNavigation(runtime, verified, NavigationTargetKind.EPISODE))
+
+            val identityBeforeKill = requireNotNull(runtime.lastDiagnostics)
+            check(identityBeforeKill.servicePid != Process.myPid())
+            check(identityBeforeKill.serviceUid != Process.myUid())
+            check(!identityBeforeKill.serviceInternetPermissionGranted)
+
+            val cancellation = coroutineScope {
+                val call = async(Dispatchers.Default) {
+                    runtime.execute(digest, module, "plan_requests", byteArrayOf(0x7f), spinLimits)
+                }
+                check(runtime.awaitActiveInvocationForTesting())
+                delay(100)
+                check(runtime.cancelActiveForTesting())
+                withTimeout(4_000) { call.await() }
+            }
+            check(cancellation == ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.CANCELLED))
+            functional.put("cancellation", "CANCELLED")
+
+            val killed = coroutineScope {
+                val call = async(Dispatchers.Default) {
+                    runtime.execute(digest, module, "plan_requests", byteArrayOf(0x7f), spinLimits)
+                }
+                check(runtime.awaitActiveInvocationForTesting())
+                delay(100)
+                check(runtime.killServiceForTesting())
+                withTimeout(4_000) { call.await() }
+            }
+            check(killed is ExtensionRuntimeResult.Failure)
+            check(runtime.proveLateResultFenceForTesting())
+            functional.put("serviceKill", (killed as ExtensionRuntimeResult.Failure).code.name)
+            functional.put("lateResultRejected", true)
+
+            val planContext = ExtensionContextV1(
+                verified.extensionId, verified.providerId, listOf(SourceRole.CALENDAR),
+                "2026-09-28T12:00:00Z", emptyList())
+            val recovery = executeSuccess(runtime, verified, "plan_requests",
+                ExtensionWireCodec.encodePlanInput(PlanInputV1(1, planContext)), planLimits)
+            val recoveredIdentity = requireNotNull(runtime.lastDiagnostics)
+            check(recoveredIdentity.serviceGeneration > identityBeforeKill.serviceGeneration)
+            check(recoveredIdentity.servicePid != identityBeforeKill.servicePid)
+            check(recoveredIdentity.servicePid != Process.myPid())
+            check(recoveredIdentity.serviceUid != Process.myUid())
+            check(!recoveredIdentity.serviceInternetPermissionGranted)
+            functional.put("rebind", JSONObject()
+                .put("oldPid", identityBeforeKill.servicePid)
+                .put("newPid", recoveredIdentity.servicePid)
+                .put("oldGeneration", identityBeforeKill.serviceGeneration)
+                .put("newGeneration", recoveredIdentity.serviceGeneration)
+                .put("planBytes", recovery.size))
+            functional.put("fixtureOnlyNoFallback", true)
+        } finally {
+            runtime.close()
+        }
+
+        delay(200)
+        val performance = benchmark(context, verified, module, digest, validationMicros)
+        return JSONObject()
+            .put("passed", true)
+            .put("api", Build.VERSION.SDK_INT)
+            .put("abis", JSONArray(Build.SUPPORTED_ABIS))
+            .put("runtimePin", "Wasmtime 48.0.3 LTS / Cranelift")
+            .put("moduleDigest", digest)
+            .put("hostPid", Process.myPid())
+            .put("hostUid", Process.myUid())
+            .put("functional", functional)
+            .put("performance", performance)
+    }
+
+    private suspend fun runReleaseHost(
+        runtime: AndroidIsolatedExtensionRuntime,
+        verified: VerifiedExtensionPackage,
+    ): JSONObject {
+        val repository = object : VerifiedExtensionRepository {
+            override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? =
+                verified.takeIf { it.providerId == providerId }
+        }
+        val transport = object : DestinationBoundExtensionTransport {
+            override val dnsDestinationBindingVerified: Boolean = true
+            override suspend fun execute(extension: VerifiedExtensionPackage, request: RequestSpec): ResponseEnvelope {
+                check(extension.packageDigest == verified.packageDigest)
+                check(request.url == "https://example.org/calendar")
+                return ResponseEnvelope(request.requestId, request.sourceRole, ExtensionResponseStatus.OK,
+                    200, request.url, RELEASE_BODY, RELEASE_HASH)
+            }
+        }
+        val coordinator = ExtensionHostCoordinator(
+            repository, runtime, transport,
+            ExtensionObservationPolicy { extension, observation ->
+                extension.extensionId == observation.extensionId && extension.providerId == observation.providerId
+            },
+            enabled = { true },
+        )
+        val result = coordinator.execute(ExtensionRunRequest(
+            verified.providerId, "ep02-android-fixture", setOf(SourceRole.CALENDAR), emptyList()))
+        check(result is ExtensionHostResult.Completed)
+        check(result.receipt.moduleDigest == verified.moduleDigest)
+        val observation = result.observations.single()
+        check(observation.extensionId == verified.extensionId)
+        check(observation.providerId == verified.providerId)
+        check(observation.sourceRole == SourceRole.CALENDAR)
+        check(observation.sourceHash == RELEASE_HASH)
+        return JSONObject()
+            .put("observationCount", result.observations.size)
+            .put("extensionId", observation.extensionId.value)
+            .put("providerId", observation.providerId.value)
+            .put("sourceRole", observation.sourceRole.name)
+    }
+
+    private suspend fun runNavigation(
+        runtime: AndroidIsolatedExtensionRuntime,
+        verified: VerifiedExtensionPackage,
+        kind: NavigationTargetKind,
+    ): JSONObject {
+        val navContext = NavigationContextV1(
+            1, verified.extensionId, verified.providerId, "2026-09-28T12:00:00Z", kind,
+            if (kind == NavigationTargetKind.OVERVIEW) "overview-1" else "episode-15",
+            "series-1", null, 2,
+            if (kind == NavigationTargetKind.EPISODE) "15" else null,
+            if (kind == NavigationTargetKind.EPISODE) ObservationTrack.DE_SUB else null,
+        )
+        val planBytes = executeSuccess(runtime, verified, "plan_navigation",
+            NavigationWireCodecV1.encodeContext(navContext), planLimits)
+        val plan = NavigationWireCodecV1.decodePlan(planBytes, navContext, verified.grantedHosts)
+        check(plan.requests.single().requestId == "nav-1")
+        val response = NavigationResponseEnvelopeV1(
+            "nav-1", ExtensionResponseStatus.OK, 200,
+            "https://example.org/nav-source", NAV_BODY, NAV_HASH)
+        val parseInput = NavigationWireCodecV1.encodeParseInput(navContext, listOf(response), verified.grantedHosts)
+        val outputBytes = executeSuccess(runtime, verified, "parse_navigation", parseInput, planLimits)
+        val target = NavigationWireCodecV1.decodeTargets(
+            outputBytes, navContext, listOf(response), verified.grantedHosts).targets.single()
+        check(target.targetKind == kind && target.providerSeriesKey == "series-1")
+        check(target.requestId == "nav-1" && target.sourceHash == NAV_HASH)
+        if (kind == NavigationTargetKind.EPISODE) {
+            check(target.providerEpisode == "15" && target.track == ObservationTrack.DE_SUB)
+        } else {
+            check(target.providerEpisode == null && target.track == null)
+        }
+        return JSONObject().put("kind", kind.name).put("url", target.url)
+            .put("providerEpisode", target.providerEpisode ?: JSONObject.NULL)
+            .put("track", target.track?.name ?: JSONObject.NULL)
+    }
+
+    private suspend fun benchmark(
+        context: Context,
+        verified: VerifiedExtensionPackage,
+        module: ByteArray,
+        digest: String,
+        validationMicros: Long,
+    ): JSONObject {
+        val parseContext = ExtensionContextV1(
+            verified.extensionId, verified.providerId, listOf(SourceRole.CALENDAR),
+            "2026-09-28T12:00:00Z", emptyList())
+        val parseInput = ExtensionWireCodec.encodeParseInput(ParseInputV1(
+            1, parseContext,
+            listOf(ResponseEnvelope("calendar-1", SourceRole.CALENDAR, ExtensionResponseStatus.OK,
+                200, "https://example.org/calendar", RELEASE_BODY, RELEASE_HASH))))
+
+        val runtime = AndroidIsolatedExtensionRuntime(context)
+        try {
+            runtime.clearInProcessCacheForTesting()
+            val (inProcessColdResult, inProcessCold) = runtime.executeInProcessForBenchmark(
+                digest, module, "parse_responses", parseInput, parseLimits, clearCache = true)
+            check(inProcessColdResult is ExtensionRuntimeResult.Success)
+            val inProcessColdDiag = requireNotNull(inProcessCold)
+            check(!inProcessColdDiag.cacheHit)
+
+            val inProcess = ArrayList<ExtensionRuntimeCallDiagnostics>(SAMPLE_COUNT)
+            repeat(SAMPLE_COUNT) {
+                val (value, diagnostics) = runtime.executeInProcessForBenchmark(
+                    digest, module, "parse_responses", parseInput, parseLimits)
+                check(value is ExtensionRuntimeResult.Success)
+                inProcess += requireNotNull(diagnostics)
+            }
+            check(inProcess.all { it.cacheHit })
+
+            check(executeSuccess(runtime, verified, "parse_responses", parseInput, parseLimits).isNotEmpty())
+            val isolatedCold = requireNotNull(runtime.lastDiagnostics)
+            check(!isolatedCold.cacheHit)
+            check(isolatedCold.servicePid != Process.myPid())
+            check(isolatedCold.serviceUid != Process.myUid())
+            check(!isolatedCold.serviceInternetPermissionGranted)
+
+            val isolated = ArrayList<ExtensionRuntimeCallDiagnostics>(SAMPLE_COUNT)
+            repeat(SAMPLE_COUNT) {
+                executeSuccess(runtime, verified, "parse_responses", parseInput, parseLimits)
+                isolated += requireNotNull(runtime.lastDiagnostics)
+            }
+            check(isolated.all { it.cacheHit })
+            check(isolated.map { it.servicePid }.distinct().size == 1)
+
+            val inProcTotals = inProcess.map { it.totalMicros }
+            val isolatedTotals = isolated.map { it.totalMicros }
+            val inP50 = percentile(inProcTotals, 0.50)
+            val isoP50 = percentile(isolatedTotals, 0.50)
+            val delta = isoP50 - inP50
+            val relative = if (inP50 == 0L) 0.0 else delta.toDouble() * 100.0 / inP50
+            val policy = when {
+                relative <= 50.0 -> "PASS"
+                delta <= 250L -> "SMALL_ABSOLUTE_DIFFERENCE"
+                else -> "FAIL"
+            }
+            check(policy != "FAIL") {
+                "steady-state isolation overhead unacceptable: p50 delta=${delta}us relative=${relative}%"
+            }
+
+            return JSONObject()
+                .put("sampleCount", SAMPLE_COUNT)
+                .put("validation", JSONObject().put("micros", validationMicros).put("millis", validationMicros / 1000.0))
+                .put("inProcessCold", diagnosticsJson(inProcessColdDiag))
+                .put("isolatedCold", diagnosticsJson(isolatedCold))
+                .put("inProcessCachedParse", statsJson(inProcTotals))
+                .put("isolatedCachedParse", statsJson(isolatedTotals))
+                .put("binderJni", JSONObject()
+                    .put("isolatedHostIpcP50Micros", percentile(isolated.map { (it.totalMicros - it.nativeMicros).coerceAtLeast(0) }, 0.50))
+                    .put("inProcessJniP50Micros", percentile(inProcess.map { (it.totalMicros - it.nativeMicros).coerceAtLeast(0) }, 0.50))
+                    .put("serviceReadP50Micros", percentile(isolated.map { it.serviceReadMicros }, 0.50))
+                    .put("serviceWriteP50Micros", percentile(isolated.map { it.serviceWriteMicros }, 0.50)))
+                .put("steadyState", JSONObject()
+                    .put("absoluteDeltaP50Micros", delta)
+                    .put("relativeP50Percent", relative)
+                    .put("policy", policy))
+                .put("fixtureParseOnlyNoNetwork", true)
+                .put("coldVsCached", JSONObject()
+                    .put("isolatedColdMicros", isolatedCold.totalMicros)
+                    .put("isolatedCachedP50Micros", isoP50)
+                    .put("firstCompileMicros", isolatedCold.compileMicros)
+                    .put("inProcessColdMicros", inProcessColdDiag.totalMicros)
+                    .put("inProcessCachedP50Micros", inP50)
+                    .put("inProcessFirstCompileMicros", inProcessColdDiag.compileMicros))
+        } finally {
+            runtime.close()
+        }
+    }
+
+    private suspend fun executeSuccess(
+        runtime: AndroidIsolatedExtensionRuntime,
+        verified: VerifiedExtensionPackage,
+        exportName: String,
+        input: ByteArray,
+        limits: ExtensionExecutionLimits,
+    ): ByteArray = when (val result = runtime.execute(
+        verified.moduleDigest, verified.moduleBytes, exportName, input, limits)) {
+        is ExtensionRuntimeResult.Success -> result.outputUtf8
+        is ExtensionRuntimeResult.Failure -> error("$exportName failed: ${result.code}")
+    }
+
+    private fun diagnosticsJson(value: ExtensionRuntimeCallDiagnostics): JSONObject = JSONObject()
+        .put("totalMicros", value.totalMicros)
+        .put("totalMillis", value.totalMicros / 1000.0)
+        .put("nativeMicros", value.nativeMicros)
+        .put("guestMicros", value.guestMicros)
+        .put("compileMicros", value.compileMicros)
+        .put("cacheHit", value.cacheHit)
+        .put("serviceReadMicros", value.serviceReadMicros)
+        .put("serviceWriteMicros", value.serviceWriteMicros)
+        .put("servicePid", value.servicePid)
+        .put("serviceUid", value.serviceUid)
+        .put("serviceGeneration", value.serviceGeneration)
+        .put("serviceInternetPermissionGranted", value.serviceInternetPermissionGranted)
+
+    private fun statsJson(values: List<Long>): JSONObject = JSONObject()
+        .put("sampleCount", values.size)
+        .put("p50Micros", percentile(values, 0.50))
+        .put("p95Micros", percentile(values, 0.95))
+        .put("p50Millis", percentile(values, 0.50) / 1000.0)
+        .put("p95Millis", percentile(values, 0.95) / 1000.0)
+        .put("minMicros", values.minOrNull())
+        .put("maxMicros", values.maxOrNull())
+
+    private fun percentile(values: List<Long>, fraction: Double): Long {
+        require(values.isNotEmpty())
+        val sorted = values.sorted()
+        val index = kotlin.math.ceil(sorted.size * fraction).toInt().coerceIn(1, sorted.size) - 1
+        return sorted[index]
+    }
+
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private fun asset(context: Context, name: String, limit: Int): ByteArray =
+        context.assets.open(name).use { readBounded(it, limit) }
+
+    private fun readBounded(input: InputStream, limit: Int): ByteArray {
+        val out = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            if (count == 0) continue
+            check(out.size() + count <= limit)
+            out.write(buffer, 0, count)
+        }
+        return out.toByteArray()
+    }
+}

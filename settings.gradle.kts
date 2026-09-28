@@ -56,3 +56,6 @@ include(":feature:genrestags")
 include(":wearos")
 include(":private:release-core")
 include(":private:release-data")
+
+include(":tools:ep02-runtime-app")
+project(":tools:ep02-runtime-app").projectDir = file("tools/ep02-android/host-app")

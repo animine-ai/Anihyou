@@ -13,6 +13,7 @@ import com.axiel7.anihyou.release.core.extension.ObservationTrack
 import com.axiel7.anihyou.release.core.extension.ProviderId
 import com.axiel7.anihyou.release.core.extension.ProviderNavigationTargetV1
 import java.net.URI
+import java.security.MessageDigest
 import java.time.OffsetDateTime
 import java.util.Locale
 import kotlinx.serialization.json.JsonArray
@@ -25,6 +26,8 @@ import kotlinx.serialization.json.JsonPrimitive
 object NavigationWireCodecV1 {
     private const val MAX_OUTPUT = 64 * 1024
     private const val MAX_REQUESTS = 7
+    private const val MAX_BODY_BYTES = 2 * 1024 * 1024
+    private const val MAX_PARSE_INPUT = 4 * 1024 * 1024
     private val ID = Regex("[A-Za-z0-9_-]{1,64}")
     private val SHA256 = Regex("[0-9a-f]{64}")
     private val HOST = Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*")
@@ -46,6 +49,46 @@ object NavigationWireCodecV1 {
             "track" to nullable(context.track?.name),
         )).toString().toByteArray(Charsets.UTF_8).also {
             require(it.size <= MAX_OUTPUT) { "navigation context exceeds byte bound" }
+        }
+    }
+
+    fun encodeParseInput(
+        context: NavigationContextV1,
+        responses: List<NavigationResponseEnvelopeV1>,
+        allowedHosts: Set<String>,
+    ): ByteArray {
+        checkContext(context)
+        require(responses.size <= MAX_REQUESTS && responses.map { it.requestId }.distinct().size == responses.size)
+        val encodedResponses = responses.map { response ->
+            require(ID.matches(response.requestId))
+            if (response.status == ExtensionResponseStatus.OK) {
+                require(response.httpStatus?.let { it in 200..299 } == true)
+                val finalUrl = requireNotNull(response.finalUrl)
+                validateUrl(finalUrl, allowedHosts)
+                val body = requireNotNull(response.bodyUtf8)
+                val bodyBytes = body.toByteArray(Charsets.UTF_8)
+                require(bodyBytes.size <= MAX_BODY_BYTES)
+                require(response.sourceHash == sha256(bodyBytes))
+            } else {
+                require(response.bodyUtf8 == null && response.sourceHash == null)
+                response.finalUrl?.let { validateUrl(it, allowedHosts) }
+            }
+            JsonObject(linkedMapOf(
+                "requestId" to JsonPrimitive(response.requestId),
+                "status" to JsonPrimitive(response.status.name),
+                "httpStatus" to (response.httpStatus?.let(::JsonPrimitive) ?: JsonNull),
+                "finalUrl" to nullable(response.finalUrl),
+                "bodyUtf8" to nullable(response.bodyUtf8),
+                "sourceHash" to nullable(response.sourceHash),
+            ))
+        }
+        val contextJson = ExtensionWireCodec.parseStrictJson(encodeContext(context), MAX_OUTPUT)
+        return JsonObject(linkedMapOf(
+            "schemaVersion" to JsonPrimitive(1),
+            "context" to contextJson,
+            "responses" to JsonArray(encodedResponses),
+        )).toString().toByteArray(Charsets.UTF_8).also {
+            require(it.size <= MAX_PARSE_INPUT) { "navigation parse input exceeds byte bound" }
         }
     }
 
@@ -166,4 +209,6 @@ object NavigationWireCodecV1 {
         enumValues<T>().singleOrNull { it.name == value.text(field, 64) }
             ?: throw IllegalArgumentException("unknown $field")
     private fun nullable(value: String?): JsonElement = value?.let(::JsonPrimitive) ?: JsonNull
+    private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes)
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }

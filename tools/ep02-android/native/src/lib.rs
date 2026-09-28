@@ -274,7 +274,7 @@ fn throw(env: &mut JNIEnv<'_>, message: String) {
 
 fn validate_module(bytes: &[u8]) -> Result<()> {
     ensure!(!bytes.is_empty() && bytes.len() <= MAX_MODULE_BYTES, "INVALID_INPUT");
-    Module::new(engine()?, bytes).map(|_| ()).map_err(Into::into)
+    Module::validate(engine()?, bytes).map_err(Into::into)
 }
 
 #[unsafe(no_mangle)]
@@ -366,12 +366,14 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
             }
             Err(error) => return Err(error),
         };
-        let native_micros = elapsed.as_micros();
+        let native_micros = native_started.elapsed().as_micros();
+        let guest_micros = guest_elapsed.as_micros();
         let text = format!(
-            "{{\"runtime\":\"Wasmtime 48.0.3 Cranelift\",\"cacheHit\":{},\"compileMicros\":{},\"nativeMicros\":{},\"diagnosticCalls\":{},\"diagnosticBytes\":{}}}",
+            "{{\"runtime\":\"Wasmtime 48.0.3 Cranelift\",\"cacheHit\":{},\"compileMicros\":{},\"nativeMicros\":{},\"guestMicros\":{},\"diagnosticCalls\":{},\"diagnosticBytes\":{}}}",
             cache_hit,
             compile_micros,
             native_micros,
+            guest_micros,
             host.store.data().diagnostic_calls,
             host.store.data().diagnostic_bytes
         );
