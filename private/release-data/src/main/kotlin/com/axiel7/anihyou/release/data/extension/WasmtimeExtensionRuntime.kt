@@ -128,8 +128,9 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         }
         if (!SHA256.matches(moduleDigest) ||
             exportName !in ALLOWED_EXPORTS || moduleBytes.size !in 8..MAX_MODULE_BYTES ||
-            inputUtf8.size > limits.maxInputBytes || limits.maxOutputBytes > MAX_OUTPUT_BYTES ||
-            limits.memoryBytes > MAX_MEMORY_BYTES
+            limits.maxInputBytes > MAX_INPUT_BYTES || inputUtf8.size > limits.maxInputBytes ||
+            limits.maxOutputBytes > MAX_OUTPUT_BYTES || limits.memoryBytes > MAX_MEMORY_BYTES ||
+            limits.deadlineMillis > MAX_DEADLINE_MILLIS
         ) {
             return@withLock ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.INVALID_INPUT)
         }
@@ -585,8 +586,10 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
             }
 
         const val MAX_MODULE_BYTES = 8 * 1024 * 1024
+        const val MAX_INPUT_BYTES = 4 * 1024 * 1024
         const val MAX_OUTPUT_BYTES = 1024 * 1024
         const val MAX_MEMORY_BYTES = 32 * 1024 * 1024
+        const val MAX_DEADLINE_MILLIS = 60_000L
         const val HOST_DEADLINE_GRACE_MILLIS = 750L
         const val INLINE_PAYLOAD_BYTES = 48 * 1024
         val SHA256 = Regex("[0-9a-f]{64}")
