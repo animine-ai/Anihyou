@@ -159,7 +159,7 @@ internal class ArexZipArchiveReader(
         val name = input.asciiName(nameLength)
         validateName(name)
         val extra = input.bytes(extraLength)
-        validateExtra(extra, allowZip64Placeholder = false)
+        validateExtra(extra)
         if (isUnixSymlink(versionMadeBy, externalAttributes)) invalid("symbolic links are forbidden")
         if (externalAttributes and DOS_DIRECTORY_ATTRIBUTE != 0L) invalid("directory entries are forbidden")
 
@@ -205,7 +205,10 @@ internal class ArexZipArchiveReader(
                 invalid("local and central ZIP flags or methods differ")
             }
             if (input.asciiName(nameLength) != metadata.name) invalid("local and central entry names differ")
-            validateExtra(input.bytes(extraLength), allowZip64Placeholder = true)
+            validateExtra(
+                input.bytes(extraLength),
+                zip64Mirror = metadata.uncompressedSize to metadata.compressedSize,
+            )
 
             val dataOffset = input.filePointer
             val dataEnd = checkedAdd(dataOffset, metadata.compressedSize)
@@ -298,7 +301,10 @@ internal class ArexZipArchiveReader(
         }
     }
 
-    private fun validateExtra(extra: ByteArray, allowZip64Placeholder: Boolean) {
+    private fun validateExtra(
+        extra: ByteArray,
+        zip64Mirror: Pair<Long, Long>? = null,
+    ) {
         var offset = 0
         while (offset < extra.size) {
             if (extra.size - offset < 4) invalid("truncated ZIP extra field")
@@ -309,14 +315,16 @@ internal class ArexZipArchiveReader(
 
             when (id) {
                 ZIP64_EXTRA_ID -> {
-                    // Commons Compress reserves 16 zero bytes in the local header while sizes are
-                    // unknown, then rewrites the normal ZIP32 size fields and removes ZIP64 from
-                    // the central directory. Accept only that inert seekable-writer placeholder.
-                    val end = offset + size
-                    if (!allowZip64Placeholder || size != ZIP64_LOCAL_PLACEHOLDER_BYTES ||
-                        extra.copyOfRange(offset, end).any { it != 0.toByte() }
+                    // Seekable Commons Compress archives can retain a local ZIP64 field after the
+                    // normal ZIP32 header has been rewritten. It is safe only when the 64-bit
+                    // values are an exact redundant mirror of the authenticated ZIP32 sizes and
+                    // the central directory contains no ZIP64 metadata.
+                    val expected = zip64Mirror
+                    if (expected == null || size != ZIP64_LOCAL_MIRROR_BYTES ||
+                        extra.u64Zip32(offset) != expected.first ||
+                        extra.u64Zip32(offset + 8) != expected.second
                     ) {
-                        invalid("semantic ZIP64 metadata is outside the AREX profile")
+                        invalid("ZIP64 metadata is not an exact local ZIP32 size mirror")
                     }
                 }
                 AES_EXTRA_ID -> invalid("AES ZIP metadata is forbidden")
@@ -383,6 +391,16 @@ internal class ArexZipArchiveReader(
     private fun ByteArray.u16(offset: Int): Int =
         (this[offset].toInt() and 0xff) or ((this[offset + 1].toInt() and 0xff) shl 8)
 
+    private fun ByteArray.u64Zip32(offset: Int): Long {
+        if (offset < 0 || size - offset < 8 || (offset + 4 until offset + 8).any { this[it] != 0.toByte() }) {
+            invalid("ZIP64 mirror exceeds ZIP32 range")
+        }
+        return (this[offset].toLong() and 0xff) or
+            ((this[offset + 1].toLong() and 0xff) shl 8) or
+            ((this[offset + 2].toLong() and 0xff) shl 16) or
+            ((this[offset + 3].toLong() and 0xff) shl 24)
+    }
+
     private fun checkedAdd(left: Long, right: Long): Long = try {
         Math.addExact(left, right)
     } catch (error: ArithmeticException) {
@@ -424,7 +442,7 @@ internal class ArexZipArchiveReader(
         const val SIGNED_DATA_DESCRIPTOR_BYTES = 16
         const val MAX_NAME_BYTES = 256
         const val MAX_ZIP_VERSION = 20
-        const val ZIP64_LOCAL_PLACEHOLDER_BYTES = 16
+        const val ZIP64_LOCAL_MIRROR_BYTES = 16
 
         const val LOCAL_SIGNATURE = 0x04034b50L
         const val CENTRAL_SIGNATURE = 0x02014b50L
