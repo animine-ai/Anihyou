@@ -4,8 +4,13 @@ variant=${1:?debug or release required}
 expected_api=${2:?expected API required}
 case "$variant" in debug|release);; *) exit 2;; esac
 root="$(cd "$(dirname "$0")" && pwd)"
-apk="$root/host-app/build/outputs/apk/$variant/host-app-$variant.apk"
-test -f "$apk"
+shopt -s nullglob
+apks=("$root/host-app/build/outputs/apk/$variant/"*-"$variant".apk)
+if [[ ${#apks[@]} -ne 1 ]]; then
+  printf 'expected exactly one %s APK, found %d\n' "$variant" "${#apks[@]}" >&2
+  exit 3
+fi
+apk="${apks[0]}"
 mkdir -p "$root/results/android-$expected_api-$variant"
 out="$root/results/android-$expected_api-$variant"
 adb install -r "$apk"
