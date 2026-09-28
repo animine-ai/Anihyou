@@ -13,7 +13,6 @@ import android.os.Message
 import android.os.Messenger
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
-import androidx.annotation.VisibleForTesting
 import com.axiel7.anihyou.release.core.extension.ExtensionExecutionLimits
 import com.axiel7.anihyou.release.core.extension.ExtensionRuntime
 import com.axiel7.anihyou.release.core.extension.ExtensionRuntimeErrorCode
@@ -232,7 +231,6 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     }
 
     /** Comparable same-process Wasmtime baseline. Never used by the production coordinator. */
-    @VisibleForTesting
     suspend fun executeInProcessForBenchmark(
         moduleDigest: String,
         moduleBytes: ByteArray,
@@ -257,7 +255,6 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         }
     }
 
-    @VisibleForTesting
     suspend fun awaitActiveInvocationForTesting(timeoutMillis: Long = 5_000): Boolean {
         val token = activeToken
         if (token == 0L) return false
@@ -265,7 +262,6 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         return withTimeoutOrNull(timeoutMillis) { signal.await(); true } ?: false
     }
 
-    @VisibleForTesting
     fun cancelActiveForTesting(): Boolean {
         val token = activeToken
         val activeSession = session ?: return false
@@ -274,7 +270,6 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         return true
     }
 
-    @VisibleForTesting
     fun killServiceForTesting(): Boolean {
         val activeSession = session ?: return false
         return try {
@@ -285,7 +280,6 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         }
     }
 
-    @VisibleForTesting
     suspend fun proveLateResultFenceForTesting(): Boolean {
         val fenced = lastFenced ?: return false
         val before = lateResultRejections.get()
@@ -304,7 +298,6 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         return false
     }
 
-    @VisibleForTesting
     fun clearInProcessCacheForTesting() = WasmtimeNativeBridge.nativeClearModuleCache()
 
     private suspend fun ensureSession(): Session = sessionMutex.withLock {
