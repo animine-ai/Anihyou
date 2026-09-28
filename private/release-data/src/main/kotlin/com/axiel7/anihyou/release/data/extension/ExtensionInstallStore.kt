@@ -83,7 +83,15 @@ internal class ExtensionInstallStore(
         val temp = File.createTempFile("arex-", ".staging", staging)
         try {
             FileInputStream(source).use { input -> FileOutputStream(temp).use { output ->
-                input.copyTo(output, 8192)
+                val buffer = ByteArray(8192)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    require(total <= 8L * 1024 * 1024) { "staging limit exceeded" }
+                    output.write(buffer, 0, read)
+                }
                 output.fd.sync()
             } }
             failure.at(InstallBoundary.STAGED)
@@ -120,7 +128,11 @@ internal class ExtensionInstallStore(
     }
 
     fun quarantineAndRollback(now: Instant): InstallReceipt? = serialized {
-        val bad = state.active ?: return@serialized null
+        rollbackBad(now)
+    }
+
+    private fun rollbackBad(now: Instant): InstallReceipt? {
+        val bad = state.active ?: return null
         val newlyQuarantined = state.quarantine + bad.digest
         val prior = if (state.knownGood?.digest == bad.digest) state.previousGood else state.knownGood
         val fallback = prior?.takeIf { !state.rollbackUsed && it.digest != bad.digest && eligible(it, newlyQuarantined) }
@@ -131,7 +143,9 @@ internal class ExtensionInstallStore(
     }
 
     override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? = serialized {
-        val active = state.active?.takeIf { it.provider == providerId.value && eligible(it) } ?: return@serialized null
+        val selected = state.active ?: return@serialized null
+        val active = if (eligible(selected)) selected else rollbackBad(Instant.now()) ?: return@serialized null
+        if (active.provider != providerId.value) return@serialized null
         val root = roots(state).lastOrNull() ?: return@serialized null
         val signedIndex = indexAt(state, active.indexSequence) ?: return@serialized null
         val entry = signedIndex.packages.singleOrNull { it.binding.archiveSha256 == active.digest } ?: return@serialized null

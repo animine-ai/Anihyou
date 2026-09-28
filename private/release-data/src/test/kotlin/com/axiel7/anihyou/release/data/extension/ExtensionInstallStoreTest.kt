@@ -156,6 +156,27 @@ class ExtensionInstallStoreTest {
         assertNull(load(fixture.store()))
     }
 
+    @Test
+    fun `corrupt active content falls back once to eligible prior known good after restart`() {
+        val directory = temporaryFolder.newFolder("corrupt-active")
+        val fixture = StoreFixture(directory)
+        val release1 = fixture.release(1)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(release1)))
+        store.install(release1.archive, EXTENSION, NOW)
+        store.promoteHealthy(NOW)
+
+        val release2 = fixture.release(2)
+        store.acceptIndex(fixture.index(2, listOf(release1, release2)).envelope, NOW)
+        val updated = store.install(release2.archive, EXTENSION, NOW)
+        store.promoteHealthy(NOW)
+        File(directory, "content/${updated.digest}.arex").writeBytes(byteArrayOf(1, 2, 3))
+
+        assertEquals(release1.binding.archiveSha256, load(fixture.store())!!.packageDigest)
+        assertEquals(release1.binding.archiveSha256, load(fixture.store())!!.packageDigest)
+        assertRejected { fixture.store().install(release2.archive, EXTENSION, NOW) }
+    }
+
     private fun load(store: ExtensionInstallStore) = runBlocking {
         store.loadUsable(ProviderId.parse(PROVIDER))
     }
@@ -311,7 +332,7 @@ class ExtensionInstallStoreTest {
                 "signature" to string(Base64.getEncoder().encodeToString(signer.generateSignature())),
             )).toString().toByteArray(StandardCharsets.UTF_8)
             val entries = linkedMapOf(
-                "manifest.json" to manifest,
+                "manifest.json" to manifest.toByteArray(StandardCharsets.UTF_8),
                 "module.wasm" to module,
                 "provenance.json" to provenance,
                 "NOTICE" to notice,
