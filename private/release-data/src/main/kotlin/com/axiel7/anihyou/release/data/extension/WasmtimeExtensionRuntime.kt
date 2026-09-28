@@ -344,7 +344,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         pending.entries.toList().forEach { (token, value) ->
             if (value.generation == dead.generation && pending.remove(token, value)) {
                 lastFenced = token to value.generation
-                value.reply.complete(RuntimeReply(RuntimeProtocol.STATUS_DEAD, "SERVICE_DEATH", 0, "{}", 0, 0))
+                value.reply.complete(RuntimeReply(RuntimeProtocol.STATUS_DEAD, "SERVICE_DEATH", 0, null, null, "{}", 0, 0))
             }
         }
     }
