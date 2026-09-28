@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.os.*;
 import android.system.Os;
 import android.system.OsConstants;
+import android.system.ErrnoException;
 import java.io.*;
 import java.util.concurrent.*;
 import org.json.JSONObject;
@@ -21,10 +22,13 @@ public class SpikeService extends Service {
   if(message.what==KILL){android.os.Process.killProcess(android.os.Process.myPid());return true;}
   if(message.what==HELLO){
    try{
-    boolean privateRead=false;try(FileInputStream in=new FileInputStream(message.getData().getString("privatePath"))){in.read();privateRead=true;}catch(IOException expected){}
-    boolean socketDenied=false;FileDescriptor socket=null;try{socket=Os.socket(OsConstants.AF_INET,OsConstants.SOCK_STREAM,0);}catch(Exception denied){socketDenied=true;}finally{if(socket!=null)Os.close(socket);}
+    int privateErrno=0,socketErrno=0;FileDescriptor privateFile=null,socket=null;
+    try{privateFile=Os.open(message.getData().getString("privatePath"),OsConstants.O_RDONLY,0);}catch(ErrnoException denied){privateErrno=denied.errno;}finally{if(privateFile!=null)Os.close(privateFile);}
+    try{socket=Os.socket(OsConstants.AF_INET,OsConstants.SOCK_STREAM,0);}catch(ErrnoException denied){socketErrno=denied.errno;}finally{if(socket!=null)Os.close(socket);}
+    boolean privateDenied=privateErrno==OsConstants.EACCES||privateErrno==OsConstants.EPERM;
+    boolean socketDenied=socketErrno==OsConstants.EACCES||socketErrno==OsConstants.EPERM;
     JSONObject report=new JSONObject().put("pid",android.os.Process.myPid()).put("uid",android.os.Process.myUid())
-      .put("privateFileDenied",!privateRead).put("socketDenied",socketDenied)
+      .put("privateFileDenied",privateDenied).put("privateFileErrno",privateErrno).put("socketDenied",socketDenied).put("socketErrno",socketErrno)
       .put("internetPermissionDenied",checkSelfPermission("android.permission.INTERNET")!=PackageManager.PERMISSION_GRANTED);
     respond(reply,id,"ok",report.toString());
    }catch(Throwable e){respond(reply,id,"error",e.toString());}
@@ -32,7 +36,7 @@ public class SpikeService extends Service {
   }
   if(message.what==SUITE||message.what==SPIN){final int op=message.what;
    worker.execute(()->{try{
-    if(op==SPIN){respond(reply,id,"started","spin");RuntimeChecks.spinWithoutListener(this);respond(reply,id,"late","unexpected loop return");}
+    if(op==SPIN){RuntimeChecks.spinWithoutListener(this,()->respond(reply,id,"started","guest import reached"));respond(reply,id,"late","unexpected loop return");}
     else respond(reply,id,"ok",RuntimeChecks.run(this).toString());
    }catch(Throwable e){respond(reply,id,"error",android.util.Log.getStackTraceString(e));}});
    return true;

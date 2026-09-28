@@ -24,6 +24,5 @@ android {
  }
 }
 dependencies {
- implementation("com.dylibso.chicory:runtime:1.7.5")
  coreLibraryDesugaring(projectLibs.desugar.jdk.libs)
 }

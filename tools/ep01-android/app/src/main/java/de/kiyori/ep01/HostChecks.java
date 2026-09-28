@@ -42,10 +42,11 @@ public class HostChecks {
    require(hello.getBoolean("socketDenied"),"raw socket denied");isolation.put("raw socket denied");
    runtime=first.suite();require(runtime.getJSONArray("checks").length()>=13,"complete runtime assertions");
    first.send(SpikeService.SPIN,3,null);Message started=first.await(3,15);require("started".equals(started.getData().getString("status")),"hostile loop started");
+   final IBinder originalBinder=first.binder;
    ScheduledExecutorService watchdog=Executors.newSingleThreadScheduledExecutor();AtomicReference<Throwable> watchdogFailure=new AtomicReference<>();
    long killStart=System.nanoTime();
    watchdog.schedule(()->{try{first.send(SpikeService.KILL,4,null);}catch(Throwable e){watchdogFailure.set(e);}},150,TimeUnit.MILLISECONDS);
-   try{require(first.dead.await(10,TimeUnit.SECONDS),"watchdog observes Binder death");require(watchdogFailure.get()==null,"watchdog control message");require(!first.binder.isBinderAlive(),"old Binder dead");}
+   try{require(first.dead.await(10,TimeUnit.SECONDS),"watchdog observes Binder death");require(watchdogFailure.get()==null,"watchdog control message");require(!originalBinder.isBinderAlive(),"old Binder dead");}
    finally{watchdog.shutdownNow();}
    require(first.replies.poll(200,TimeUnit.MILLISECONDS)==null,"no late result after process death");
    isolation.put("watchdog terminates unmetered guest loop; Binder death confirmed").put("no late result after death");

@@ -1,19 +1,4 @@
 {
-  "runtime-1.7.5.jar": {
-    "sha256": "cdbb2bd4e353eacff78da5dd3454694316eaa6d2950aab3d1517dca41ae4a0b2",
-    "size": 151620,
-    "url": "https://repo.maven.apache.org/maven2/com/dylibso/chicory/runtime/1.7.5/runtime-1.7.5.jar"
-  },
-  "wasm-1.7.5.jar": {
-    "sha256": "16558a66bac04f7e00ea06950f52d87ce2cfff535a54bac2115f2c13e0b3050b",
-    "size": 213420,
-    "url": "https://repo.maven.apache.org/maven2/com/dylibso/chicory/wasm/1.7.5/wasm-1.7.5.jar"
-  },
-  "ecj-3.33.0.jar": {
-    "sha256": "f7686c4960cf70c2ebc5c500a73a8cfc04541b730c18f1c5c21329889b137f45",
-    "size": 3160927,
-    "url": "https://repo.maven.apache.org/maven2/org/eclipse/jdt/ecj/3.33.0/ecj-3.33.0.jar"
-  },
   "provider.wasm": {
     "sha256": "a6b9a4713aeb979c1e97ad0be45fa3ddbc265da703c453f1bcb0911d57a628ca",
     "size": 3964
