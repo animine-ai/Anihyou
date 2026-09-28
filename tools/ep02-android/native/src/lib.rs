@@ -23,7 +23,7 @@ use std::{
 };
 use wasmtime::{
     Caller, Config, Engine, Instance, Linker, Memory, Module, Store, StoreLimits,
-    StoreLimitsBuilder, Strategy, Trap,
+    StoreLimitsBuilder, Strategy, Trap, WasmFeatures,
 };
 
 const MAX_MODULE_BYTES: usize = 8 * 1024 * 1024;
@@ -66,6 +66,12 @@ fn build_engine() -> Result<Engine> {
         .consume_fuel(true)
         .epoch_interruption(true)
         .wasm_gc(false)
+        .wasm_features(WasmFeatures::GC_TYPES, false)
+        .wasm_features(WasmFeatures::REFERENCE_TYPES, false)
+        .wasm_features(WasmFeatures::FUNCTION_REFERENCES, false)
+        .wasm_features(WasmFeatures::EXCEPTIONS, false)
+        .wasm_features(WasmFeatures::THREADS, false)
+        .wasm_features(WasmFeatures::COMPONENT_MODEL, false)
         .wasm_simd(false)
         .wasm_relaxed_simd(false)
         .wasm_bulk_memory(false)
@@ -87,10 +93,10 @@ fn build_engine() -> Result<Engine> {
     {
         config.wasm_legacy_exceptions(false);
     }
-    // Cargo deliberately omits Wasmtime's gc, component-model, threads, async,
-    // pooling-allocator, cache, profiling, and WASI crates. Reference-types,
-    // typed function references, exceptions, component model, and threads
-    // therefore cannot be compiled by this embedding at all.
+    // Cargo omits Wasmtime's gc, component-model, threads, async, pooling,
+    // cache, profiling, and WASI features. Reference/function references remain
+    // independently available in Wasmtime without the gc Cargo feature, so the
+    // frozen AREX profile disables those validator flags explicitly as well.
     Ok(Engine::new(&config)?)
 }
 
