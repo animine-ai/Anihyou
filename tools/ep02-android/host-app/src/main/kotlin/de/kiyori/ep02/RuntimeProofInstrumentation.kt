@@ -204,7 +204,7 @@ private object RuntimeProof {
         )
         val result = coordinator.execute(ExtensionRunRequest(
             verified.providerId, "ep02-android-fixture", setOf(SourceRole.CALENDAR), emptyList()))
-        check(result is ExtensionHostResult.Completed)
+        check(result is ExtensionHostResult.Completed) { "release host failed: $result" }
         check(result.receipt.moduleDigest == verified.moduleDigest)
         val observation = result.observations.single()
         check(observation.extensionId == verified.extensionId)
