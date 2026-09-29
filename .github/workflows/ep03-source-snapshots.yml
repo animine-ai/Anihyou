@@ -1,0 +1,51 @@
+name: EP03 upstream source snapshots
+on:
+  push:
+    branches: [ep03/upstream-source-audit]
+permissions:
+  contents: read
+jobs:
+  sources:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: c343b4bca3a7133330287e09de861729faf67273
+          path: accepted
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 3f631a94fbc179e5f0a597c38ef516ab631859e3
+          fetch-depth: 0
+          path: imported
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: axiel7/AniHyou-android
+          ref: 452e6e65b96c55c4d39d048752d372a07cd44770
+          fetch-depth: 0
+          path: upstream
+      - name: Export exact tracked snapshots and identity
+        run: |
+          mkdir snapshots
+          git -C accepted archive --format=tar.gz HEAD > snapshots/accepted.tar.gz
+          git -C imported archive --format=tar.gz HEAD > snapshots/imported.tar.gz
+          git -C imported archive --format=tar.gz e74280b3a56c598e75d24915ee74672734e47a2d > snapshots/initial.tar.gz
+          git -C upstream archive --format=tar.gz HEAD > snapshots/upstream.tar.gz
+          git -C upstream log --format='%H %T %s' -100 > snapshots/upstream-history.txt
+          sha256sum snapshots/*.tar.gz > snapshots/SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ep03-source-accepted
+          path: snapshots/accepted.tar.gz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ep03-source-imported
+          path: |
+            snapshots/imported.tar.gz
+            snapshots/initial.tar.gz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ep03-source-upstream
+          path: |
+            snapshots/upstream.tar.gz
+            snapshots/upstream-history.txt
+            snapshots/SHA256SUMS
