@@ -21,9 +21,9 @@ data class ProductionExtensionHostConfiguration(
  */
 class ProductionExtensionHostBoundary private constructor(
     val release: ExtensionHostCoordinator?,
+    val navigation: ProductionNavigationDispatcher?,
     val authority: ExtensionEvidenceAuthorityAdapter,
     private val store: ExtensionInstallStore?,
-    private val runtime: AndroidIsolatedExtensionRuntime?,
 ) {
     val provisioned: Boolean get() = store != null
 
@@ -50,7 +50,7 @@ class ProductionExtensionHostBoundary private constructor(
     companion object {
         fun create(context: Context, configuration: ProductionExtensionHostConfiguration?): ProductionExtensionHostBoundary {
             val authority = ExtensionEvidenceAuthorityAdapter(configuration?.approvedAuthority.orEmpty())
-            if (configuration == null) return ProductionExtensionHostBoundary(null, authority, null, null)
+            if (configuration == null) return ProductionExtensionHostBoundary(null, null, authority, null)
             val pin = AppTrustPin(configuration.repositoryId, configuration.initialRootSha256,
                 configuration.distributionOrigins)
             require(configuration.allowedHosts.isNotEmpty() &&
@@ -82,7 +82,7 @@ class ProductionExtensionHostBoundary private constructor(
                 })
             val dispatch = ProductionExtensionDispatches.create(store, runtime,
                 File(context.filesDir, "release-extension-network"), authority.observationPolicy())
-            return ProductionExtensionHostBoundary(dispatch.release, authority, store, runtime)
+            return ProductionExtensionHostBoundary(dispatch.release, dispatch.navigation, authority, store)
         }
     }
 }

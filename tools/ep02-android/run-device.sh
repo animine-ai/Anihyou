@@ -13,6 +13,7 @@ fi
 apk="${apks[0]}"
 mkdir -p "$root/results/android-$expected_api-$variant"
 out="$root/results/android-$expected_api-$variant"
+bash "$root/configure-test-network.sh"
 adb install -r "$apk"
 adb logcat -c
 timeout 240 adb shell am instrument -w -r de.kiyori.ep02/.RuntimeProofInstrumentation | tee "$out/instrumentation.txt"
@@ -48,6 +49,7 @@ if functional.get('status') != 'PASS':
 f=functional['checks']
 for key in [
     'releasePlanParse','navigationOverview','navigationEpisode',
+    'productionHttpsSocketProof','productionNavigationDispatch',
     'productionTransportFactoryBoundary','productionNavigationDispatcherGate',
     'moduleCacheEvictionRecovery','cancellation','deadline','fuel',
     'serviceKill','lateResultRejected','rebind','fixtureOnlyNoFallback'
@@ -58,7 +60,21 @@ assert factory['factoryCreated'] is True and factory['dnsDestinationBindingVerif
 assert factory['httpRejectedBeforeReservation'] is True, factory
 assert factory['untrustedHostRejectedBeforeReservation'] is True, factory
 assert factory['networkLedgerUncreated'] is True and factory['networkAttempted'] is False, factory
-assert factory['successfulSocketPathExercised'] is False, factory
+https=f['productionHttpsSocketProof']
+assert https['productionTransportReached'] is True, https
+assert https['successfulSocketPathExercised'] is True, https
+assert https['redirectRevalidatedAndFollowed'] is True, https
+assert https['privateDestinationRejectedBeforeSocket'] is True, https
+assert https['tlsHostnameMismatchRejected'] is True, https
+assert https['bodyLimitAbortedStreamingResponse'] is True, https
+assert https['cancellationDuringBody'] is True, https
+assert https['destinationAddress']=='8.8.8.8', https
+release=f['releasePlanParse']
+assert release['successfulSocketPathExercised'] is True, release
+assert release['packageDigestPinned'] is True and release['generationPinned'] is True, release
+navigation=f['productionNavigationDispatch']
+assert navigation['productionTransportReached'] is True, navigation
+assert navigation['successfulSocketPathExercised'] is True, navigation
 dispatch=f['productionNavigationDispatcherGate']
 assert dispatch['unprovenTransportRejected'] is True and dispatch['planExecutedBeforeGate'] is True, dispatch
 assert dispatch['transportExecuteCalls']==0 and dispatch['networkAttempted'] is False, dispatch

@@ -38,13 +38,16 @@ import com.axiel7.anihyou.release.data.extension.VerifiedExtensionRepository
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
+import java.net.InetAddress
 import java.security.MessageDigest
+import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -89,7 +92,6 @@ class RuntimeProofInstrumentation : Instrumentation() {
 }
 
 private object RuntimeProof {
-    private const val RELEASE_BODY = "<article>Fixture episode 1</article>"
     private const val RELEASE_HASH = "6de0c15da0c1d5de1b834632f25bbd74d9ef0587035936acf1d9e99ed9ba370b"
     private const val NAV_BODY = "fixture navigation"
     private const val NAV_HASH = "96dfb9bbcd4f46a63e8b521bdef0b5b5357f2bd5ddf9cae543f098069b8478fb"
@@ -151,9 +153,18 @@ private object RuntimeProof {
         FixturePackageBridge.assertNativeFeatureGateRejectsSimd()
 
         val functional = JSONObject()
+        val httpsFixture = LocalHttpsFixtureServer(context)
+        httpsFixture.start()
         val runtime = AndroidIsolatedExtensionRuntime(context)
         try {
-            functional.put("releasePlanParse", runReleaseHost(runtime, verified))
+            val productionTransportDirectory = File(context.cacheDir, "ep02-production-https-ledger")
+            check(!productionTransportDirectory.exists() || productionTransportDirectory.deleteRecursively())
+            val productionTransport = ProductionExtensionTransportFactory.create(productionTransportDirectory)
+            functional.put("releasePlanParse", runReleaseHost(runtime, verified, productionTransport, httpsFixture))
+            functional.put("productionHttpsSocketProof", proveProductionHttpsSocketPath(
+                verified, productionTransport, httpsFixture))
+            functional.put("productionNavigationDispatch", runProductionNavigationDispatch(
+                runtime, verified, productionTransport, httpsFixture))
             functional.put("navigationOverview", runNavigation(runtime, verified, NavigationTargetKind.OVERVIEW))
             functional.put("navigationEpisode", runNavigation(runtime, verified, NavigationTargetKind.EPISODE))
             functional.put("productionTransportFactoryBoundary", proveProductionTransportFactoryBoundary(context, verified))
@@ -225,6 +236,7 @@ private object RuntimeProof {
             functional.put("fixtureOnlyNoFallback", true)
         } finally {
             runtime.close()
+            httpsFixture.close()
         }
 
         delay(200)
@@ -255,19 +267,12 @@ private object RuntimeProof {
     private suspend fun runReleaseHost(
         runtime: AndroidIsolatedExtensionRuntime,
         verified: VerifiedExtensionPackage,
+        transport: DestinationBoundExtensionTransport,
+        httpsFixture: LocalHttpsFixtureServer,
     ): JSONObject {
         val repository = object : VerifiedExtensionRepository {
             override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? =
                 verified.takeIf { it.providerId == providerId }
-        }
-        val transport = object : DestinationBoundExtensionTransport {
-            override val dnsDestinationBindingVerified: Boolean = true
-            override suspend fun execute(extension: VerifiedExtensionPackage, request: RequestSpec): ResponseEnvelope {
-                check(extension.packageDigest == verified.packageDigest)
-                check(request.url == "https://example.org/calendar")
-                return ResponseEnvelope(request.requestId, request.sourceRole, ExtensionResponseStatus.OK,
-                    200, request.url, RELEASE_BODY, RELEASE_HASH)
-            }
         }
         val coordinator = ExtensionHostCoordinator(
             repository, runtime, transport,
@@ -280,16 +285,147 @@ private object RuntimeProof {
             verified.providerId, "ep02-android-fixture", setOf(SourceRole.CALENDAR), emptyList()))
         check(result is ExtensionHostResult.Completed) { "release host failed: $result" }
         check(result.receipt.moduleDigest == verified.moduleDigest)
+        check(result.receipt.packageDigest == verified.packageDigest)
+        check(result.receipt.generationId == "ep02-android-fixture")
         val observation = result.observations.single()
         check(observation.extensionId == verified.extensionId)
         check(observation.providerId == verified.providerId)
         check(observation.sourceRole == SourceRole.CALENDAR)
         check(observation.sourceHash == RELEASE_HASH)
+        val provenance = result.responseProvenance.single()
+        check(provenance.requestId == "calendar-1")
+        check(provenance.finalUrl == "https://example.org/calendar")
+        check(provenance.httpStatus == 200)
+        check(provenance.sourceHash == RELEASE_HASH)
+        check(provenance.destinationAddress == TEST_PUBLIC_ADDRESS)
+        check(provenance.redirectCount == 0)
+        check(httpsFixture.pathCount("/calendar") == 1)
         return JSONObject()
             .put("observationCount", result.observations.size)
             .put("extensionId", observation.extensionId.value)
             .put("providerId", observation.providerId.value)
             .put("sourceRole", observation.sourceRole.name)
+            .put("productionTransportReached", true)
+            .put("successfulSocketPathExercised", true)
+            .put("destinationAddress", provenance.destinationAddress)
+            .put("sourceHash", provenance.sourceHash)
+            .put("packageDigestPinned", result.receipt.packageDigest == verified.packageDigest)
+            .put("generationPinned", result.receipt.generationId == "ep02-android-fixture")
+    }
+
+    /** Executes production DNS/TLS/redirect/body/cancellation policy over a local HTTPS socket. */
+    private suspend fun proveProductionHttpsSocketPath(
+        verified: VerifiedExtensionPackage,
+        transport: DestinationBoundExtensionTransport,
+        httpsFixture: LocalHttpsFixtureServer,
+    ): JSONObject {
+        val expectedAddress = InetAddress.getByName(TEST_PUBLIC_ADDRESS)
+        val resolved = InetAddress.getAllByName("example.org").toList()
+        check(resolved == listOf(expectedAddress)) {
+            "production resolver did not use the emulator-only fixture mapping: $resolved"
+        }
+        check(transport.dnsDestinationBindingVerified)
+
+        val redirect = transport.execute(verified, RequestSpec(
+            "proof-redirect", SourceRole.CALENDAR, "https://example.org/redirect", ExtensionMethod.GET, null))
+        check(redirect.status == ExtensionResponseStatus.OK)
+        check(redirect.httpStatus == 200)
+        check(redirect.finalUrl == "https://example.org/redirect-final")
+        check(redirect.sourceHash == RELEASE_HASH)
+        check(httpsFixture.pathCount("/redirect") == 1)
+        check(httpsFixture.pathCount("/redirect-final") == 1)
+
+        val beforePrivate = httpsFixture.pathCount("/calendar")
+        val privateFailure = runCatching {
+            transport.execute(verified, RequestSpec(
+                "proof-private-destination", SourceRole.CALENDAR,
+                "https://private.example.org/calendar", ExtensionMethod.GET, null))
+        }.exceptionOrNull()
+        check(privateFailure is IllegalArgumentException && privateFailure.message == "forbidden DNS answer")
+        check(httpsFixture.pathCount("/calendar") == beforePrivate)
+
+        val beforeWrongHost = httpsFixture.pathCount("/calendar")
+        val hostnameMismatch = transport.execute(verified, RequestSpec(
+            "proof-tls-hostname", SourceRole.CALENDAR,
+            "https://wrong.example.org/calendar", ExtensionMethod.GET, null))
+        check(hostnameMismatch.status == ExtensionResponseStatus.TRANSPORT_FAILURE)
+        check(hostnameMismatch.httpStatus == null && hostnameMismatch.sourceHash == null)
+        check(httpsFixture.pathCount("/calendar") == beforeWrongHost)
+
+        val oversizedFailure = runCatching {
+            transport.execute(verified, RequestSpec(
+                "proof-body-limit", SourceRole.CALENDAR,
+                "https://example.org/large", ExtensionMethod.GET, null))
+        }.exceptionOrNull()
+        check(oversizedFailure is IllegalArgumentException)
+        check(httpsFixture.awaitLargeBodyAbort())
+        check(!httpsFixture.largeBodyCompleted())
+
+        val cancellation = coroutineScope {
+            val request = async(Dispatchers.Default) {
+                transport.execute(verified, RequestSpec(
+                    "proof-body-cancel", SourceRole.CALENDAR,
+                    "https://example.org/slow", ExtensionMethod.GET, null))
+            }
+            val bodyStarted = withContext(Dispatchers.IO) { httpsFixture.awaitSlowBodyStart() }
+            check(bodyStarted) { "HTTPS fixture did not reach a streaming response body" }
+            delay(150)
+            request.cancel()
+            val failure = runCatching { request.await() }.exceptionOrNull()
+            httpsFixture.releaseSlowBody()
+            check(failure is CancellationException) { "body cancellation returned $failure" }
+            failure
+        }
+        check(cancellation is CancellationException)
+        check(httpsFixture.awaitSlowBodyAbort())
+        check(!httpsFixture.slowBodyCompleted())
+
+        return JSONObject()
+            .put("productionTransportReached", true)
+            .put("successfulSocketPathExercised", true)
+            .put("destinationAddress", expectedAddress.hostAddress)
+            .put("redirectRevalidatedAndFollowed", true)
+            .put("privateDestinationRejectedBeforeSocket", true)
+            .put("tlsHostnameMismatchRejected", true)
+            .put("bodyLimitAbortedStreamingResponse", true)
+            .put("cancellationDuringBody", true)
+            .put("testCaScopedToFixtureApp", true)
+            .put("tlsHandshakeFailures", httpsFixture.tlsHandshakeFailureCount())
+    }
+
+    private suspend fun runProductionNavigationDispatch(
+        runtime: AndroidIsolatedExtensionRuntime,
+        verified: VerifiedExtensionPackage,
+        transport: DestinationBoundExtensionTransport,
+        httpsFixture: LocalHttpsFixtureServer,
+    ): JSONObject {
+        val repository = object : VerifiedExtensionRepository {
+            override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? =
+                verified.takeIf { it.providerId == providerId }
+        }
+        val request = NavigationContextV1(
+            1, verified.extensionId, verified.providerId, "2026-09-28T12:00:00Z",
+            NavigationTargetKind.OVERVIEW, "overview-1", "series-1", null, 2, null, null,
+        )
+        val result = ProductionNavigationDispatcher(repository, runtime, transport)
+            .navigateWithProvenance(request, "ep02-android-navigation-fixture")
+        check(result != null)
+        check(result.target.targetKind == NavigationTargetKind.OVERVIEW)
+        check(result.target.url == "https://example.org/series/1")
+        check(result.target.requestId == "nav-1" && result.target.sourceHash == NAV_HASH)
+        val provenance = result.responseProvenance.single()
+        check(provenance.requestId == "nav-1")
+        check(provenance.finalUrl == "https://example.org/nav-source")
+        check(provenance.sourceHash == NAV_HASH)
+        check(provenance.destinationAddress == TEST_PUBLIC_ADDRESS)
+        check(httpsFixture.pathCount("/nav-source") == 1)
+        return JSONObject()
+            .put("productionTransportReached", true)
+            .put("successfulSocketPathExercised", true)
+            .put("targetKind", result.target.targetKind.name)
+            .put("targetUrl", result.target.url)
+            .put("sourceHash", provenance.sourceHash)
+            .put("destinationAddress", provenance.destinationAddress)
     }
 
     private suspend fun runNavigation(
@@ -361,7 +497,6 @@ private object RuntimeProof {
             .put("untrustedHostRejectedBeforeReservation", rejectedUntrustedHost)
             .put("networkLedgerUncreated", true)
             .put("networkAttempted", false)
-            .put("successfulSocketPathExercised", false)
     }
 
     /** The dispatcher must refuse a transport that merely claims DNS binding. */
@@ -918,6 +1053,8 @@ private object RuntimeProof {
 
     private fun sha256(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private const val TEST_PUBLIC_ADDRESS = "8.8.8.8"
 
     private fun asset(context: Context, name: String, limit: Int): ByteArray =
         context.assets.open(name).use { readBounded(it, limit) }

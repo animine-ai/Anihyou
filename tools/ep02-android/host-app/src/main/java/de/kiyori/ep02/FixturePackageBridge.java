@@ -17,6 +17,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.EnumSet;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +35,8 @@ public final class FixturePackageBridge {
     private static final Instant NOW = Instant.parse("2026-09-28T12:00:00Z");
     private static final Set<NavigationCapability> NAVIGATION =
         EnumSet.of(NavigationCapability.OVERVIEW_NAVIGATION, NavigationCapability.EPISODE_NAVIGATION);
+    private static final Set<String> HOSTS = new HashSet<>(Arrays.asList(
+        "example.org", "private.example.org", "wrong.example.org"));
 
     private FixturePackageBridge() {}
 
@@ -89,7 +93,7 @@ public final class FixturePackageBridge {
             1L,
             EnumSet.of(SourceRole.CALENDAR),
             NAVIGATION,
-            java.util.Collections.singleton("example.org"),
+            HOSTS,
             Instant.parse("2026-01-01T00:00:00Z"),
             Instant.parse("2027-01-01T00:00:00Z"),
             false
@@ -102,7 +106,7 @@ public final class FixturePackageBridge {
             catalog,
             publisherKey,
             EnumSet.of(SourceRole.CALENDAR),
-            java.util.Collections.singleton("example.org"),
+            HOSTS,
             1,
             "wasmtime-48.0.3-cranelift-android",
             NOW
@@ -133,7 +137,7 @@ public final class FixturePackageBridge {
             "\"displayName\":\"Runtime Fixture\",\"version\":\"1.0.0\",\"releaseSequence\":1," +
             "\"hostApiMin\":1,\"hostApiMax\":1,\"capabilities\":[\"CALENDAR\"]," +
             "\"navigationCapabilities\":[\"OVERVIEW_NAVIGATION\",\"EPISODE_NAVIGATION\"]," +
-            "\"allowedHosts\":[\"example.org\"],\"digests\":{" +
+            "\"allowedHosts\":[\"example.org\",\"private.example.org\",\"wrong.example.org\"],\"digests\":{" +
             "\"module\":{\"sha256\":\"" + sha256(module) + "\",\"bytes\":" + module.length + "}," +
             "\"provenance\":{\"sha256\":\"" + sha256(provenance) + "\",\"bytes\":" + provenance.length + "}," +
             "\"notice\":{\"sha256\":\"" + sha256(notice) + "\",\"bytes\":" + notice.length + "}}," +

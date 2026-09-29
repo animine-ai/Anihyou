@@ -111,7 +111,12 @@ jobs:
             tools/ep02-android/host-app/src/main/jniLibs/arm64-v8a
           cp "$native_x86" tools/ep02-android/host-app/src/main/jniLibs/x86_64/
           cp "$native_arm64" tools/ep02-android/host-app/src/main/jniLibs/arm64-v8a/
+          bash tools/ep02-android/generate-test-https-material.sh
           bash tools/ep02-android/build-fixture.sh
+          if grep -R -n -E 'ep02_test_ca|ep02_test_server|EP02 Ephemeral Android HTTPS Test CA' app/src/main private/release-data/src/main; then
+            echo 'EP02 test CA leaked into production app or transport sources' >&2
+            exit 1
+          fi
           git rev-parse HEAD > tools/ep02-android/source-commit.txt
           task=":tools:ep02-runtime-app:assemble${{ matrix.variant == 'release' && 'Release' || 'Debug' }}"
           ./gradlew --console=plain --stacktrace "$task"
@@ -128,12 +133,12 @@ jobs:
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: ${{ matrix.api }}
-          target: google_apis
+          target: default
           arch: x86_64
           profile: pixel_2
           emulator-boot-timeout: 900
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save -camera-back none
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save -camera-back none -writable-system
           script: bash tools/ep02-android/run-device.sh ${{ matrix.variant }} ${{ matrix.api }}
       - name: Collect checksums and diagnostics
         if: always()
