@@ -151,6 +151,13 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save -camera-back none -dns-server 127.0.0.1
           script: bash tools/ep02-android/run-device.sh ${{ matrix.variant }} ${{ matrix.api }}
+      - name: Stop hermetic fixture DNS and remove runner route
+        if: always()
+        run: |
+          if [[ -s "$RUNNER_TEMP/ep02-dns-ready" ]]; then
+            sudo kill "$(cat "$RUNNER_TEMP/ep02-dns-ready")" 2>/dev/null || true
+          fi
+          sudo ip address del 8.8.8.8/32 dev lo 2>/dev/null || true
       - name: Collect checksums and diagnostics
         if: always()
         shell: bash

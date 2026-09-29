@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Ephemeral authoritative DNS for the standalone Android HTTPS proof only."""
+import os
 import socket
 import sys
 
@@ -41,7 +42,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
     server.bind(("127.0.0.1", 53))
     if len(sys.argv) > 1:
         with open(sys.argv[1], "w", encoding="ascii") as ready_file:
-            ready_file.write("ready\n")
+            ready_file.write(str(os.getpid()) + "\n")
     while True:
         query, peer = server.recvfrom(4096)
         response = reply(query)
