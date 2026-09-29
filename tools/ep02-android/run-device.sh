@@ -13,7 +13,13 @@ fi
 apk="${apks[0]}"
 mkdir -p "$root/results/android-$expected_api-$variant"
 out="$root/results/android-$expected_api-$variant"
-bash "$root/configure-test-network.sh"
+cleanup_test_network() {
+  if [[ -s "$out/proxy.pid" ]]; then sudo kill "$(cat "$out/proxy.pid")" 2>/dev/null || true; fi
+  sudo ip address del 8.8.8.8/32 dev lo 2>/dev/null || true
+  adb forward --remove tcp:8443 2>/dev/null || true
+}
+trap cleanup_test_network EXIT
+bash "$root/configure-test-network.sh" "$out"
 adb install -r "$apk"
 adb logcat -c
 timeout 240 adb shell am instrument -w -r de.kiyori.ep02/.RuntimeProofInstrumentation | tee "$out/instrumentation.txt"
