@@ -295,6 +295,7 @@ class ProductionExtensionHttpTransportSecurityTest {
             runBlocking { oversizedHeaders.transport.open(extension(), "generation-headers")
                 .use { it.fetch("req-1", "RECENT", rootUrl) } }
         }
+        Unit
     }
 
     @Test

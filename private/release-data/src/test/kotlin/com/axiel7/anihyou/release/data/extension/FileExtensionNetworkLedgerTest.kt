@@ -14,9 +14,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.rules.TemporaryFolder
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /** Deterministic persistence and concurrency coverage for the durable network ledger. */
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class FileExtensionNetworkLedgerTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()

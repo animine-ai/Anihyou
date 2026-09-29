@@ -11,6 +11,7 @@ import javax.net.ssl.SSLPeerUnverifiedException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -153,7 +154,7 @@ class OkHttpBoundHttpsHopExecutorTest {
                     .build(),
             )
             val cancellation = NetworkCancellation()
-            val pending = async {
+            val pending = async(Dispatchers.IO) {
                 execute(fixture, host = HOST, cancellation = cancellation)
             }
 
@@ -175,7 +176,7 @@ class OkHttpBoundHttpsHopExecutorTest {
                     .build(),
             )
             val cancellation = NetworkCancellation()
-            val pending = async {
+            val pending = async(Dispatchers.IO) {
                 execute(fixture, host = HOST, cancellation = cancellation)
             }
 
