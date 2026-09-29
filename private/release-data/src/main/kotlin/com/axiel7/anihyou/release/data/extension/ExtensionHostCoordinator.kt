@@ -100,6 +100,7 @@ sealed interface ExtensionHostResult {
         val observations: List<ProviderObservationV1>,
         val reports: List<ResponseReportV1>,
         val responseProvenance: List<ExtensionResponseProvenance> = emptyList(),
+        val requestRoles: Map<String, SourceRole> = emptyMap(),
     ) : ExtensionHostResult
 
     data class Failed(val code: ExtensionHostFailureCode) : ExtensionHostResult
@@ -229,7 +230,8 @@ class ExtensionHostCoordinator(
                 startedAt = startedAt.toString(),
                 completedAt = completedAt.toString(),
             )
-            return ExtensionHostResult.Completed(receipt, allObservations, allReports, allProvenance)
+            return ExtensionHostResult.Completed(receipt, allObservations, allReports, allProvenance,
+                plan.requests.associate { it.requestId to it.sourceRole })
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: ExtensionWireException) {

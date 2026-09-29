@@ -149,10 +149,22 @@ internal class LocalHttpsFixtureServer(context: Context) : Closeable {
         val output = socket.outputStream
         writeChunkedHeaders(output)
         val chunk = ByteArray(CHUNK_BYTES) { 'C'.code.toByte() }
+        val clientDisconnected = CountDownLatch(1)
+        Thread({
+            try {
+                if (socket.inputStream.read() < 0) clientDisconnected.countDown()
+            } catch (_: IOException) {
+                clientDisconnected.countDown()
+            }
+        }, "ep02-client-close-watch").apply { isDaemon = true }.start()
         try {
             writeChunk(output, chunk.copyOf(32))
             slowBodyStarted.countDown()
             if (!releaseSlowBody.await(5, TimeUnit.SECONDS)) return
+            if (clientDisconnected.await(2, TimeUnit.SECONDS)) {
+                slowBodyAborted.countDown()
+                return
+            }
             repeat(OVERSIZED_BODY_BYTES / CHUNK_BYTES) {
                 writeChunk(output, chunk)
             }

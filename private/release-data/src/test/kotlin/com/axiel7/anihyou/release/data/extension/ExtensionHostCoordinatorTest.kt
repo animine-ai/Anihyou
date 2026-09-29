@@ -2,6 +2,7 @@ package com.axiel7.anihyou.release.data.extension
 
 import com.axiel7.anihyou.release.core.extension.ExtensionId
 import com.axiel7.anihyou.release.core.extension.ExtensionExecutionLimits
+import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import com.axiel7.anihyou.release.core.extension.ExtensionResponseStatus
 import com.axiel7.anihyou.release.core.extension.ExtensionRuntime
 import com.axiel7.anihyou.release.core.extension.ExtensionRuntimeResult
@@ -48,6 +49,36 @@ class ExtensionHostCoordinatorTest {
         val coordinator = coordinator(repository, runtime, transport, enabled = true)
 
         assertEquals(ExtensionHostResult.Failed(ExtensionHostFailureCode.TRANSPORT_NOT_READY), coordinator.execute(runRequest()))
+        assertEquals(0, runtime.calls.get())
+        assertEquals(0, transport.calls.get())
+    }
+
+    @Test
+    fun `navigation capability does not grant a missing release role`() = runBlocking {
+        val repository = FakeRepository(extensionPackage(
+            roles = emptySet(),
+            navigationCapabilities = setOf(NavigationCapability.OVERVIEW_NAVIGATION),
+        ))
+        val runtime = FixtureRuntime()
+        val transport = FixtureTransport()
+        val coordinator = coordinator(repository, runtime, transport, enabled = true)
+
+        assertEquals(ExtensionHostResult.Failed(ExtensionHostFailureCode.HOST_VALIDATION_FAILED),
+            coordinator.execute(runRequest()))
+        assertEquals(0, runtime.calls.get())
+        assertEquals(0, transport.calls.get())
+    }
+
+    @Test
+    fun `revoked package withheld by verified repository never reaches runtime`() = runBlocking {
+        val repository = FakeRepository(null)
+        val runtime = FixtureRuntime()
+        val transport = FixtureTransport()
+        val coordinator = coordinator(repository, runtime, transport, enabled = true)
+
+        assertEquals(ExtensionHostResult.Failed(ExtensionHostFailureCode.NO_TRUSTED_EXTENSION),
+            coordinator.execute(runRequest()))
+        assertEquals(1, repository.calls.get())
         assertEquals(0, runtime.calls.get())
         assertEquals(0, transport.calls.get())
     }
@@ -190,7 +221,10 @@ class ExtensionHostCoordinatorTest {
         targets = targets,
     )
 
-    private fun extensionPackage(roles: Set<SourceRole> = setOf(SourceRole.CALENDAR)): VerifiedExtensionPackage {
+    private fun extensionPackage(
+        roles: Set<SourceRole> = setOf(SourceRole.CALENDAR),
+        navigationCapabilities: Set<NavigationCapability> = emptySet(),
+    ): VerifiedExtensionPackage {
         val module = byteArrayOf(0, 97, 115, 109, 1, 0, 0, 0)
         return VerifiedExtensionPackage(
             extensionId = ExtensionId.parse("de.aniworld"),
@@ -207,7 +241,7 @@ class ExtensionHostCoordinatorTest {
             moduleDigest = sha256(module),
             moduleBytes = module,
             grantedRoles = roles,
-            navigationCapabilities = emptySet(),
+            navigationCapabilities = navigationCapabilities,
             grantedHosts = setOf("aniworld.to"),
             runtimeVersion = "fixture-runtime",
         )

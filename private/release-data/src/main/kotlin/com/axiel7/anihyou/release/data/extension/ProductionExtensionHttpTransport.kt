@@ -368,7 +368,7 @@ internal class OkHttpBoundHttpsHopExecutor(
             .header("User-Agent", "AnimetrackerExtension/1").build()
         val call = client.newCall(request)
         cancellation.register(call)
-        continuation.invokeOnCancellation { call.cancel() }
+        continuation.invokeOnCancellation { cancellation.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) {
                 cancellation.clear(call)

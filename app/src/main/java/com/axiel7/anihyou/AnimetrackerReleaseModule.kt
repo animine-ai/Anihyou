@@ -20,6 +20,7 @@ import com.axiel7.anihyou.release.core.api.ReleasePreferencesRepository
 import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleaseRefreshCoordinator
 import com.axiel7.anihyou.release.data.aniworld.AniWorldClient
+import com.axiel7.anihyou.release.data.aniworld.AniWorldExtensionTargetSource
 import com.axiel7.anihyou.release.data.aniworld.AniWorldHttpTransport
 import com.axiel7.anihyou.release.data.aniworld.AniWorldProvider
 import com.axiel7.anihyou.release.data.aniworld.JdkAniWorldHttpTransport
@@ -27,6 +28,7 @@ import com.axiel7.anihyou.release.core.extension.SourceRole
 import com.axiel7.anihyou.release.data.extension.ApprovedExtensionAuthorityTuple
 import com.axiel7.anihyou.release.data.extension.ProductionExtensionHostBoundary
 import com.axiel7.anihyou.release.data.extension.ProductionExtensionHostConfiguration
+import com.axiel7.anihyou.release.data.extension.ExtensionTargetSource
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_1_2
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_2_3
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_3_4
@@ -61,6 +63,7 @@ import com.axiel7.anihyou.release.data.repository.RoomReleaseIntelligencePersist
 import com.axiel7.anihyou.release.data.repository.RoomReleaseReconciliationRepository
 import com.axiel7.anihyou.release.data.repository.RoomAniWorldPollStore
 import com.axiel7.anihyou.release.data.repository.ExtensionShadowSyncOrchestrator
+import com.axiel7.anihyou.release.data.repository.RoomExtensionShadowGenerationStore
 import com.axiel7.anihyou.release.data.repository.RoomSourceHealthRepository
 import java.time.Clock
 import org.koin.android.ext.koin.androidApplication
@@ -98,6 +101,8 @@ val animetrackerReleaseModule = module {
     single { RoomReleaseIntelligencePersistence(get(), get()) }
     single { RoomReleaseReconciliationRepository(get()) }
     single<AniWorldShadowPollStore> { RoomAniWorldPollStore(get(), get(), get()) }
+    single<ExtensionTargetSource> { AniWorldExtensionTargetSource(get<AniWorldShadowPollStore>(), get()) }
+    single { RoomExtensionShadowGenerationStore(get(), get(), get()) }
     single {
         val rootDigest = BuildConfig.EXTENSION_ROOT_SHA256
         val config = if (rootDigest.isBlank()) null else ProductionExtensionHostConfiguration(
@@ -117,6 +122,9 @@ val animetrackerReleaseModule = module {
             host = get<ProductionExtensionHostBoundary>().release,
             authority = get<ProductionExtensionHostBoundary>().authority,
             reconciliation = get(),
+            generations = get(),
+            targetSource = get(),
+            clock = get(),
         )
     }
     single { AniWorldClient(get()) }

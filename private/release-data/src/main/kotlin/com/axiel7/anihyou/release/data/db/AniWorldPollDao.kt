@@ -9,9 +9,13 @@ import androidx.room.Query
 interface AniWorldPollDao {
     @Query("SELECT * FROM v3_poll_generation WHERE generationId = :id") suspend fun generation(id: String): PollGenerationEntity?
     @Query("SELECT * FROM v3_poll_generation WHERE scopeId = :scope AND state = 'RUNNING' LIMIT 1") suspend fun activeGeneration(scope: String): PollGenerationEntity?
+    @Query("SELECT * FROM v3_poll_generation WHERE scopeId = :scope AND state = 'COMMITTED' AND cycleId = :cycleId LIMIT 1")
+    suspend fun committedCycleGeneration(scope: String, cycleId: String): PollGenerationEntity?
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertGeneration(row: PollGenerationEntity)
     @Query("UPDATE v3_poll_generation SET state=:state,completedAt=:at,outcome=:outcome,reason=:reason,cycleId=:cycleId WHERE generationId=:id AND ownerToken=:owner AND state='RUNNING'")
     suspend fun finishGeneration(id: String, owner: String, state: String, at: String, outcome: String, reason: String?, cycleId: String?): Int
+    @Query("UPDATE v3_poll_generation SET manifestPayload=:payload,manifestDigest=:digest WHERE generationId=:id AND ownerToken=:owner AND processEpoch=:epoch AND state='RUNNING'")
+    suspend fun recordExecutionReceipt(id: String, owner: String, epoch: String, payload: String, digest: String): Int
     @Query("SELECT COUNT(*) FROM v3_http_attempt WHERE generationId=:id") suspend fun attemptCount(id: String): Int
     @Query("SELECT COUNT(*) FROM v3_http_attempt WHERE generationId=:id AND role=:role") suspend fun attemptCount(id: String, role: String): Int
     @Query("SELECT COUNT(*) FROM v3_http_attempt WHERE generationId=:id AND role!='DIRECT'") suspend fun listAttemptCount(id: String): Int
