@@ -215,7 +215,7 @@ class OkHttpBoundHttpsHopExecutorTest {
         try {
             block(Fixture(
                 server,
-                OkHttpBoundHttpsHopExecutor(clientTls.sslSocketFactory(), clientTls.trustManager()),
+                OkHttpBoundHttpsHopExecutor(clientTls.sslSocketFactory(), clientTls.trustManager),
                 loopback,
             ))
         } finally {
