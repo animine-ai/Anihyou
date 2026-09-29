@@ -44,6 +44,9 @@ data class MediaDetailsUiState(
     val showVoiceActorsSheet: Boolean = false,
 
     val notificationsEnabled: Boolean = false,
+    val notificationAllowancesLoaded: Boolean = false,
+    val notificationAllowancesDirty: Boolean = false,
+    val notificationAllowancesSaving: Boolean = false,
     val allowStartNotifications: Boolean = true,
     val allowAiringNotifications: Boolean = true,
     val allowEndNotifications: Boolean = false,

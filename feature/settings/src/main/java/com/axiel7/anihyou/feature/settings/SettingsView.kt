@@ -239,7 +239,7 @@ private fun SettingsContent(
             if (uiState.releaseProviderEnabled) {
                 ListPreference(
                     title = stringResource(R.string.release_preferred_track),
-                    values = ReleaseGermanTrack.entries.toList(),
+                    values = ReleaseGermanTrack.entries.toImmutableList(),
                     labelForValue = { track ->
                         stringResource(
                             when (track) {

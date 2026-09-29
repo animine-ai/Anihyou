@@ -9,6 +9,9 @@ import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
 import com.axiel7.anihyou.core.network.type.MediaStatus
 import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.ScoreFormat
+import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import java.time.Instant
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -47,14 +50,7 @@ class Wp00R1CurrentListRuntimeTest {
 
     @Test
     fun coldAndWarmCurrentListRuntimeAreMeasuredAtRepositoryBoundary() = runBlocking {
-        val preferences = mockk<DefaultPreferencesRepository>()
-        every { preferences.userId } returns flowOf(4242)
-        every { preferences.scoreFormat } returns flowOf(ScoreFormat.POINT_10_DECIMAL)
-        every { preferences.showLowPriority } returns flowOf(false)
-        every { preferences.colorLowPriority } returns flowOf(0xFF7CB342.toInt())
-        every { preferences.colorMediumPriority } returns flowOf(0xFFF4D03F.toInt())
-        every { preferences.colorHighPriority } returns flowOf(0xFFD84315.toInt())
-        every { preferences.scoreSteps } returns flowOf(1.0)
+        val preferences = testPreferences()
 
         val transport = HarnessRepositoryBoundary()
         val repository = mockk<MediaListRepository>()
@@ -105,6 +101,72 @@ class Wp00R1CurrentListRuntimeTest {
         Files.writeString(reportPath, report)
         println("WP00_R1_CURRENT_LIST_RUNTIME_REPORT_PATH=${reportPath.toAbsolutePath()}")
         println(report)
+    }
+
+    @Test
+    fun mixedExtensionAndAniListAiringRowsSortByAbsoluteTime() = runBlocking {
+        val fallback = mockk<CommonMediaListEntry>(relaxed = true).also { entry ->
+            every { entry.mediaId } returns 1
+            every { entry.media?.status } returns MediaStatus.RELEASING
+            every { entry.basicMediaListEntry.progress } returns 0
+            every { entry.media?.nextAiringEpisode?.episode } returns 1
+            every { entry.media?.nextAiringEpisode?.airingAt } returns 1_800_000_000
+            every { entry.media?.nextAiringEpisode?.timeUntilAiring } returns 3_600
+        }
+        val extension = mockk<CommonMediaListEntry>(relaxed = true).also { entry ->
+            every { entry.mediaId } returns 2
+            every { entry.media?.status } returns MediaStatus.RELEASING
+        }
+        val unknown = mockk<CommonMediaListEntry>(relaxed = true).also { entry ->
+            every { entry.mediaId } returns 3
+            every { entry.media?.status } returns MediaStatus.RELEASING
+            every { entry.basicMediaListEntry.progress } returns 0
+            every { entry.media?.nextAiringEpisode } returns null
+        }
+        val presentation = mockk<ReleaseUiPresentation>(relaxed = true).also { row ->
+            every { row.isAuthoritative } returns true
+            every { row.pendingCount } returns 0
+            every { row.nextForecastAt } returns Instant.ofEpochSecond(1_799_999_000)
+        }
+        val releases = mockk<ReleasePresentationRepository>()
+        every { releases.observeForMedia(any(), any()) } answers {
+            val ids = arg<Set<Int>>(1)
+            flowOf(if (2 in ids) mapOf(2 to listOf(presentation)) else emptyMap())
+        }
+        val repository = mockk<MediaListRepository>()
+        every { repository.lastUpdatedEntry } returns MutableStateFlow<BasicMediaListEntry?>(null)
+        every {
+            repository.getUserMediaList(any(), any(), any(), any(), any(), any(), any(), any())
+        } answers {
+            val entries = if (arg<MediaType>(1) == MediaType.ANIME) {
+                listOf(fallback, unknown, extension)
+            } else emptyList()
+            flowOf(PagedResult.Success(entries, currentPage = 1, hasNextPage = false))
+        }
+        every {
+            repository.getMySeasonalAnime(any(), any(), any(), any(), any())
+        } returns flowOf(PagedResult.Success(emptyList(), currentPage = 1, hasNextPage = false))
+
+        val viewModel = CurrentViewModel(repository, testPreferences(), releases)
+        withTimeout(5_000) {
+            while (viewModel.uiState.value.airingList.size != 3 ||
+                viewModel.uiState.value.releaseByMediaId[2].isNullOrEmpty()
+            ) yield()
+        }
+        assertEquals(listOf(2, 1, 3), viewModel.uiState.value.airingList.map { it.mediaId })
+    }
+
+    private fun testPreferences(): DefaultPreferencesRepository {
+        val preferences = mockk<DefaultPreferencesRepository>()
+        every { preferences.userId } returns flowOf(4242)
+        every { preferences.scoreFormat } returns flowOf(ScoreFormat.POINT_10_DECIMAL)
+        every { preferences.showLowPriority } returns flowOf(false)
+        every { preferences.colorLowPriority } returns flowOf(0xFF7CB342.toInt())
+        every { preferences.colorMediumPriority } returns flowOf(0xFFF4D03F.toInt())
+        every { preferences.colorHighPriority } returns flowOf(0xFFD84315.toInt())
+        every { preferences.scoreSteps } returns flowOf(1.0)
+
+        return preferences
     }
 
     private suspend fun measureRun(

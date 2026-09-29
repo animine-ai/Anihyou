@@ -182,6 +182,9 @@ jobs:
       - name: Run Robolectric data tests
         run: ./gradlew --console=plain --stacktrace :private:release-data:testDebugUnitTest
 
+      - name: Run upstream current-list regression tests
+        run: ./gradlew --console=plain --stacktrace :feature:home:testDebugUnitTest
+
       - name: Run worker unit tests
         run: ./gradlew --console=plain --stacktrace :feature:worker:testDebugUnitTest
 

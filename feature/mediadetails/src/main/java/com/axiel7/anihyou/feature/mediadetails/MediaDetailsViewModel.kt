@@ -24,6 +24,7 @@ import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.common.navigation.Route
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -46,6 +47,8 @@ class MediaDetailsViewModel(
 ) : UiStateViewModel<MediaDetailsUiState>(), MediaDetailsEvent {
 
     override val initialState = MediaDetailsUiState(isLoggedIn = arguments.isLoggedIn)
+
+    private var notificationAllowanceBaseline: Triple<Boolean, Boolean, Boolean>? = null
 
     override fun onUpdateListEntry(newListEntry: BasicMediaListEntry?) {
         if (mutableUiState.value.details?.mediaListEntry?.basicMediaListEntry != newListEntry) {
@@ -70,28 +73,54 @@ class MediaDetailsViewModel(
     }
 
     override fun changeNotificationAllowance(type: AiringNotificationType, value: Boolean) {
-        mutableUiState.update {
-            when (type) {
-                AiringNotificationType.START -> it.copy(allowStartNotifications = value)
-                AiringNotificationType.AIRING -> it.copy(allowAiringNotifications = value)
-                AiringNotificationType.END -> it.copy(allowEndNotifications = value)
+        mutableUiState.update { state ->
+            if (!state.notificationAllowancesLoaded || state.notificationAllowancesSaving) {
+                return@update state
             }
+            val changed = when (type) {
+                AiringNotificationType.START -> state.copy(allowStartNotifications = value)
+                AiringNotificationType.AIRING -> state.copy(allowAiringNotifications = value)
+                AiringNotificationType.END -> state.copy(allowEndNotifications = value)
+            }
+            changed.copy(
+                notificationAllowancesDirty = changed.notificationAllowances() != notificationAllowanceBaseline,
+            )
         }
     }
 
     override fun writeNotificationAllowanceToDatabase() {
-        with(mutableUiState.value) {
-            viewModelScope.launch {
+        val state = mutableUiState.value
+        if (!state.notificationAllowancesLoaded || !state.notificationAllowancesDirty ||
+            state.notificationAllowancesSaving
+        ) return
+        // Freeze editing while the saved snapshot is in flight.
+        mutableUiState.update { it.copy(notificationAllowancesSaving = true) }
+        viewModelScope.launch {
+            try {
                 animeNotificationsRepository.upsertNotification(
                     animeId = arguments.id,
-                    allowStartAiring = allowStartNotifications,
-                    allowAiringEpisode = allowAiringNotifications,
-                    allowFinishAiring = allowEndNotifications,
-                    episodeCount = details?.basicMediaDetails?.episodes
+                    allowStartAiring = state.allowStartNotifications,
+                    allowAiringEpisode = state.allowAiringNotifications,
+                    allowFinishAiring = state.allowEndNotifications,
+                    episodeCount = state.details?.basicMediaDetails?.episodes,
                 )
+                notificationAllowanceBaseline = state.notificationAllowances()
+                mutableUiState.update {
+                    it.copy(notificationAllowancesDirty = false, notificationAllowancesSaving = false)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableUiState.update {
+                    it.copy(notificationAllowancesSaving = false, error = error.message,
+                        errorId = if (error.message == null) R.string.unknown else null)
+                }
             }
         }
     }
+
+    private fun MediaDetailsUiState.notificationAllowances() =
+        Triple(allowStartNotifications, allowAiringNotifications, allowEndNotifications)
 
     override fun toggleFavorite() {
         mutableUiState.value.details?.let { details ->
@@ -333,6 +362,34 @@ class MediaDetailsViewModel(
     }
 
     init {
+        viewModelScope.launch {
+            try {
+                val saved = animeNotificationsRepository.getAnimeNotificationById(arguments.id)
+                val baseline = Triple(
+                    saved?.allowStartAiring ?: true,
+                    saved?.allowNewEpisode ?: true,
+                    saved?.allowFinishAiring ?: false,
+                )
+                notificationAllowanceBaseline = baseline
+                mutableUiState.update { state ->
+                    // Controls and event handler remain disabled until this snapshot is loaded.
+                    if (state.notificationAllowancesDirty) state else state.copy(
+                        notificationAllowancesLoaded = true,
+                        allowStartNotifications = baseline.first,
+                        allowAiringNotifications = baseline.second,
+                        allowEndNotifications = baseline.third,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableUiState.update {
+                    it.copy(error = error.message,
+                        errorId = if (error.message == null) R.string.unknown else null)
+                }
+            }
+        }
+
         defaultPreferencesRepository.userId
             .distinctUntilChanged()
             .flatMapLatest { accountId ->

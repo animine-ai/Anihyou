@@ -237,9 +237,10 @@ private fun MediaDetailsContent(
                 SwitchPreference(
                     title = type.localized(),
                     preferenceValue = uiState.allowNotifications(type),
-                    enabled = if (type == AiringNotificationType.END) {
-                        uiState.details?.basicMediaDetails?.episodes.isGreaterThanZero()
-                    } else true,
+                    enabled = uiState.notificationAllowancesLoaded &&
+                        !uiState.notificationAllowancesSaving &&
+                        (type != AiringNotificationType.END ||
+                            uiState.details?.basicMediaDetails?.episodes.isGreaterThanZero()),
                     onValueChange = { event?.changeNotificationAllowance(type, it) },
                     icon = type.icon,
                     shape = when (index) {
