@@ -129,6 +129,17 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Start hermetic DNS and public-address fixture route
+        run: |
+          sudo ip address add 8.8.8.8/32 dev lo
+          sudo python3 -u tools/ep02-android/test-dns-server.py "$RUNNER_TEMP/ep02-dns-ready" > "$RUNNER_TEMP/ep02-dns.log" 2>&1 &
+          for attempt in {1..10}; do
+            if [[ -f "$RUNNER_TEMP/ep02-dns-ready" ]]; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/ep02-dns.log"
+          echo 'Hermetic Android fixture DNS did not start' >&2
+          exit 1
       - name: Execute Kotlin Host -> Production Runtime -> isolated Wasmtime fixture
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -138,7 +149,7 @@ jobs:
           profile: pixel_2
           emulator-boot-timeout: 900
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save -camera-back none -writable-system
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save -camera-back none -dns-server 127.0.0.1
           script: bash tools/ep02-android/run-device.sh ${{ matrix.variant }} ${{ matrix.api }}
       - name: Collect checksums and diagnostics
         if: always()
