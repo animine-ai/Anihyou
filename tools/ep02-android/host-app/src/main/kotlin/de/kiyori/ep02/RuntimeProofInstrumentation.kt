@@ -157,14 +157,14 @@ private object RuntimeProof {
         httpsFixture.start()
         val runtime = AndroidIsolatedExtensionRuntime(context)
         try {
-            val productionTransportDirectory = File(context.cacheDir, "ep02-production-https-ledger")
-            check(!productionTransportDirectory.exists() || productionTransportDirectory.deleteRecursively())
-            val productionTransport = ProductionExtensionTransportFactory.create(productionTransportDirectory)
-            functional.put("releasePlanParse", runReleaseHost(runtime, verified, productionTransport, httpsFixture))
+            val releaseTransport = freshProductionTransport(context, "release")
+            val httpsProofTransport = freshProductionTransport(context, "https-proof")
+            val navigationTransport = freshProductionTransport(context, "navigation")
+            functional.put("releasePlanParse", runReleaseHost(runtime, verified, releaseTransport, httpsFixture))
             functional.put("productionHttpsSocketProof", proveProductionHttpsSocketPath(
-                verified, productionTransport, httpsFixture))
+                verified, httpsProofTransport, httpsFixture))
             functional.put("productionNavigationDispatch", runProductionNavigationDispatch(
-                runtime, verified, productionTransport, httpsFixture))
+                runtime, verified, navigationTransport, httpsFixture))
             functional.put("navigationOverview", runNavigation(runtime, verified, NavigationTargetKind.OVERVIEW))
             functional.put("navigationEpisode", runNavigation(runtime, verified, NavigationTargetKind.EPISODE))
             functional.put("productionTransportFactoryBoundary", proveProductionTransportFactoryBoundary(context, verified))
@@ -311,6 +311,16 @@ private object RuntimeProof {
             .put("sourceHash", provenance.sourceHash)
             .put("packageDigestPinned", result.receipt.packageDigest == verified.packageDigest)
             .put("generationPinned", result.receipt.generationId == "ep02-android-fixture")
+    }
+
+    private fun freshProductionTransport(
+        context: Context,
+        name: String,
+    ): DestinationBoundExtensionTransport {
+        require(name.matches(Regex("[a-z-]+")))
+        val directory = File(context.cacheDir, "ep02-production-https-$name-ledger")
+        check(!directory.exists() || directory.deleteRecursively())
+        return ProductionExtensionTransportFactory.create(directory)
     }
 
     /** Executes production DNS/TLS/redirect/body/cancellation policy over a local HTTPS socket. */
