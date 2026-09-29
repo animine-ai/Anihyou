@@ -39,6 +39,15 @@ data class ApprovedExtensionAuthorityTuple(
 class ExtensionEvidenceAuthorityAdapter(
     private val approved: Set<ApprovedExtensionAuthorityTuple>,
 ) {
+    fun observationPolicy(): ExtensionObservationPolicy = ExtensionObservationPolicy { extension, observation ->
+        observation.extensionId == extension.extensionId &&
+            observation.providerId == extension.providerId && approved.any { tuple ->
+                tuple.publisherId == extension.publisherId && tuple.signingKeyId == extension.signingKeyId &&
+                    tuple.extensionId == extension.extensionId.value &&
+                    tuple.providerId == extension.providerId.value && observation.sourceRole in tuple.roles
+            }
+    }
+
     /** A policy with no provisioned tuple is deliberately inert. */
     fun permits(receipt: ExtensionExecutionReceipt, role: SourceRole): Boolean =
         approved.any { tuple ->

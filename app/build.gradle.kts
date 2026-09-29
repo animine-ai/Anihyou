@@ -12,6 +12,15 @@ val appPackageName = rootProject.extra["appPackageName"] as String
 val aniWorldShadowCanaryDebugValue = providers.gradleProperty("aniworldShadowCanary").orNull?.also {
     require(it == "true" || it == "false") { "aniworldShadowCanary must be exactly true or false" }
 } ?: "false"
+val extensionReleaseFields = listOf("extensionRepositoryId", "extensionRootSha256",
+    "extensionDistributionOrigins", "extensionAllowedHosts", "extensionPublisherId", "extensionSigningKeyId")
+    .associateWith { providers.gradleProperty(it).orNull.orEmpty() }
+require(extensionReleaseFields.values.all(String::isEmpty) || extensionReleaseFields.values.all(String::isNotEmpty)) {
+    "Production extension public pins/origins and authority tuple must be supplied together"
+}
+require(extensionReleaseFields.values.all { it.matches(Regex("[A-Za-z0-9._:/,-]*")) }) {
+    "Invalid production extension build field"
+}
 
 val versionProps = Properties().also {
     it.load(project.rootProject.file("version.properties").reader())
@@ -25,6 +34,10 @@ android {
         applicationId = appPackageName
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
+        listOf("EXTENSION_REPOSITORY_ID", "EXTENSION_ROOT_SHA256", "EXTENSION_DISTRIBUTION_ORIGINS",
+            "EXTENSION_ALLOWED_HOSTS", "EXTENSION_PUBLISHER_ID", "EXTENSION_SIGNING_KEY_ID").forEach {
+            buildConfigField("String", it, "\"\"")
+        }
         versionCode = versionProps.getProperty("code").toInt()
         versionName = versionProps.getProperty("name")
 
@@ -72,6 +85,14 @@ android {
         }
         release {
             buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", "false")
+            mapOf("EXTENSION_REPOSITORY_ID" to "extensionRepositoryId",
+                "EXTENSION_ROOT_SHA256" to "extensionRootSha256",
+                "EXTENSION_DISTRIBUTION_ORIGINS" to "extensionDistributionOrigins",
+                "EXTENSION_ALLOWED_HOSTS" to "extensionAllowedHosts",
+                "EXTENSION_PUBLISHER_ID" to "extensionPublisherId",
+                "EXTENSION_SIGNING_KEY_ID" to "extensionSigningKeyId").forEach { (field, property) ->
+                buildConfigField("String", field, "\"${extensionReleaseFields.getValue(property)}\"")
+            }
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = false

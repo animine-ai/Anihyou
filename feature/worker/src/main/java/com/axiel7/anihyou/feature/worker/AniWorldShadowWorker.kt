@@ -6,13 +6,17 @@ import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import com.axiel7.anihyou.release.core.api.AniWorldShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
+import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
 
 enum class AniWorldShadowWorkerDecision { SUCCESS, RETRY, FAILURE }
 
 internal suspend fun evaluateAniWorldShadowWorker(
     coordinator: AniWorldShadowRefreshCoordinator,
     oneShotCanary: Boolean,
-): AniWorldShadowWorkerDecision = when (val outcome = coordinator.refresh()) {
+    workId: String? = null,
+): AniWorldShadowWorkerDecision = when (val outcome =
+    if (workId != null && coordinator is WorkScopedShadowRefreshCoordinator)
+        coordinator.refreshForWork(workId) else coordinator.refresh()) {
     is ShadowRefreshOutcome.Committed,
     is ShadowRefreshOutcome.Skipped -> AniWorldShadowWorkerDecision.SUCCESS
     is ShadowRefreshOutcome.Failed -> if (outcome.retryable && !oneShotCanary) {
@@ -32,6 +36,7 @@ class AniWorldShadowWorker(
         when (evaluateAniWorldShadowWorker(
             coordinator,
             oneShotCanary = inputData.getBoolean(INPUT_ONE_SHOT_CANARY, false),
+            workId = id.toString(),
         )) {
             AniWorldShadowWorkerDecision.SUCCESS -> Result.success()
             AniWorldShadowWorkerDecision.RETRY -> Result.retry()

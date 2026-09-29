@@ -7,6 +7,7 @@ import androidx.work.Operation
 import androidx.work.WorkManager
 import com.axiel7.anihyou.release.core.api.AniWorldShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
+import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -75,5 +76,22 @@ class WorkManagerAniWorldShadowSchedulerTest {
             evaluateAniWorldShadowWorker(coordinator, oneShotCanary = false),
         )
     }
-}
 
+    @Test
+    fun workerReusesTheWorkIdAcrossRetries() = runBlocking {
+        val generations = mutableListOf<String>()
+        val coordinator = object : WorkScopedShadowRefreshCoordinator {
+            override suspend fun refresh(): ShadowRefreshOutcome = error("work ID required")
+            override suspend fun refreshForWork(workId: String): ShadowRefreshOutcome {
+                generations += workId
+                return ShadowRefreshOutcome.Failed("temporary", retryable = true)
+            }
+        }
+
+        repeat(2) {
+            assertEquals(AniWorldShadowWorkerDecision.RETRY,
+                evaluateAniWorldShadowWorker(coordinator, oneShotCanary = false, workId = "fixed-work-id"))
+        }
+        assertEquals(listOf("fixed-work-id", "fixed-work-id"), generations)
+    }
+}

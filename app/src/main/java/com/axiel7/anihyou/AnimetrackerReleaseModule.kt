@@ -23,6 +23,10 @@ import com.axiel7.anihyou.release.data.aniworld.AniWorldClient
 import com.axiel7.anihyou.release.data.aniworld.AniWorldHttpTransport
 import com.axiel7.anihyou.release.data.aniworld.AniWorldProvider
 import com.axiel7.anihyou.release.data.aniworld.JdkAniWorldHttpTransport
+import com.axiel7.anihyou.release.core.extension.SourceRole
+import com.axiel7.anihyou.release.data.extension.ApprovedExtensionAuthorityTuple
+import com.axiel7.anihyou.release.data.extension.ProductionExtensionHostBoundary
+import com.axiel7.anihyou.release.data.extension.ProductionExtensionHostConfiguration
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_1_2
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_2_3
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_3_4
@@ -56,7 +60,7 @@ import com.axiel7.anihyou.release.data.repository.RoomReleaseEvidenceRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseIntelligencePersistence
 import com.axiel7.anihyou.release.data.repository.RoomReleaseReconciliationRepository
 import com.axiel7.anihyou.release.data.repository.RoomAniWorldPollStore
-import com.axiel7.anihyou.release.data.repository.AniWorldShadowSyncOrchestrator
+import com.axiel7.anihyou.release.data.repository.ExtensionShadowSyncOrchestrator
 import com.axiel7.anihyou.release.data.repository.RoomSourceHealthRepository
 import java.time.Clock
 import org.koin.android.ext.koin.androidApplication
@@ -94,12 +98,25 @@ val animetrackerReleaseModule = module {
     single { RoomReleaseIntelligencePersistence(get(), get()) }
     single { RoomReleaseReconciliationRepository(get()) }
     single<AniWorldShadowPollStore> { RoomAniWorldPollStore(get(), get(), get()) }
+    single {
+        val rootDigest = BuildConfig.EXTENSION_ROOT_SHA256
+        val config = if (rootDigest.isBlank()) null else ProductionExtensionHostConfiguration(
+            repositoryId = BuildConfig.EXTENSION_REPOSITORY_ID,
+            initialRootSha256 = rootDigest,
+            distributionOrigins = BuildConfig.EXTENSION_DISTRIBUTION_ORIGINS.split(',').toSet(),
+            allowedHosts = BuildConfig.EXTENSION_ALLOWED_HOSTS.split(',').toSet(),
+            approvedAuthority = setOf(ApprovedExtensionAuthorityTuple(
+                BuildConfig.EXTENSION_PUBLISHER_ID, BuildConfig.EXTENSION_SIGNING_KEY_ID,
+                "de.aniworld", "de.aniworld",
+                setOf(SourceRole.CALENDAR, SourceRole.RECENT, SourceRole.POSTPONEMENT, SourceRole.DIRECT))),
+        )
+        ProductionExtensionHostBoundary.create(androidApplication(), config)
+    }
     single<AniWorldShadowRefreshCoordinator> {
-        AniWorldShadowSyncOrchestrator(
-            pollStore = get(),
+        ExtensionShadowSyncOrchestrator(
+            host = get<ProductionExtensionHostBoundary>().release,
+            authority = get<ProductionExtensionHostBoundary>().authority,
             reconciliation = get(),
-            clock = get(),
-            enabled = { AniWorldShadowDebugActivation.enabledForInternalTest },
         )
     }
     single { AniWorldClient(get()) }

@@ -15,6 +15,8 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
     private val evidenceStore = RoomReleaseEvidenceStore(database)
     private val reconciler = ReleaseCycleReconciler()
 
+    suspend fun hasCompletedCycle(id: String): Boolean = database.withTransaction { dao.cycle(id) != null }
+
     suspend fun importBaseline(): Int = database.withTransaction {
         dao.baselineMarker()?.let {
             check(it.schemaVersion == 12 && it.value == "v1")

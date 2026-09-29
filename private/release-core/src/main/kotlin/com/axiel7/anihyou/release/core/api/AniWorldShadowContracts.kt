@@ -153,4 +153,8 @@ interface AniWorldShadowPollStore {
 }
 
 fun interface AniWorldShadowRefreshCoordinator { suspend fun refresh(): ShadowRefreshOutcome }
+/** WorkManager passes its stable work ID so a retry cannot mint a second Room cycle. */
+interface WorkScopedShadowRefreshCoordinator : AniWorldShadowRefreshCoordinator {
+    suspend fun refreshForWork(workId: String): ShadowRefreshOutcome
+}
 fun interface AniWorldShadowScheduler { fun scheduleCanaryNow() }
