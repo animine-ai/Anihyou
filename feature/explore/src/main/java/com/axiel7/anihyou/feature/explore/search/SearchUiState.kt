@@ -19,6 +19,8 @@ import com.axiel7.anihyou.core.network.type.MediaSeason
 import com.axiel7.anihyou.core.network.type.MediaSort
 import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.UserTitleLanguage
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 @Stable
 data class SearchUiState(
@@ -32,22 +34,20 @@ data class SearchUiState(
     val mediaSort: MediaSort,
     val genresAndTagsForSearch: GenresAndTagsForSearch = GenresAndTagsForSearch(),
     val genresOrTagsChanged: Boolean = false,
-    val selectedMediaFormats: List<MediaFormatLocalizable> = emptyList(),
+    val selectedMediaFormats: ImmutableList<MediaFormatLocalizable> = persistentListOf(),
     val mediaFormatsChanged: Boolean = false,
-    val selectedMediaStatuses: List<MediaStatusLocalizable> = emptyList(),
+    val selectedMediaStatuses: ImmutableList<MediaStatusLocalizable> = persistentListOf(),
     val mediaStatusesChanged: Boolean = false,
     val startYear: Int? = null,
     val endYear: Int? = null,
     val season: MediaSeason? = null,
-    val minEpCh: Int? = null,
-    val maxEpCh: Int? = null,
-    val minDuration: Int? = null,
-    val maxDuration: Int? = null,
+    val episodesChaptersRange: IntRange? = null,
+    val durationVolumesRange: IntRange? = null,
     val onMyList: Boolean? = null,
     val isDoujin: Boolean? = null,
     val isAdult: Boolean? = null,
     val country: CountryOfOrigin? = null,
-    val selectedSources: List<MediaSourceLocalizable> = emptyList(),
+    val selectedSources: ImmutableList<MediaSourceLocalizable> = persistentListOf(),
     val sourcesChanged: Boolean = false,
     val selectedMediaItem: SearchMediaQuery.Medium? = null,
     val clearedFilters: Boolean = false,

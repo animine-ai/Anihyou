@@ -17,4 +17,5 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
+    implementation(project(":core:database"))
 }

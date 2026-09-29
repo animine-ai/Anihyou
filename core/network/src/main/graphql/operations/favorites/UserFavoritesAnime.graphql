@@ -2,15 +2,19 @@ query UserFavoritesAnime($userId: Int, $page: Int, $perPage: Int) {
     User(id: $userId) {
         favourites {
             anime(page: $page, perPage: $perPage) {
-                nodes {
+                edges {
                     id
-                    title {
-                        userPreferred
+                    favouriteOrder
+                    node {
+                        id
+                        title {
+                            userPreferred
+                        }
+                        coverImage {
+                            large
+                        }
+                        isAdult
                     }
-                    coverImage {
-                        large
-                    }
-                    isAdult
                 }
                 pageInfo {
                     ...CommonPage

@@ -95,7 +95,7 @@ android {
             }
             isDebuggable = false
             isMinifyEnabled = true
-            isShrinkResources = false
+            isShrinkResources = true
             isCrunchPngs = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -156,6 +156,24 @@ android {
     }
 }
 
+androidComponents {
+    beforeVariants {
+        if (it.buildType == "release" && it.flavorName == "foss") {
+            it.shrinkResources = false
+        }
+    }
+    onVariants {
+        if (it.buildType == "release" && it.flavorName == "gms") {
+            // Disable ABI splits for GMS (fix for building bundle)
+            it.outputs.forEach { output ->
+                if (output.filters.isNotEmpty()) {
+                    output.enabled.set(false)
+                }
+            }
+        }
+    }
+}
+
 base {
     archivesName = "anihyou-${versionProps.getProperty("name")}"
 }
@@ -172,6 +190,10 @@ composeCompiler {
 
 baselineProfile {
     dexLayoutOptimization = true
+}
+
+koinCompiler {
+    compileSafety = false
 }
 
 dependencies {
@@ -200,6 +222,7 @@ dependencies {
     implementation(project(":feature:usermedialist"))
     implementation(project(":feature:widget"))
     implementation(project(":feature:worker"))
+    implementation(project(":feature:addrecommendation"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
@@ -212,6 +235,7 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.compose.animation.graphics)
 
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material3.window.sizeclass)

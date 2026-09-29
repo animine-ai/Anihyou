@@ -14,6 +14,7 @@ import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
 import coil3.request.crossfade
 import com.axiel7.anihyou.core.domain.dataStoreModule
+import com.axiel7.anihyou.core.domain.databaseModule
 import com.axiel7.anihyou.core.domain.repositoryModule
 import com.axiel7.anihyou.core.network.apiModule
 import com.axiel7.anihyou.core.network.networkModule
@@ -46,6 +47,7 @@ class App : Application(), SingletonImageLoader.Factory {
                 coreModule,
                 animetrackerReleaseModule,
                 dataStoreModule,
+                databaseModule,
                 networkModule,
                 apiModule,
                 repositoryModule,

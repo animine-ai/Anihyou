@@ -3,6 +3,7 @@ package com.axiel7.anihyou.feature.explore.explore.content
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.axiel7.anihyou.core.base.UNKNOWN_CHAR
@@ -23,8 +24,8 @@ import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 @Composable
 fun AiringContent(
     airingOnMyList: Boolean?,
-    airingAnime: List<ExploreMedia>,
-    airingAnimeOnMyList: List<ExploreMedia>,
+    airingAnime: SnapshotStateList<ExploreMedia>,
+    airingAnimeOnMyList: SnapshotStateList<ExploreMedia>,
     releaseByMediaId: Map<Int, List<ReleaseUiPresentation>> = emptyMap(),
     providerAiringRows: List<ReleaseUiCalendarItem> = emptyList(),
     isLoading: Boolean,

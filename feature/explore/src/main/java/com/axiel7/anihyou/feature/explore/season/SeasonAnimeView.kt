@@ -57,7 +57,6 @@ import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithMediumTopAppBar
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.core.ui.composables.common.ErrorDialogHandler
 import com.axiel7.anihyou.core.ui.composables.list.OnBottomReached
-import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_SMALL_WIDTH
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemHorizontal
 import com.axiel7.anihyou.core.ui.composables.media.ReleaseScheduleText
@@ -66,9 +65,9 @@ import com.axiel7.anihyou.core.ui.composables.media.MediaItemVertical
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemVerticalPlaceholder
 import com.axiel7.anihyou.core.ui.composables.scores.SmallScoreIndicator
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
-import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 import com.axiel7.anihyou.feature.editmedia.EditMediaSheet
 import com.axiel7.anihyou.feature.explore.season.composables.SeasonChartFilterSheet
+import kotlinx.collections.immutable.toImmutableList
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -190,7 +189,7 @@ private fun SeasonAnimeContent(
             )
         }
         AnimatedVisibility(
-            visible = uiState.listStyle != ListStyle.STANDARD,
+            visible = uiState.listStyle == ListStyle.GRID,
             enter = fadeIn(animationSpec = tween()),
             exit = fadeOut(animationSpec = tween()),
         ) {
@@ -295,51 +294,57 @@ private fun SeasonalList(
             items = uiState.animeSeasonal,
             contentType = { it }
         ) { item ->
-            MediaItemHorizontal(
-                title = item.basicMediaDetails.title?.userPreferred.orEmpty(),
-                imageUrl = item.coverImage?.large,
-                blurImage = blurAdult && item.basicMediaDetails.isAdult == true,
-                subtitle1 = {
-                    val releasePresentations = uiState.releaseByMediaId[item.id]
-                        .orEmpty()
-                        .filter { it.isAuthoritative }
-                    if (releasePresentations.isNotEmpty()) {
+            val releasePresentations = uiState.releaseByMediaId[item.id]
+                .orEmpty()
+                .filter { it.isAuthoritative }
+            if (releasePresentations.isNotEmpty()) {
+                MediaItemHorizontal(
+                    title = item.basicMediaDetails.title?.userPreferred.orEmpty(),
+                    imageUrl = item.coverImage?.large,
+                    blurImage = blurAdult && item.basicMediaDetails.isAdult == true,
+                    subtitle1 = {
                         releasePresentations.forEach { presentation ->
                             ReleaseScheduleText(
                                 presentation = presentation,
                                 fallback = {},
                             )
                         }
-                    } else {
-                        item.nextAiringEpisode?.let { nextAiringEpisode ->
+                    },
+                    subtitle2 = {
+                        item.averageScore?.let { score ->
+                            SmallScoreIndicator(score = score)
+                        }
+                        if (!item.genres.isNullOrEmpty()) {
                             Text(
-                                text = stringResource(
-                                    R.string.episode_in_time,
-                                    nextAiringEpisode.episode,
-                                    nextAiringEpisode.timeUntilAiring.toLong().secondsToLegibleText()
-                                ),
-                                color = MaterialTheme.colorScheme.primary
+                                text = item.genres!!.take(3)
+                                    .mapNotNull { it?.genreTagLocalized() }
+                                    .joinToString(),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    }
-                },
-                subtitle2 = {
-                    item.averageScore?.let { score ->
-                        SmallScoreIndicator(score = score)
-                    }
-                    if (!item.genres.isNullOrEmpty()) {
-                        Text(
-                            text = item.genres!!.take(3)
-                                .mapNotNull { it?.genreTagLocalized() }
-                                .joinToString(),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                status = item.mediaListEntry?.basicMediaListEntry?.status,
-                onClick = { onClickItem(item) },
-                onLongClick = { onLongClickItem(item) },
-            )
+                    },
+                    status = item.mediaListEntry?.basicMediaListEntry?.status,
+                    onClick = { onClickItem(item) },
+                    onLongClick = { onLongClickItem(item) },
+                )
+            } else {
+                MediaItemHorizontal(
+                    title = item.basicMediaDetails.title?.userPreferred.orEmpty(),
+                    imageUrl = item.coverImage?.large,
+                    blurImage = blurAdult && item.basicMediaDetails.isAdult == true,
+                    status = item.mediaListEntry?.basicMediaListEntry?.status,
+                    episodes = item.basicMediaDetails.episodes,
+                    chapters = item.basicMediaDetails.chapters,
+                    duration = item.basicMediaDetails.duration,
+                    score = item.averageScore,
+                    format = item.basicMediaDetails.format,
+                    year = null,
+                    genres = item.genres?.filterNotNull()?.toImmutableList(),
+                    mediaStatus = item.status,
+                    onClick = { onClickItem(item) },
+                    onLongClick = { onLongClickItem(item) },
+                )
+            }
         }
         if (uiState.isLoading) {
             items(10) {

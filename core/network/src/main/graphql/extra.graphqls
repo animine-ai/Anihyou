@@ -21,7 +21,7 @@ extend type Review @typePolicy(keyFields: "id")
 
 extend type MediaConnection @connection
 extend type AiringScheduleConnection @connection
-extend type CharacterConnection @connection
+#extend type CharacterConnection @connection # bug: voiceActors cache is null
 extend type StaffConnection @connection
 extend type StudioConnection @connection
 extend type ReviewConnection @connection

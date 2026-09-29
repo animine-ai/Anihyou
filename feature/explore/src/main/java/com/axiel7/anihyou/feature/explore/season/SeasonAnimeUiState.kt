@@ -17,7 +17,7 @@ data class SeasonAnimeUiState(
     val animeSeasonal: SnapshotStateList<ExploreMedia> = mutableStateListOf(),
     val releaseByMediaId: Map<Int, List<ReleaseUiPresentation>> = emptyMap(),
     val selectedItem: ExploreMedia? = null,
-    val listStyle: ListStyle = ListStyle.GRID,
+    val listStyle: ListStyle? = null,
     val displayAdult: Boolean = false,
     override val page: Int = 1,
     override val hasNextPage: Boolean = true,

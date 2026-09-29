@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import com.axiel7.anihyou.core.base.event.UiEvent
 import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.MediaCharacter
+import com.axiel7.anihyou.core.network.fragment.MediaRecommended
 import com.axiel7.anihyou.core.network.type.RecommendationRating
 
 @Immutable
@@ -19,4 +20,7 @@ interface MediaDetailsEvent : UiEvent {
     fun showVoiceActorsSheet(character: MediaCharacter)
     fun hideVoiceActorSheet()
     fun onVoteClick(recommendedMediaId: Int, recommendationId: Int, rating: RecommendationRating)
+    fun addRecommendation(media: MediaRecommended)
+    fun changeNotificationAllowance(type: AiringNotificationType, value: Boolean)
+    fun writeNotificationAllowanceToDatabase()
 }

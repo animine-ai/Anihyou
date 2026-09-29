@@ -605,6 +605,7 @@
     <string name="openings">Vorspann</string>
     <string name="endings">Abspann</string>
     <string name="list_name">Listenname</string>
+    <string name="link_name">Linkname</string>
     <string name="anime_behind">Ausstehende Folgen</string>
     <string name="default_tab">Standardseite</string>
     <string name="last_used">Zuletzt verwendet</string>
@@ -663,10 +664,14 @@
     <string name="space_separator">Leerzeichen Trennzeichen</string>
     <string name="custom_link_url_error_name">Die URL muss ein {name} enthalten</string>
     <string name="invalid_url_error">Ungültige URL</string>
+    <string name="separate_novels_and_manga">Seperate Novels und Manga</string>
+    <string name="novels">Novels</string>
     <plurals name="notification_episode_aired">
-        <item quantity="one">Folge %d von %s wurde ausgestrahlt.</item>
-        <item quantity="other">Folge %d von %s wurde ausgestrahlt.</item>
+        <item quantity="one">Folge %1$d von %2$s wurde ausgestrahlt.</item>
+        <item quantity="other">Folge %1$d von %2$s wurde ausgestrahlt.</item>
     </plurals>
+    <string name="notification_start_episode_aired">Die Ausstrahlung von %1$s hat begonnen.</string>
+    <string name="notification_end_episode_aired">Die Ausstrahlung von %1$s wurde beendet.</string>
     <string name="notification_activity_liked">%s gefällt deine Aktivität.</string>
     <string name="notification_activity_reply_liked">%s gefällt deine Antwort auf eine Aktivität.</string>
     <string name="notification_activity_reply">%s hat auf deine Aktivität geantwortet.</string>
@@ -747,4 +752,10 @@
     <string name="release_mapping_media_id">AniList-Medien-ID</string>
     <string name="release_mapping_evidence">Nachweis</string>
 
+    <string name="widget_config_title">Widget Konfiguration</string>
+    <string name="style_colored">Farbig</string>
+    <string name="style_monochrome">Monochrom</string>
+    <string name="allow_start_notification">Benachrichtigungen bei Beginn erlauben</string>
+    <string name="allow_airing_notification">Benachrichtigungen bei Ausstrahlung erlauben</string>
+    <string name="allow_end_notification">Benachrichtigungen bei Abschluss erlauben</string>
 </resources>

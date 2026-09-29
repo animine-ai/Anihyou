@@ -520,7 +520,6 @@ class SettingsViewModel(
             .launchIn(viewModelScope)
 
         defaultPreferencesRepository.separateNovelsAndManga
-            .filterNotNull()
             .onEach { value ->
                 mutableUiState.update { it.copy(separateNovelsAndManga = value) }
             }

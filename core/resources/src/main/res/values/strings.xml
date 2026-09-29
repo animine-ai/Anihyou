@@ -618,6 +618,7 @@
     <string name="openings">Openings</string>
     <string name="endings">Endings</string>
     <string name="list_name">List name</string>
+    <string name="link_name">Link name</string>
     <string name="anime_behind">Anime Behind</string>
     <string name="default_tab">Default tab</string>
     <string name="last_used">Last used</string>
@@ -682,9 +683,11 @@
     <string name="separate_novels_and_manga">Separate novels and manga</string>
     <string name="novels">Novels</string>
     <plurals name="notification_episode_aired">
-        <item quantity="one">Episode %d of %s aired.</item>
-        <item quantity="other">Episode %d of %s aired.</item>
+        <item quantity="one">Episode %1$d of %2$s aired.</item>
+        <item quantity="other">Episode %1$d of %2$s aired.</item>
     </plurals>
+    <string name="notification_start_episode_aired">%1$s started airing</string>
+    <string name="notification_end_episode_aired">%1$s finished airing.</string>
     <string name="notification_activity_liked">%s liked your activity.</string>
     <string name="notification_activity_reply_liked">%s liked your activity reply.</string>
     <string name="notification_activity_reply">%s replied to your activity.</string>
@@ -768,4 +771,7 @@
     <string name="release_mapping_manual_title">Manual AniWorld mapping</string>
     <string name="release_mapping_media_id">AniList media ID</string>
     <string name="release_mapping_evidence">Evidence</string>
+    <string name="allow_start_notification">Allow start notification</string>
+    <string name="allow_airing_notification">Allow airing notification</string>
+    <string name="allow_end_notification">Allow finished notification</string>
 </resources>
