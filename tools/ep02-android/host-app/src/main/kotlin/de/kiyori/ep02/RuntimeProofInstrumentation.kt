@@ -60,11 +60,29 @@ class RuntimeProofInstrumentation : Instrumentation() {
             val report = runBlocking { RuntimeProof.run(targetContext) }
             result.putString("ep02", report.toString())
             val passed = report.optBoolean("passed", false)
-            val marker = if (passed) "EP02_ANDROID_PASS" else "EP02_ANDROID_PERFORMANCE_FAIL"
-            result.putString("stream", "$marker\n$report\n")
+            val marker = when {
+                passed -> "EP02_ANDROID_PASS"
+                report.optJSONObject("functional")?.optString("status") == "FAIL" ->
+                    "EP02_ANDROID_FUNCTIONAL_FAIL"
+                else -> "EP02_ANDROID_PERFORMANCE_FAIL"
+            }
+            // The full report is already in the structured `ep02` result. Keep it out of the
+            // second Bundle field because raw sample evidence can be sizable.
+            result.putString("stream", "$marker\n")
             finish(if (passed) -1 else 0, result)
         } catch (error: Throwable) {
-            result.putString("stream", "EP02_ANDROID_FAIL\n" + android.util.Log.getStackTraceString(error))
+            val report = JSONObject()
+                .put("passed", false)
+                .put("api", Build.VERSION.SDK_INT)
+                .put("functional", JSONObject()
+                    .put("status", "FAIL")
+                    .put("message", error.message ?: error.javaClass.name))
+                .put("performance", JSONObject()
+                    .put("status", "NOT_RUN")
+                    .put("noiseRetryAttempted", false))
+            result.putString("ep02", report.toString())
+            result.putString("stream", "EP02_ANDROID_FUNCTIONAL_FAIL\n$report\n" +
+                android.util.Log.getStackTraceString(error))
             finish(0, result)
         }
     }
@@ -75,7 +93,9 @@ private object RuntimeProof {
     private const val RELEASE_HASH = "6de0c15da0c1d5de1b834632f25bbd74d9ef0587035936acf1d9e99ed9ba370b"
     private const val NAV_BODY = "fixture navigation"
     private const val NAV_HASH = "96dfb9bbcd4f46a63e8b521bdef0b5b5357f2bd5ddf9cae543f098069b8478fb"
-    private const val SAMPLE_COUNT = 50
+    private const val BATCH_COUNT = 5
+    private const val SAMPLES_PER_BATCH = 20
+    private const val SAMPLE_COUNT = BATCH_COUNT * SAMPLES_PER_BATCH
     private const val WARMUP_COUNT = 10
     private const val STEADY_STATE_LIMIT_PERCENT = 40.0
     // Relative percentages explode for sub-millisecond baselines. After lifecycle, cache,
@@ -83,6 +103,16 @@ private object RuntimeProof {
     // a small absolute difference; larger deltas must still satisfy the 40% relative gate.
     private const val SMALL_ABSOLUTE_DELTA_MICROS = 3_000L
     private const val PLAN_MICRO_ABSOLUTE_LIMIT_MICROS = 1_000L
+    private const val MAX_NOISY_BATCHES_FOR_RETRY = 2
+    private const val MIN_CLEAN_BATCHES_FOR_RETRY = 3
+    private const val CLEAR_EMULATOR_NOISE_MULTIPLIER = 2.0
+
+    private data class BenchmarkBatch(
+        val inProcessPlan: List<ExtensionRuntimeCallDiagnostics>,
+        val isolatedPlan: List<ExtensionRuntimeCallDiagnostics>,
+        val inProcessParse: List<ExtensionRuntimeCallDiagnostics>,
+        val isolatedParse: List<ExtensionRuntimeCallDiagnostics>,
+    )
 
     // A sub-millisecond plan guest makes relative percentages meaningless. Up to 1 ms absolute
     // process/IPC delta is the only exception; larger plan overhead remains a hard failure.
@@ -198,9 +228,16 @@ private object RuntimeProof {
         }
 
         delay(200)
-        val performance = benchmark(context, verified, module, digest, validationMicros)
-        val performancePassed =
-            performance.getJSONObject("steadyState").getString("policy") != "FAIL"
+        val performance = try {
+            benchmark(context, verified, module, digest, validationMicros)
+        } catch (error: Throwable) {
+            // A failed measurement is reported as a performance error and is never noise-retried.
+            JSONObject()
+                .put("status", "ERROR")
+                .put("message", error.message ?: error.javaClass.name)
+                .put("noiseRetryAttempted", false)
+        }
+        val performancePassed = performance.optString("status") == "PASS"
         return JSONObject()
             .put("passed", performancePassed)
             .put("api", Build.VERSION.SDK_INT)
@@ -209,7 +246,9 @@ private object RuntimeProof {
             .put("moduleDigest", digest)
             .put("hostPid", Process.myPid())
             .put("hostUid", Process.myUid())
-            .put("functional", functional)
+            .put("functional", JSONObject()
+                .put("status", "PASS")
+                .put("checks", functional))
             .put("performance", performance)
     }
 
@@ -413,6 +452,64 @@ private object RuntimeProof {
         digest: String,
         validationMicros: Long,
     ): JSONObject {
+        val first = benchmarkAttempt(context, verified, module, digest, validationMicros)
+        val noiseAnalysis = first.getJSONObject("noiseAnalysis")
+        val attempts = JSONArray().put(JSONObject(first.toString()))
+        if (!noiseAnalysis.optBoolean("retryEligible")) {
+            return summaryWithoutRaw(first)
+                .put("status", measurementStatus(first))
+                .put("attemptCount", 1)
+                .put("attempts", attempts)
+                .put("noiseRetry", JSONObject()
+                    .put("attempted", false)
+                    .put("maxRetries", 1)
+                    .put("reason", noiseAnalysis.optString("reason")))
+        }
+
+        val retry = try {
+            benchmarkAttempt(context, verified, module, digest, validationMicros)
+        } catch (error: Throwable) {
+            val retryError = JSONObject()
+                .put("status", "ERROR")
+                .put("message", error.message ?: error.javaClass.name)
+                .put("noiseRetryAttempted", false)
+            attempts.put(retryError)
+            return summaryWithoutRaw(first)
+                .put("status", "ERROR")
+                .put("attemptCount", 2)
+                .put("attempts", attempts)
+                .put("noiseRetry", JSONObject()
+                    .put("attempted", true)
+                    .put("maxRetries", 1)
+                    .put("reason", noiseAnalysis.optString("reason"))
+                    .put("retryStatus", "ERROR"))
+        }
+
+        attempts.put(JSONObject(retry.toString()))
+        return summaryWithoutRaw(retry)
+            .put("status", measurementStatus(retry))
+            .put("attemptCount", 2)
+            .put("attempts", attempts)
+            .put("noiseRetry", JSONObject()
+                .put("attempted", true)
+                .put("maxRetries", 1)
+                .put("reason", noiseAnalysis.optString("reason"))
+                .put("retryStatus", measurementStatus(retry)))
+    }
+
+    private fun measurementStatus(measurement: JSONObject): String =
+        if (measurement.getJSONObject("steadyState").getString("policy") == "FAIL") "FAIL" else "PASS"
+
+    private fun summaryWithoutRaw(measurement: JSONObject): JSONObject =
+        JSONObject(measurement.toString()).also { it.remove("batches") }
+
+    private suspend fun benchmarkAttempt(
+        context: Context,
+        verified: VerifiedExtensionPackage,
+        module: ByteArray,
+        digest: String,
+        validationMicros: Long,
+    ): JSONObject {
         val planContext = ExtensionContextV1(
             verified.extensionId, verified.providerId, listOf(SourceRole.CALENDAR),
             "2026-09-28T12:00:00Z", emptyList())
@@ -433,10 +530,6 @@ private object RuntimeProof {
 
             warmInProcess(runtime, digest, module, "plan_requests", planInput, planLimits)
             warmInProcess(runtime, digest, module, "parse_responses", parseInput, parseLimits)
-            val inProcessPlan = sampleInProcess(
-                runtime, digest, module, "plan_requests", planInput, planLimits)
-            val inProcessParse = sampleInProcess(
-                runtime, digest, module, "parse_responses", parseInput, parseLimits)
 
             check(executeSuccess(runtime, verified, "parse_responses", parseInput, parseLimits).isNotEmpty())
             val isolatedCold = requireNotNull(runtime.lastDiagnostics)
@@ -447,37 +540,80 @@ private object RuntimeProof {
 
             warmIsolated(runtime, verified, "plan_requests", planInput, planLimits)
             warmIsolated(runtime, verified, "parse_responses", parseInput, parseLimits)
-            val isolatedPlan = sampleIsolated(
-                runtime, verified, "plan_requests", planInput, planLimits)
-            val isolatedParse = sampleIsolated(
-                runtime, verified, "parse_responses", parseInput, parseLimits)
+
+            val batches = buildList(BATCH_COUNT) {
+                repeat(BATCH_COUNT) {
+                    val (inProcessPlan, isolatedPlan) = samplePaired(
+                        baseline = {
+                            sampleInProcessOne(runtime, digest, module, "plan_requests", planInput, planLimits)
+                        },
+                        isolated = {
+                            sampleIsolatedOne(runtime, verified, "plan_requests", planInput, planLimits)
+                        },
+                    )
+                    val (inProcessParse, isolatedParse) = samplePaired(
+                        baseline = {
+                            sampleInProcessOne(runtime, digest, module, "parse_responses", parseInput, parseLimits)
+                        },
+                        isolated = {
+                            sampleIsolatedOne(runtime, verified, "parse_responses", parseInput, parseLimits)
+                        },
+                    )
+                    add(BenchmarkBatch(inProcessPlan, isolatedPlan, inProcessParse, isolatedParse))
+                }
+            }
+            val inProcessPlan = batches.flatMap { it.inProcessPlan }
+            val isolatedPlan = batches.flatMap { it.isolatedPlan }
+            val inProcessParse = batches.flatMap { it.inProcessParse }
+            val isolatedParse = batches.flatMap { it.isolatedParse }
             check((isolatedPlan + isolatedParse).all { it.cacheHit })
             check((isolatedPlan + isolatedParse).map { it.servicePid }.distinct().size == 1)
 
-            val planComparison = steadyStateComparison(inProcessPlan, isolatedPlan)
-            val parseComparison = steadyStateComparison(inProcessParse, isolatedParse)
-            val planPolicy =
-                if (planComparison.getLong("absoluteDeltaP50Micros") <= PLAN_MICRO_ABSOLUTE_LIMIT_MICROS) {
-                    "MICRO_FLOOR_WITHIN_ABSOLUTE_LIMIT"
-                } else {
-                    "FAIL"
-                }
+            val planComparison = steadyStateComparison(
+                batches.map { it.inProcessPlan }, batches.map { it.isolatedPlan })
+            val parseComparison = steadyStateComparison(
+                batches.map { it.inProcessParse }, batches.map { it.isolatedParse })
+            val planPolicy = planPolicy(planComparison)
             val parsePolicy = parseComparison.getString("policy")
-            val overallPolicy = when {
-                planPolicy == "FAIL" || parsePolicy == "FAIL" -> "FAIL"
-                parsePolicy == "SMALL_ABSOLUTE_DIFFERENCE" -> "SMALL_ABSOLUTE_DIFFERENCE"
-                else -> "PASS"
+            val overallPolicy = overallPolicy(planPolicy, parsePolicy)
+            val batchEvidence = JSONArray()
+            batches.forEachIndexed { index, batch ->
+                val batchPlan = steadyStateComparison(
+                    listOf(batch.inProcessPlan), listOf(batch.isolatedPlan))
+                val batchParse = steadyStateComparison(
+                    listOf(batch.inProcessParse), listOf(batch.isolatedParse))
+                val batchPlanPolicy = planPolicy(batchPlan)
+                val batchParsePolicy = batchParse.getString("policy")
+                batchEvidence.put(JSONObject()
+                    .put("index", index)
+                    .put("policy", overallPolicy(batchPlanPolicy, batchParsePolicy))
+                    .put("planPolicy", batchPlanPolicy)
+                    .put("parsePolicy", batchParsePolicy)
+                    .put("plan", batchPlan)
+                    .put("parse", batchParse)
+                    .put("rawSamples", JSONObject()
+                        .put("inProcessPlan", diagnosticsArray(batch.inProcessPlan))
+                        .put("isolatedPlan", diagnosticsArray(batch.isolatedPlan))
+                        .put("inProcessParse", diagnosticsArray(batch.inProcessParse))
+                        .put("isolatedParse", diagnosticsArray(batch.isolatedParse))))
             }
+            val noiseAnalysis = analyzeNoise(batches, overallPolicy)
             return JSONObject()
                 .put("sampleCount", SAMPLE_COUNT)
+                .put("batchCount", BATCH_COUNT)
+                .put("samplesPerBatch", SAMPLES_PER_BATCH)
                 .put("warmupCount", WARMUP_COUNT)
                 .put("samples", JSONObject()
                     .put("plan", SAMPLE_COUNT)
                     .put("parse", SAMPLE_COUNT))
+                .put("aggregation", "median_of_batch_p50_and_p95")
                 .put("fixtureParseBytes", PERFORMANCE_BODY.toByteArray(Charsets.UTF_8).size)
                 .put("validation", JSONObject()
                     .put("micros", validationMicros)
                     .put("millis", validationMicros / 1000.0))
+                .put("coldStart", JSONObject()
+                    .put("inProcessParse", diagnosticsJson(inProcessColdDiag))
+                    .put("isolatedParse", diagnosticsJson(isolatedCold)))
                 .put("inProcessCold", diagnosticsJson(inProcessColdDiag))
                 .put("isolatedCold", diagnosticsJson(isolatedCold))
                 .put("inProcessCachedPlan", statsJson(inProcessPlan.map { it.totalMicros }))
@@ -489,6 +625,7 @@ private object RuntimeProof {
                     .put("parse", transportBreakdown(inProcessParse, isolatedParse)))
                 .put("steadyState", JSONObject()
                     .put("policy", overallPolicy)
+                    .put("policyUses", "existing_p50_thresholds; p95_is_reported_diagnostic")
                     .put("hardRelativeLimitPercent", STEADY_STATE_LIMIT_PERCENT)
                     .put("smallAbsoluteDeltaMicros", SMALL_ABSOLUTE_DELTA_MICROS)
                     .put("planMicroAbsoluteLimitMicros", PLAN_MICRO_ABSOLUTE_LIMIT_MICROS)
@@ -497,6 +634,8 @@ private object RuntimeProof {
                     .put("planPolicy", planPolicy)
                     .put("plan", planComparison)
                     .put("parse", parseComparison))
+                .put("batches", batchEvidence)
+                .put("noiseAnalysis", noiseAnalysis)
                 .put("fixtureParseOnlyNoNetwork", true)
                 .put("coldVsCached", JSONObject()
                     .put("isolatedColdMicros", isolatedCold.totalMicros)
@@ -544,44 +683,59 @@ private object RuntimeProof {
         }
     }
 
-    private suspend fun sampleInProcess(
+    private suspend fun samplePaired(
+        baseline: suspend () -> ExtensionRuntimeCallDiagnostics,
+        isolated: suspend () -> ExtensionRuntimeCallDiagnostics,
+    ): Pair<List<ExtensionRuntimeCallDiagnostics>, List<ExtensionRuntimeCallDiagnostics>> {
+        val baselineSamples = ArrayList<ExtensionRuntimeCallDiagnostics>(SAMPLES_PER_BATCH)
+        val isolatedSamples = ArrayList<ExtensionRuntimeCallDiagnostics>(SAMPLES_PER_BATCH)
+        repeat(SAMPLES_PER_BATCH) {
+            baselineSamples += baseline()
+            isolatedSamples += isolated()
+        }
+        check(baselineSamples.all { it.cacheHit })
+        check(isolatedSamples.all { it.cacheHit })
+        return baselineSamples to isolatedSamples
+    }
+
+    private suspend fun sampleInProcessOne(
         runtime: AndroidIsolatedExtensionRuntime,
         digest: String,
         module: ByteArray,
         exportName: String,
         input: ByteArray,
         limits: ExtensionExecutionLimits,
-    ): List<ExtensionRuntimeCallDiagnostics> = buildList(SAMPLE_COUNT) {
-        repeat(SAMPLE_COUNT) {
-            val (result, diagnostics) = runtime.executeInProcessForBenchmark(
-                digest, module, exportName, input, limits)
-            check(result is ExtensionRuntimeResult.Success)
-            add(requireNotNull(diagnostics))
-        }
-        check(all { it.cacheHit })
+    ): ExtensionRuntimeCallDiagnostics {
+        val (result, diagnostics) = runtime.executeInProcessForBenchmark(
+            digest, module, exportName, input, limits)
+        check(result is ExtensionRuntimeResult.Success)
+        return requireNotNull(diagnostics)
     }
 
-    private suspend fun sampleIsolated(
+    private suspend fun sampleIsolatedOne(
         runtime: AndroidIsolatedExtensionRuntime,
         verified: VerifiedExtensionPackage,
         exportName: String,
         input: ByteArray,
         limits: ExtensionExecutionLimits,
-    ): List<ExtensionRuntimeCallDiagnostics> = buildList(SAMPLE_COUNT) {
-        repeat(SAMPLE_COUNT) {
-            executeSuccess(runtime, verified, exportName, input, limits)
-            add(requireNotNull(runtime.lastDiagnostics))
-        }
+    ): ExtensionRuntimeCallDiagnostics {
+        check(executeSuccess(runtime, verified, exportName, input, limits).isNotEmpty())
+        return requireNotNull(runtime.lastDiagnostics)
     }
 
     private fun steadyStateComparison(
-        inProcess: List<ExtensionRuntimeCallDiagnostics>,
-        isolated: List<ExtensionRuntimeCallDiagnostics>,
+        inProcessBatches: List<List<ExtensionRuntimeCallDiagnostics>>,
+        isolatedBatches: List<List<ExtensionRuntimeCallDiagnostics>>,
     ): JSONObject {
-        val baselineP50 = percentile(inProcess.map { it.totalMicros }, 0.50)
-        val isolatedP50 = percentile(isolated.map { it.totalMicros }, 0.50)
-        val baselineP95 = percentile(inProcess.map { it.totalMicros }, 0.95)
-        val isolatedP95 = percentile(isolated.map { it.totalMicros }, 0.95)
+        require(inProcessBatches.isNotEmpty() && inProcessBatches.size == isolatedBatches.size)
+        val baselineP50ByBatch = inProcessBatches.map { percentile(it.map { sample -> sample.totalMicros }, 0.50) }
+        val isolatedP50ByBatch = isolatedBatches.map { percentile(it.map { sample -> sample.totalMicros }, 0.50) }
+        val baselineP95ByBatch = inProcessBatches.map { percentile(it.map { sample -> sample.totalMicros }, 0.95) }
+        val isolatedP95ByBatch = isolatedBatches.map { percentile(it.map { sample -> sample.totalMicros }, 0.95) }
+        val baselineP50 = median(baselineP50ByBatch)
+        val isolatedP50 = median(isolatedP50ByBatch)
+        val baselineP95 = median(baselineP95ByBatch)
+        val isolatedP95 = median(isolatedP95ByBatch)
         val deltaP50 = isolatedP50 - baselineP50
         val deltaP95 = isolatedP95 - baselineP95
         val relativeP50 = relativePercent(deltaP50, baselineP50)
@@ -593,6 +747,9 @@ private object RuntimeProof {
             else -> "FAIL"
         }
         return JSONObject()
+            .put("aggregation", "median_of_batch_percentiles")
+            .put("batchCount", inProcessBatches.size)
+            .put("samplesPerBatch", inProcessBatches.first().size)
             .put("baselineP50Micros", baselineP50)
             .put("isolatedP50Micros", isolatedP50)
             .put("absoluteDeltaP50Micros", deltaP50)
@@ -601,8 +758,92 @@ private object RuntimeProof {
             .put("isolatedP95Micros", isolatedP95)
             .put("absoluteDeltaP95Micros", deltaP95)
             .put("relativeP95Percent", relativeP95)
+            .put("baselineP50ByBatchMicros", longArrayJson(baselineP50ByBatch))
+            .put("isolatedP50ByBatchMicros", longArrayJson(isolatedP50ByBatch))
+            .put("baselineP95ByBatchMicros", longArrayJson(baselineP95ByBatch))
+            .put("isolatedP95ByBatchMicros", longArrayJson(isolatedP95ByBatch))
             .put("policy", policy)
     }
+
+    private fun planPolicy(comparison: JSONObject): String =
+        if (comparison.getLong("absoluteDeltaP50Micros") <= PLAN_MICRO_ABSOLUTE_LIMIT_MICROS) {
+            "MICRO_FLOOR_WITHIN_ABSOLUTE_LIMIT"
+        } else {
+            "FAIL"
+        }
+
+    private fun overallPolicy(planPolicy: String, parsePolicy: String): String = when {
+        planPolicy == "FAIL" || parsePolicy == "FAIL" -> "FAIL"
+        parsePolicy == "SMALL_ABSOLUTE_DIFFERENCE" -> "SMALL_ABSOLUTE_DIFFERENCE"
+        else -> "PASS"
+    }
+
+    private fun analyzeNoise(
+        batches: List<BenchmarkBatch>,
+        aggregatePolicy: String,
+    ): JSONObject {
+        if (aggregatePolicy != "FAIL") {
+            return JSONObject()
+                .put("classification", "NO_RETRY_NEEDED")
+                .put("retryEligible", false)
+                .put("reason", "the robust aggregate passed")
+                .put("candidateBatchIndexes", JSONArray())
+        }
+
+        val batchPlanPolicies = batches.map { batch ->
+            planPolicy(steadyStateComparison(listOf(batch.inProcessPlan), listOf(batch.isolatedPlan)))
+        }
+        val batchParsePolicies = batches.map { batch ->
+            steadyStateComparison(listOf(batch.inProcessParse), listOf(batch.isolatedParse))
+                .getString("policy")
+        }
+        val planBaselineP95 = batches.map { percentile(it.inProcessPlan.map { sample -> sample.totalMicros }, 0.95) }
+        val planIsolatedP95 = batches.map { percentile(it.isolatedPlan.map { sample -> sample.totalMicros }, 0.95) }
+        val parseBaselineP95 = batches.map { percentile(it.inProcessParse.map { sample -> sample.totalMicros }, 0.95) }
+        val parseIsolatedP95 = batches.map { percentile(it.isolatedParse.map { sample -> sample.totalMicros }, 0.95) }
+        val planBaselineReference = median(planBaselineP95)
+        val planIsolatedReference = median(planIsolatedP95)
+        val parseBaselineReference = median(parseBaselineP95)
+        val parseIsolatedReference = median(parseIsolatedP95)
+
+        val candidates = batches.indices.filter { index ->
+            val planCommonModeOutlier = batchPlanPolicies[index] == "FAIL" &&
+                isHighOutlier(planBaselineP95[index], planBaselineReference) &&
+                isHighOutlier(planIsolatedP95[index], planIsolatedReference)
+            val parseCommonModeOutlier = batchParsePolicies[index] == "FAIL" &&
+                isHighOutlier(parseBaselineP95[index], parseBaselineReference) &&
+                isHighOutlier(parseIsolatedP95[index], parseIsolatedReference)
+            planCommonModeOutlier || parseCommonModeOutlier
+        }
+        val cleanBatches = batches.filterIndexed { index, _ -> index !in candidates }
+        val cleanPolicies = if (cleanBatches.size >= MIN_CLEAN_BATCHES_FOR_RETRY) {
+            val cleanPlan = steadyStateComparison(
+                cleanBatches.map { it.inProcessPlan }, cleanBatches.map { it.isolatedPlan })
+            val cleanParse = steadyStateComparison(
+                cleanBatches.map { it.inProcessParse }, cleanBatches.map { it.isolatedParse })
+            overallPolicy(planPolicy(cleanPlan), cleanParse.getString("policy"))
+        } else {
+            "INSUFFICIENT_CLEAN_BATCHES"
+        }
+        val eligible = candidates.size in 1..MAX_NOISY_BATCHES_FOR_RETRY &&
+            cleanBatches.size >= MIN_CLEAN_BATCHES_FOR_RETRY && cleanPolicies != "FAIL"
+        return JSONObject()
+            .put("classification", if (eligible) "CLEAR_EMULATOR_NOISE" else "SUSTAINED_OR_UNCLASSIFIED_REGRESSION")
+            .put("retryEligible", eligible)
+            .put("reason", if (eligible) {
+                "failed batch p95 values are common-mode outliers and the clean-batch aggregate passes"
+            } else {
+                "the failed gate did not meet the bounded common-mode noise criteria"
+            })
+            .put("candidateBatchIndexes", intArrayJson(candidates))
+            .put("cleanBatchCount", cleanBatches.size)
+            .put("cleanBatchPolicy", cleanPolicies)
+            .put("commonModeP95Multiplier", CLEAR_EMULATOR_NOISE_MULTIPLIER)
+            .put("maxNoisyBatches", MAX_NOISY_BATCHES_FOR_RETRY)
+    }
+
+    private fun isHighOutlier(value: Long, reference: Long): Boolean =
+        reference > 0L && value.toDouble() >= reference.toDouble() * CLEAR_EMULATOR_NOISE_MULTIPLIER
 
     private fun transportBreakdown(
         inProcess: List<ExtensionRuntimeCallDiagnostics>,
@@ -648,6 +889,15 @@ private object RuntimeProof {
         .put("serviceGeneration", value.serviceGeneration)
         .put("serviceInternetPermissionGranted", value.serviceInternetPermissionGranted)
 
+    private fun diagnosticsArray(values: List<ExtensionRuntimeCallDiagnostics>): JSONArray =
+        JSONArray().also { array -> values.forEach { array.put(diagnosticsJson(it)) } }
+
+    private fun longArrayJson(values: List<Long>): JSONArray =
+        JSONArray().also { array -> values.forEach { array.put(it) } }
+
+    private fun intArrayJson(values: List<Int>): JSONArray =
+        JSONArray().also { array -> values.forEach { array.put(it) } }
+
     private fun statsJson(values: List<Long>): JSONObject = JSONObject()
         .put("sampleCount", values.size)
         .put("p50Micros", percentile(values, 0.50))
@@ -663,6 +913,8 @@ private object RuntimeProof {
         val index = kotlin.math.ceil(sorted.size * fraction).toInt().coerceIn(1, sorted.size) - 1
         return sorted[index]
     }
+
+    private fun median(values: List<Long>): Long = percentile(values, 0.50)
 
     private fun sha256(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }

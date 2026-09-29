@@ -33,7 +33,19 @@ report['variant']=sys.argv[3]
 (root/'report.json').write_text(json.dumps(report,indent=2)+'\n')
 
 assert report['api']==int(sys.argv[2]), report
-f=report['functional']
+functional=report.get('functional',{})
+if functional.get('status') != 'PASS':
+    assert 'EP02_ANDROID_FUNCTIONAL_FAIL' in text, text
+    assert functional.get('status') == 'FAIL', report
+    assert report.get('performance',{}).get('status') == 'NOT_RUN', report
+    assert report.get('performance',{}).get('noiseRetryAttempted') is False, report
+    print('EP02 FUNCTIONAL GATE FAILED',json.dumps({
+        'api':report['api'],'variant':sys.argv[3],'functionalStatus':functional['status'],
+        'message':functional.get('message')
+    },separators=(',',':')))
+    raise SystemExit(5)
+
+f=functional['checks']
 for key in [
     'releasePlanParse','navigationOverview','navigationEpisode',
     'productionTransportFactoryBoundary','productionNavigationDispatcherGate',
@@ -52,18 +64,49 @@ assert dispatch['unprovenTransportRejected'] is True and dispatch['planExecutedB
 assert dispatch['transportExecuteCalls']==0 and dispatch['networkAttempted'] is False, dispatch
 assert dispatch['productionTransportReached'] is False, dispatch
 p=report['performance']
+raw_attempts=p.get('attempts',[])
+(root/'performance-raw.json').write_text(json.dumps(raw_attempts,indent=2)+'\n')
+if p.get('status') == 'ERROR':
+    if p.get('attemptCount') == 2:
+        assert len(raw_attempts) == 2, p
+        assert p.get('noiseRetry',{}).get('attempted') is True, p
+    else:
+        assert p.get('noiseRetryAttempted') is False, p
+    print('EP02 PERFORMANCE MEASUREMENT ERROR',json.dumps({
+        'api':report['api'],'variant':sys.argv[3],'functionalStatus':functional['status'],
+        'performanceStatus':p['status'],'message':p.get('message')
+    },separators=(',',':')))
+    raise SystemExit(6)
+assert p.get('status') in ['PASS','FAIL'], p
 assert p['sampleCount']>=50 and p['fixtureParseOnlyNoNetwork'] is True
+assert p['batchCount'] == 5 and p['samplesPerBatch'] == 20, p
+assert p['attemptCount'] in [1,2], p
+assert len(raw_attempts) == p['attemptCount'], p
 policy=p['steadyState']['policy']
 
 if report['passed']:
-    assert 'EP02_ANDROID_PASS' in text and 'EP02_ANDROID_FAIL' not in text, text
+    assert functional['status'] == 'PASS', report
+    assert p['status'] == 'PASS', report
+    assert 'EP02_ANDROID_PASS' in text and 'EP02_ANDROID_FUNCTIONAL_FAIL' not in text, text
     assert 'INSTRUMENTATION_CODE: -1' in text, text
     assert policy in ['PASS','SMALL_ABSOLUTE_DIFFERENCE'], p
-    print('EP02 VERIFIED',json.dumps(report,separators=(',',':')))
+    print('EP02 VERIFIED',json.dumps({
+        'api':report['api'],'variant':sys.argv[3],'functionalStatus':functional['status'],
+        'performanceStatus':p['status'],'policy':policy,'attemptCount':p['attemptCount'],
+        'noiseRetry':p['noiseRetry'],'plan':p['steadyState']['plan'],
+        'parse':p['steadyState']['parse']
+    },separators=(',',':')))
 else:
+    assert functional['status'] == 'PASS', report
+    assert p['status'] == 'FAIL', report
     assert 'EP02_ANDROID_PERFORMANCE_FAIL' in text, text
     assert 'INSTRUMENTATION_CODE: 0' in text, text
     assert policy == 'FAIL', p
-    print('EP02 PERFORMANCE GATE FAILED',json.dumps(report,separators=(',',':')))
+    print('EP02 PERFORMANCE GATE FAILED',json.dumps({
+        'api':report['api'],'variant':sys.argv[3],'functionalStatus':functional['status'],
+        'performanceStatus':p['status'],'policy':policy,'attemptCount':p['attemptCount'],
+        'noiseRetry':p['noiseRetry'],'plan':p['steadyState']['plan'],
+        'parse':p['steadyState']['parse']
+    },separators=(',',':')))
     raise SystemExit(4)
 PY
