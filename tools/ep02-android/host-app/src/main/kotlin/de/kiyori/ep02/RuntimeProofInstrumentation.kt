@@ -368,7 +368,10 @@ private object RuntimeProof {
                 "https://example.org/large", ExtensionMethod.GET, null))
         }.exceptionOrNull()
         check(oversizedFailure is IllegalArgumentException)
-        check(httpsFixture.awaitLargeBodyAbort())
+        val bodyStreamAborted = httpsFixture.awaitLargeBodyAbort()
+        check(bodyStreamAborted) {
+            "bounded response did not stop fixture stream; completed=${httpsFixture.largeBodyCompleted()}"
+        }
         check(!httpsFixture.largeBodyCompleted())
 
         val cancellation = coroutineScope {

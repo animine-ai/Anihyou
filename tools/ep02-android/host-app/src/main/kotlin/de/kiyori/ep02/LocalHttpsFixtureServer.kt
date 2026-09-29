@@ -130,6 +130,12 @@ internal class LocalHttpsFixtureServer(context: Context) : Closeable {
         try {
             repeat(OVERSIZED_BODY_BYTES / CHUNK_BYTES) {
                 writeChunk(output, chunk)
+                try {
+                    Thread.sleep(OVERSIZED_WRITE_PACE_MILLIS)
+                } catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw IOException("fixture stream interrupted", interrupted)
+                }
             }
             output.write("0\r\n\r\n".toByteArray(Charsets.US_ASCII))
             output.flush()
@@ -205,6 +211,7 @@ internal class LocalHttpsFixtureServer(context: Context) : Closeable {
         const val SERVER_PORT = 8443
         const val SERVER_KEYSTORE_PASSWORD = "ep02-test-only"
         const val CHUNK_BYTES = 8192
+        const val OVERSIZED_WRITE_PACE_MILLIS = 2L
         // The runner proxy and fast API35 emulators can buffer 16 MiB before the
         // client closes. Keep enough queued data to observe the bounded read abort.
         const val OVERSIZED_BODY_BYTES = 128 * 1024 * 1024
