@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Clock
+import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -89,9 +90,9 @@ class CurrentViewModel(
     ): Long? {
         val release = presentations.authoritativeFor(entry.mediaId)
         return if (release?.isAuthoritative == true) {
-            release.nextForecastAt?.toEpochMilli()
+            release.nextForecastAt?.let { Duration.between(clock.instant(), it).toMillis() }
         } else {
-            entry.media?.nextAiringEpisode?.airingAt?.toLong()?.times(1_000L)
+            entry.media?.nextAiringEpisode?.timeUntilAiring?.toLong()?.times(1_000L)
         }
     }
 

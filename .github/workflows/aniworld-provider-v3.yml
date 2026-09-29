@@ -237,7 +237,6 @@ jobs:
     name: Foss compile, lint and APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    needs: release-modules-test
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

@@ -11,7 +11,9 @@ import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.ScoreFormat
 import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import java.time.Clock
 import java.time.Instant
+import java.time.ZoneOffset
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -104,13 +106,12 @@ class Wp00R1CurrentListRuntimeTest {
     }
 
     @Test
-    fun mixedExtensionAndAniListAiringRowsSortByAbsoluteTime() = runBlocking {
+    fun mixedExtensionAndAniListAiringRowsSortByComparableDurations() = runBlocking {
         val fallback = mockk<CommonMediaListEntry>(relaxed = true).also { entry ->
             every { entry.mediaId } returns 1
             every { entry.media?.status } returns MediaStatus.RELEASING
             every { entry.basicMediaListEntry.progress } returns 0
             every { entry.media?.nextAiringEpisode?.episode } returns 1
-            every { entry.media?.nextAiringEpisode?.airingAt } returns 1_800_000_000
             every { entry.media?.nextAiringEpisode?.timeUntilAiring } returns 3_600
         }
         val extension = mockk<CommonMediaListEntry>(relaxed = true).also { entry ->
@@ -147,7 +148,12 @@ class Wp00R1CurrentListRuntimeTest {
             repository.getMySeasonalAnime(any(), any(), any(), any(), any())
         } returns flowOf(PagedResult.Success(emptyList(), currentPage = 1, hasNextPage = false))
 
-        val viewModel = CurrentViewModel(repository, testPreferences(), releases)
+        val viewModel = CurrentViewModel(
+            repository,
+            testPreferences(),
+            releases,
+            Clock.fixed(Instant.ofEpochSecond(1_799_998_000), ZoneOffset.UTC),
+        )
         withTimeout(5_000) {
             while (viewModel.uiState.value.airingList.size != 3 ||
                 viewModel.uiState.value.releaseByMediaId[2].isNullOrEmpty()
