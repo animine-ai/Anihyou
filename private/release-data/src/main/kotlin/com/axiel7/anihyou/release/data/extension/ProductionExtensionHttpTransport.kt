@@ -404,6 +404,8 @@ internal class OkHttpBoundHttpsHopExecutor(
                         if (continuation.isActive) continuation.resume(BoundHopResponse(response.code, sanitized,
                             output.toByteArray(), destination))
                     } catch (error: Exception) {
+                        // A partial-body failure must tear down the socket immediately.
+                        call.cancel()
                         if (continuation.isActive) continuation.resumeWithException(error)
                     } finally { cancellation.clear(call) }
                 }
