@@ -63,7 +63,7 @@ class ExtensionShadowSyncOrchestrator(
             val lease = checkNotNull(token)
             val targets = targetSource.targets()
             val result = coordinator.execute(ExtensionRunRequest(
-                providerId = ProviderId.parse("de.aniworld"),
+                providerId = ProviderId.parse("aniworld"),
                 generationId = lease.executionGenerationId,
                 sourceRoles = SOURCE_ROLES,
                 targets = targets.map { it.target },
