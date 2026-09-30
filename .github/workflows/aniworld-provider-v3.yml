@@ -189,7 +189,7 @@ jobs:
         run: ./gradlew --continue --console=plain --stacktrace :core:model:testDebugUnitTest :core:ui:testDebugUnitTest :feature:home:testDebugUnitTest :feature:usermedialist:testDebugUnitTest
 
       - name: Run worker unit tests
-        run: ./gradlew --console=plain --stacktrace :feature:worker:testDebugUnitTest
+        run: ./gradlew --continue --console=plain --stacktrace :feature:worker:testDebugUnitTest :feature:settings:testDebugUnitTest
 
       - name: Run app debug canary gating tests
         run: ./gradlew --console=plain --stacktrace :app:testFossDebugUnitTest
@@ -247,6 +247,7 @@ jobs:
             feature/home/build/test-results/
             feature/usermedialist/build/test-results/
             feature/worker/build/test-results/
+            feature/settings/build/test-results/
             app/build/test-results/
             private/release-core/build/test-results/
             private/release-data/build/test-results/

@@ -29,6 +29,7 @@ import com.axiel7.anihyou.feature.profile.social.UserSocialViewModel
 import com.axiel7.anihyou.feature.profile.stats.UserStatsViewModel
 import com.axiel7.anihyou.feature.reviewdetails.ReviewDetailsViewModel
 import com.axiel7.anihyou.feature.settings.SettingsViewModel
+import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesViewModel
 import com.axiel7.anihyou.feature.settings.customlinks.CustomLinksViewModel
 import com.axiel7.anihyou.feature.settings.customlists.CustomListsViewModel
 import com.axiel7.anihyou.feature.settings.liststyle.ListStyleSettingsViewModel
@@ -72,6 +73,7 @@ val viewModelModule = module {
     viewModel<UserStatsViewModel>()
     viewModel<ReviewDetailsViewModel>()
     viewModel<SettingsViewModel>()
+    viewModel<ExtensionSourcesViewModel>()
     viewModel<CustomListsViewModel>()
     viewModel<CustomLinksViewModel>()
     viewModel<ListStyleSettingsViewModel>()

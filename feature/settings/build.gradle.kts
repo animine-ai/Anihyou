@@ -30,4 +30,7 @@ dependencies {
 
     implementation(libs.androidx.work.runtime)
     implementation(libs.accompanist.permissions)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

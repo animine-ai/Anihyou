@@ -25,8 +25,15 @@ import org.koin.android.ext.koin.androidLogger
 import org.koin.androidx.workmanager.koin.workManagerFactory
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
+import com.axiel7.anihyou.release.core.source.ExtensionSourceScheduler
 
 class App : Application(), SingletonImageLoader.Factory {
+    private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
@@ -57,6 +64,14 @@ class App : Application(), SingletonImageLoader.Factory {
         }
         if (AniWorldShadowDebugActivation.enabledForInternalTest) {
             koinApplication.koin.get<AniWorldShadowScheduler>().scheduleCanaryNow()
+        }
+        startupScope.launch {
+            // Registry IO and scheduling never block startup. An empty install schedules no work.
+            runCatching {
+                if (koinApplication.koin.get<ExtensionSourceRepository>().sources.value.any { it.enabled }) {
+                    koinApplication.koin.get<ExtensionSourceScheduler>().scheduleRefresh()
+                }
+            }
         }
     }
 

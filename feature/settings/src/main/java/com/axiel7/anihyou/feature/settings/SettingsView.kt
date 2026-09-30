@@ -74,6 +74,8 @@ import com.axiel7.anihyou.core.ui.composables.topShape
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.feature.settings.composables.CustomColorPreference
 import com.axiel7.anihyou.feature.settings.composables.LanguagePreference
+import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesSettingsSection
+import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesViewModel
 import com.axiel7.anihyou.feature.worker.NotificationWorker.Companion.createDefaultNotificationChannels
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionState
@@ -88,7 +90,9 @@ private const val versionString = "${BuildConfig.VERSION_NAME} (${BuildConfig.VE
 @Composable
 fun SettingsView() {
     val viewModel: SettingsViewModel = koinViewModel()
+    val extensionSourcesViewModel: ExtensionSourcesViewModel = koinViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val extensionSourcesUiState by extensionSourcesViewModel.uiState.collectAsStateWithLifecycle()
     val notificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS)
     } else null
@@ -97,6 +101,12 @@ fun SettingsView() {
         uiState = uiState,
         event = viewModel,
         notificationPermission = notificationPermission,
+        extensionSourcesContent = {
+            ExtensionSourcesSettingsSection(
+                uiState = extensionSourcesUiState,
+                event = extensionSourcesViewModel,
+            )
+        },
     )
 }
 
@@ -106,6 +116,7 @@ private fun SettingsContent(
     uiState: SettingsUiState,
     event: SettingsEvent?,
     notificationPermission: PermissionState?,
+    extensionSourcesContent: @Composable () -> Unit = {},
 ) {
     val navActionManager = LocalNavActionManager.current
     val isEnglishLocale = LocalIsLanguageEn.current
@@ -526,6 +537,8 @@ private fun SettingsContent(
                     shape = bottomShape
                 )
             }
+
+            extensionSourcesContent()
 
             PreferencesTitle(text = stringResource(R.string.information))
 

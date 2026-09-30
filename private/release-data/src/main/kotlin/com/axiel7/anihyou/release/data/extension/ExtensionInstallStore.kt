@@ -19,7 +19,18 @@ internal fun interface InstallFailureHook { fun at(boundary: InstallBoundary) }
 
 internal data class InstallReceipt(val digest: String, val manifest: String, val extension: String,
     val provider: String, val key: String, val sequence: Long, val rootVersion: Long, val indexSequence: Long,
-    val acceptedAt: Instant)
+    val acceptedAt: Instant, val version: String = "")
+
+internal data class ExtensionGenerationSnapshot(
+    val active: InstallReceipt?, val knownGood: InstallReceipt?,
+    val previousGood: InstallReceipt?, val rollbackUsed: Boolean,
+)
+
+internal data class ExtensionInstallSnapshot(
+    val root: TrustedRoot?, val index: TrustedIndex?,
+    val generations: Map<String, ExtensionGenerationSnapshot>, val releaseHigh: Map<String, Long>,
+    val revokedDigests: Set<String>, val quarantinedDigests: Set<String>, val acceptedClock: Instant,
+)
 
 /** One atomic state file owns the trust high-water marks and active/LKG pointers. */
 internal class ExtensionInstallStore(
@@ -46,11 +57,21 @@ internal class ExtensionInstallStore(
     }
 
     fun acceptRoot(envelope: ByteArray, now: Instant) = serialized {
-        require(state.roots.size < 16)
-        val current = roots(state).lastOrNull()
-        val next = trust.root(envelope, current, effectiveTime(now))
-        val updated = state.copy(roots = state.roots + SignedRecord(envelope.copyOf(), effectiveTime(now)),
-            revoked = state.revoked + next.revokedDigests, clock = effectiveTime(now))
+        val acceptedRoots = roots(state)
+        val current = acceptedRoots.lastOrNull()
+        val effective = effectiveTime(now)
+        val signed = (ExtensionWireCodec.parseStrictJson(envelope, 65536) as JsonObject)["signed"] as JsonObject
+        val incomingVersion = (signed["version"] as JsonPrimitive).long
+        val unchangedVersion = current != null && incomingVersion == current.version
+        // Authenticate an unchanged root with the same predecessor as its original acceptance.
+        // Neither cached digest equality nor a remotely supplied key can replace real signatures.
+        val next = trust.root(envelope,
+            if (unchangedVersion) acceptedRoots.dropLast(1).lastOrNull() else current, effective)
+        if (unchangedVersion) require(next.digest == current!!.digest) { "root version equivocation" }
+        else require(state.roots.size < 16)
+        val updated = state.copy(roots = if (unchangedVersion) state.roots else
+                state.roots + SignedRecord(envelope.copyOf(), effective),
+            revoked = state.revoked + next.revokedDigests, clock = effective)
         commit(updated)
         next
     }
@@ -69,7 +90,9 @@ internal class ExtensionInstallStore(
         next
     }
 
-    fun install(source: File, extensionId: String, now: Instant): InstallReceipt = serialized {
+    /** Callbacks fence source lifecycle/cancellation and must not re-enter this store. */
+    fun install(source: File, extensionId: String, now: Instant,
+        beforeActivation: () -> Unit = {}): InstallReceipt = serialized {
         val root = roots(state).lastOrNull() ?: error("no trusted root")
         val current = latestIndex(state) ?: error("no signed index")
         val effective = effectiveTime(now)
@@ -109,9 +132,12 @@ internal class ExtensionInstallStore(
             failure.at(InstallBoundary.CONTENT_PLACED)
             val receipt = InstallReceipt(binding.archiveSha256, binding.canonicalManifestSha256,
                 binding.extensionId, binding.providerId, binding.keyId, binding.releaseSequence,
-                root.version, current.sequence, effective)
+                root.version, current.sequence, effective, binding.version)
             failure.at(InstallBoundary.BEFORE_ACTIVE)
-            commit(state.copy(active = receipt, rollbackUsed = false,
+            val generation = state.generations[extensionId] ?: GenerationState()
+            beforeActivation()
+            commit(state.copy(generations = state.generations +
+                (extensionId to generation.copy(active = receipt, rollbackUsed = false)),
                 releaseHigh = state.releaseHigh + (extensionId to binding.releaseSequence), clock = effective))
             failure.at(InstallBoundary.AFTER_ACTIVE)
             receipt
@@ -119,40 +145,81 @@ internal class ExtensionInstallStore(
     }
 
     /** Called only after post-activation health checks for all required roles. */
+    fun promoteHealthy(extensionId: String, now: Instant, beforePromotion: () -> Unit = {}) = serialized {
+        promote(extensionId, now, beforePromotion)
+    }
+
+    /** Compatibility for the original single-extension host. Ambiguity never chooses a slot. */
     fun promoteHealthy(now: Instant) = serialized {
-        val active = state.active ?: error("no active generation")
+        promote(singleExtension(), now, {})
+    }
+
+    private fun promote(extensionId: String, now: Instant, beforePromotion: () -> Unit) {
+        val generation = state.generations[extensionId] ?: error("no installed extension")
+        val active = generation.active ?: error("no active generation")
         require(eligible(active))
         failure.at(InstallBoundary.BEFORE_PROMOTION)
-        commit(state.copy(knownGood = active, previousGood = state.knownGood, clock = effectiveTime(now)))
+        val next = if (generation.knownGood?.digest == active.digest) generation else
+            generation.copy(knownGood = active, previousGood = generation.knownGood)
+        beforePromotion()
+        commit(state.copy(generations = state.generations + (extensionId to next), clock = effectiveTime(now)))
         failure.at(InstallBoundary.AFTER_PROMOTION)
     }
 
-    fun quarantineAndRollback(now: Instant): InstallReceipt? = serialized {
-        rollbackBad(now)
+    fun quarantineAndRollback(extensionId: String, now: Instant): InstallReceipt? = serialized {
+        rollbackBad(extensionId, now)
     }
 
-    private fun rollbackBad(now: Instant): InstallReceipt? {
-        val bad = state.active ?: return null
+    fun quarantineAndRollback(now: Instant): InstallReceipt? = serialized {
+        rollbackBad(singleExtension(), now)
+    }
+
+    private fun singleExtension(): String {
+        require(state.generations.size == 1) { "explicit extension identity required" }
+        return state.generations.keys.single()
+    }
+
+    private fun rollbackBad(extensionId: String, now: Instant): InstallReceipt? {
+        val generation = state.generations[extensionId] ?: return null
+        val bad = generation.active ?: return null
         val newlyQuarantined = state.quarantine + bad.digest
-        val prior = if (state.knownGood?.digest == bad.digest) state.previousGood else state.knownGood
-        val fallback = prior?.takeIf { !state.rollbackUsed && it.digest != bad.digest && eligible(it, newlyQuarantined) }
-        commit(state.copy(active = fallback, quarantine = newlyQuarantined, rollbackUsed = true,
-            knownGood = fallback, previousGood = null, clock = effectiveTime(now)))
+        val prior = if (generation.knownGood?.digest == bad.digest) generation.previousGood else generation.knownGood
+        val fallback = prior?.takeIf { !generation.rollbackUsed && it.digest != bad.digest && eligible(it, newlyQuarantined) }
+        val updated = generation.copy(active = fallback, knownGood = fallback, previousGood = null, rollbackUsed = true)
+        commit(state.copy(generations = state.generations + (extensionId to updated),
+            quarantine = newlyQuarantined, clock = effectiveTime(now)))
         failure.at(InstallBoundary.QUARANTINE)
         return fallback
     }
 
     override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? = serialized {
-        val selected = state.active ?: return@serialized null
-        val active = if (eligible(selected)) selected else rollbackBad(Instant.now()) ?: return@serialized null
-        if (active.provider != providerId.value) return@serialized null
-        val root = roots(state).lastOrNull() ?: return@serialized null
-        val signedIndex = indexAt(state, active.indexSequence) ?: return@serialized null
-        val entry = signedIndex.packages.singleOrNull { it.binding.archiveSha256 == active.digest } ?: return@serialized null
-        try {
+        val matching = state.generations.filterValues { it.active?.provider == providerId.value }
+        if (matching.size != 1) return@serialized null
+        loadExtension(matching.keys.single())?.takeIf { it.providerId == providerId }
+    }
+
+    suspend fun loadUsableExtension(extensionId: String): VerifiedExtensionPackage? = serialized {
+        loadExtension(extensionId)
+    }
+
+    private fun loadExtension(extensionId: String): VerifiedExtensionPackage? {
+        val selected = state.generations[extensionId]?.active ?: return null
+        val active = if (eligible(selected)) selected else rollbackBad(extensionId, Instant.now()) ?: return null
+        val root = roots(state).lastOrNull() ?: return null
+        val signedIndex = indexAt(state, active.indexSequence) ?: return null
+        val entry = signedIndex.packages.singleOrNull { it.binding.archiveSha256 == active.digest } ?: return null
+        return try {
             verifier.verify(archive(active.digest), entry.binding, trust.publisher(root, entry, active.acceptedAt),
                 hostRoles, hostHosts, policyVersion, runtimeVersion, active.acceptedAt)
         } catch (_: Exception) { null }
+    }
+
+    fun snapshot(): ExtensionInstallSnapshot = serialized {
+        ExtensionInstallSnapshot(roots(state).lastOrNull(), latestIndex(state),
+            state.generations.mapValues { (_, generation) ->
+                ExtensionGenerationSnapshot(generation.active, generation.knownGood,
+                    generation.previousGood, generation.rollbackUsed)
+            }, state.releaseHigh.toMap(), state.revoked.toSet(), state.quarantine.toSet(), state.clock)
     }
 
     private fun eligible(receipt: InstallReceipt, quarantine: Set<String> = state.quarantine): Boolean {
@@ -164,6 +231,9 @@ internal class ExtensionInstallStore(
         return receipt.digest !in quarantine && receipt.digest !in state.revoked && receipt.digest !in root.revokedDigests &&
             receipt.key !in root.revokedKeys && receipt.key in root.keys && !entry.revoked && !entry.binding.yanked &&
             latest?.revoked != true && latest?.binding?.yanked != true &&
+            entry.binding.extensionId == receipt.extension && entry.binding.providerId == receipt.provider &&
+            entry.binding.keyId == receipt.key && entry.binding.releaseSequence == receipt.sequence &&
+            current.rootVersion == receipt.rootVersion &&
             entry.binding.canonicalManifestSha256 == receipt.manifest && packageFile.isFile &&
             digest(packageFile) == receipt.digest
     }
@@ -212,24 +282,33 @@ internal class ExtensionInstallStore(
     }
 
     private data class SignedRecord(val bytes: ByteArray, val at: Instant)
+    private data class GenerationState(
+        val active: InstallReceipt? = null, val knownGood: InstallReceipt? = null,
+        val previousGood: InstallReceipt? = null, val rollbackUsed: Boolean = false,
+    )
     private data class State(
         val roots: List<SignedRecord> = emptyList(), val indexes: List<SignedRecord> = emptyList(),
         val indexHigh: Long = 0, val indexDigest: String = "", val releaseHigh: Map<String, Long> = emptyMap(),
         val revoked: Set<String> = emptySet(), val quarantine: Set<String> = emptySet(),
-        val active: InstallReceipt? = null, val knownGood: InstallReceipt? = null,
-        val previousGood: InstallReceipt? = null, val rollbackUsed: Boolean = false,
+        val generations: Map<String, GenerationState> = emptyMap(),
         val clock: Instant = Instant.EPOCH,
     )
     private fun encode(s: State): ByteArray = JsonObject(mapOf(
+        "schemaVersion" to JsonPrimitive(2),
         "roots" to JsonArray(s.roots.map(::recordJson)), "indexes" to JsonArray(s.indexes.map(::recordJson)),
         "indexHigh" to JsonPrimitive(s.indexHigh), "indexDigest" to JsonPrimitive(s.indexDigest),
         "releaseHigh" to JsonObject(s.releaseHigh.mapValues { JsonPrimitive(it.value) }),
         "revoked" to JsonArray(s.revoked.sorted().map(::JsonPrimitive)),
         "quarantine" to JsonArray(s.quarantine.sorted().map(::JsonPrimitive)),
-        "active" to (s.active?.let(::receiptJson) ?: JsonNull),
-        "knownGood" to (s.knownGood?.let(::receiptJson) ?: JsonNull),
-        "previousGood" to (s.previousGood?.let(::receiptJson) ?: JsonNull),
-        "rollbackUsed" to JsonPrimitive(s.rollbackUsed), "clock" to JsonPrimitive(s.clock.toString()),
+        "generations" to JsonObject(s.generations.toSortedMap().mapValues { (_, generation) ->
+            JsonObject(mapOf(
+                "active" to (generation.active?.let(::receiptJson) ?: JsonNull),
+                "knownGood" to (generation.knownGood?.let(::receiptJson) ?: JsonNull),
+                "previousGood" to (generation.previousGood?.let(::receiptJson) ?: JsonNull),
+                "rollbackUsed" to JsonPrimitive(generation.rollbackUsed),
+            ))
+        }),
+        "clock" to JsonPrimitive(s.clock.toString()),
     )).toString().toByteArray(Charsets.UTF_8)
     private fun recordJson(r: SignedRecord) = JsonObject(mapOf("bytes" to JsonPrimitive(Base64.getEncoder().encodeToString(r.bytes)), "at" to JsonPrimitive(r.at.toString())))
     private fun receiptJson(r: InstallReceipt) = JsonObject(mapOf(
@@ -237,6 +316,7 @@ internal class ExtensionInstallStore(
         "provider" to JsonPrimitive(r.provider), "key" to JsonPrimitive(r.key), "sequence" to JsonPrimitive(r.sequence),
         "rootVersion" to JsonPrimitive(r.rootVersion), "indexSequence" to JsonPrimitive(r.indexSequence),
         "acceptedAt" to JsonPrimitive(r.acceptedAt.toString()),
+        "version" to JsonPrimitive(r.version),
     ))
     private fun decode(bytes: ByteArray): State {
         val o = ExtensionWireCodec.parseStrictJson(bytes, 8 * 1048576) as JsonObject
@@ -246,17 +326,49 @@ internal class ExtensionInstallStore(
                 (it["extension"] as JsonPrimitive).content, (it["provider"] as JsonPrimitive).content,
                 (it["key"] as JsonPrimitive).content, (it["sequence"] as JsonPrimitive).long,
                 (it["rootVersion"] as JsonPrimitive).long, (it["indexSequence"] as JsonPrimitive).long,
-                Instant.parse((it["acceptedAt"] as JsonPrimitive).content))
+                Instant.parse((it["acceptedAt"] as JsonPrimitive).content),
+                (it["version"] as? JsonPrimitive)?.content.orEmpty())
+        }
+        val version = (o["schemaVersion"] as? JsonPrimitive)?.int ?: 1
+        require(version in 1..2) { "unsupported install state schema" }
+        val commonFields = setOf("roots", "indexes", "indexHigh", "indexDigest", "releaseHigh", "revoked", "quarantine", "clock")
+        val expectedFields = if (version == 2) commonFields + setOf("schemaVersion", "generations") else
+            commonFields + setOf("active", "knownGood", "previousGood", "rollbackUsed") +
+                if ("schemaVersion" in o) setOf("schemaVersion") else emptySet()
+        require(o.keys == expectedFields)
+        val releaseHigh = (o["releaseHigh"] as JsonObject).mapValues { (it.value as JsonPrimitive).long }
+        val generations = if (version == 2) {
+            (o["generations"] as JsonObject).mapValues { (_, value) ->
+                val generation = value as JsonObject
+                require(generation.keys == setOf("active", "knownGood", "previousGood", "rollbackUsed"))
+                GenerationState(receipt(generation["active"]), receipt(generation["knownGood"]),
+                    receipt(generation["previousGood"]), (generation["rollbackUsed"] as JsonPrimitive).boolean)
+            }
+        } else {
+            val active = receipt(o["active"])
+            val knownGood = receipt(o["knownGood"])
+            val previousGood = receipt(o["previousGood"])
+            val rollbackUsed = (o["rollbackUsed"] as JsonPrimitive).boolean
+            val identities = releaseHigh.keys + listOfNotNull(active, knownGood, previousGood).map { it.extension }
+            require(!rollbackUsed || identities.isNotEmpty()) { "legacy rollback state has no extension identity" }
+            identities.associateWith { extensionId ->
+                GenerationState(active?.takeIf { it.extension == extensionId },
+                    knownGood?.takeIf { it.extension == extensionId },
+                    previousGood?.takeIf { it.extension == extensionId }, rollbackUsed)
+            }
         }
         val s = State(
             roots = (o["roots"] as JsonArray).map(::record), indexes = (o["indexes"] as JsonArray).map(::record),
             indexHigh = (o["indexHigh"] as JsonPrimitive).long, indexDigest = (o["indexDigest"] as JsonPrimitive).content,
-            releaseHigh = (o["releaseHigh"] as JsonObject).mapValues { (it.value as JsonPrimitive).long },
+            releaseHigh = releaseHigh,
             revoked = (o["revoked"] as JsonArray).map { (it as JsonPrimitive).content }.toSet(),
             quarantine = (o["quarantine"] as JsonArray).map { (it as JsonPrimitive).content }.toSet(),
-            active = receipt(o["active"]), knownGood = receipt(o["knownGood"]), previousGood = receipt(o["previousGood"]),
-            rollbackUsed = (o["rollbackUsed"] as JsonPrimitive).boolean, clock = Instant.parse((o["clock"] as JsonPrimitive).content),
+            generations = generations, clock = Instant.parse((o["clock"] as JsonPrimitive).content),
         )
+        require(s.roots.size <= 16 && s.indexes.size <= 16)
+        require(s.roots.all { it.at <= s.clock } && s.indexes.all { it.at <= s.clock })
+        require(s.releaseHigh.values.all { it > 0 })
+        require((s.revoked + s.quarantine).all { it.matches(Regex("[0-9a-f]{64}")) })
         val root = roots(s).lastOrNull()
         val last = latestIndex(s)
         require((last?.sequence ?: 0) == s.indexHigh && (last?.digest ?: "") == s.indexDigest)
@@ -266,7 +378,24 @@ internal class ExtensionInstallStore(
         })
         require(s.indexes.flatMap { signedIndex(s, it).packages.filter(IndexedPackage::revoked).map { entry -> entry.binding.archiveSha256 } }
             .all { it in s.revoked })
-        require(s.active == null || s.active.sequence <= (s.releaseHigh[s.active.extension] ?: 0L))
-        return s
+        val normalizedGenerations = s.generations.mapValues { (extensionId, generation) ->
+            require(extensionId in s.releaseHigh)
+            fun validated(installed: InstallReceipt?): InstallReceipt? {
+                if (installed == null) return null
+                require(installed.extension == extensionId && installed.sequence <= s.releaseHigh.getValue(extensionId) &&
+                    installed.acceptedAt <= s.clock)
+                val acceptedIndex = indexAt(s, installed.indexSequence) ?: error("missing receipt index")
+                val binding = acceptedIndex.packages.singleOrNull { it.binding.archiveSha256 == installed.digest }?.binding
+                    ?: error("missing signed receipt binding")
+                require(acceptedIndex.rootVersion == installed.rootVersion && binding.extensionId == installed.extension &&
+                    binding.providerId == installed.provider && binding.keyId == installed.key &&
+                    binding.releaseSequence == installed.sequence && binding.canonicalManifestSha256 == installed.manifest &&
+                    (installed.version.isEmpty() || installed.version == binding.version))
+                return installed.copy(version = binding.version)
+            }
+            generation.copy(active = validated(generation.active), knownGood = validated(generation.knownGood),
+                previousGood = validated(generation.previousGood))
+        }
+        return s.copy(generations = normalizedGenerations)
     }
 }

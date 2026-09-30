@@ -71,6 +71,9 @@ import org.koin.dsl.module
 
 val animetrackerReleaseModule = module {
     single<Clock> { Clock.systemUTC() }
+    single<com.axiel7.anihyou.release.core.source.ExtensionSourceRepository> {
+        com.axiel7.anihyou.release.data.extension.ProductionExtensionSources.create(androidApplication(), get(), get())
+    }
     single<ReleaseDatabase> {
         Room.databaseBuilder(
             androidApplication(),

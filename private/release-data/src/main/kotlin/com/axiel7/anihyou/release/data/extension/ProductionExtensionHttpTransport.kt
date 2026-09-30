@@ -307,7 +307,12 @@ internal class ProductionExtensionHttpTransport(
 internal class OkHttpBoundHttpsHopExecutor(
     private val tlsSocketFactory: SSLSocketFactory? = null,
     private val trustManager: X509TrustManager? = null,
+    private val maxBodyBytes: Int = 2 * 1024 * 1024,
 ) : BoundHttpsHopExecutor {
+    init {
+        require(maxBodyBytes in 1..8 * 1024 * 1024)
+    }
+
     override suspend fun fetch(url: String, host: String, addresses: List<InetAddress>, timeoutMillis: Long,
         cancellation: NetworkCancellation): BoundHopResponse {
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
@@ -383,9 +388,9 @@ internal class OkHttpBoundHttpsHopExecutor(
                         val headers = response.headers
                         require(headers.size <= 64 && headers.byteCount() <= 16 * 1024)
                         require(headers.values("content-encoding").all { it.equals("identity", true) })
-                        require((response.body?.contentLength() ?: 0) <= 2L * 1024 * 1024)
-                        val bodyLimit = if (response.code in setOf(301, 302, 303, 307, 308)) 4096
-                            else 2 * 1024 * 1024
+                        require((response.body?.contentLength() ?: 0) <= maxBodyBytes.toLong())
+                        val bodyLimit = if (response.code in setOf(301, 302, 303, 307, 308)) minOf(4096, maxBodyBytes)
+                            else maxBodyBytes
                         val stream = response.body?.byteStream()
                         val output = java.io.ByteArrayOutputStream()
                         val buffer = ByteArray(8192)
