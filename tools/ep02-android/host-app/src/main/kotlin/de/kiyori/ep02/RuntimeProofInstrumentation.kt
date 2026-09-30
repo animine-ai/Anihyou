@@ -138,7 +138,7 @@ private object RuntimeProof {
 
     private val planLimits = ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
     private val parseLimits = ExtensionExecutionLimits(4 * 1024 * 1024, 1024 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
-    private val aniWorldParseLimits = ExtensionExecutionLimits(4 * 1024 * 1024, 1024 * 1024, 32 * 1024 * 1024, 20_000_000, 2_000)
+    private val aniWorldParseLimits = ExtensionExecutionLimits(4 * 1024 * 1024, 1024 * 1024, 32 * 1024 * 1024, 25_000_000, 2_000)
     private val spinLimits = ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000_000L, 5_000)
 
     suspend fun run(context: Context): JSONObject {
