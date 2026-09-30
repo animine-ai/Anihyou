@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.security.MessageDigest
 
 plugins {
     alias(libs.plugins.android.application)
@@ -157,7 +158,7 @@ android {
     }
 }
 
-val verifyExtensionNativeRuntime by tasks.registering {
+val verifyExtensionNativeRuntime = tasks.register("verifyExtensionNativeRuntime") {
     group = "verification"
     description = "Requires the pinned, verified Wasmtime runtime for product APKs and bundles"
     val nativeDirectory = rootProject.file("tools/ep02-android/native-out")
@@ -166,7 +167,7 @@ val verifyExtensionNativeRuntime by tasks.registering {
     inputs.file(nativeDirectory.resolve("SHA256SUMS"))
     doLast {
         fun sha256(file: java.io.File): String {
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val digest = MessageDigest.getInstance("SHA-256")
             file.inputStream().use { stream ->
                 val buffer = ByteArray(64 * 1024)
                 while (true) {
