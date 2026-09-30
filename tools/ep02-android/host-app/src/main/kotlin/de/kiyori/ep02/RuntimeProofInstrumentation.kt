@@ -138,6 +138,7 @@ private object RuntimeProof {
 
     private val planLimits = ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
     private val parseLimits = ExtensionExecutionLimits(4 * 1024 * 1024, 1024 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
+    private val aniWorldParseLimits = ExtensionExecutionLimits(4 * 1024 * 1024, 1024 * 1024, 32 * 1024 * 1024, 20_000_000, 2_000)
     private val spinLimits = ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000_000L, 5_000)
 
     suspend fun run(context: Context): JSONObject {
@@ -233,6 +234,9 @@ private object RuntimeProof {
                 .put("oldGeneration", identityBeforeKill.serviceGeneration)
                 .put("newGeneration", recoveredIdentity.serviceGeneration)
                 .put("planBytes", recovery.size))
+            runCatching { asset(context, "aniworld.wasm", 8 * 1024 * 1024) }.getOrNull()?.let { aniWorldModule ->
+                functional.put("ep04AniWorld", runAniWorldProof(context, runtime, aniWorldModule))
+            }
             functional.put("fixtureOnlyNoFallback", true)
         } finally {
             runtime.close()
@@ -262,6 +266,91 @@ private object RuntimeProof {
                 .put("status", "PASS")
                 .put("checks", functional))
             .put("performance", performance)
+    }
+
+    private suspend fun runAniWorldProof(
+        context: Context,
+        runtime: AndroidIsolatedExtensionRuntime,
+        module: ByteArray,
+    ): JSONObject {
+        val sourceCommit = String(
+            asset(context, "aniworld-source-commit.txt", 128), Charsets.UTF_8).trim()
+        val verified = FixturePackageBridge.verifyAniWorld(context.cacheDir, module, sourceCommit)
+        check(verified.extensionId == ExtensionId.parse("de.aniworld"))
+        check(verified.providerId == ProviderId.parse("aniworld"))
+        check(verified.displayName == "AniWorld")
+        check(verified.grantedHosts == setOf("aniworld.to"))
+        check(verified.moduleDigest == sha256(module))
+
+        val recentBody = String(asset(context, "aniworld-recent.html", 512 * 1024), Charsets.UTF_8)
+        val releaseContext = ExtensionContextV1(
+            verified.extensionId, verified.providerId, listOf(SourceRole.RECENT),
+            "2026-09-30T12:00:00Z", emptyList())
+        val releasePlanBytes = executeSuccess(
+            runtime, verified, "plan_requests",
+            ExtensionWireCodec.encodePlanInput(PlanInputV1(1, releaseContext)), planLimits)
+        val releasePlan = ExtensionWireCodec.decodePlanOutput(releasePlanBytes, releaseContext)
+        val request = releasePlan.requests.single()
+        check(request.requestId == "recent")
+        check(request.url == "https://aniworld.to/neue-episoden")
+        val recentHash = sha256(recentBody.toByteArray(Charsets.UTF_8))
+        val releaseInput = ParseInputV1(
+            1, releaseContext,
+            listOf(ResponseEnvelope(
+                "recent", SourceRole.RECENT, ExtensionResponseStatus.OK, 200,
+                request.url, recentBody, recentHash)))
+        val releaseOutputBytes = executeSuccess(
+            runtime, verified, "parse_responses",
+            ExtensionWireCodec.encodeParseInput(releaseInput), aniWorldParseLimits)
+        val releaseOutput = ExtensionWireCodec.decodeParseOutput(releaseOutputBytes, releaseInput)
+        check(releaseOutput.observations.size == 2)
+        check(releaseOutput.observations.all {
+            it.extensionId == verified.extensionId && it.providerId == verified.providerId &&
+                it.sourceRole == SourceRole.RECENT && it.providerSeriesKey == "fixture-series"
+        })
+        val releaseDiagnostics = requireNotNull(runtime.lastDiagnostics)
+        check(!releaseDiagnostics.serviceInternetPermissionGranted)
+
+        val episodeBody = String(asset(context, "aniworld-episode.html", 256 * 1024), Charsets.UTF_8)
+        val navContext = NavigationContextV1(
+            1, verified.extensionId, verified.providerId, "2026-09-30T12:00:00Z",
+            NavigationTargetKind.EPISODE, "ep04-episode-1", "fixture-series", null,
+            1, "1", ObservationTrack.DE_SUB)
+        val navPlanBytes = executeSuccess(
+            runtime, verified, "plan_navigation",
+            NavigationWireCodecV1.encodeContext(navContext), planLimits)
+        val navPlan = NavigationWireCodecV1.decodePlan(
+            navPlanBytes, navContext, verified.grantedHosts)
+        val navRequest = navPlan.requests.single()
+        val expectedUrl = "https://aniworld.to/anime/stream/fixture-series/staffel-1/episode-1"
+        check(navRequest.url == expectedUrl)
+        val episodeHash = sha256(episodeBody.toByteArray(Charsets.UTF_8))
+        val navResponse = NavigationResponseEnvelopeV1(
+            navRequest.requestId, ExtensionResponseStatus.OK, 200,
+            expectedUrl, episodeBody, episodeHash)
+        val navInput = NavigationWireCodecV1.encodeParseInput(
+            navContext, listOf(navResponse), verified.grantedHosts)
+        val navOutputBytes = executeSuccess(
+            runtime, verified, "parse_navigation", navInput, aniWorldParseLimits)
+        val target = NavigationWireCodecV1.decodeTargets(
+            navOutputBytes, navContext, listOf(navResponse), verified.grantedHosts).targets.single()
+        check(target.url == expectedUrl)
+        check(target.providerEpisode == "1")
+        check(target.track == ObservationTrack.DE_SUB)
+        val navDiagnostics = requireNotNull(runtime.lastDiagnostics)
+        check(!navDiagnostics.serviceInternetPermissionGranted)
+
+        return JSONObject()
+            .put("sourceCommit", sourceCommit)
+            .put("moduleDigest", verified.moduleDigest)
+            .put("packageDigest", verified.packageDigest)
+            .put("releaseObservations", releaseOutput.observations.size)
+            .put("navigationUrl", target.url)
+            .put("releaseGuestMicros", releaseDiagnostics.guestMicros)
+            .put("releaseCompileMicros", releaseDiagnostics.compileMicros)
+            .put("releaseInstantiateMicros", releaseDiagnostics.instantiateMicros)
+            .put("navigationGuestMicros", navDiagnostics.guestMicros)
+            .put("isolatedServiceNoInternet", true)
     }
 
     private suspend fun runReleaseHost(
