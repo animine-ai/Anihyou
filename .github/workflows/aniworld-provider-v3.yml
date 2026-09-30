@@ -290,7 +290,7 @@ jobs:
     name: Foss compile, lint and APK
     needs: product-native-runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -329,6 +329,22 @@ jobs:
 
       - name: Assemble Foss debug APK
         run: ./gradlew --console=plain --stacktrace :app:assembleFossDebug
+
+      - name: Verify source onboarding in the Foss debug app
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 900
+          disable-animations: true
+          script: |
+            adb shell svc wifi disable || true
+            adb shell svc data disable || true
+            adb shell settings put global airplane_mode_on 1
+            adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true
+            ./gradlew --console=plain --stacktrace :app:connectedFossDebugAndroidTest
 
       - name: Assemble Foss release with R8
         run: ./gradlew --console=plain --stacktrace :app:assembleFossRelease

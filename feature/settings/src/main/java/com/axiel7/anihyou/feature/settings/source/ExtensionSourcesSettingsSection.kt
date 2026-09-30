@@ -20,6 +20,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -52,7 +53,7 @@ fun ExtensionSourcesSettingsSection(
         OutlinedTextField(
             value = uiState.url,
             onValueChange = event::onUrlChanged,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("extension-source-url"),
             label = { Text(stringResource(R.string.extension_sources_url)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(
@@ -64,6 +65,7 @@ fun ExtensionSourcesSettingsSection(
         Spacer(Modifier.height(8.dp))
         Button(
             onClick = event::addSource,
+            modifier = Modifier.testTag("extension-source-add"),
             enabled = uiState.url.isNotBlank() && !uiState.isAdding,
         ) {
             Text(stringResource(if (uiState.isAdding) R.string.extension_sources_adding else R.string.extension_sources_add))
@@ -116,7 +118,7 @@ private fun ExtensionSourceCard(
     event: ExtensionSourcesEvent,
     modifier: Modifier = Modifier,
 ) {
-    Card(modifier = modifier.fillMaxWidth()) {
+    Card(modifier = modifier.fillMaxWidth().testTag("extension-source-card")) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -129,6 +131,7 @@ private fun ExtensionSourceCard(
                     R.string.extension_sources_status,
                     stringResource(sourceStatusString(source.status)),
                 ),
+                modifier = Modifier.testTag("extension-source-status"),
                 style = MaterialTheme.typography.bodyMedium,
             )
             source.lastFailure?.let { failure ->
@@ -152,16 +155,23 @@ private fun ExtensionSourceCard(
                 Switch(
                     checked = source.enabled,
                     onCheckedChange = { event.setEnabled(source.id, it) },
+                    modifier = Modifier.testTag("extension-source-enabled"),
                 )
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(onClick = { event.refreshSource(source.id) }) {
+                TextButton(
+                    onClick = { event.refreshSource(source.id) },
+                    modifier = Modifier.testTag("extension-source-refresh"),
+                ) {
                     Text(stringResource(R.string.extension_sources_refresh))
                 }
-                TextButton(onClick = { event.removeSource(source.id) }) {
+                TextButton(
+                    onClick = { event.removeSource(source.id) },
+                    modifier = Modifier.testTag("extension-source-remove"),
+                ) {
                     Text(stringResource(R.string.extension_sources_remove))
                 }
             }
