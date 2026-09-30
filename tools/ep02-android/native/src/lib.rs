@@ -474,7 +474,7 @@ pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNa
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_axiel7_anihyou_release_data_extension_WasmtimeNativeBridge_nativeRuntimeVersion(
-    mut env: JNIEnv<'_>,
+    env: JNIEnv<'_>,
     _class: JClass<'_>,
 ) -> jstring {
     match env.new_string("wasmtime-48.0.3-cranelift-android") {
