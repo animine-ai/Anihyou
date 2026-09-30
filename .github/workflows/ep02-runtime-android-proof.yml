@@ -1,7 +1,7 @@
 name: EP02 Production Runtime Android Proof
 on:
   push:
-    branches: [feature/aniworld-provider-v3, ep03/user-added-sources]
+    branches: [feature/aniworld-provider-v3, ep03/user-added-sources, ep04/aniworld-v1]
     paths:
       - "settings.gradle.kts"
       - "tools/ep02-android/**"
