@@ -255,6 +255,7 @@ internal class FileExtensionSourceRepository(
                 !source.enabled -> ExtensionSourceStatus.DISABLED
                 source.failure == ExtensionSourceFailure.AUTHENTICATION_UNAVAILABLE -> ExtensionSourceStatus.TRUST_UNAVAILABLE
                 source.failure != null -> ExtensionSourceStatus.ERROR
+                store == null && source.attemptedAt == null -> ExtensionSourceStatus.ADDED
                 store == null -> ExtensionSourceStatus.TRUST_UNAVAILABLE
                 snapshot == null || !fresh -> ExtensionSourceStatus.ERROR
                 extensions.any { it.revoked } || snapshot.generations.values.any {
