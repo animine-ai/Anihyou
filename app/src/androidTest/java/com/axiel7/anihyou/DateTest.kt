@@ -1,5 +1,6 @@
 package com.axiel7.anihyou
 
+import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -8,6 +9,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.axiel7.anihyou.core.resources.R as CoreR
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
@@ -43,7 +45,7 @@ class DateTest {
 
     @Test
     fun duration_is_formatted_in_weeks() {
-        val expected = composeTestRule.activity.resources.getQuantityString(
+        val expected = ApplicationProvider.getApplicationContext<Context>().resources.getQuantityString(
             CoreR.plurals.num_weeks,
             2,
             2,
