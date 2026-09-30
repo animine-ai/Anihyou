@@ -203,9 +203,10 @@ private fun SourceExtensionInfo(
         ),
         style = MaterialTheme.typography.bodySmall,
     )
-    if (extension.installedVersion != null) {
+    val installedVersion = extension.installedVersion
+    if (installedVersion != null) {
         Text(
-            text = stringResource(R.string.extension_sources_installed, extension.installedVersion),
+            text = stringResource(R.string.extension_sources_installed, installedVersion),
             style = MaterialTheme.typography.bodySmall,
         )
     } else {
