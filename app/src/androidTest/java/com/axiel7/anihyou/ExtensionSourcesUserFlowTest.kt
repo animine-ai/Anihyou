@@ -1,5 +1,6 @@
 package com.axiel7.anihyou
 
+import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
@@ -14,6 +15,7 @@ import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.axiel7.anihyou.core.resources.R as CoreR
 import com.axiel7.anihyou.feature.settings.R as SettingsR
@@ -88,5 +90,5 @@ class ExtensionSourcesUserFlowTest {
     }
 
     private fun text(resourceId: Int, vararg arguments: Any): String =
-        composeRule.activity.getString(resourceId, *arguments)
+        ApplicationProvider.getApplicationContext<Context>().getString(resourceId, *arguments)
 }
