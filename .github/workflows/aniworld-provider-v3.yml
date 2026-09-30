@@ -349,8 +349,6 @@ jobs:
           script: |
             adb shell svc wifi disable || true
             adb shell svc data disable || true
-            adb shell settings put global airplane_mode_on 1
-            adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true
             ./gradlew --console=plain --stacktrace :app:connectedFossDebugAndroidTest
 
       - name: Assemble Foss release with R8
