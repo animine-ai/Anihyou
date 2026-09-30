@@ -183,7 +183,7 @@ jobs:
         run: ./gradlew --console=plain --stacktrace :private:release-data:testDebugUnitTest
 
       - name: Run upstream current-list regression tests
-        run: ./gradlew --console=plain --stacktrace :feature:home:testDebugUnitTest
+        run: ./gradlew --console=plain --stacktrace :core:model:testDebugUnitTest :core:ui:testDebugUnitTest :feature:home:testDebugUnitTest :feature:usermedialist:testDebugUnitTest
 
       - name: Run worker unit tests
         run: ./gradlew --console=plain --stacktrace :feature:worker:testDebugUnitTest
@@ -230,6 +230,23 @@ jobs:
         with:
           name: room-schema-13
           path: ${{ steps.schema.outputs.schema_path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload upstream and release regression reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: upstream-release-regression-reports
+          path: |
+            core/model/build/test-results/
+            core/ui/build/test-results/
+            feature/home/build/test-results/
+            feature/usermedialist/build/test-results/
+            feature/worker/build/test-results/
+            app/build/test-results/
+            private/release-core/build/test-results/
+            private/release-data/build/test-results/
           if-no-files-found: error
           retention-days: 14
 

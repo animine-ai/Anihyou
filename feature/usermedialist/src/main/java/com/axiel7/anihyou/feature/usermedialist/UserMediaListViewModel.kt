@@ -239,6 +239,8 @@ class UserMediaListViewModel(
                     if (selectedListName != null) {
                         lists[selectedListName] = list
                         onChangeList(selectedListName)
+                    } else {
+                        publishReleaseMediaIds()
                     }
                 }
             }
@@ -572,6 +574,11 @@ class UserMediaListViewModel(
             novelEntries.clear()
             applyPartition()
         }
+        publishReleaseMediaIds()
+    }
+
+    private fun publishReleaseMediaIds() {
+        releaseMediaIds.value = uiState.value.entries.mapTo(mutableSetOf()) { it.mediaId }
     }
 
     init {
@@ -591,12 +598,6 @@ class UserMediaListViewModel(
             .onEach { presentations ->
                 mutableUiState.update { it.copy(releaseByMediaId = presentations) }
             }
-            .launchIn(viewModelScope)
-
-        mutableUiState
-            .map { state -> state.entries.mapTo(mutableSetOf()) { it.mediaId } }
-            .distinctUntilChanged()
-            .onEach { ids -> releaseMediaIds.value = ids }
             .launchIn(viewModelScope)
 
         //search
@@ -790,27 +791,31 @@ class UserMediaListViewModel(
                         }
                     }
 
-                    mutableUiState.update { uiState ->
-                        if (result.currentPage == 1 || result.currentPage == null) {
-                            uiState.lists.clear()
+                    val updatedState = mutableUiState.updateAndGet { uiState ->
+                        val updatedLists = if (result.currentPage == 1 || result.currentPage == null) {
+                            mutableMapOf<String, List<CommonMediaListEntry>>()
+                        } else {
+                            uiState.lists.toMutableMap()
                         }
 
                         var hasNewEntries = false
                         processedLists.forEach { (name, entries, isStandardList) ->
-                            uiState.lists[name] = uiState.lists[name].orEmpty() + entries
+                            updatedLists[name] = updatedLists[name].orEmpty() + entries
                             if ((uiState.selectedListName == null && isStandardList) || name == uiState.selectedListName) {
                                 if (entries.isNotEmpty()) hasNewEntries = true
                             }
                         }
 
-                        updateSearchAndFilters(uiState)
-
                         val loadMore = !hasNewEntries && result.hasNextPage
                         uiState.copy(
+                            lists = updatedLists,
                             fetchFromNetwork = false,
                             isLoading = loadMore,
                         )
                     }
+                    // StateFlow update lambdas can be retried. Rebuild the cache and
+                    // mutate snapshot lists only after the collection update commits.
+                    updateSearchAndFilters(updatedState)
                 } else {
                     mutableUiState.update { uiState ->
                         if (result is PagedResult.Error) {
