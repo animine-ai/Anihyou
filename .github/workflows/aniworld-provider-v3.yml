@@ -351,6 +351,17 @@ jobs:
             adb shell svc data disable || true
             ./gradlew --console=plain --stacktrace :app:connectedFossDebugAndroidTest
 
+      - name: Upload Foss Android test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: foss-debug-android-test-reports
+          path: |
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Assemble Foss release with R8
         run: ./gradlew --console=plain --stacktrace :app:assembleFossRelease
 
