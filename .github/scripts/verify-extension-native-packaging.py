@@ -94,8 +94,18 @@ def verify_apks(hashes, apk_directory):
             name = element["outputFile"]
             require(pathlib.Path(name).name == name, "APK output path must be a basename")
             apk = metadata_file.parent / name
-            abi_filters = [item["identifier"] for item in element.get("filters", [])
-                           if item["filterType"] == "ABI"]
+            abi_filters = []
+            for item in element.get("filters", []):
+                require(item.get("filterType") in {"ABI", "DENSITY"},
+                        f"Unknown APK output filter type: {item.get('filterType')}")
+                if item.get("filterType") != "ABI":
+                    continue
+                identifier = item.get("identifier")
+                value = item.get("value")
+                require(identifier is not None or value is not None, "APK ABI filter value missing")
+                if identifier is not None and value is not None:
+                    require(identifier == value, "Conflicting APK ABI filter fields")
+                abi_filters.append(identifier if identifier is not None else value)
             require(len(abi_filters) <= 1, "Ambiguous APK ABI filter")
             abi = abi_filters[0] if abi_filters else None
             require(abi is None or abi in ABI_MACHINES or abi in UNSUPPORTED_RUNTIME_ABIS,
