@@ -330,6 +330,12 @@ jobs:
       - name: Assemble Foss debug APK
         run: ./gradlew --console=plain --stacktrace :app:assembleFossDebug
 
+      - name: Enable KVM for the Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Verify source onboarding in the Foss debug app
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -339,6 +345,7 @@ jobs:
           profile: pixel_2
           emulator-boot-timeout: 900
           disable-animations: true
+          disable-linux-hw-accel: false
           script: |
             adb shell svc wifi disable || true
             adb shell svc data disable || true
