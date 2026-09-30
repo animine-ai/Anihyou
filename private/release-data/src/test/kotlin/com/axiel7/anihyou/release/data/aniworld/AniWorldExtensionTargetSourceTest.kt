@@ -24,6 +24,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -31,7 +32,7 @@ class AniWorldExtensionTargetSourceTest {
     private val now = Instant.parse("2026-09-29T08:00:00Z")
 
     @Test
-    fun eligibleCanonicalDirectTargetMapsToHostOwnedProtocolIdentity() = runBlocking {
+    fun eligibleCanonicalDirectTargetPassesCoordinatesWithoutHostProviderUrl() = runBlocking {
         val evidence = ReleaseEvidence(
             id = "fixture-evidence",
             sourceType = ReleaseSourceType.ANIWORLD_CALENDAR,
@@ -66,6 +67,8 @@ class AniWorldExtensionTargetSourceTest {
             firstEligibleAt = now.minusSeconds(60),
             lastAttemptAt = null,
             nextEligibleAt = null,
+            providerSeriesKey = "v3-target-series",
+            navigationSeason = 2,
         )
         val source = AniWorldExtensionTargetSource(
             pollStore = PollStore(candidate),
@@ -75,7 +78,7 @@ class AniWorldExtensionTargetSourceTest {
         val actual = source.targets().single()
         assertEquals(key, actual.canonicalKey)
         assertEquals("v3-target-series", actual.target.providerSeriesKey)
-        assertEquals(url, actual.target.providerUrl)
+        assertNull(actual.target.providerUrl)
         assertEquals(1, actual.target.sourceSeason)
         assertEquals(2, actual.target.navigationSeason)
         assertEquals("5", actual.target.installment.number)
