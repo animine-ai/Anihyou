@@ -32,7 +32,7 @@ data class ApprovedExtensionAuthorityTuple(
 ) {
     init {
         require(publisherId.isNotBlank() && signingKeyId.isNotBlank() && roles.isNotEmpty())
-        require(extensionId == "de.aniworld" && providerId == "de.aniworld")
+        require(extensionId == "de.aniworld" && providerId == "aniworld")
     }
 }
 
