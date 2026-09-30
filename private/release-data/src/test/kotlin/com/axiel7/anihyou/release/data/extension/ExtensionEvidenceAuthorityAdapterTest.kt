@@ -11,7 +11,7 @@ import org.junit.Test
 
 class ExtensionEvidenceAuthorityAdapterTest {
     private val approved = ApprovedExtensionAuthorityTuple(
-        "publisher-a", "key-a", "de.aniworld", "de.aniworld", setOf(SourceRole.RECENT))
+        "publisher-a", "key-a", "de.aniworld", "aniworld", setOf(SourceRole.RECENT))
     private val adapter = ExtensionEvidenceAuthorityAdapter(setOf(approved))
 
     @Test fun approvedRecentUsesExistingFingerprintAndDeduplicatesAcrossPolls() {
@@ -61,12 +61,12 @@ class ExtensionEvidenceAuthorityAdapterTest {
     ) = ExtensionHostResult.Completed(receipt, listOf(observation), emptyList(), provenance)
 
     private fun receipt() = ExtensionExecutionReceipt(
-        "receipt", "generation", ExtensionId.parse("de.aniworld"), ProviderId.parse("de.aniworld"),
+        "receipt", "generation", ExtensionId.parse("de.aniworld"), ProviderId.parse("aniworld"),
         "publisher-a", "key-a", 1, "a".repeat(64), "b".repeat(64), "c".repeat(64),
         1, 1, 1, "48.0.3", "2026-09-29T00:00:00Z", "2026-09-29T00:00:01Z")
 
     private fun observation() = ProviderObservationV1(
-        1, ExtensionId.parse("de.aniworld"), ProviderId.parse("de.aniworld"), "recent-1",
+        1, ExtensionId.parse("de.aniworld"), ProviderId.parse("aniworld"), "recent-1",
         SourceRole.RECENT, "example-series", "Example", 2, 2,
         InstallmentV1(ObservationInstallmentKind.EPISODE, "12.25"), ObservationTrack.DE_SUB,
         ObservationClaimKind.RELEASE_LISTING, null, null, null, "2026-09-29T00:00:00Z",
