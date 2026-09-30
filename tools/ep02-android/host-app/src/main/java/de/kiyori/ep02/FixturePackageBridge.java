@@ -113,6 +113,73 @@ public final class FixturePackageBridge {
         );
     }
 
+    /** Test-only real-provider package proof used by the EP04 Android workflow. */
+    public static VerifiedExtensionPackage verifyAniWorld(
+        File directory, byte[] module, String sourceCommit
+    ) throws Exception {
+        if (sourceCommit == null || !sourceCommit.matches("[0-9a-f]{40}")) {
+            throw new IllegalArgumentException("invalid EP04 source commit");
+        }
+        Set<SourceRole> roles = EnumSet.allOf(SourceRole.class);
+        Set<String> hosts = new HashSet<>(Arrays.asList("aniworld.to"));
+        byte[] provenance = ("{\"schemaVersion\":1,\"sourceRepository\":\"https://github.com/animine-ai/release-extentions\"," +
+            "\"sourceCommit\":\"" + sourceCommit + "\",\"licenseSpdx\":[\"GPL-3.0-only\"],\"components\":[]," +
+            "\"localModifications\":[],\"compilerVersion\":\"rustc-1.95.0\",\"sdkVersion\":\"wasm32v1-none\"," +
+            "\"dependencyLockDigest\":\"" + repeat("b", 64) + "\",\"reproducibleBuildCommand\":\"bash tools/build_aniworld.sh\"," +
+            "\"workflowIdentity\":\".github/workflows/ci.yml\",\"moduleDigest\":\"" + sha256(module) + "\"}")
+            .getBytes(StandardCharsets.UTF_8);
+        byte[] notice = "SPDX-License-Identifier: GPL-3.0-only\nEP04 Android test package\n"
+            .getBytes(StandardCharsets.UTF_8);
+        String manifest = "{\"schemaVersion\":1,\"extensionId\":\"de.aniworld\",\"providerId\":\"aniworld\"," +
+            "\"displayName\":\"AniWorld\",\"version\":\"1.0.0-test.1\",\"releaseSequence\":1," +
+            "\"hostApiMin\":1,\"hostApiMax\":1,\"capabilities\":[\"CALENDAR\",\"RECENT\",\"POSTPONEMENT\",\"DIRECT\"]," +
+            "\"navigationCapabilities\":[\"OVERVIEW_NAVIGATION\",\"EPISODE_NAVIGATION\"]," +
+            "\"allowedHosts\":[\"aniworld.to\"],\"digests\":{" +
+            "\"module\":{\"sha256\":\"" + sha256(module) + "\",\"bytes\":" + module.length + "}," +
+            "\"provenance\":{\"sha256\":\"" + sha256(provenance) + "\",\"bytes\":" + provenance.length + "}," +
+            "\"notice\":{\"sha256\":\"" + sha256(notice) + "\",\"bytes\":" + notice.length + "}}," +
+            "\"publisherId\":\"ep04-test-publisher\",\"keyId\":\"ep04-test-key-1\"," +
+            "\"sourceRepository\":\"https://github.com/animine-ai/release-extentions\",\"sourceCommit\":\"" + sourceCommit + "\"," +
+            "\"build\":{\"toolchainVersion\":\"rustc-1.95.0\",\"target\":\"wasm32v1-none\"," +
+            "\"lockfileDigest\":\"" + repeat("b", 64) + "\",\"workflowIdentity\":\".github/workflows/ci.yml\"}}";
+        byte[] canonical = new JsonCanonicalizer(manifest).getEncodedString().getBytes(StandardCharsets.UTF_8);
+        Ed25519PrivateKeyParameters privateKey = new Ed25519PrivateKeyParameters(seed(), 0);
+        Ed25519Signer signer = new Ed25519Signer();
+        signer.init(true, privateKey);
+        byte[] domain = "AREX-PACKAGE-V1\n".getBytes(StandardCharsets.UTF_8);
+        byte[] message = new byte[domain.length + canonical.length];
+        System.arraycopy(domain, 0, message, 0, domain.length);
+        System.arraycopy(canonical, 0, message, domain.length, canonical.length);
+        signer.update(message, 0, message.length);
+        String signature = Base64.toBase64String(signer.generateSignature());
+
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put("manifest.json", manifest.getBytes(StandardCharsets.UTF_8));
+        entries.put("module.wasm", module);
+        entries.put("provenance.json", provenance);
+        entries.put("NOTICE", notice);
+        entries.put("package.sig",
+            ("{\"algorithm\":\"Ed25519\",\"keyId\":\"ep04-test-key-1\",\"signature\":\"" +
+                signature + "\"}").getBytes(StandardCharsets.UTF_8));
+        File archive = new File(directory, "ep04-aniworld-runtime-fixture.arex");
+        writeDeterministicZip(archive, entries);
+        byte[] archiveBytes = readFileBounded(archive, 16 * 1024 * 1024);
+
+        VerifiedCatalogPackageBinding catalog = new VerifiedCatalogPackageBinding(
+            "de.aniworld", "aniworld", "AniWorld", NAVIGATION,
+            "ep04-test-publisher", "ep04-test-key-1", "1.0.0-test.1", 1L,
+            sha256(archiveBytes), archiveBytes.length, sha256(canonical), false);
+        AuthorizedExtensionPublisherKey publisherKey = new AuthorizedExtensionPublisherKey(
+            "ep04-test-key-1", "ep04-test-publisher", "de.aniworld", "aniworld",
+            privateKey.generatePublicKey().getEncoded(), 1L, roles, NAVIGATION, hosts,
+            Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2027-01-01T00:00:00Z"), false);
+        ExtensionPackageVerifier verifier = new ExtensionPackageVerifier(
+            new CombinedWasmModuleProfileVerifier(new WasmtimeNativeModuleProfileVerifier()));
+        return verifier.verify(
+            archive, catalog, publisherKey, roles, hosts, 1,
+            "wasmtime-48.0.3-cranelift-android", NOW);
+    }
+
     /** Proves the structural reader alone accepts an opcode proposal disabled by native Wasmtime. */
     public static void assertNativeFeatureGateRejectsSimd() {
         byte[] module = simdVector();
