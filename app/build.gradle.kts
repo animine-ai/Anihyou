@@ -147,12 +147,67 @@ android {
         shaders = false
     }
     packaging {
+        jniLibs.keepDebugSymbols += "**/libarex_runtime.so"
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
     dependenciesInfo {
         includeInApk = false
+    }
+}
+
+val verifyExtensionNativeRuntime by tasks.registering {
+    group = "verification"
+    description = "Requires the pinned, verified Wasmtime runtime for product APKs and bundles"
+    val nativeDirectory = rootProject.file("tools/ep02-android/native-out")
+    val nativePaths = listOf("Cargo.lock", "arm64-v8a/libarex_runtime.so", "x86_64/libarex_runtime.so")
+    inputs.files(nativePaths.map { nativeDirectory.resolve(it) })
+    inputs.file(nativeDirectory.resolve("SHA256SUMS"))
+    doLast {
+        fun sha256(file: java.io.File): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { stream ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+        }
+        val manifest = nativeDirectory.resolve("SHA256SUMS")
+        check(manifest.isFile) {
+            "Missing verified extension native runtime. Run tools/ep02-android/build-native.sh and " +
+                ".github/scripts/verify-extension-native-packaging.py --write-checksums before packaging."
+        }
+        val expected = manifest.readLines().filter(String::isNotBlank).map { line ->
+            val match = Regex("([0-9a-f]{64})  (Cargo\\.lock|(?:arm64-v8a|x86_64)/libarex_runtime\\.so)")
+                .matchEntire(line) ?: error("Invalid extension native checksum record")
+            match.groupValues[2] to match.groupValues[1]
+        }
+        check(expected.size == nativePaths.size && expected.map { it.first }.toSet() == nativePaths.toSet()) {
+            "Incomplete or duplicate extension native checksums"
+        }
+        for ((path, digest) in expected) {
+            val file = nativeDirectory.resolve(path)
+            check(file.isFile && file.length() > 0 && sha256(file) == digest) {
+                "Missing or modified extension native runtime input: $path"
+            }
+        }
+        check(sha256(nativeDirectory.resolve("Cargo.lock")) ==
+            "0f1caff29b8444068b46e96c3a3641d3d805d86c827a4b2ed9189b86a00fd7df") {
+            "Extension native dependency graph drift"
+        }
+    }
+}
+
+// Compile/unit-test/schema tasks remain usable without native artifacts. Packaging fails closed.
+tasks.configureEach {
+    if ((name.startsWith("merge") && name.endsWith("NativeLibs")) ||
+        name.matches(Regex("(assemble|bundle)(Foss|Gms)?(Debug|Release|BenchmarkRelease|NonMinifiedRelease)?"))) {
+        dependsOn(verifyExtensionNativeRuntime)
     }
 }
 

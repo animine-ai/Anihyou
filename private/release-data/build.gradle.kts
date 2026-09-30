@@ -23,8 +23,14 @@ android {
     }
 
     sourceSets {
+        getByName("main").jniLibs.srcDir(rootProject.file("tools/ep02-android/native-out"))
         getByName("test").resources.srcDir(rootProject.file("private/evidence"))
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
+    packaging {
+        // The pinned Rust build already strips debug information. Preserve its exact bytes.
+        jniLibs.keepDebugSymbols += "**/libarex_runtime.so"
     }
 }
 

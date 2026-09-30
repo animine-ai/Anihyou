@@ -24,6 +24,9 @@ on:
       - "gradle.properties"
       - "version.properties"
       - ".github/workflows/aniworld-provider-v3.yml"
+      - ".github/scripts/verify-extension-native-packaging.py"
+      - "tools/ep02-android/native/**"
+      - "tools/ep02-android/build-native.sh"
 
 permissions:
   contents: read
@@ -250,8 +253,41 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  product-native-runtime:
+    name: Pinned Wasmtime product native runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Build accepted production native runtime
+        run: bash tools/ep02-android/build-native.sh
+      - name: Verify ELF, JNI exports and portable native checksums
+        run: |
+          git rev-parse HEAD > tools/ep02-android/results/native/source-commit.txt
+          python3 .github/scripts/verify-extension-native-packaging.py \
+            --write-checksums \
+            --readelf "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
+            --report tools/ep02-android/results/native/product-native-verification.json
+      - name: Upload same-run product runtime
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: product-extension-native-runtime
+          path: tools/ep02-android/native-out/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload native build and verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: product-extension-native-build-evidence
+          path: tools/ep02-android/results/native/
+          if-no-files-found: warn
+          retention-days: 14
+
   app-build:
     name: Foss compile, lint and APK
+    needs: product-native-runtime
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -275,6 +311,15 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
 
+      - name: Stage same-run pinned native runtime
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: product-extension-native-runtime
+          path: tools/ep02-android/native-out
+
+      - name: Verify staged native checksums
+        run: python3 .github/scripts/verify-extension-native-packaging.py
+
       - name: Compile Foss debug
         run: ./gradlew --console=plain --stacktrace :app:compileFossDebugKotlin
 
@@ -286,6 +331,22 @@ jobs:
 
       - name: Assemble Foss release with R8
         run: ./gradlew --console=plain --stacktrace :app:assembleFossRelease
+
+      - name: Verify packaged runtime in Debug and R8 release APKs
+        run: |
+          python3 .github/scripts/verify-extension-native-packaging.py \
+            --apk-dir app/build/outputs/apk/foss/debug \
+            --apk-dir app/build/outputs/apk/foss/release \
+            --report tools/ep02-android/results/product-native/apk-native-verification.json
+
+      - name: Upload product native packaging evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: product-extension-apk-native-evidence
+          path: tools/ep02-android/results/product-native/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload Foss release APK and mapping
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
