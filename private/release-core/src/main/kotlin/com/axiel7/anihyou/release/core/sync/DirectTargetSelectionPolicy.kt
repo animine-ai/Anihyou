@@ -12,12 +12,16 @@ data class DirectTargetCandidate(
     val lastAttemptAt: Instant?,
     val nextEligibleAt: Instant?,
     val exactTargetKeys: Set<String> = setOf(exactTargetKey),
+    val providerSeriesKey: String? = null,
+    val navigationSeason: Int? = null,
 ) {
     init {
         require(canonicalUrl.length in 1..2048 && exactTargetKey.length in 1..2048)
         require(tracks.isNotEmpty() && tracks.all { it in setOf("DE_SUB", "DE_DUB") })
         require(priority in 0..2)
         require(exactTargetKeys.isNotEmpty() && exactTargetKeys.size <= 2 && exactTargetKey in exactTargetKeys)
+        require(providerSeriesKey == null || providerSeriesKey.length in 1..128)
+        require(navigationSeason == null || navigationSeason in 1..9999)
     }
 }
 
@@ -34,6 +38,10 @@ object DirectTargetSelectionPolicy {
                 val selected = group.minWith(order)
                 val allKeys = group.flatMap { it.exactTargetKeys }.toSet()
                 require(allKeys.size <= 2) { "one Direct URL cannot fan out to more than two exact targets" }
+                require(group.map { it.providerSeriesKey }.distinct().size == 1 &&
+                    group.map { it.navigationSeason }.distinct().size == 1) {
+                    "one Direct URL cannot fan out to conflicting provider coordinates"
+                }
                 selected.copy(tracks = group.flatMap { it.tracks }.toSet(), exactTargetKeys = allKeys,
                     priority = group.minOf { it.priority }, firstEligibleAt = group.minOf { it.firstEligibleAt },
                     lastAttemptAt = group.mapNotNull { it.lastAttemptAt }.minOrNull(),
@@ -54,6 +62,7 @@ object DirectTargetSelectionPolicy {
         require(candidates.flatMap { it.exactTargetKeys }.distinct().size == candidates.sumOf { it.exactTargetKeys.size })
         val value = candidates.sortedBy { it.exactTargetKey }.joinToString("\n") { c ->
             listOf(c.exactTargetKeys.sorted().joinToString(","), c.canonicalUrl,
+                c.providerSeriesKey ?: "-", c.navigationSeason?.toString() ?: "-",
                 c.tracks.sorted().joinToString(","), c.priority.toString(),
                 c.firstEligibleAt.toString(), c.lastAttemptAt?.toString() ?: "-", c.nextEligibleAt?.toString() ?: "-")
                 .joinToString("|")
