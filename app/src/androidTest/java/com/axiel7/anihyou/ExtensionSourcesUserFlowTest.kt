@@ -37,14 +37,18 @@ class ExtensionSourcesUserFlowTest {
         composeRule.onNodeWithText(text(SettingsR.string.extension_sources_title))
             .performScrollTo()
             .assertIsDisplayed()
-        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_empty)).assertIsDisplayed()
+        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_empty))
+            .performScrollTo()
+            .assertIsDisplayed()
         composeRule.onNodeWithTag("extension-source-add").assertIsNotEnabled()
 
         composeRule.onNodeWithTag("extension-source-url")
             .performTextInput("http://example.org/repository")
         composeRule.onNodeWithTag("extension-source-url").performImeAction()
         composeRule.onNodeWithText(text(SettingsR.string.extension_sources_invalid_url)).assertIsDisplayed()
-        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_empty)).assertIsDisplayed()
+        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_empty))
+            .performScrollTo()
+            .assertIsDisplayed()
 
         val sourceUrl = "https://example.org/repository"
         composeRule.onNodeWithTag("extension-source-url").performTextClearance()
@@ -86,7 +90,9 @@ class ExtensionSourcesUserFlowTest {
         composeRule.onNodeWithTag("extension-source-enabled").performClick()
         composeRule.onNodeWithTag("extension-source-enabled").assertIsOn()
         composeRule.onNodeWithTag("extension-source-remove").performClick()
-        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_empty)).assertIsDisplayed()
+        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_empty))
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     private fun text(resourceId: Int, vararg arguments: Any): String =
