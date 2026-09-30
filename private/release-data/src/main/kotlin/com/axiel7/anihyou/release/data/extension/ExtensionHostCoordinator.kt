@@ -363,7 +363,7 @@ class ExtensionHostCoordinator(
             maxInputBytes = 4 * 1024 * 1024,
             maxOutputBytes = 1024 * 1024,
             memoryBytes = 32 * 1024 * 1024,
-            fuel = 20_000_000,
+            fuel = 10_000_000,
             deadlineMillis = 2_000,
         )
         val SHA256 = Regex("[0-9a-f]{64}")
