@@ -115,7 +115,7 @@ val animetrackerReleaseModule = module {
             allowedHosts = BuildConfig.EXTENSION_ALLOWED_HOSTS.split(',').toSet(),
             approvedAuthority = setOf(ApprovedExtensionAuthorityTuple(
                 BuildConfig.EXTENSION_PUBLISHER_ID, BuildConfig.EXTENSION_SIGNING_KEY_ID,
-                "de.aniworld", "de.aniworld",
+                "de.aniworld", "aniworld",
                 setOf(SourceRole.CALENDAR, SourceRole.RECENT, SourceRole.POSTPONEMENT, SourceRole.DIRECT))),
         )
         ProductionExtensionHostBoundary.create(androidApplication(), config)
