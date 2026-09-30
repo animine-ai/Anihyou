@@ -9,7 +9,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.axiel7.anihyou.core.common.utils.DateUtils.timestampIntervalSinceNow
+import com.axiel7.anihyou.core.resources.R as CoreR
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 import org.junit.Before
 import org.junit.Rule
@@ -34,19 +34,20 @@ class DateTest {
 
     @Composable
     fun ParseCreatedAtToDate() {
-        val createdAt = 1607910968
+        val interval = 14L * 24 * 60 * 60
         Text(
-            text = createdAt.toLong().timestampIntervalSinceNow()
-                .secondsToLegibleText(
-                    maxUnit = ChronoUnit.WEEKS,
-                    isFutureDate = false
-                ),
+            text = interval.secondsToLegibleText(maxUnit = ChronoUnit.WEEKS),
             modifier = Modifier.testTag("date")
         )
     }
 
     @Test
-    fun is_date_parsed_correctly() {
-        composeTestRule.onNodeWithTag("date").assertTextEquals("Dec 14, 2020")
+    fun duration_is_formatted_in_weeks() {
+        val expected = composeTestRule.activity.resources.getQuantityString(
+            CoreR.plurals.num_weeks,
+            2,
+            2,
+        )
+        composeTestRule.onNodeWithTag("date").assertTextEquals(expected)
     }
 }
