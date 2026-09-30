@@ -1,6 +1,8 @@
 package com.axiel7.anihyou.release.data.extension
 
 import com.axiel7.anihyou.release.core.extension.ExtensionExecutionReceipt
+import com.axiel7.anihyou.release.core.extension.ExtensionId
+import com.axiel7.anihyou.release.core.extension.ProviderId
 import com.axiel7.anihyou.release.core.extension.ObservationClaimKind
 import com.axiel7.anihyou.release.core.extension.ObservationInstallmentKind
 import com.axiel7.anihyou.release.core.extension.ObservationTrack
@@ -32,7 +34,8 @@ data class ApprovedExtensionAuthorityTuple(
 ) {
     init {
         require(publisherId.isNotBlank() && signingKeyId.isNotBlank() && roles.isNotEmpty())
-        require(extensionId == "de.aniworld" && providerId == "aniworld")
+        ExtensionId.parse(extensionId)
+        ProviderId.parse(providerId)
     }
 }
 
