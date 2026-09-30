@@ -35,6 +35,10 @@ internal object AniWorldDirectTargetResolver {
         }
         val urls = exactEvidence.mapNotNull { routeUrl(identity, it) }.distinct()
         if (urls.size != 1) return null // missing or competing route proofs are not resolved by ordering
+        val providerSeriesKeys = exactEvidence.mapNotNull { it.siteIdentifier?.slug }.distinct()
+        if (providerSeriesKeys.size != 1) return null
+        val navigationSeasons = exactEvidence.mapNotNull { it.navigationSeason }.distinct()
+        if (identity.installment is Installment.Episode && navigationSeasons.size != 1) return null
         val url = urls.single()
         val attempt = requestState?.lastAttemptAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
         val first = requestState?.firstEligibleAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
@@ -53,6 +57,8 @@ internal object AniWorldDirectTargetResolver {
             firstEligibleAt = first,
             lastAttemptAt = attempt,
             nextEligibleAt = next,
+            providerSeriesKey = providerSeriesKeys.single(),
+            navigationSeason = navigationSeasons.singleOrNull(),
         )
     }
 
