@@ -9,6 +9,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:database"))
     implementation(project(":private:release-core"))
     implementation(project(":feature:editmedia"))
     implementation(project(":feature:addrecommendation"))

@@ -16,6 +16,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +25,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -106,7 +110,8 @@ class Wp00R1CurrentListRuntimeTest {
     }
 
     @Test
-    fun mixedExtensionAndAniListAiringRowsSortByComparableDurations() = runBlocking {
+    fun mixedExtensionAndAniListAiringRowsSortByComparableDurations() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val fallback = mockk<CommonMediaListEntry>(relaxed = true).also { entry ->
             every { entry.mediaId } returns 1
             every { entry.media?.status } returns MediaStatus.RELEASING
@@ -134,15 +139,16 @@ class Wp00R1CurrentListRuntimeTest {
             val ids = arg<Set<Int>>(1)
             flowOf(if (2 in ids) mapOf(2 to listOf(presentation)) else emptyMap())
         }
+        val animeResults = MutableStateFlow<PagedResult<CommonMediaListEntry>>(
+            PagedResult.Success(emptyList(), currentPage = 1, hasNextPage = false),
+        )
         val repository = mockk<MediaListRepository>()
         every { repository.lastUpdatedEntry } returns MutableStateFlow<BasicMediaListEntry?>(null)
         every {
             repository.getUserMediaList(any(), any(), any(), any(), any(), any(), any(), any())
         } answers {
-            val entries = if (arg<MediaType>(1) == MediaType.ANIME) {
-                listOf(fallback, unknown, extension)
-            } else emptyList()
-            flowOf(PagedResult.Success(entries, currentPage = 1, hasNextPage = false))
+            if (arg<MediaType>(1) == MediaType.ANIME) animeResults
+            else flowOf(PagedResult.Success(emptyList(), currentPage = 1, hasNextPage = false))
         }
         every {
             repository.getMySeasonalAnime(any(), any(), any(), any(), any())
@@ -154,11 +160,17 @@ class Wp00R1CurrentListRuntimeTest {
             releases,
             Clock.fixed(Instant.ofEpochSecond(1_799_998_000), ZoneOffset.UTC),
         )
-        withTimeout(5_000) {
-            while (viewModel.uiState.value.airingList.size != 3 ||
-                viewModel.uiState.value.releaseByMediaId[2].isNullOrEmpty()
-            ) yield()
-        }
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.airingList.isEmpty())
+        assertTrue(!viewModel.uiState.value.isLoading)
+        // Emit after all other flows settle. Updating only SnapshotStateList contents
+        // leaves CurrentUiState equal, so IDs must be published independently.
+        animeResults.value = PagedResult.Success(
+            listOf(fallback, unknown, extension), currentPage = 1, hasNextPage = false,
+        )
+        advanceUntilIdle()
+        verify { releases.observeForMedia(4242L, setOf(1, 2, 3)) }
+        assertTrue(!viewModel.uiState.value.releaseByMediaId[2].isNullOrEmpty())
         assertEquals(listOf(2, 1, 3), viewModel.uiState.value.airingList.map { it.mediaId })
     }
 

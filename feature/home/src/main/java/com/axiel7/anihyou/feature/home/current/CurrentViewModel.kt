@@ -34,7 +34,6 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
@@ -218,6 +217,15 @@ class CurrentViewModel(
                 }
             }
         }
+        refreshReleaseMediaIds()
+    }
+
+    /** SnapshotStateList mutations can leave CurrentUiState equal and suppress StateFlow emissions. */
+    private fun refreshReleaseMediaIds() {
+        val state = mutableUiState.value
+        releaseMediaIds.value =
+            (state.airingList + state.behindList + state.animeList + state.mangaList + state.nextSeasonAnimeList)
+                .mapTo(mutableSetOf()) { it.mediaId }
     }
 
     override fun selectItem(item: CommonMediaListEntry, type: CurrentListType) {
@@ -264,15 +272,6 @@ class CurrentViewModel(
                     reclassifyCurrentLists(state, presentations)
                 }
             }
-            .launchIn(viewModelScope)
-
-        mutableUiState
-            .map { state ->
-                (state.airingList + state.behindList + state.animeList + state.mangaList + state.nextSeasonAnimeList)
-                    .mapTo(mutableSetOf()) { it.mediaId }
-            }
-            .distinctUntilChanged()
-            .onEach { ids -> releaseMediaIds.value = ids }
             .launchIn(viewModelScope)
 
         // anime
@@ -344,6 +343,7 @@ class CurrentViewModel(
                         }
                     }
                 }
+                refreshReleaseMediaIds()
             }
             .launchIn(viewModelScope)
 
@@ -387,6 +387,7 @@ class CurrentViewModel(
                         }
                     }
                 }
+                refreshReleaseMediaIds()
             }
             .launchIn(viewModelScope)
 
@@ -480,6 +481,7 @@ class CurrentViewModel(
                         }
                     }
                 }
+                refreshReleaseMediaIds()
             }
             .launchIn(viewModelScope)
 
