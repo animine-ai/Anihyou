@@ -168,12 +168,15 @@ fun ExtensionStatistics(state: ExtensionSourcesUiState) {
 @Composable
 fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
     val clipboard = LocalClipboardManager.current
-    installedEntries(state).forEach { (key, extension) ->
-        val values = state.diagnostics[key].orEmpty() + mapOf(
+    state.sources.flatMap { source -> source.extensions.mapNotNull { extension ->
+        source.selectionKey(extension)?.let { it to extension }
+    } }.forEach { (key, extension) ->
+        val values = mapOf(
             "Extension ID" to key.extensionId, "Provider ID" to key.providerId,
             "Signed displayName" to extension.displayName, "Publisher" to key.publisherId,
             "Version" to extension.installedVersion.orEmpty(), "Package SHA" to extension.installedDigest.orEmpty(),
-            "Active selection generation" to state.productPolicy.releaseGeneration.toString())
+            "Active selection generation" to state.productPolicy.releaseGeneration.toString()) +
+            state.diagnostics[key].orEmpty()
         Text(extension.displayName)
         listOf("Extension ID", "Provider ID", "Signed displayName", "Version", "Repository", "Publisher",
             "Key ID", "Trust status", "Package SHA", "WASM SHA", "Active selection generation",

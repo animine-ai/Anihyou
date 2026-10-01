@@ -11,8 +11,8 @@ class ExtensionCenterDiagnosticsRepository(
 ) : ExtensionDiagnosticsRepository {
     override suspend fun inspect(key: ExtensionSelectionKey): Map<String, String> {
         val selection = policy.policy.value
-        val extension = sources.sources.value.usableExtension(key) ?: return emptyMap()
         val metadata = sources.diagnostics(key)
+        val extension = sources.sources.value.usableExtension(key) ?: return metadata
         val recorded = store.state.value
         val current = selection.activeReleaseSource == key && recorded.source == key &&
             recorded.releaseGeneration == selection.releaseGeneration && recorded.packageDigest == extension.installedDigest

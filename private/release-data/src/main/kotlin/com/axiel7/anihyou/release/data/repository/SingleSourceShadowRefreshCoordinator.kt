@@ -4,6 +4,7 @@ import com.axiel7.anihyou.release.core.api.*
 import com.axiel7.anihyou.release.core.extension.*
 import com.axiel7.anihyou.release.core.model.ReleaseAuthority
 import com.axiel7.anihyou.release.core.model.ReleasePhase
+import com.axiel7.anihyou.release.core.model.CycleResult
 import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
 import com.axiel7.anihyou.release.core.source.*
 import com.axiel7.anihyou.release.data.extension.*

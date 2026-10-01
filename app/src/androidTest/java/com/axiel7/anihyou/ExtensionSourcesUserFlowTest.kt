@@ -32,6 +32,7 @@ class ExtensionSourcesUserFlowTest {
 
     @Test
     fun cleanInstall_addDuplicateRejectInvalid_refreshFailClosed_andRemove() {
+        composeRule.onNodeWithTag("HomeTab").performClick()
         composeRule.onNodeWithTag("ProfileTab").assertDoesNotExist()
         composeRule.onNodeWithTag("home-settings").performClick()
         composeRule.onNodeWithText(text(SettingsR.string.extension_center_title)).performScrollTo().performClick()

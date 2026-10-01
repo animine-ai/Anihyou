@@ -28,6 +28,7 @@ class MainNavigationProductComposeTest {
     @get:Rule val composeRule = createAndroidComposeRule<MainActivity>()
 
     @Test fun calendarMainKeepsChromeAndPredictiveBackReturnsHome() {
+        composeRule.onNodeWithTag("HomeTab").performClick()
         composeRule.onNodeWithTag("ProfileTab").assertDoesNotExist()
         composeRule.onNodeWithTag("CalendarTab").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("CalendarTab").assertIsSelected()

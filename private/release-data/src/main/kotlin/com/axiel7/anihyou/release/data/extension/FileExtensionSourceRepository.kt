@@ -110,14 +110,14 @@ internal class FileExtensionSourceRepository(
         lock(key.sourceId).withLock {
             val source = sources.value.singleOrNull { it.id == key.sourceId } ?: return@withLock emptyMap()
             val store = synchronized(monitor) { stores[key.sourceId] } ?: return@withLock emptyMap()
+            val verified = store.loadUsableExtension(key.extensionId)
             val snapshot = store.snapshot()
             val generation = snapshot.generations[key.extensionId]
-            val verified = store.loadUsableExtension(key.extensionId)
             buildMap {
                 put("Extension ID", key.extensionId); put("Provider ID", key.providerId)
                 put("Publisher", key.publisherId); put("Repository", source.origin)
                 put("Trust status", source.status.name)
-                put("Version", source.extensions.firstOrNull { it.extensionId == key.extensionId }?.installedVersion.orEmpty())
+                put("Version", generation?.active?.version ?: source.extensions.firstOrNull { it.extensionId == key.extensionId }?.installedVersion.orEmpty())
                 put("Key ID", verified?.signingKeyId.orEmpty())
                 put("Signed displayName", verified?.displayName.orEmpty())
                 put("Package SHA", verified?.packageDigest.orEmpty()); put("WASM SHA", verified?.moduleDigest.orEmpty())
