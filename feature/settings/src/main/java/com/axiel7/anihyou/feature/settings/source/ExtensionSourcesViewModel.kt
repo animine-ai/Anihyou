@@ -59,13 +59,15 @@ class ExtensionSourcesViewModel(
     init {
         viewModelScope.launch {
             repository.sources.collect { sources ->
-                _uiState.update { it.copy(sources = sources) }
+                _uiState.update { it.copy(sources = sources,
+                    diagnostics = if (it.sources == sources) it.diagnostics else emptyMap()) }
             }
         }
         productPolicyRepository?.let { policyRepository ->
             viewModelScope.launch {
                 policyRepository.policy.collect { policy ->
-                    _uiState.update { it.copy(productPolicy = policy) }
+                    _uiState.update { it.copy(productPolicy = policy,
+                        diagnostics = if (it.productPolicy == policy) it.diagnostics else emptyMap()) }
                 }
             }
         }
@@ -147,10 +149,11 @@ class ExtensionSourcesViewModel(
     }
 
     override fun refreshDiagnostics() = performAction {
-        val selected = uiState.value.productPolicy.activeReleaseSource
-        val keys = uiState.value.sources.flatMap { source -> source.extensions.mapNotNull { source.selectionKey(it) } }
+        val snapshot = uiState.value
+        val keys = snapshot.sources.flatMap { source -> source.extensions.mapNotNull { source.selectionKey(it) } }
         val details = keys.associateWith { diagnosticsRepository?.inspect(it) ?: repository.diagnostics(it) }
-        _uiState.update { it.copy(diagnostics = details) }
+        _uiState.update { if (it.sources == snapshot.sources && it.productPolicy == snapshot.productPolicy)
+            it.copy(diagnostics = details) else it }
     }
 
     override fun clearActionFailure() {

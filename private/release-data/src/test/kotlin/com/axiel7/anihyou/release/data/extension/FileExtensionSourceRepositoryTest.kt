@@ -245,9 +245,23 @@ class FileExtensionSourceRepositoryTest {
         repository.activate(id, EXTENSION_ID)
         assertEquals(1, rig.transport.archiveRequests)
 
+        val extension = repository.source(id).extensions.single()
+        val key = com.axiel7.anihyou.release.core.source.ExtensionSelectionKey(id, extension.extensionId,
+            extension.publisherId, extension.providerId)
+        val beforeRevocation = repository.diagnostics(key)
+        assertEquals(extension.displayName, beforeRevocation["Signed displayName"])
+        assertEquals(extension.installedDigest, beforeRevocation["Package SHA"])
+        assertTrue(beforeRevocation["Key ID"].orEmpty().isNotBlank())
+
         rig.transport.indexBytes = resource("index-revoked.json")
         repository.refresh(id)
         assertTrue(repository.source(id).extensions.single().revoked)
+        assertNull(repository.loadInstalled(key))
+        val afterRevocation = repository.diagnostics(key)
+        assertEquals(beforeRevocation["Signed displayName"], afterRevocation["Signed displayName"])
+        assertEquals(beforeRevocation["Key ID"], afterRevocation["Key ID"])
+        assertEquals(beforeRevocation["Package SHA"], afterRevocation["Package SHA"])
+        assertEquals(ExtensionSourceStatus.REVOKED.name, afterRevocation["Trust status"])
         repository.remove(id)
 
         val restarted = rig.repository(directory)

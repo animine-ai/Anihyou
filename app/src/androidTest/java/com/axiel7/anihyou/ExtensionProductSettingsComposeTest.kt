@@ -26,6 +26,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesEvent
 import com.axiel7.anihyou.feature.settings.source.ExtensionDataSourcePreferences
 import com.axiel7.anihyou.feature.settings.source.ExtensionProviderDisplay
+import com.axiel7.anihyou.feature.settings.source.ExtensionStatistics
+import com.axiel7.anihyou.feature.settings.source.ExtensionDiagnostics
 import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesUiState
 import com.axiel7.anihyou.release.core.source.AddExtensionSourceResult
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
@@ -101,6 +103,15 @@ class ExtensionProductSettingsComposeTest {
             assertEquals(keyA, policyRepository.policy.value.activeReleaseSource)
             composeRule.onNodeWithTag(activeATag).assertIsSelected()
             composeRule.onNodeWithTag(navigationBTag).assertIsSelected()
+            composeRule.onNodeWithTag("extension-preference-provider-visible-$keyATag").performScrollTo().assertIsOn()
+            composeRule.onNodeWithTag("extension-preference-provider-visible-$keyBTag").performScrollTo().assertIsOn()
+            val sourceGeneration = policyRepository.policy.value.releaseGeneration
+            composeRule.onNodeWithTag("provider-up-$keyBTag").performScrollTo().performClick()
+            awaitPolicy(policyRepository) { it.navigationProviderOrder == listOf(keyB, keyA) }
+            assertEquals(keyA, policyRepository.policy.value.activeReleaseSource)
+            assertEquals(sourceGeneration, policyRepository.policy.value.releaseGeneration)
+            assertEquals(listOf(keyB, keyA), FileExtensionProductPolicyRepository(directory) { it in eligibleKeys }
+                .policy.value.navigationProviderOrder)
 
             composeRule.onNodeWithTag(activeBTag).performScrollTo().performClick()
             awaitPolicy(policyRepository) { it.activeReleaseSource == keyB }
@@ -173,6 +184,44 @@ class ExtensionProductSettingsComposeTest {
         } finally {
             event.close()
             directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun statisticsAndCopyableDiagnosticsUseFlatPagesAndHandleNoActiveSource() {
+        val key = selectionKey("source-a", "provider.alpha", "publisher.alpha", "provider-a")
+        val metadata = mapOf("Signed displayName" to "Signed Provider Alpha", "Version" to "1.0.0",
+            "Key ID" to "fixture-public-key-id", "Trust status" to "REVOKED",
+            "Package SHA" to "a".repeat(64), "Last successful sync" to "2026-10-01T12:00:00Z",
+            "Freshness" to "60 s", "Role health" to "CALENDAR: HEALTHY/SUCCESS",
+            "Fuel limit" to "bounded", "Quarantine" to "Active package: false; digests: ")
+        val state = mutableStateOf(ExtensionSourcesUiState(sources = listOf(source(key, "Signed Provider Alpha")),
+            productPolicy = com.axiel7.anihyou.release.core.source.ExtensionProductPolicy(activeReleaseSource = key),
+            diagnostics = mapOf(key to metadata)))
+        val diagnostics = mutableStateOf(false)
+        composeRule.setContent {
+            MaterialTheme {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    if (diagnostics.value) ExtensionDiagnostics(state.value) else ExtensionStatistics(state.value)
+                }
+            }
+        }
+        composeRule.onNodeWithText("Last successful sync: 2026-10-01T12:00:00Z").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Role health: CALENDAR: HEALTHY/SUCCESS").performScrollTo().assertIsDisplayed()
+        composeRule.runOnIdle { state.value = state.value.copy(productPolicy = state.value.productPolicy.copy(activeReleaseSource = null)) }
+        composeRule.onNodeWithText(composeRule.activity.getString(
+            com.axiel7.anihyou.feature.settings.R.string.extension_statistics_empty)).assertIsDisplayed()
+        composeRule.runOnIdle { diagnostics.value = true }
+        composeRule.onNodeWithText("Key ID: fixture-public-key-id").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Trust status: REVOKED").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("diagnostics-copy-" + key.testTagPart()).performScrollTo().performClick()
+        composeRule.runOnIdle {
+            val clipboard = composeRule.activity.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val text = clipboard.primaryClip!!.getItemAt(0).text.toString()
+            assertTrue(text.contains("Extension ID: " + key.extensionId))
+            assertTrue(text.contains("Key ID: fixture-public-key-id"))
+            assertFalse(text.contains("privateKey"))
+            assertFalse(text.contains("Authorization"))
         }
     }
 
@@ -256,6 +305,10 @@ class ExtensionProductSettingsComposeTest {
 
         override fun setPreferences(key: ExtensionSelectionKey, preferences: ExtensionPreferences) {
             scope.launch { repository.setPreferences(key, preferences) }
+        }
+
+        override fun setProviderOrder(keys: List<ExtensionSelectionKey>) {
+            scope.launch { repository.setNavigationProviderOrder(keys) }
         }
 
         override fun clearActionFailure() = Unit

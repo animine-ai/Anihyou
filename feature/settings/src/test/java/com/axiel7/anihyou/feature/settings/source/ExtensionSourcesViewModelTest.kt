@@ -39,6 +39,39 @@ class ExtensionSourcesViewModelTest {
     }
 
     @Test
+    fun diagnosticsFromOldPackageOrSelectionCannotReappearAfterAnAsyncRefresh() = runTest {
+        val key = usableKey()
+        val sources = repositoryWithUsableExtension(key)
+        val policy = FakeExtensionProductPolicyRepository(ExtensionProductPolicy(activeReleaseSource = key))
+        var pending: kotlinx.coroutines.CompletableDeferred<Map<String, String>>? = null
+        val diagnostics = object : com.axiel7.anihyou.release.core.source.ExtensionDiagnosticsRepository {
+            override suspend fun inspect(key: ExtensionSelectionKey): Map<String, String> =
+                pending?.await() ?: mapOf("Package SHA" to "package-a")
+        }
+        val viewModel = ExtensionSourcesViewModel(sources, policy, diagnostics)
+        viewModel.refreshDiagnostics()
+        assertEquals("package-a", viewModel.uiState.value.diagnostics[key]?.get("Package SHA"))
+
+        pending = kotlinx.coroutines.CompletableDeferred()
+        viewModel.refreshDiagnostics()
+        sources.sources.value = sources.sources.value.map { source -> source.copy(extensions =
+            source.extensions.map { it.copy(installedDigest = "package-b") }) }
+        assertTrue(viewModel.uiState.value.diagnostics.isEmpty())
+        pending!!.complete(mapOf("Package SHA" to "package-a"))
+        assertTrue(viewModel.uiState.value.diagnostics.isEmpty())
+
+        pending = null
+        viewModel.refreshDiagnostics()
+        assertTrue(viewModel.uiState.value.diagnostics.isNotEmpty())
+        pending = kotlinx.coroutines.CompletableDeferred()
+        viewModel.refreshDiagnostics()
+        policy.policy.value = policy.policy.value.copy(generation = 1, activeReleaseSource = null)
+        assertTrue(viewModel.uiState.value.diagnostics.isEmpty())
+        pending!!.complete(mapOf("Last successful sync" to "stale-source-a"))
+        assertTrue(viewModel.uiState.value.diagnostics.isEmpty())
+    }
+
+    @Test
     fun addForwardsTrimmedHttpsUrlAndClearsItAfterSuccess() = runTest {
         val viewModel = ExtensionSourcesViewModel(repository)
         viewModel.onUrlChanged("  https://example.test/repository.json  ")

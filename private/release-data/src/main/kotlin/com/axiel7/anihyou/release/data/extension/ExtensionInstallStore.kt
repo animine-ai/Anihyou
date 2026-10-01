@@ -468,11 +468,15 @@ internal object ExtensionFileDurability {
         // in the plain JVM compatibility harness. NIO's emulated FileChannel cannot open directories.
         val os = Class.forName("android.system.Os")
         val constants = Class.forName("android.system.OsConstants")
-        val flags = constants.getField("O_RDONLY").getInt(null) or
-            constants.getField("O_DIRECTORY").getInt(null)
+        val flags = constants.getField("O_RDONLY").getInt(null)
         val descriptor = os.getMethod("open", String::class.java, Int::class.javaPrimitiveType,
             Int::class.javaPrimitiveType).invoke(null, directory.absolutePath, flags, 0)
         try {
+            val stat = os.getMethod("fstat", java.io.FileDescriptor::class.java).invoke(null, descriptor)
+            val mode = stat.javaClass.getField("st_mode").getInt(stat)
+            require(constants.getMethod("S_ISDIR", Int::class.javaPrimitiveType).invoke(null, mode) == true) {
+                "directory sync requires a directory descriptor"
+            }
             os.getMethod("fsync", java.io.FileDescriptor::class.java).invoke(null, descriptor)
         } finally {
             os.getMethod("close", java.io.FileDescriptor::class.java).invoke(null, descriptor)

@@ -113,21 +113,34 @@ internal class FileExtensionSourceRepository(
             val verified = store.loadUsableExtension(key.extensionId)
             val snapshot = store.snapshot()
             val generation = snapshot.generations[key.extensionId]
+            val catalog = snapshot.index?.packages?.filter { it.binding.extensionId == key.extensionId &&
+                it.binding.providerId == key.providerId && it.binding.publisherId == key.publisherId }
+                ?.maxByOrNull { it.binding.releaseSequence }?.binding
+            val receipt = generation?.active
+            val publisher = snapshot.root?.publishers?.singleOrNull { it.extensionId == key.extensionId &&
+                it.providerId == key.providerId && it.publisherId == key.publisherId &&
+                it.keyId == (receipt?.key ?: catalog?.keyId) }
             buildMap {
                 put("Extension ID", key.extensionId); put("Provider ID", key.providerId)
                 put("Publisher", key.publisherId); put("Repository", source.origin)
                 put("Trust status", source.status.name)
                 put("Version", generation?.active?.version ?: source.extensions.firstOrNull { it.extensionId == key.extensionId }?.installedVersion.orEmpty())
-                put("Key ID", verified?.signingKeyId.orEmpty())
-                put("Signed displayName", verified?.displayName.orEmpty())
-                put("Package SHA", verified?.packageDigest.orEmpty()); put("WASM SHA", verified?.moduleDigest.orEmpty())
+                // Authenticated public metadata remains inspectable after revocation, without
+                // loading unusable WASM or granting the catalog any execution authority.
+                put("Key ID", verified?.signingKeyId ?: receipt?.key ?: catalog?.keyId.orEmpty())
+                put("Signed displayName", verified?.displayName ?: catalog?.displayName.orEmpty())
+                put("Package SHA", verified?.packageDigest ?: receipt?.digest ?: catalog?.archiveSha256.orEmpty())
+                put("WASM SHA", verified?.moduleDigest.orEmpty())
                 put("Active package generation", generation?.active?.digest.orEmpty())
                 put("LKG", generation?.knownGood?.digest.orEmpty()); put("Previous Good", generation?.previousGood?.digest.orEmpty())
-                put("Capabilities", verified?.let { it.grantedRoles.map { role -> role.name } + it.navigationCapabilities.map { cap -> cap.name } }?.joinToString().orEmpty())
-                put("Allowed Hosts", verified?.grantedHosts?.sorted()?.joinToString().orEmpty())
+                put("Capabilities", (verified?.let { it.grantedRoles.map { role -> role.name } + it.navigationCapabilities.map { cap -> cap.name } }
+                    ?: (publisher?.roles?.map { it.name }.orEmpty() + catalog?.navigationCapabilities?.map { it.name }.orEmpty()))
+                    .distinct().sorted().joinToString())
+                put("Allowed Hosts", (verified?.grantedHosts ?: publisher?.hosts.orEmpty()).sorted().joinToString())
                 put("Runtime", verified?.runtimeVersion.orEmpty())
                 put("Rollback", generation?.rollbackUsed?.toString().orEmpty())
-                put("Quarantine", snapshot.quarantinedDigests.size.toString())
+                put("Quarantine", "Active package: " + (receipt?.digest in snapshot.quarantinedDigests) +
+                    "; digests: " + snapshot.quarantinedDigests.sorted().joinToString())
                 put("Last metadata failure", source.lastFailure?.name.orEmpty())
             }
         }
