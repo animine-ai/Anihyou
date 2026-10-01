@@ -92,6 +92,9 @@ class ExtensionSourcesViewModel(
                         addResult = result,
                     )
                 }
+                // Foreground onboarding must not wait for constrained background work.
+                // Refresh authenticates metadata only; package installation stays explicit.
+                if (result is AddExtensionSourceResult.Added) repository.refresh(result.sourceId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

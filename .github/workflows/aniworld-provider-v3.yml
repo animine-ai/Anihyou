@@ -360,6 +360,23 @@ jobs:
             adb shell svc data disable || true
             ./gradlew --console=plain --stacktrace :app:connectedFossDebugAndroidTest
 
+      - name: Summarize Foss Android product assertions
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib, xml.etree.ElementTree as ET
+          for path in pathlib.Path("app/build/outputs/androidTest-results").rglob("*.xml"):
+              root = ET.parse(path).getroot()
+              print("EP06_UI_SUITE", root.attrib)
+              for case in root.iter("testcase"):
+                  failures = list(case.findall("failure")) + list(case.findall("error"))
+                  print("EP06_UI_TEST", "FAIL" if failures else "PASS",
+                        case.attrib.get("classname"), case.attrib.get("name"))
+                  for failure in failures:
+                      print((failure.text or "")[:12000])
+          PY
+
       - name: Upload Foss Android test reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

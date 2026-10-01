@@ -79,9 +79,23 @@ class ExtensionSourcesViewModelTest {
         viewModel.addSource()
 
         assertEquals(listOf("https://example.test/repository.json"), repository.addedUrls)
+        assertEquals(listOf("source-id"), repository.refreshedSourceIds)
         assertEquals("", viewModel.uiState.value.url)
         assertEquals(AddExtensionSourceResult.Added("source-id"), viewModel.uiState.value.addResult)
         assertFalse(viewModel.uiState.value.isAdding)
+    }
+
+    @Test
+    fun rejectedOrDuplicateAddNeverRefreshesMetadata() = runTest {
+        val viewModel = ExtensionSourcesViewModel(repository)
+        viewModel.onUrlChanged("https://example.test/repository.json")
+        for (result in listOf(AddExtensionSourceResult.InvalidUrl,
+            AddExtensionSourceResult.Duplicate("existing-source"), AddExtensionSourceResult.LimitReached)) {
+            repository.addResult = result
+            viewModel.addSource()
+            assertEquals(result, viewModel.uiState.value.addResult)
+        }
+        assertTrue(repository.refreshedSourceIds.isEmpty())
     }
 
     @Test
@@ -246,15 +260,17 @@ class ExtensionSourcesViewModelTest {
     private class FakeExtensionSourceRepository : ExtensionSourceRepository {
         override val sources = MutableStateFlow<List<ExtensionSource>>(emptyList())
         val addedUrls = mutableListOf<String>()
+        val refreshedSourceIds = mutableListOf<String>()
+        var addResult: AddExtensionSourceResult = AddExtensionSourceResult.Added("source-id")
 
         override suspend fun add(url: String): AddExtensionSourceResult {
             addedUrls += url
-            return AddExtensionSourceResult.Added("source-id")
+            return addResult
         }
 
         override suspend fun setEnabled(sourceId: String, enabled: Boolean) = Unit
         override suspend fun remove(sourceId: String) = Unit
-        override suspend fun refresh(sourceId: String) = Unit
+        override suspend fun refresh(sourceId: String) { refreshedSourceIds += sourceId }
         override suspend fun refreshEnabled(): Boolean = false
         override suspend fun activate(sourceId: String, extensionId: String) = Unit
     }
