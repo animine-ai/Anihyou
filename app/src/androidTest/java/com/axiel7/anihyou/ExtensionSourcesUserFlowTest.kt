@@ -97,6 +97,7 @@ class ExtensionSourcesUserFlowTest {
         awaitNoSourceCards()
     }
 
+    // Repository IO completion is outside Compose idleness; await its published result.
     private fun awaitText(expected: String) = composeRule.run {
         waitUntil(timeoutMillis = 10_000) {
             onAllNodesWithText(expected).fetchSemanticsNodes().isNotEmpty()
