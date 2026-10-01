@@ -445,7 +445,7 @@ class ExtensionShadowSyncOrchestratorTest {
         BLOCK_PLAN,
     }
 
-    private class FixtureRuntime(
+    private inner class FixtureRuntime(
         private val mode: RuntimeMode = RuntimeMode.SUCCESS,
     ) : ExtensionRuntime {
         val exports = mutableListOf<String>()
@@ -471,7 +471,7 @@ class ExtensionShadowSyncOrchestratorTest {
                 }
                 "parse_responses" -> when (mode) {
                     RuntimeMode.PARSE_FAILURE -> ExtensionRuntimeResult.Success(
-                        """{"schemaVersion":1,"code":"PARSE_FAILED"}""".toByteArray(),
+                        """{"schemaVersion":1,"error":{"code":"PARSE_FAILED"}}""".toByteArray(),
                     )
                     RuntimeMode.DEADLINE -> ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.DEADLINE)
                     RuntimeMode.FUEL_TRAP -> ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
