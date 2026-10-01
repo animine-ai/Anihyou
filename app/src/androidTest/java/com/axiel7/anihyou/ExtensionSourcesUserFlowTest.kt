@@ -56,11 +56,21 @@ class ExtensionSourcesUserFlowTest {
         composeRule.onNodeWithTag("extension-source-url").performImeAction()
         composeRule.onNodeWithText(text(SettingsR.string.extension_sources_added)).assertIsDisplayed()
         composeRule.onNodeWithTag("extension-source-card").performScrollTo().assertIsDisplayed()
+        // Adding schedules a background refresh, so Added is only a transient status.
+        // No production trust is provisioned in this clean-install test.
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText(
+                text(
+                    SettingsR.string.extension_sources_status,
+                    text(SettingsR.string.extension_sources_status_trust_unavailable),
+                ),
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
         composeRule.onNodeWithTag("extension-source-status")
             .assertTextEquals(
                 text(
                     SettingsR.string.extension_sources_status,
-                    text(SettingsR.string.extension_sources_status_added),
+                    text(SettingsR.string.extension_sources_status_trust_unavailable),
                 ),
             )
 
