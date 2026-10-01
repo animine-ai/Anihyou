@@ -6,6 +6,8 @@ import android.net.Uri
 import com.axiel7.anihyou.release.core.extension.*
 import com.axiel7.anihyou.release.core.navigation.*
 import com.axiel7.anihyou.release.core.source.*
+import com.axiel7.anihyou.release.core.model.ReleasePhase
+import com.axiel7.anihyou.release.core.model.ReleaseAuthority
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.data.repository.RoomReleaseReconciliationRepository
 import java.io.File
@@ -124,12 +126,14 @@ class ExtensionProviderNavigationProductRepository(
             mappingProviders = providers, activeReleaseSource = active)
         val segments = stored.segments
         val releases = mutableListOf<ReleasedInstallment>()
-        for (fact in stored.installments) {
+        val unambiguousFacts = stored.installments.groupBy { it.projectionKey }.values
+            .mapNotNull { it.distinct().singleOrNull() }
+        for (fact in unambiguousFacts) {
             val candidates = segments.filter { it.key == active && it.mediaId == mediaId && it.seriesKey == fact.seriesKey &&
                 it.sourceSeason == fact.sourceSeason && it.canonicalEpisode(BigDecimal(fact.providerEpisode)) != null }
             val segment = candidates.singleOrNull() ?: continue
             val state = reconciliation.get(fact.projectionKey) ?: continue
-            if (state.phase.name != "RELEASED" || state.authority.name == "NONE") continue
+            if (state.underlyingPhase != ReleasePhase.RELEASED || state.authority == ReleaseAuthority.NONE) continue
             releases += ReleasedInstallment(mediaId, segment.canonicalEpisode(BigDecimal(fact.providerEpisode))!!, setOf(fact.track), true)
         }
         val grouped = releases.groupBy { it.episode.stripTrailingZeros() }.map { (_, rows) -> rows.first().copy(tracks = rows.flatMap { it.tracks }.toSet()) }

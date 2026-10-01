@@ -17,7 +17,12 @@ import org.json.JSONObject
 
 /** Hermetic TEST-ONLY trust and DNS/CA, actual host HTTPS, guest, Authority and Room. */
 internal object Ep05CanaryProof {
-    suspend fun run(context: Context, runtime: AndroidIsolatedExtensionRuntime): JSONObject {
+    suspend fun run(
+        context: Context,
+        runtime: AndroidIsolatedExtensionRuntime,
+        navigationBPackage: VerifiedExtensionPackage,
+        httpsFixture: LocalHttpsFixtureServer,
+    ): JSONObject {
         val chain = File(context.cacheDir, "ep05-test-chain").apply { mkdirs() }
         for (name in listOf("test-pin.json", "root.json", "index.json", "aniworld-test.arex")) {
             context.assets.open("aniworld-chain/$name").use { input ->
@@ -108,6 +113,17 @@ internal object Ep05CanaryProof {
             }
             val retry = orchestrator.refreshForWork("ep05-real-guest-canary")
             check(retry is ShadowRefreshOutcome.Skipped && retry.reason == "generation-already-committed")
+            val singleSourceWorker = Ep06SingleSourceWorkerProof.run(
+                context = context,
+                runtime = runtime,
+                sourceAPackage = verified,
+                navigationBPackage = navigationBPackage,
+                authority = authority,
+                targets = targets,
+                canonicalKey = canonicalKey,
+                clock = clock,
+                httpsFixture = httpsFixture,
+            )
             return JSONObject().put("testTrustOnly", true).put("productionPublication", false)
                 .put("packageDigest", verified.packageDigest).put("moduleDigest", verified.moduleDigest)
                 .put("extensionVersion", "1.0.0-test.1").put("releaseSequence", verified.releaseSequence)
@@ -119,6 +135,7 @@ internal object Ep05CanaryProof {
                 .put("calendarForecastOnly", true).put("calendarWallTimeWithoutInventedTimezone", true)
                 .put("unknownTrackNoAuthority", true).put("unboundPostponementNoAuthority", true)
                 .put("roomShadowCommitted", true).put("idempotentWorkRetry", true).put("sourceHealth", health)
+                .put("ep06SingleSourceWorker", singleSourceWorker)
                 .put("authorityDecision", JSONObject().put("canonicalKey", canonicalKey)
                     .put("phase", decision.phase).put("underlyingPhase", decision.underlyingPhase)
                     .put("authority", decision.authority))

@@ -39,7 +39,8 @@ class FileProviderNavigationStateStore(private val directory: File) {
         val retained = if (old.source == source && old.releaseGeneration == releaseGeneration && old.packageDigest == packageDigest)
             old.installments else emptyList()
         old.copy(source = source, releaseGeneration = releaseGeneration, packageDigest = packageDigest,
-            installments = (retained + installments).distinctBy { it.projectionKey }.takeLast(10000))
+            // Preserve contradictory route receipts so the product can reject ambiguity.
+            installments = (retained + installments).distinct().takeLast(10000))
     }
 
     /** Only host matching/manual binding calls this. Ambiguous overlapping segments remain non-actionable. */

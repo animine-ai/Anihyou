@@ -48,4 +48,17 @@ class FileProviderNavigationStateStoreTest {
             assertEquals(store.state.value, FileProviderNavigationStateStore(directory).state.value)
         } finally { directory.deleteRecursively() }
     }
+
+    @Test fun `contradictory route receipts remain visible for fail closed ambiguity handling`() = runBlocking {
+        val directory = Files.createTempDirectory("ep06-navigation-conflict").toFile()
+        try {
+            val store = FileProviderNavigationStateStore(directory)
+            val first = AcceptedProviderInstallment("projection-a", "series", 1, "1", "DE_SUB")
+            val conflicting = first.copy(sourceSeason = 2)
+            store.record(a, 1, "a".repeat(64), listOf(first))
+            store.record(a, 1, "a".repeat(64), listOf(conflicting))
+            assertEquals(listOf(first, conflicting), store.state.value.installments)
+            assertEquals(store.state.value, FileProviderNavigationStateStore(directory).state.value)
+        } finally { directory.deleteRecursively() }
+    }
 }

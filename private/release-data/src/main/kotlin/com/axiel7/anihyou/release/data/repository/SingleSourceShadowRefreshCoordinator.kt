@@ -82,7 +82,10 @@ class SingleSourceShadowRefreshCoordinator(
                     if (currentEvidenceDecision.phase != ReleasePhase.RELEASED ||
                         currentEvidenceDecision.authority != ReleaseAuthority.ANIWORLD) return@mapNotNull null
                     val state = reconciliation.get(identity.key) ?: return@mapNotNull null
-                    if (state.phase.name != "RELEASED" || state.authority.name == "NONE") return@mapNotNull null
+                    // Receipt eligibility follows the persisted release fact. The effective
+                    // presentation phase may include conflict policy and is not the authority source.
+                    if (state.underlyingPhase != ReleasePhase.RELEASED ||
+                        state.authority == ReleaseAuthority.NONE) return@mapNotNull null
                     val episode = identity.installment as? com.axiel7.anihyou.release.core.model.Installment.Episode ?: return@mapNotNull null
                     AcceptedProviderInstallment(identity.key, evidence.siteIdentifier?.slug ?: return@mapNotNull null,
                         evidence.navigationSeason ?: return@mapNotNull null,

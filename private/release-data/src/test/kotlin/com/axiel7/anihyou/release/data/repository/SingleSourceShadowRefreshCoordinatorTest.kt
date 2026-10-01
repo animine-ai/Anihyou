@@ -12,11 +12,14 @@ import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.data.db.toDomainOrNull
 import com.axiel7.anihyou.release.data.db.toEntity
 import com.axiel7.anihyou.release.data.extension.*
+import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
 import java.io.File
+import java.net.InetAddress
 import java.security.MessageDigest
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -78,11 +81,11 @@ class SingleSourceShadowRefreshCoordinatorTest {
 
         val outcome = rig.worker.refreshForWork("selection-at-execution")
 
-        assertTrue(outcome is ShadowRefreshOutcome.Committed)
+        assertTrue("unexpected worker outcome: $outcome; exports=${runtime.exports}", outcome is ShadowRefreshOutcome.Committed)
         assertTrue(access.loads.contains(selectedAtExecution))
         assertFalse(access.loads.contains(SOURCE_A_KEY))
         assertEquals(selectedAtExecution, rig.navigationStore.state.value.source)
-        assertTrue(rig.navigationStore.state.value.installments.isNotEmpty())
+        assertCurrentEvidenceProducedReceipt(outcome, rig)
     }
 
     @Test
@@ -95,11 +98,12 @@ class SingleSourceShadowRefreshCoordinatorTest {
 
         val outcome = rig.worker.refreshForWork("navigation-cannot-ingest")
 
-        assertTrue(outcome is ShadowRefreshOutcome.Committed)
+        assertTrue("unexpected worker outcome: $outcome; loads=${access.loads}; exports=${rig.runtime.exports}",
+            outcome is ShadowRefreshOutcome.Committed)
         assertTrue(access.loads.contains(SOURCE_A_KEY))
         assertFalse(access.loads.contains(NAVIGATION_ONLY_KEY))
         assertEquals(SOURCE_A_KEY, rig.navigationStore.state.value.source)
-        assertTrue(rig.navigationStore.state.value.installments.isNotEmpty())
+        assertCurrentEvidenceProducedReceipt(outcome, rig)
     }
 
     @Test
@@ -241,13 +245,52 @@ class SingleSourceShadowRefreshCoordinatorTest {
             navigationStore = navigationStore,
             releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { repository, hostRuntime, _, observationPolicy ->
                 ExtensionHostCoordinator(
-                    repository, hostRuntime, HermeticTransport(), observationPolicy,
+                    repository, hostRuntime, hermeticProductionTransport(), observationPolicy,
                     clock = Clock.fixed(NOW, ZoneOffset.UTC), enabled = { true },
                     parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L),
                 )
             },
         )
-        return Rig(worker, policy, navigationStore, runtime)
+        return Rig(worker, policy, navigationStore, runtime, reconciliation)
+    }
+
+    private suspend fun assertCurrentEvidenceProducedReceipt(outcome: ShadowRefreshOutcome, rig: Rig) {
+        val cycle = (outcome as ShadowRefreshOutcome.Committed).cycle
+        val evidence = cycle.sources.flatMap { it.evidence }
+        assertTrue(
+            "committed worker cycle contained no projected Evidence; sources=" +
+                cycle.sources.map { "${it.sourceType}:${it.result}:${it.evidence.size}" } +
+                "; exports=${rig.runtime.exports}",
+            evidence.isNotEmpty(),
+        )
+
+        val reducer = AniWorldReleaseAuthorityReducer()
+        val traces = evidence.map { item ->
+            val identity = CanonicalReleaseIdentity.from(item)
+            val standalone = reducer.reduce(null, item)
+            val persisted = identity?.let { rig.reconciliation.get(it.key) }
+            "${item.sourceType}/${item.evidenceType}/${item.languageTrack}:" +
+                "identity=${identity?.key}:standalone=${standalone.phase}/${standalone.authority}:" +
+                "stored=${persisted?.underlyingPhase}/${persisted?.phase}/${persisted?.authority}"
+        }
+        val independentlyPositive = evidence.filter { item ->
+            val decision = reducer.reduce(null, item)
+            decision.phase == ReleasePhase.RELEASED && decision.authority == ReleaseAuthority.ANIWORLD
+        }
+        assertTrue("cycle Evidence did not independently reduce to authoritative RELEASED: $traces",
+            independentlyPositive.isNotEmpty())
+
+        val persistedPositive = independentlyPositive.filter { item ->
+            val identity = CanonicalReleaseIdentity.from(item) ?: return@filter false
+            val state = rig.reconciliation.get(identity.key) ?: return@filter false
+            state.underlyingPhase == ReleasePhase.RELEASED && state.authority != ReleaseAuthority.NONE
+        }
+        assertTrue("independent positive Evidence had no persisted release authority: $traces",
+            persistedPositive.isNotEmpty())
+
+        assertTrue("current positive Evidence did not produce a navigation receipt; $traces; " +
+            "receipt=${rig.navigationStore.state.value.installments}",
+            rig.navigationStore.state.value.installments.isNotEmpty())
     }
 
     private suspend fun seedHealth() {
@@ -279,6 +322,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val policy: FileExtensionProductPolicyRepository,
         val navigationStore: FileProviderNavigationStateStore,
         val runtime: FixtureRuntime,
+        val reconciliation: RoomReleaseReconciliationRepository,
     )
 
     private class AtomicInstalledAccess(packages: Map<ExtensionSelectionKey, VerifiedExtensionPackage>) : InstalledExtensionAccess {
@@ -375,13 +419,40 @@ class SingleSourceShadowRefreshCoordinatorTest {
         }
     }
 
-    private class HermeticTransport : DestinationBoundExtensionTransport {
-        override val dnsDestinationBindingVerified = true
-        override suspend fun execute(extension: VerifiedExtensionPackage, request: RequestSpec): ResponseEnvelope {
-            val body = "<html>hermetic worker fixture</html>"
-            return ResponseEnvelope(request.requestId, request.sourceRole, ExtensionResponseStatus.OK, 200,
-                request.url, body, sha256(body.toByteArray()))
-        }
+    private fun hermeticProductionTransport() = ProductionExtensionHttpTransport(
+        ledger = HermeticExtensionNetworkLedger(),
+        resolver = ExtensionAddressResolver { host ->
+            assertEquals("aniworld.to", host)
+            listOf(PUBLIC_ADDRESS)
+        },
+        hop = BoundHttpsHopExecutor { _, host, addresses, _, cancellation ->
+            cancellation.check()
+            assertEquals("aniworld.to", host)
+            assertTrue(PUBLIC_ADDRESS in addresses)
+            BoundHopResponse(200, emptyMap(), NETWORK_BODY.toByteArray(), PUBLIC_ADDRESS)
+        },
+        clock = Clock.fixed(NOW, ZoneOffset.UTC),
+    )
+
+    private class HermeticExtensionNetworkLedger : ExtensionNetworkLedger {
+        private val counter = AtomicInteger()
+
+        override suspend fun reserve(
+            provider: String,
+            digest: String,
+            generation: String,
+            role: String,
+            rootUrl: String,
+            hopUrl: String,
+            now: Instant,
+        ): ExtensionNetworkReservation = ExtensionNetworkReservation("worker-test-${counter.incrementAndGet()}")
+
+        override suspend fun complete(
+            reservation: ExtensionNetworkReservation,
+            outcome: String,
+            retryAfterSeconds: Long?,
+            now: Instant,
+        ) = Unit
     }
 
     private fun extensionPackage(
@@ -409,6 +480,8 @@ class SingleSourceShadowRefreshCoordinatorTest {
 
     companion object {
         private const val SIGNING_KEY_ID = "fixture-key"
+        private const val NETWORK_BODY = "<html>hermetic worker fixture</html>"
+        private val PUBLIC_ADDRESS = InetAddress.getByAddress(byteArrayOf(8, 8, 8, 8))
         private val NOW = Instant.parse("2026-10-01T10:00:00Z")
         private val MODULE_BYTES = byteArrayOf(0, 97, 115, 109, 1, 0, 0, 0)
         private val ALL_ROLES = SourceRole.entries.toSet()
