@@ -275,15 +275,15 @@ class RoomAniWorldPollStoreTest {
             val pollStore = RoomAniWorldPollStore(firstDatabase, reconciliation, clock)
             val mapped = pollStore.eligibleMappedDirectTargets(startedAt)
             assertEquals(200, mapped.sumOf { it.exactTargetKeys.size })
-            val selected = DirectTargetSelectionPolicy.select(mapped, startedAt)
-            assertEquals(4, selected.size)
+            val selected = DirectTargetSelectionPolicy.select(mapped, startedAt, exactTargetLimit = 4)
+            assertEquals(2, selected.size)
             assertTrue(selected.all { it.exactTargetKeys.size == 2 })
 
             val selectedTargets = AniWorldExtensionTargetSource(pollStore, clock).targets()
-            assertEquals(8, selectedTargets.size)
+            assertEquals(4, selectedTargets.size)
             assertEquals(selected.flatMap { it.exactTargetKeys }.toSet(), selectedTargets.map { it.canonicalKey }.toSet())
             val targetsByCoordinate = selectedTargets.groupBy(::mappedCoordinateKey)
-            assertEquals(4, targetsByCoordinate.size)
+            assertEquals(2, targetsByCoordinate.size)
             targetsByCoordinate.values.forEach { trackTargets ->
                 assertEquals(2, trackTargets.map { it.canonicalKey }.toSet().size)
                 assertEquals(setOf(ObservationTrack.DE_SUB, ObservationTrack.DE_DUB),
@@ -313,7 +313,7 @@ class RoomAniWorldPollStoreTest {
 
         // Reopen both stores as a fresh process. The attempt times from the prior extension
         // generation must remain visible to the selector, so least-recent-attempt ordering
-        // advances its next four slots to new physical episode coordinates. The independent
+        // advances its next two dual-track slots to new physical episode coordinates. The independent
         // six-hour physical-URL ledger does not synthesize logical target cooldown state here.
         val secondSelectionAt = firstCompletedAt.plus(Duration.ofMinutes(1))
         val reopenedDatabase = openDatabase()
@@ -326,14 +326,14 @@ class RoomAniWorldPollStoreTest {
             }
 
             val nextCandidates = reopenedPollStore.eligibleMappedDirectTargets(secondSelectionAt)
-            val nextSelection = DirectTargetSelectionPolicy.select(nextCandidates, secondSelectionAt)
-            assertEquals(4, nextSelection.size)
+            val nextSelection = DirectTargetSelectionPolicy.select(nextCandidates, secondSelectionAt, exactTargetLimit = 4)
+            assertEquals(2, nextSelection.size)
             val nextTargets = AniWorldExtensionTargetSource(
                 reopenedPollStore, Clock.fixed(secondSelectionAt, ZoneOffset.UTC)).targets()
-            assertEquals(8, nextTargets.size)
+            assertEquals(4, nextTargets.size)
             val nextByCoordinate = nextTargets.groupBy(::mappedCoordinateKey)
             val nextCoordinateKeys = nextByCoordinate.keys
-            assertEquals(4, nextCoordinateKeys.size)
+            assertEquals(2, nextCoordinateKeys.size)
             assertTrue(firstCoordinateKeys.intersect(nextCoordinateKeys).isEmpty())
             assertEquals(nextSelection.flatMap { it.exactTargetKeys }.toSet(), nextTargets.map { it.canonicalKey }.toSet())
             nextByCoordinate.values.forEach { trackTargets ->
