@@ -93,7 +93,7 @@ internal class ExtensionInstallStore(
 
     /** Callbacks fence source lifecycle/cancellation and must not re-enter this store. */
     fun install(source: File, extensionId: String, now: Instant,
-        beforeActivation: () -> Unit = {}, reinstallRemoved: Boolean = false): InstallReceipt = serialized {
+        reinstallRemoved: Boolean = false, beforeActivation: () -> Unit = {}): InstallReceipt = serialized {
         val root = roots(state).lastOrNull() ?: error("no trusted root")
         val current = latestIndex(state) ?: error("no signed index")
         val effective = effectiveTime(now)

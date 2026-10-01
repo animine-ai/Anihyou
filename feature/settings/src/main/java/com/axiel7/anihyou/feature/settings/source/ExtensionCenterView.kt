@@ -63,6 +63,11 @@ fun ExtensionCenterPageView(pageId: String) {
         if (page == ExtensionCenterPage.STATISTICS || page == ExtensionCenterPage.DIAGNOSTICS) model.refreshDiagnostics()
     }
     ExtensionCenterScaffold(stringResource(page.title)) {
+        if (page == ExtensionCenterPage.STATISTICS || page == ExtensionCenterPage.DIAGNOSTICS) {
+            TextButton(onClick = model::refreshDiagnostics, modifier = Modifier.testTag("extension-details-refresh")) {
+                Text(stringResource(R.string.extension_details_refresh))
+            }
+        }
         when (page) {
             ExtensionCenterPage.MANAGE -> ExtensionSourcesSettingsSection(state, model)
             ExtensionCenterPage.SOURCE -> ExtensionDataSourcePreferences(state, model)
@@ -159,7 +164,7 @@ fun ExtensionStatistics(state: ExtensionSourcesUiState) {
     Text("Update: " + if (extension.updateAvailable) stringResource(R.string.extension_update)
         else stringResource(R.string.extension_sources_no_update))
     val values = state.diagnostics[key].orEmpty()
-    listOf("Last successful sync", "Freshness", "Release count", "Tracks", "Role health", "Sync duration",
+    listOf("Last successful sync", "Freshness", "Release count", "Tracks", "Role health", "Last sync outcome", "Sync duration",
         "Runtime", "Last parse status", "Last navigation status").forEach {
         DiagnosticRow(it, values[it])
     }
@@ -181,7 +186,7 @@ fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
         listOf("Extension ID", "Provider ID", "Signed displayName", "Version", "Repository", "Publisher",
             "Key ID", "Trust status", "Package SHA", "WASM SHA", "Active selection generation",
             "Active package generation", "LKG", "Previous Good", "Capabilities", "Allowed Hosts",
-            "Role health", "Last metadata failure", "Transport status", "Fuel limit", "Memory limit",
+            "Role health", "Last metadata failure", "Last sync outcome", "Last sync failure", "Transport status", "Fuel limit", "Memory limit",
             "Deadline limit", "Cancellation", "Last parse status", "Last navigation status",
             "Rollback", "Quarantine").forEach { DiagnosticRow(it, values[it]) }
         TextButton(onClick = { clipboard.setText(AnnotatedString(

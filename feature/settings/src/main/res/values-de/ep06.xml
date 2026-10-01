@@ -15,4 +15,5 @@
     <string name="extension_diagnostics_copy">Diagnose kopieren</string>
     <string name="extension_no_measurement">Nicht gemessen</string>
     <string name="extension_statistics_empty">Wähle eine installierte Datenquelle, um ihre Statistik zu sehen.</string>
+    <string name="extension_details_refresh">Status aktualisieren</string>
 </resources>

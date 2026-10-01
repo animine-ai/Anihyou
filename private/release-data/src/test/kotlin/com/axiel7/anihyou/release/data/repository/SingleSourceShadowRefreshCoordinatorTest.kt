@@ -203,6 +203,11 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val outcome = withTimeout(10_000) { rig.worker.refreshForWork("failure-health-guard") }
 
         assertEquals(ShadowRefreshOutcome.Failed(ExtensionHostFailureCode.RUNTIME_FAILURE.name, retryable = true), outcome)
+        assertEquals(SOURCE_A_KEY, rig.navigationStore.state.value.source)
+        assertTrue(rig.navigationStore.state.value.installments.isEmpty())
+        assertEquals("FAILED", rig.navigationStore.state.value.syncStatistics["Last sync outcome"])
+        assertEquals("RUNTIME_FAILURE", rig.navigationStore.state.value.syncStatistics["Last sync failure"])
+        assertEquals("NO_COMMITTED_PARSE", rig.navigationStore.state.value.syncStatistics["Last parse status"])
         ROLE_SOURCE_TYPES.values.forEach { type ->
             val health = requireNotNull(database.aniworldPollDao().health(type.name)?.toDomainOrNull())
             assertEquals(SourceHealthStatus.UNAVAILABLE, health.status)

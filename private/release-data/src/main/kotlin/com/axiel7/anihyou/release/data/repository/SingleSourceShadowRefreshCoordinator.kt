@@ -102,9 +102,26 @@ class SingleSourceShadowRefreshCoordinator(
                         it.key.name + ": " + it.value.map { row -> row.health.name + "/" + row.result.name }.distinct().joinToString()
                     })
                     put("Last parse status", if (successful) "SUCCESS" else "PARTIAL_OR_FAILED")
+                    put("Last sync outcome", if (successful) "COMMITTED" else "PARTIAL")
+                    put("Last sync failure", if (successful) "NONE" else "ROLE_HEALTH_NOT_SUCCESSFUL")
+                    put("Cancellation", "NOT_CANCELLED")
+                    put("Transport status", "COORDINATOR_COMPLETED")
                     put("Sync duration", java.time.Duration.between(outcome.cycle.startedAt, outcome.cycle.completedAt).toMillis().toString() + " ms")
                 }
                 navigationStore.record(selected, snapshot.releaseGeneration, pinned.packageDigest, accepted, statistics)
+            }
+        }
+        if (outcome is ShadowRefreshOutcome.Failed) policy.withCurrentSelection(snapshot) {
+            installed.withCurrentPackage(selected, pinned.packageDigest) {
+                val previous = navigationStore.state.value.takeIf {
+                    it.source == selected && it.releaseGeneration == snapshot.releaseGeneration && it.packageDigest == pinned.packageDigest
+                }?.syncStatistics.orEmpty()
+                // Only a host-owned status code, never an exception message or transport URL.
+                val reason = outcome.reason.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,128}")) } ?: "FAILED"
+                navigationStore.record(selected, snapshot.releaseGeneration, pinned.packageDigest, emptyList(),
+                    previous + mapOf("Last sync outcome" to "FAILED", "Last sync failure" to reason,
+                        "Last parse status" to "NO_COMMITTED_PARSE", "Transport status" to "COORDINATOR_ABORTED",
+                        "Role health" to pinned.grantedRoles.sortedBy { it.name }.joinToString("; ") { it.name + ": ABORTED" }))
             }
         }
         return outcome
