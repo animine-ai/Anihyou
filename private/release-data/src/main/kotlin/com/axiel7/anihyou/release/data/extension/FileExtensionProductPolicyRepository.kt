@@ -18,7 +18,10 @@ import kotlinx.serialization.json.*
 class FileExtensionProductPolicyRepository(
     private val directory: File,
     private val eligible: (ExtensionSelectionKey) -> Boolean,
+    private val releaseEligible: (ExtensionSelectionKey) -> Boolean,
+    private val navigationEligible: (ExtensionSelectionKey) -> Boolean,
 ) : ExtensionProductPolicyRepository {
+    constructor(directory: File, eligible: (ExtensionSelectionKey) -> Boolean) : this(directory, eligible, eligible, eligible)
     private val mutex = Mutex()
     private val file = File(directory, "product-policy.json")
     private val state = MutableStateFlow(runCatching {
@@ -27,12 +30,12 @@ class FileExtensionProductPolicyRepository(
     override val policy = state.asStateFlow()
 
     override suspend fun selectActiveSource(key: ExtensionSelectionKey?) = mutate {
-        require(key == null || eligible(key)) { "release source unavailable" }
+        require(key == null || releaseEligible(key)) { "release source unavailable" }
         it.copy(activeReleaseSource = key)
     }
 
     override suspend fun selectNavigationProvider(key: ExtensionSelectionKey?) = mutate {
-        require(key == null || eligible(key)) { "navigation provider unavailable" }
+        require(key == null || navigationEligible(key)) { "navigation provider unavailable" }
         it.copy(preferredNavigationProvider = key)
     }
 
@@ -50,7 +53,7 @@ class FileExtensionProductPolicyRepository(
     override suspend fun <T> withCurrentSelection(snapshot: ExtensionProductPolicy, block: suspend () -> T): T? =
         mutex.withLock {
             val active = snapshot.activeReleaseSource ?: return@withLock null
-            if (state.value.activeReleaseSource != active || state.value.releaseGeneration != snapshot.releaseGeneration || !eligible(active)) return@withLock null
+            if (state.value.activeReleaseSource != active || state.value.releaseGeneration != snapshot.releaseGeneration || !releaseEligible(active)) return@withLock null
             block()
         }
 
@@ -63,7 +66,7 @@ class FileExtensionProductPolicyRepository(
             val changed = transform(old)
             if (changed == old) return@withLock
             val sourceChanged = changed.activeReleaseSource != old.activeReleaseSource ||
-                old.activeReleaseSource?.let { changed.preferencesFor(it) != old.preferencesFor(it) } == true
+                old.activeReleaseSource?.let { changed.preferencesFor(it).enabledTracks != old.preferencesFor(it).enabledTracks } == true
             val next = changed.copy(generation = Math.addExact(old.generation, 1),
                 releaseGeneration = if (sourceChanged) Math.addExact(old.releaseGeneration, 1) else old.releaseGeneration)
             require(directory.isDirectory || directory.mkdirs())
@@ -123,4 +126,6 @@ class FileExtensionProductPolicyRepository(
 
 interface InstalledExtensionAccess {
     suspend fun loadInstalled(key: ExtensionSelectionKey): VerifiedExtensionPackage?
+    suspend fun <T> withCurrentPackage(key: ExtensionSelectionKey, digest: String, block: suspend () -> T): T? =
+        if (loadInstalled(key)?.packageDigest == digest) block() else null
 }

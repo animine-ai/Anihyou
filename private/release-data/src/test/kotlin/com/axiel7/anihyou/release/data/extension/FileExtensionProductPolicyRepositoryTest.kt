@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -96,6 +97,7 @@ class FileExtensionProductPolicyRepositoryTest {
         val releaseGeneration = snapshot.releaseGeneration
 
         repository.selectNavigationProvider(KEY_B)
+        val productPolicyResult = repository.withCurrentPolicy(snapshot) { "launch-must-be-stale" }
         var committed = false
         val result = repository.withCurrentSelection(snapshot) {
             committed = true
@@ -103,6 +105,7 @@ class FileExtensionProductPolicyRepositoryTest {
         }
 
         assertEquals("still-current", result)
+        assertNull(productPolicyResult)
         assertTrue(committed)
         assertEquals(KEY_A, repository.policy.value.activeReleaseSource)
         assertEquals(KEY_B, repository.policy.value.preferredNavigationProvider)
@@ -147,6 +150,39 @@ class FileExtensionProductPolicyRepositoryTest {
         assertTrue(repository.policy.value.releaseGeneration > snapshot.releaseGeneration)
         assertNull(result)
         assertFalse(committed)
+    }
+
+    @Test
+    fun `navigation preference switch waits until an in progress launch leaves current policy guard`() = runBlocking {
+        val repository = repository(temporaryFolder.newFolder("launch-policy-lock"))
+        repository.selectActiveSource(KEY_A)
+        val snapshot = repository.policy.value
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val launched = async(Dispatchers.Default) {
+            repository.withCurrentPolicy(snapshot) {
+                entered.complete(Unit)
+                release.await()
+                "launch-finished"
+            }
+        }
+        entered.await()
+
+        val switchStarted = CompletableDeferred<Unit>()
+        val switchFinished = CompletableDeferred<Unit>()
+        val switching = async(Dispatchers.IO) {
+            switchStarted.complete(Unit)
+            repository.selectNavigationProvider(KEY_B)
+            switchFinished.complete(Unit)
+        }
+        switchStarted.await()
+        val switchedBeforeLaunchFinished = withTimeoutOrNull(200) { switchFinished.await() }
+
+        assertNull(switchedBeforeLaunchFinished)
+        release.complete(Unit)
+        assertEquals("launch-finished", launched.await())
+        switching.await()
+        assertEquals(KEY_B, repository.policy.value.preferredNavigationProvider)
     }
 
     @Test

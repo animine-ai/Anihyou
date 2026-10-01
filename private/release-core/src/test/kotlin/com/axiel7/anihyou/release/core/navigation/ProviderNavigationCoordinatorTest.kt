@@ -254,7 +254,8 @@ class ProviderNavigationCoordinatorTest {
         onDispatch: (suspend (NavigationProvider, NavigationContextV1, String) -> ProviderNavigationTargetV1?)? = null,
     ): Fixture {
         val repository = FakePolicyRepository(initialPolicy)
-        val dispatcher = onDispatch ?: { _, request, _ -> target(request) }
+        val dispatcher: suspend (NavigationProvider, NavigationContextV1, String) -> ProviderNavigationTargetV1? =
+            onDispatch ?: { _, request, _ -> target(request) }
         val gateway = FakeGateway(listOf(providerInfo), dispatcher)
         return Fixture(repository, gateway, ProviderNavigationCoordinator(gateway, repository))
     }

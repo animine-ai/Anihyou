@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 20347)
+Total output lines: 1505
+
 package de.kiyori.ep02
 
 import android.app.Instrumentation
@@ -172,6 +175,8 @@ private object RuntimeProof {
                 verified, httpsProofTransport, httpsFixture))
             functional.put("productionNavigationDispatch", runProductionNavigationDispatch(
                 runtime, verified, navigationTransport, httpsFixture))
+            functional.put("ep06ProductPolicy", Ep06ProductPolicyProof.run(
+                context, runtime, verified, freshProductionTransport(context, "ep06-product"), httpsFixture))
             functional.put("navigationOverview", runNavigation(runtime, verified, NavigationTargetKind.OVERVIEW))
             functional.put("navigationEpisode", runNavigation(runtime, verified, NavigationTargetKind.EPISODE))
             functional.put("productionTransportFactoryBoundary", proveProductionTransportFactoryBoundary(context, verified))
@@ -698,29 +703,7 @@ private object RuntimeProof {
             enabled = { true },
         )
         val result = coordinator.execute(ExtensionRunRequest(
-            verified.providerId, "ep02-android-fixture", setOf(SourceRole.CALENDAR), emptyList()))
-        check(result is ExtensionHostResult.Completed) { "release host failed: $result" }
-        check(result.receipt.moduleDigest == verified.moduleDigest)
-        check(result.receipt.packageDigest == verified.packageDigest)
-        check(result.receipt.generationId == "ep02-android-fixture")
-        val observation = result.observations.single()
-        check(observation.extensionId == verified.extensionId)
-        check(observation.providerId == verified.providerId)
-        check(observation.sourceRole == SourceRole.CALENDAR)
-        check(observation.sourceHash == RELEASE_HASH)
-        val provenance = result.responseProvenance.single()
-        check(provenance.requestId == "calendar-1")
-        check(provenance.finalUrl == "https://example.org/calendar")
-        check(provenance.httpStatus == 200)
-        check(provenance.sourceHash == RELEASE_HASH)
-        check(provenance.destinationAddress == TEST_PUBLIC_ADDRESS)
-        check(provenance.redirectCount == 0)
-        check(httpsFixture.pathCount("/calendar") == 1)
-        return JSONObject()
-            .put("observationCount", result.observations.size)
-            .put("extensionId", observation.extensionId.value)
-            .put("providerId", observation.providerId.value)
-            .put("sourceRole", observation.sourceRole.name)
+            …347 tokens truncated…rceRole.name)
             .put("productionTransportReached", true)
             .put("successfulSocketPathExercised", true)
             .put("destinationAddress", provenance.destinationAddress)

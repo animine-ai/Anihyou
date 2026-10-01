@@ -328,7 +328,9 @@ private fun SourceExtensionInfo(
         SelectionOption(
             label = stringResource(R.string.extension_sources_use_active_source),
             selected = sourceEnabled && policy.activeReleaseSource == key,
-            enabled = canEditPolicy && sourceEnabled,
+            enabled = canEditPolicy && sourceEnabled && extension.capabilities.any { role ->
+                com.axiel7.anihyou.release.core.extension.SourceRole.entries.any { it.name == role }
+            },
             onClick = { event.selectActiveSource(key) },
             testTag = "extension-product-active-${key.testTagPart()}",
         )

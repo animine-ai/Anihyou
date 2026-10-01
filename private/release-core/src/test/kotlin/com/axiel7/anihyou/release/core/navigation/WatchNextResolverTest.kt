@@ -76,6 +76,53 @@ class WatchNextResolverTest {
     }
 
     @Test
+    fun `exact mapping makes the single actionable provider the automatic choice`() {
+        val state = resolver.resolve(
+            MEDIA_ID, BigDecimal("2"), policy(preferred = null),
+            ActiveReleaseSnapshot(ACTIVE_KEY, RELEASE_GENERATION, listOf(release("3"))),
+            listOf(provider(NAVIGATION_KEY), provider(OTHER_KEY)),
+            listOf(coordinate("3", key = OTHER_KEY, sourceSeason = 2, providerEpisode = "15")),
+        )
+
+        val candidate = state as WatchNextState.Candidate
+        assertEquals(OTHER_KEY, candidate.provider.key)
+        assertEquals(2, candidate.coordinate.sourceSeason)
+        assertEquals("15", candidate.coordinate.providerEpisode)
+    }
+
+    @Test
+    fun `exact mappings for multiple providers return a chooser`() {
+        val state = resolver.resolve(
+            MEDIA_ID, BigDecimal("2"), policy(preferred = null),
+            ActiveReleaseSnapshot(ACTIVE_KEY, RELEASE_GENERATION, listOf(release("3"))),
+            listOf(provider(NAVIGATION_KEY), provider(OTHER_KEY)),
+            listOf(
+                coordinate("3", key = NAVIGATION_KEY, sourceSeason = 1, providerEpisode = "3"),
+                coordinate("3", key = OTHER_KEY, sourceSeason = 2, providerEpisode = "15"),
+            ),
+        )
+
+        val chooser = state as WatchNextState.ChooseProvider
+        assertEquals(listOf(NAVIGATION_KEY, OTHER_KEY), chooser.providers.map { it.key })
+    }
+
+    @Test
+    fun `explicit unavailable navigation preference does not fall back to mapped provider`() {
+        val state = resolver.resolve(
+            MEDIA_ID, BigDecimal("2"), policy(preferred = UNAVAILABLE_KEY),
+            ActiveReleaseSnapshot(ACTIVE_KEY, RELEASE_GENERATION, listOf(release("3"))),
+            listOf(provider(NAVIGATION_KEY), provider(OTHER_KEY)),
+            listOf(
+                coordinate("3", key = NAVIGATION_KEY),
+                coordinate("3", key = OTHER_KEY, sourceSeason = 2, providerEpisode = "15"),
+            ),
+        )
+
+        assertEquals(NavigationUnavailableReason.PROVIDER_UNAVAILABLE,
+            (state as WatchNextState.Unavailable).reason)
+    }
+
+    @Test
     fun `fractional canonical episode keeps its explicit fractional provider mapping`() {
         val fractional = coordinate(
             canonicalEpisode = "3.5",
@@ -135,7 +182,7 @@ class WatchNextResolverTest {
 
         assertEquals(NavigationUnavailableReason.NO_RELEASED_UNWATCHED,
             (unknownRelease as WatchNextState.Unavailable).reason)
-        assertEquals(NavigationUnavailableReason.MISSING_MAPPING,
+        assertEquals(NavigationUnavailableReason.TRACK_UNAVAILABLE,
             (trackMissingFromMapping as WatchNextState.Unavailable).reason)
         assertEquals(NavigationUnavailableReason.TRACK_UNAVAILABLE,
             (unknownProviderTrack as WatchNextState.Unavailable).reason)
@@ -247,5 +294,6 @@ class WatchNextResolverTest {
         private val ACTIVE_KEY = ExtensionSelectionKey("release-source", "de.release", "release-publisher", "release-provider")
         private val NAVIGATION_KEY = ExtensionSelectionKey("navigation-source", "de.watch", "watch-publisher", "watch-provider")
         private val OTHER_KEY = ExtensionSelectionKey("other-source", "de.other", "other-publisher", "other-provider")
+        private val UNAVAILABLE_KEY = ExtensionSelectionKey("missing-source", "de.missing", "missing-publisher", "missing-provider")
     }
 }

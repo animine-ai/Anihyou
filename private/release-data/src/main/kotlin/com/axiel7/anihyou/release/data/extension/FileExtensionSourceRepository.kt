@@ -49,10 +49,16 @@ internal class FileExtensionSourceRepository(
     private var lifecycleToken = 0L
     private val mutableSources = MutableStateFlow<List<ExtensionSource>>(emptyList())
     override val sources: StateFlow<List<ExtensionSource>> = mutableSources.asStateFlow()
-    override val productPolicy = FileExtensionProductPolicyRepository(directory) { key ->
+    private fun eligible(key: ExtensionSelectionKey): Boolean =
         sources.value.usableExtension(key) != null && registry.find(key.sourceId)?.let { it.enabled && !it.removed } == true &&
             synchronized(monitor) { key.sourceId !in lifecycleIntents }
-    }
+    override val productPolicy = FileExtensionProductPolicyRepository(directory, ::eligible,
+        releaseEligible = { key -> eligible(key) && sources.value.usableExtension(key)?.capabilities.orEmpty().any { role ->
+            com.axiel7.anihyou.release.core.extension.SourceRole.entries.any { it.name == role }
+        } },
+        navigationEligible = { key -> eligible(key) && sources.value.usableExtension(key)?.capabilities.orEmpty().any {
+            it == "OVERVIEW_NAVIGATION" || it == "EPISODE_NAVIGATION"
+        } })
     init { publish() }
 
     override suspend fun loadInstalled(key: ExtensionSelectionKey): VerifiedExtensionPackage? = withContext(Dispatchers.IO) {
@@ -62,6 +68,11 @@ internal class FileExtensionSourceRepository(
             it.extensionId.value == key.extensionId && it.providerId.value == key.providerId && it.publisherId == key.publisherId
         }
     }
+
+    override suspend fun <T> withCurrentPackage(key: ExtensionSelectionKey, digest: String, block: suspend () -> T): T? =
+        lock(key.sourceId).withLock {
+            if (loadInstalled(key)?.packageDigest == digest) block() else null
+        }
 
     override suspend fun add(url: String): AddExtensionSourceResult = withContext(Dispatchers.IO) {
         val address = runCatching { NormalizedExtensionSource.parse(url) }.getOrNull()
@@ -97,9 +108,9 @@ internal class FileExtensionSourceRepository(
         if (applied && enabled && !removed) scheduler.scheduleRefresh()
     }
 
-    override suspend fun refresh(sourceId: String) = operate(sourceId, deduplicate = true) { source ->
-        refreshMetadata(source)
-        publish()
+    override suspend fun refresh(sourceId: String) {
+        operate(sourceId, deduplicate = true) { source -> refreshMetadata(source) }
+        // Never acquire the policy mutex while holding a source operation mutex.
         val selected = productPolicy.policy.value.activeReleaseSource
         if (selected?.sourceId == sourceId && loadInstalled(selected) == null) productPolicy.invalidateSource(sourceId)
     }

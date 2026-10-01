@@ -48,6 +48,14 @@ class FileProviderNavigationStateStore(private val directory: File) {
         it.copy(segments = segments)
     }
 
+    suspend fun upsertSegment(segment: ProviderEpisodeSegment) = mutate { old ->
+        val retained = old.segments.filterNot { it.key == segment.key && it.mediaId == segment.mediaId &&
+            it.seriesKey == segment.seriesKey && it.sourceSeason == segment.sourceSeason &&
+            it.providerFirst == segment.providerFirst && it.canonicalFirst == segment.canonicalFirst }
+        require(retained.size < 1024)
+        old.copy(segments = retained + segment)
+    }
+
     private suspend fun mutate(transform: (ProviderNavigationStoredState) -> ProviderNavigationStoredState) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val next = transform(mutable.value)

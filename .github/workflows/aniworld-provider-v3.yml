@@ -182,6 +182,7 @@ jobs:
         run: |
           mkdir -p build/ep05
           python3 scripts/verify-extension-only-boundary.py > build/ep05/no-bypass-static.json
+          python3 scripts/verify-ep06-product-boundary.py > build/ep05/ep06-product-boundary.json
           ./gradlew --console=plain --stacktrace :private:release-core:test
 
       - name: Compile core domain
@@ -194,7 +195,7 @@ jobs:
         run: ./gradlew --continue --console=plain --stacktrace :core:model:testDebugUnitTest :core:ui:testDebugUnitTest :feature:home:testDebugUnitTest :feature:usermedialist:testDebugUnitTest
 
       - name: Run worker unit tests
-        run: ./gradlew --continue --console=plain --stacktrace :feature:worker:testDebugUnitTest :feature:settings:testDebugUnitTest
+        run: ./gradlew --continue --console=plain --stacktrace :feature:worker:testDebugUnitTest :feature:settings:testDebugUnitTest :feature:mediadetails:testDebugUnitTest
 
       - name: Run app debug canary gating tests
         run: ./gradlew --console=plain --stacktrace :app:testFossDebugUnitTest
@@ -253,10 +254,12 @@ jobs:
             feature/usermedialist/build/test-results/
             feature/worker/build/test-results/
             feature/settings/build/test-results/
+            feature/mediadetails/build/test-results/
             app/build/test-results/
             private/release-core/build/test-results/
             private/release-data/build/test-results/
             build/ep05/no-bypass-static.json
+            build/ep05/ep06-product-boundary.json
           if-no-files-found: error
           retention-days: 14
 

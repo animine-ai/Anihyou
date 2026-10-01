@@ -76,8 +76,12 @@ class ExtensionShadowSyncOrchestrator(
             when (result) {
                 is ExtensionHostResult.Failed -> {
                     val now = clock.instant()
-                    generations.abort(lease, result.code.name, now,
-                        if (result.code == ExtensionHostFailureCode.BUSY || !currentSelection()) emptyList() else blockedHealth(result.code, now))
+                    val recorded = commitGuard {
+                        generations.abort(lease, result.code.name, now,
+                            if (result.code == ExtensionHostFailureCode.BUSY || !currentSelection()) emptyList() else blockedHealth(result.code, now))
+                        true
+                    }
+                    if (!recorded) generations.abort(lease, result.code.name, now)
                     ShadowRefreshOutcome.Failed(result.code.name, result.code in RETRYABLE)
                 }
                 is ExtensionHostResult.Completed -> {

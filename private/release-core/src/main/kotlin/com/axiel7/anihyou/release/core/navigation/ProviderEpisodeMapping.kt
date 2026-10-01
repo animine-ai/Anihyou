@@ -44,6 +44,8 @@ data class ProviderNavigationProductState(
     val watchTarget: ValidatedNavigationTarget? = null,
     val loading: Boolean = false,
     val failure: NavigationUnavailableReason? = null,
+    val mappingProviders: List<NavigationProvider> = emptyList(),
+    val activeReleaseSource: ExtensionSelectionKey? = null,
 )
 
 interface ProviderNavigationProductRepository {
@@ -52,6 +54,7 @@ interface ProviderNavigationProductRepository {
     suspend fun watchNext(mediaId: Int, watchedProgress: Int): ProviderNavigationResult
     suspend fun preferProvider(key: ExtensionSelectionKey)
     suspend fun launch(target: ValidatedNavigationTarget): ProviderNavigationResult
+    suspend fun setEpisodeMapping(segment: ProviderEpisodeSegment)
 }
 
 object EmptyProviderNavigationProductRepository : ProviderNavigationProductRepository {
@@ -60,5 +63,6 @@ object EmptyProviderNavigationProductRepository : ProviderNavigationProductRepos
     override suspend fun watchNext(mediaId: Int, watchedProgress: Int) = unavailable()
     override suspend fun preferProvider(key: ExtensionSelectionKey) = Unit
     override suspend fun launch(target: ValidatedNavigationTarget) = unavailable()
+    override suspend fun setEpisodeMapping(segment: ProviderEpisodeSegment) = Unit
     private fun unavailable() = ProviderNavigationResult.Unavailable(NavigationUnavailableReason.NO_PROVIDERS)
 }

@@ -26,9 +26,10 @@ import com.axiel7.anihyou.release.core.navigation.EmptyProviderNavigationProduct
 import com.axiel7.anihyou.release.core.navigation.NavigationUnavailableReason
 import com.axiel7.anihyou.release.core.navigation.ProviderNavigationProductRepository
 import com.axiel7.anihyou.release.core.navigation.ProviderNavigationResult
+import com.axiel7.anihyou.release.core.navigation.ProviderEpisodeSegment
 import com.axiel7.anihyou.release.core.navigation.WatchNextState
-import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
+import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.InjectedParam
+import java.math.BigDecimal
 
 class MediaDetailsViewModel(
     @InjectedParam private val arguments: Route.MediaDetails,
@@ -64,6 +66,7 @@ class MediaDetailsViewModel(
     private var navigationActionId = 0L
     private var navigationActionActive = false
     private var navigationActionFailure: NavigationUnavailableReason? = null
+    private var episodeMappingJob: Job? = null
 
     override fun openProviderOverview(key: ExtensionSelectionKey) {
         val state = mutableUiState.value
@@ -81,16 +84,31 @@ class MediaDetailsViewModel(
     }
 
     override fun openWatchNext() {
-        val navigation = mutableUiState.value.extensionNavigation
+        val currentState = mutableUiState.value
+        val details = currentState.details ?: return
+        val mediaId = details.id
+        val watchedProgress = details.mediaListEntry?.basicMediaListEntry?.progress ?: 0
+        val navigation = currentState.extensionNavigation
         val candidate = navigation.watchNext as? WatchNextState.Candidate ?: return
         if (candidate.behindCount <= 0) return
-        val target = navigation.watchTarget ?: return
-        if (target.provider.key != candidate.provider.key || candidate.coordinate.mediaId != mutableUiState.value.details?.id) return
+        if (candidate.episode <= BigDecimal(watchedProgress)) return
+        val observedTarget = navigation.watchTarget ?: return
+        if (observedTarget.provider.key != candidate.provider.key || candidate.coordinate.mediaId != mediaId) return
 
-        // observe() resolves and validates the target before this action becomes visible.
-        // Launch rechecks current policy and provider identity before dispatching externally.
+        // Resolve from the click-time ID and progress because observe() may still expose an older target.
         runNavigationAction {
-            providerNavigationProductRepository.launch(target).unavailableReasonOrNull()
+            val resolved = providerNavigationProductRepository.watchNext(mediaId, watchedProgress)
+            val latestDetails = mutableUiState.value.details
+            val latestProgress = latestDetails?.mediaListEntry?.basicMediaListEntry?.progress ?: 0
+            if (latestDetails?.id != mediaId || latestProgress != watchedProgress) {
+                return@runNavigationAction NavigationUnavailableReason.STALE_RESULT
+            }
+
+            when (resolved) {
+                is ProviderNavigationResult.Ready ->
+                    providerNavigationProductRepository.launch(resolved.target).unavailableReasonOrNull()
+                is ProviderNavigationResult.Unavailable -> resolved.reason
+            }
         }
     }
 
@@ -102,6 +120,61 @@ class MediaDetailsViewModel(
         runNavigationAction(failureOnException = NavigationUnavailableReason.PROVIDER_UNAVAILABLE) {
             providerNavigationProductRepository.preferProvider(key)
             null
+        }
+    }
+
+    override fun saveProviderEpisodeMapping(
+        key: ExtensionSelectionKey,
+        seriesKey: String,
+        providerSeason: Int,
+        providerFirstEpisode: Int,
+        anilistFirstEpisode: Int,
+        episodeCount: Int,
+    ) {
+        val state = mutableUiState.value
+        if (state.episodeMappingSaveState == EpisodeMappingSaveState.SAVING) return
+        val mediaId = state.details?.id ?: return
+        val provider = state.extensionNavigation.mappingProviders.singleOrNull { it.key == key }
+        if (provider == null || NavigationCapability.EPISODE_NAVIGATION !in provider.capabilities ||
+            !isValidProviderSeriesKey(seriesKey)
+        ) {
+            mutableUiState.update { it.copy(episodeMappingSaveState = EpisodeMappingSaveState.FAILED) }
+            return
+        }
+
+        val segment = try {
+            ProviderEpisodeSegment(
+                key = key,
+                mediaId = mediaId,
+                seriesKey = seriesKey,
+                sourceSeason = providerSeason,
+                providerFirst = providerFirstEpisode,
+                canonicalFirst = anilistFirstEpisode,
+                count = episodeCount,
+            )
+        } catch (_: IllegalArgumentException) {
+            mutableUiState.update { it.copy(episodeMappingSaveState = EpisodeMappingSaveState.FAILED) }
+            return
+        }
+
+        episodeMappingJob?.cancel()
+        mutableUiState.update { it.copy(episodeMappingSaveState = EpisodeMappingSaveState.SAVING) }
+        episodeMappingJob = viewModelScope.launch {
+            try {
+                providerNavigationProductRepository.setEpisodeMapping(segment)
+                mutableUiState.update { it.copy(episodeMappingSaveState = EpisodeMappingSaveState.SAVED) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                mutableUiState.update { it.copy(episodeMappingSaveState = EpisodeMappingSaveState.FAILED) }
+            }
+        }
+    }
+
+    override fun clearEpisodeMappingFeedback() {
+        mutableUiState.update { state ->
+            if (state.episodeMappingSaveState == EpisodeMappingSaveState.SAVING) state
+            else state.copy(episodeMappingSaveState = EpisodeMappingSaveState.IDLE)
         }
     }
 

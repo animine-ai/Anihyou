@@ -27,6 +27,8 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 
+enum class EpisodeMappingSaveState { IDLE, SAVING, SAVED, FAILED }
+
 @Immutable
 data class MediaDetailsUiState(
     val isLoggedIn: Boolean = false,
@@ -36,6 +38,7 @@ data class MediaDetailsUiState(
     val details: MediaDetailsQuery.Media? = null,
     val releasePresentations: List<ReleaseUiPresentation> = emptyList(),
     val extensionNavigation: ProviderNavigationProductState = ProviderNavigationProductState(),
+    val episodeMappingSaveState: EpisodeMappingSaveState = EpisodeMappingSaveState.IDLE,
     val openings: List<AnimeThemes.Theme>? = null,
     val endings: List<AnimeThemes.Theme>? = null,
     val customLinks: List<CustomLink> = emptyList(),

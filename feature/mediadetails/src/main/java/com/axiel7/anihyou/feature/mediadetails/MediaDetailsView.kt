@@ -127,6 +127,7 @@ import com.axiel7.anihyou.feature.mediadetails.composables.MediaInformationView
 import com.axiel7.anihyou.feature.mediadetails.composables.MediaRelationsView
 import com.axiel7.anihyou.feature.mediadetails.composables.MediaStatsView
 import com.axiel7.anihyou.feature.mediadetails.composables.ReviewThreadListView
+import com.axiel7.anihyou.feature.mediadetails.composables.ProviderWatchNextFloatingActionButton
 import com.axiel7.anihyou.release.core.navigation.WatchNextState
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamicColorScheme
@@ -344,28 +345,14 @@ private fun MediaDetailsContent(
         floatingActionButton = {
             val watchNext = uiState.extensionNavigation.watchNext as? WatchNextState.Candidate
             val watchNextTarget = uiState.extensionNavigation.watchTarget
-            if ((uiState.isLoggedIn && uiState.details != null) ||
-                (watchNextTarget != null && watchNext != null && watchNext.behindCount > 0)
-            ) {
+            val showWatchNext = watchNextTarget != null && watchNext != null && watchNext.behindCount > 0
+            if ((uiState.isLoggedIn && uiState.details != null) || showWatchNext) {
                 Column(horizontalAlignment = Alignment.End) {
-                    if (watchNextTarget != null && watchNext != null && watchNext.behindCount > 0) {
-                        ExtendedFloatingActionButton(
-                            onClick = {
-                                if (!uiState.extensionNavigation.loading) event?.openWatchNext()
-                            },
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.play_arrow_24),
-                                contentDescription = stringResource(R.string.watch_next),
-                            )
-                            Text(
-                                text = stringResource(
-                                    R.string.watch_next_behind_count,
-                                    watchNext.behindCount,
-                                ),
-                                modifier = Modifier.padding(start = 12.dp, end = 8.dp),
-                            )
-                        }
+                    if (showWatchNext) {
+                        ProviderWatchNextFloatingActionButton(
+                            navigationState = uiState.extensionNavigation,
+                            onClick = { event?.openWatchNext() },
+                        )
                         if (uiState.isLoggedIn && uiState.details != null) {
                             Spacer(Modifier.height(12.dp))
                         }

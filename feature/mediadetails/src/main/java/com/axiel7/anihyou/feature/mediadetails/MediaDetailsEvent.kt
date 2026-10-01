@@ -27,4 +27,13 @@ interface MediaDetailsEvent : UiEvent {
     fun openProviderOverview(key: ExtensionSelectionKey)
     fun openWatchNext()
     fun chooseNavigationProvider(key: ExtensionSelectionKey)
+    fun saveProviderEpisodeMapping(
+        key: ExtensionSelectionKey,
+        seriesKey: String,
+        providerSeason: Int,
+        providerFirstEpisode: Int,
+        anilistFirstEpisode: Int,
+        episodeCount: Int,
+    )
+    fun clearEpisodeMappingFeedback()
 }

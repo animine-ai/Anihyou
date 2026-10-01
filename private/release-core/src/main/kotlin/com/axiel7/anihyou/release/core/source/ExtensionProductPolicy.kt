@@ -1,6 +1,7 @@
 package com.axiel7.anihyou.release.core.source
 
 import kotlinx.coroutines.flow.StateFlow
+import java.util.Locale
 
 /** Includes authenticated publisher/provider and repository lifecycle identity; labels are never keys. */
 data class ExtensionSelectionKey(
@@ -33,7 +34,7 @@ data class ExtensionPreferences(
     fun orderedTracks(supported: Set<String>): List<String> = preferredTrackOrder.filter {
         it in enabledTracks && it in supported && it != "UNKNOWN"
     }.sortedBy { track ->
-        languageOrder.indexOf(track.substringBefore('_').lowercase()).let { if (it < 0) Int.MAX_VALUE else it }
+        languageOrder.indexOf(track.substringBeforeLast('_').lowercase(Locale.ROOT)).let { if (it < 0) Int.MAX_VALUE else it }
     }
 }
 

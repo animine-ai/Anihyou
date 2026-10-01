@@ -6,6 +6,7 @@ import java.math.BigDecimal
 import java.net.URI
 import java.time.Instant
 import java.util.UUID
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
@@ -76,18 +77,31 @@ class WatchNextResolver {
         }.distinctBy { it.key }
         if (eligible.isEmpty()) return WatchNextState.Unavailable(NavigationUnavailableReason.NO_PROVIDERS)
         val preferred = policy.preferredNavigationProvider
-        val provider = if (preferred != null) eligible.singleOrNull { it.key == preferred }
-            ?: return WatchNextState.Unavailable(NavigationUnavailableReason.PROVIDER_UNAVAILABLE)
-        else if (eligible.size == 1) eligible.single() else return WatchNextState.ChooseProvider(eligible)
+        if (preferred != null && eligible.none { it.key == preferred })
+            return WatchNextState.Unavailable(NavigationUnavailableReason.PROVIDER_UNAVAILABLE)
+        fun actionableFor(provider: NavigationProvider): List<Triple<BigDecimal, ProviderCoordinate, List<String>>> {
+            val ordered = policy.preferencesFor(provider.key).orderedTracks(provider.supportedTracks)
+            return released.mapNotNull { number ->
+                val coordinate = mappings.filter { it.key == provider.key && it.mediaId == mediaId &&
+                    it.canonicalEpisode?.compareTo(number) == 0 }.singleOrNull() ?: return@mapNotNull null
+                if (!coordinate.isExactEpisode()) return@mapNotNull null
+                val tracks = ordered.filter { it in coordinate.availableTracks }
+                if (tracks.isEmpty()) null else Triple(number, coordinate, tracks)
+            }
+        }
+        val actionableProviders = eligible.filter { actionableFor(it).isNotEmpty() }
+        val provider = if (preferred != null) eligible.single { it.key == preferred }
+        else when (actionableProviders.size) {
+            0 -> return WatchNextState.Unavailable(
+                if (mappings.any { mapping -> eligible.any { it.key == mapping.key } &&
+                    mapping.mediaId == mediaId && mapping.isExactEpisode() })
+                    NavigationUnavailableReason.TRACK_UNAVAILABLE else NavigationUnavailableReason.MISSING_MAPPING)
+            1 -> actionableProviders.single()
+            else -> return WatchNextState.ChooseProvider(actionableProviders)
+        }
         val ordered = policy.preferencesFor(provider.key).orderedTracks(provider.supportedTracks)
         if (ordered.isEmpty()) return WatchNextState.Unavailable(NavigationUnavailableReason.TRACK_UNAVAILABLE)
-        val actionable = released.mapNotNull { number ->
-            val coordinate = mappings.filter { it.key == provider.key && it.mediaId == mediaId &&
-                it.canonicalEpisode?.compareTo(number) == 0 }.singleOrNull() ?: return@mapNotNull null
-            if (!coordinate.isExactEpisode()) return@mapNotNull null
-            val tracks = ordered.filter { it in coordinate.availableTracks }
-            if (tracks.isEmpty()) null else Triple(number, coordinate, tracks)
-        }
+        val actionable = actionableFor(provider)
         val first = actionable.firstOrNull() ?: return WatchNextState.Unavailable(
             if (mappings.any { it.key == provider.key && it.mediaId == mediaId && it.isExactEpisode() })
                 NavigationUnavailableReason.TRACK_UNAVAILABLE else NavigationUnavailableReason.MISSING_MAPPING)
@@ -102,6 +116,8 @@ private fun ProviderCoordinate.isExactEpisode(): Boolean = canonicalEpisode != n
 interface ProviderNavigationGateway {
     suspend fun providers(): List<NavigationProvider>
     suspend fun dispatch(provider: NavigationProvider, request: NavigationContextV1, generation: String): ProviderNavigationTargetV1?
+    suspend fun <T> withCurrentProvider(provider: NavigationProvider, block: suspend () -> T): T? =
+        if (providers().singleOrNull { it.key == provider.key } == provider) block() else null
 }
 
 /** Only the coordinator can mint a launchable target after identity/coordinate/host validation. */
@@ -109,6 +125,7 @@ class ValidatedNavigationTarget internal constructor(
     val url: String,
     val provider: NavigationProvider,
     internal val policy: ExtensionProductPolicy,
+    val track: ObservationTrack? = null,
 )
 
 sealed interface ProviderNavigationResult {
@@ -153,17 +170,20 @@ class ProviderNavigationCoordinator(
                 return unavailable(NavigationUnavailableReason.STALE_RESULT)
             if (result == null) continue
             if (!valid(result, request, provider)) return unavailable(NavigationUnavailableReason.INVALID_TARGET)
-            return ProviderNavigationResult.Ready(ValidatedNavigationTarget(result.url, provider, policy))
+            return ProviderNavigationResult.Ready(ValidatedNavigationTarget(result.url, provider, policy, track))
         }
         return unavailable(NavigationUnavailableReason.TRACK_UNAVAILABLE)
     }
 
     suspend fun launch(target: ValidatedNavigationTarget, launcher: ExternalNavigationLauncher): ProviderNavigationResult {
         return preferences.withCurrentPolicy(target.policy) {
-            if (gateway.providers().singleOrNull { it.key == target.provider.key } != target.provider)
-                return@withCurrentPolicy unavailable(NavigationUnavailableReason.STALE_RESULT)
-            coroutineContext.ensureActive()
-            if (launcher.launch(target)) ProviderNavigationResult.Ready(target) else unavailable(NavigationUnavailableReason.LAUNCH_FAILED)
+            gateway.withCurrentProvider(target.provider) {
+                coroutineContext.ensureActive()
+                try {
+                    if (launcher.launch(target)) ProviderNavigationResult.Ready(target) else unavailable(NavigationUnavailableReason.LAUNCH_FAILED)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { unavailable(NavigationUnavailableReason.LAUNCH_FAILED) }
+            } ?: unavailable(NavigationUnavailableReason.STALE_RESULT)
         } ?: unavailable(NavigationUnavailableReason.STALE_RESULT)
     }
 
@@ -174,7 +194,7 @@ class ProviderNavigationCoordinator(
             target.url.length !in 1..2048 || target.url.any { it.code !in 0x21..0x7e } || '\\' in target.url) return false
         val uri = runCatching { URI(target.url) }.getOrNull() ?: return false
         return uri.scheme == "https" && uri.rawUserInfo == null && uri.rawFragment == null && uri.port in setOf(-1, 443) &&
-            uri.host?.lowercase() in provider.allowedHosts && uri.rawPath.orEmpty().split('/').none { it == "." || it == ".." }
+            uri.host?.lowercase(Locale.ROOT) in provider.allowedHosts && uri.rawPath.orEmpty().split('/').none { it == "." || it == ".." }
     }
 
     private fun unavailable(reason: NavigationUnavailableReason) = ProviderNavigationResult.Unavailable(reason)
