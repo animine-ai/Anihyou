@@ -39,8 +39,10 @@ object DirectTargetSelectionPolicy {
     private val order = compareBy<DirectTargetCandidate>({ it.priority },
         { it.lastAttemptAt ?: Instant.MIN }, { it.firstEligibleAt }, { it.canonicalUrl })
 
-    fun select(candidates: List<DirectTargetCandidate>, now: Instant, limit: Int = MAX_URLS): List<DirectTargetCandidate> {
+    fun select(candidates: List<DirectTargetCandidate>, now: Instant, limit: Int = MAX_URLS,
+        exactTargetLimit: Int = MAX_URLS * 2): List<DirectTargetCandidate> {
         require(limit in 0..MAX_URLS)
+        require(exactTargetLimit in 0..MAX_URLS * 2)
         require(candidates.flatMap { it.exactTargetKeys }.distinct().size == candidates.sumOf { it.exactTargetKeys.size })
         val eligible = candidates.filter { it.nextEligibleAt?.isAfter(now) != true }
             .groupBy { it.canonicalUrl }.map { (_, group) ->
@@ -56,15 +58,27 @@ object DirectTargetSelectionPolicy {
                     lastAttemptAt = group.mapNotNull { it.lastAttemptAt }.minOrNull(),
                     nextEligibleAt = group.mapNotNull { it.nextEligibleAt }.maxOrNull())
             }
-        if (eligible.isEmpty() || limit == 0) return emptyList()
-        val ordered = eligible.sortedWith(order)
-        val fairness = eligible.minWith(compareBy<DirectTargetCandidate>(
+        val feasible = eligible.filter { it.exactTargetKeys.size <= exactTargetLimit }
+        if (feasible.isEmpty() || limit == 0) return emptyList()
+        val ordered = feasible.sortedWith(order)
+        val fairness = feasible.minWith(compareBy<DirectTargetCandidate>(
             { it.lastAttemptAt ?: Instant.MIN }, { it.firstEligibleAt }, { it.canonicalUrl }))
         val selected = ordered.take(limit - 1).toMutableList()
         if (selected.none { it.canonicalUrl == fairness.canonicalUrl }) selected += fairness
         if (selected.size < limit) ordered.filterNot { c -> selected.any { it.canonicalUrl == c.canonicalUrl } }
             .take(limit - selected.size).forEach(selected::add)
-        return selected.take(limit)
+        if (selected.sumOf { it.exactTargetKeys.size } <= exactTargetLimit) return selected.take(limit)
+        // Reserve the oldest candidate before filling the logical request budget.
+        // Keep both tracks together, so trimming never discards the fairness slot.
+        val bounded = mutableListOf(fairness)
+        var remaining = exactTargetLimit - fairness.exactTargetKeys.size
+        ordered.filterNot { it.canonicalUrl == fairness.canonicalUrl }.forEach { candidate ->
+            if (bounded.size < limit && candidate.exactTargetKeys.size <= remaining) {
+                bounded += candidate
+                remaining -= candidate.exactTargetKeys.size
+            }
+        }
+        return ordered.filter { candidate -> bounded.any { it.canonicalUrl == candidate.canonicalUrl } }
     }
 
     fun snapshotDigest(candidates: List<DirectTargetCandidate>): String {

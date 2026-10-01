@@ -31,32 +31,33 @@ import org.junit.Test
 class AniWorldExtensionTargetSourceTest {
     private val now = Instant.parse("2026-09-29T08:00:00Z")
 
-    @Test
-    fun eligibleCanonicalDirectTargetPassesCoordinatesWithoutHostProviderUrl() = runBlocking {
-        val evidence = ReleaseEvidence(
-            id = "fixture-evidence",
-            sourceType = ReleaseSourceType.ANIWORLD_CALENDAR,
-            sourceUrl = "https://aniworld.to/animekalender",
+    private val evidence = ReleaseEvidence(
+        id = "fixture-evidence",
+        sourceType = ReleaseSourceType.ANIWORLD_CALENDAR,
+        sourceUrl = "https://aniworld.to/animekalender",
+        sourceHash = "fixture-hash",
+        parserVersion = "aniworld-v3",
+        observedAt = now,
+        sourceReportedAt = now.plusSeconds(3600),
+        approximateTime = false,
+        siteIdentifier = AniWorldSiteIdentifier(
+            slug = "v3-target-series",
+            firstSeenAt = now,
+            lastValidatedAt = now,
             sourceHash = "fixture-hash",
             parserVersion = "aniworld-v3",
-            observedAt = now,
-            sourceReportedAt = now.plusSeconds(3600),
-            approximateTime = false,
-            siteIdentifier = AniWorldSiteIdentifier(
-                slug = "v3-target-series",
-                firstSeenAt = now,
-                lastValidatedAt = now,
-                sourceHash = "fixture-hash",
-                parserVersion = "aniworld-v3",
-            ),
-            sourceSeason = 1,
-            navigationSeason = 2,
-            installment = Installment.Episode(5),
-            languageTrack = LanguageTrack.DE_SUB,
-            evidenceType = ReleaseEvidenceType.FORECAST,
-            scheduleCondition = ScheduleCondition.UNKNOWN,
-            confidence = ConfidenceVector(1.0, 1.0, 1.0, 1.0, 1.0),
-        )
+        ),
+        sourceSeason = 1,
+        navigationSeason = 2,
+        installment = Installment.Episode(5),
+        languageTrack = LanguageTrack.DE_SUB,
+        evidenceType = ReleaseEvidenceType.FORECAST,
+        scheduleCondition = ScheduleCondition.UNKNOWN,
+        confidence = ConfidenceVector(1.0, 1.0, 1.0, 1.0, 1.0),
+    )
+
+    @Test
+    fun eligibleCanonicalDirectTargetPassesCoordinatesWithoutHostProviderUrl() = runBlocking {
         val key = CanonicalReleaseIdentity.from(evidence)!!.key
         val url = "mapped-direct-v1:" + "a".repeat(64)
         val candidate = DirectTargetCandidate(
@@ -87,9 +88,40 @@ class AniWorldExtensionTargetSourceTest {
         assertTrue(actual.target.targetToken.startsWith("aw-target-v1-"))
     }
 
-    private class PollStore(private val candidate: DirectTargetCandidate) : AniWorldShadowPollStore {
+    @Test
+    fun dualTrackSelectionFitsFourLogicalRequestsAndKeepsOldestCoordinate() = runBlocking {
+        val candidates = (1..5).flatMap { episode ->
+            listOf(LanguageTrack.DE_SUB, LanguageTrack.DE_DUB).map { track ->
+                val key = CanonicalReleaseIdentity.from(evidence.copy(
+                    installment = Installment.Episode(episode), languageTrack = track,
+                ))!!.key
+                DirectTargetCandidate(
+                    canonicalUrl = "mapped-coordinate-$episode", exactTargetKey = key,
+                    tracks = setOf(track.name), priority = if (episode == 5) 2 else 0,
+                    firstEligibleAt = now.minusSeconds(60),
+                    lastAttemptAt = if (episode == 5) null else now.minusSeconds(10),
+                    nextEligibleAt = null, providerSeriesKey = "v3-target-series", navigationSeason = 2,
+                )
+            }
+        }
+        val targets = AniWorldExtensionTargetSource(
+            PollStore(candidates), Clock.fixed(now, ZoneOffset.UTC),
+        ).targets()
+        assertEquals(4, targets.size)
+        assertEquals(4, targets.map { it.target.targetToken }.distinct().size)
+        val episodes = targets.groupBy { it.target.installment.number }
+        assertEquals(2, episodes.size)
+        assertTrue("5" in episodes)
+        episodes.values.forEach { tracks ->
+            assertEquals(setOf("DE_SUB", "DE_DUB"), tracks.map { it.target.track.name }.toSet())
+            assertTrue(tracks.all { it.target.providerUrl == null })
+        }
+    }
+
+    private class PollStore(private val candidates: List<DirectTargetCandidate>) : AniWorldShadowPollStore {
+        constructor(candidate: DirectTargetCandidate) : this(listOf(candidate))
         override suspend fun eligibleDirectTargets(now: Instant): List<DirectTargetCandidate> = error("legacy route path must not run")
-        override suspend fun eligibleMappedDirectTargets(now: Instant) = listOf(candidate)
+        override suspend fun eligibleMappedDirectTargets(now: Instant) = candidates
         override suspend fun shadowComparison(now: Instant): ShadowComparison = error("unused")
         override suspend fun beginGeneration(manifest: ShadowGenerationManifest, candidateSnapshotDigest: String): Boolean = error("unused")
         override suspend fun currentGeneration(token: ShadowGenerationToken): ShadowGenerationSnapshot? = error("unused")

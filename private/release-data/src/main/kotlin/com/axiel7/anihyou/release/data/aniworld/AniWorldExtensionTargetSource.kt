@@ -26,7 +26,8 @@ class AniWorldExtensionTargetSource(
     override suspend fun targets(): List<ExtensionAcquisitionTarget> {
         val now = clock.instant()
         val candidates = pollStore.eligibleMappedDirectTargets(now)
-        return DirectTargetSelectionPolicy.select(candidates, now)
+        // ABI v1 permits four logical Direct requests, including separate SUB/DUB tokens.
+        return DirectTargetSelectionPolicy.select(candidates, now, exactTargetLimit = 4)
             .flatMap { candidate -> candidate.exactTargetKeys.mapNotNull { target(candidate, it) } }
             .distinctBy { it.target.targetToken }
     }

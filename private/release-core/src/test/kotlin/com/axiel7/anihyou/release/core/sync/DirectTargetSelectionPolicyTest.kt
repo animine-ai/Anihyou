@@ -40,4 +40,38 @@ class DirectTargetSelectionPolicyTest {
         assertEquals(2, selected.single().exactTargetKeys.size)
         assertEquals(setOf("DE_SUB", "DE_DUB"), selected.single().tracks)
     }
+
+    @Test
+    fun logicalRequestBudgetPreservesBothTracksAndFairnessAcrossRepeatedCycles() {
+        var candidates = (0 until 5).map { index ->
+            DirectTargetCandidate(
+                canonicalUrl = "mapped-coordinate-$index", exactTargetKey = "sub-$index",
+                tracks = setOf("DE_SUB", "DE_DUB"), priority = if (index < 4) 0 else 2,
+                firstEligibleAt = now.minusSeconds(120), lastAttemptAt = null, nextEligibleAt = null,
+                exactTargetKeys = setOf("sub-$index", "dub-$index"),
+            )
+        }
+        val attempted = mutableSetOf<String>()
+        repeat(5) { cycle ->
+            val selected = DirectTargetSelectionPolicy.select(candidates, now, exactTargetLimit = 4)
+            assertEquals(2, selected.size)
+            assertEquals(4, selected.sumOf { it.exactTargetKeys.size })
+            assertTrue(selected.all { it.tracks == setOf("DE_SUB", "DE_DUB") })
+            attempted += selected.map { it.canonicalUrl }
+            candidates = candidates.map { candidate ->
+                if (selected.any { it.canonicalUrl == candidate.canonicalUrl })
+                    candidate.copy(lastAttemptAt = now.plusSeconds(cycle.toLong())) else candidate
+            }
+        }
+        assertEquals(5, attempted.size)
+    }
+
+    @Test
+    fun logicalBudgetStillUsesFourCoordinatesWhenEachHasOneTrack() {
+        val candidates = (0 until 5).map { index ->
+            DirectTargetCandidate("mapped-coordinate-$index", "sub-$index", setOf("DE_SUB"),
+                1, now.minusSeconds(120), null, null)
+        }
+        assertEquals(4, DirectTargetSelectionPolicy.select(candidates, now, exactTargetLimit = 4).size)
+    }
 }
