@@ -18,6 +18,10 @@ data class SourceExtension(
     val updateAvailable: Boolean = false,
     val revoked: Boolean = false,
     val activationAllowed: Boolean = false,
+    val providerId: String = "",
+    val publisherId: String = "",
+    // ABI v1 currently knows these tracks. A later ABI can extend this set without changing preferences.
+    val supportedTracks: Set<String> = setOf("DE_SUB", "DE_DUB"),
 )
 
 data class ExtensionSource(
@@ -46,6 +50,7 @@ sealed interface AddExtensionSourceResult {
 /** Provider-neutral surface. A displayed URL never authenticates a repository. */
 interface ExtensionSourceRepository {
     val sources: StateFlow<List<ExtensionSource>>
+    val productPolicy: ExtensionProductPolicyRepository? get() = null
     suspend fun add(url: String): AddExtensionSourceResult
     suspend fun setEnabled(sourceId: String, enabled: Boolean)
     suspend fun remove(sourceId: String)

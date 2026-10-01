@@ -42,6 +42,11 @@ class ExtensionShadowSyncOrchestrator(
     private val generations: RoomExtensionShadowGenerationStore,
     private val targetSource: ExtensionTargetSource,
     private val clock: Clock = Clock.systemUTC(),
+    private val providerId: ProviderId = ProviderId.parse("aniworld"),
+    private val sourceRoles: Set<SourceRole> = SOURCE_ROLES,
+    private val enabledTracks: Set<String> = setOf("DE_SUB", "DE_DUB"),
+    private val commitGuard: suspend (suspend () -> Boolean) -> Boolean = { it() },
+    private val currentSelection: suspend () -> Boolean = { true },
 ) : WorkScopedShadowRefreshCoordinator {
     private val mutex = Mutex()
 
@@ -63,21 +68,21 @@ class ExtensionShadowSyncOrchestrator(
             val lease = checkNotNull(token)
             val targets = targetSource.targets()
             val result = coordinator.execute(ExtensionRunRequest(
-                providerId = ProviderId.parse("aniworld"),
+                providerId = providerId,
                 generationId = lease.executionGenerationId,
-                sourceRoles = SOURCE_ROLES,
+                sourceRoles = sourceRoles,
                 targets = targets.map { it.target },
             ))
             when (result) {
                 is ExtensionHostResult.Failed -> {
                     val now = clock.instant()
                     generations.abort(lease, result.code.name, now,
-                        if (result.code == ExtensionHostFailureCode.BUSY) emptyList() else blockedHealth(result.code, now))
+                        if (result.code == ExtensionHostFailureCode.BUSY || !currentSelection()) emptyList() else blockedHealth(result.code, now))
                     ShadowRefreshOutcome.Failed(result.code.name, result.code in RETRYABLE)
                 }
                 is ExtensionHostResult.Completed -> {
                     check(result.receipt.generationId == lease.executionGenerationId)
-                    val evidence = authority.project(result)
+                    val evidence = authority.project(result).filter { it.languageTrack?.name in enabledTracks }
                     val started = Instant.parse(result.receipt.startedAt)
                     val completed = Instant.parse(result.receipt.completedAt)
                     val health = sourceHealth(result, completed)
@@ -128,7 +133,8 @@ class ExtensionShadowSyncOrchestrator(
                             ExpectedSourceInstance(it.instanceId, it.sourceType, it.targetKey, it.track, false)
                         },
                     )
-                    if (!generations.commit(lease, cycle, result.receipt, health, targets)) {
+                    if (!commitGuard { generations.commit(lease, cycle, result.receipt, health, targets) }) {
+                        generations.abort(lease, "stale-active-source", clock.instant())
                         ShadowRefreshOutcome.Failed("stale-generation-token", retryable = false)
                     } else {
                         ShadowRefreshOutcome.Committed(lease.cycleId, cycle)

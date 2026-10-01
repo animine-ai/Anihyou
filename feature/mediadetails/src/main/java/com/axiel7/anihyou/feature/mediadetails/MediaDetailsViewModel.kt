@@ -22,10 +22,19 @@ import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.RecommendationRating
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.common.navigation.Route
+import com.axiel7.anihyou.release.core.navigation.EmptyProviderNavigationProductRepository
+import com.axiel7.anihyou.release.core.navigation.NavigationUnavailableReason
+import com.axiel7.anihyou.release.core.navigation.ProviderNavigationProductRepository
+import com.axiel7.anihyou.release.core.navigation.ProviderNavigationResult
+import com.axiel7.anihyou.release.core.navigation.WatchNextState
+import com.axiel7.anihyou.release.core.extension.NavigationCapability
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
@@ -44,11 +53,96 @@ class MediaDetailsViewModel(
     private val favoriteRepository: FavoriteRepository,
     private val animeNotificationsRepository: AnimeNotificationsRepository,
     private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
+    private val providerNavigationProductRepository: ProviderNavigationProductRepository =
+        EmptyProviderNavigationProductRepository,
 ) : UiStateViewModel<MediaDetailsUiState>(), MediaDetailsEvent {
 
     override val initialState = MediaDetailsUiState(isLoggedIn = arguments.isLoggedIn)
 
     private var notificationAllowanceBaseline: Triple<Boolean, Boolean, Boolean>? = null
+    private var navigationActionJob: Job? = null
+    private var navigationActionId = 0L
+    private var navigationActionActive = false
+    private var navigationActionFailure: NavigationUnavailableReason? = null
+
+    override fun openProviderOverview(key: ExtensionSelectionKey) {
+        val state = mutableUiState.value
+        val mediaId = state.details?.id ?: return
+        val provider = state.extensionNavigation.providers.singleOrNull { it.key == key } ?: return
+        if (NavigationCapability.OVERVIEW_NAVIGATION !in provider.capabilities) return
+
+        runNavigationAction {
+            when (val resolved = providerNavigationProductRepository.overview(mediaId, key)) {
+                is ProviderNavigationResult.Ready -> providerNavigationProductRepository.launch(resolved.target)
+                    .unavailableReasonOrNull()
+                is ProviderNavigationResult.Unavailable -> resolved.reason
+            }
+        }
+    }
+
+    override fun openWatchNext() {
+        val navigation = mutableUiState.value.extensionNavigation
+        val candidate = navigation.watchNext as? WatchNextState.Candidate ?: return
+        if (candidate.behindCount <= 0) return
+        val target = navigation.watchTarget ?: return
+        if (target.provider.key != candidate.provider.key || candidate.coordinate.mediaId != mutableUiState.value.details?.id) return
+
+        // observe() resolves and validates the target before this action becomes visible.
+        // Launch rechecks current policy and provider identity before dispatching externally.
+        runNavigationAction {
+            providerNavigationProductRepository.launch(target).unavailableReasonOrNull()
+        }
+    }
+
+    override fun chooseNavigationProvider(key: ExtensionSelectionKey) {
+        val choices = (mutableUiState.value.extensionNavigation.watchNext as? WatchNextState.ChooseProvider)
+            ?.providers ?: return
+        if (choices.size <= 1 || choices.none { it.key == key }) return
+
+        runNavigationAction(failureOnException = NavigationUnavailableReason.PROVIDER_UNAVAILABLE) {
+            providerNavigationProductRepository.preferProvider(key)
+            null
+        }
+    }
+
+    private fun ProviderNavigationResult.unavailableReasonOrNull() =
+        (this as? ProviderNavigationResult.Unavailable)?.reason
+
+    private fun runNavigationAction(
+        failureOnException: NavigationUnavailableReason = NavigationUnavailableReason.LAUNCH_FAILED,
+        action: suspend () -> NavigationUnavailableReason?,
+    ) {
+        navigationActionJob?.cancel()
+        val actionId = ++navigationActionId
+        navigationActionActive = true
+        navigationActionFailure = null
+        mutableUiState.update { state ->
+            state.copy(extensionNavigation = state.extensionNavigation.copy(loading = true, failure = null))
+        }
+        navigationActionJob = viewModelScope.launch {
+            var failure: NavigationUnavailableReason? = null
+            try {
+                failure = action()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                failure = failureOnException
+            } finally {
+                if (navigationActionId == actionId) {
+                    navigationActionActive = false
+                    navigationActionFailure = failure
+                    mutableUiState.update { state ->
+                        state.copy(
+                            extensionNavigation = state.extensionNavigation.copy(
+                                loading = false,
+                                failure = failure,
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     override fun onUpdateListEntry(newListEntry: BasicMediaListEntry?) {
         if (mutableUiState.value.details?.mediaListEntry?.basicMediaListEntry != newListEntry) {
@@ -400,6 +494,41 @@ class MediaDetailsViewModel(
             }
             .onEach { rows ->
                 mutableUiState.update { it.copy(releasePresentations = rows[arguments.id].orEmpty()) }
+            }
+            .launchIn(viewModelScope)
+
+        mutableUiState
+            .mapNotNull { state ->
+                state.details?.let { details ->
+                    val progress = details.mediaListEntry?.basicMediaListEntry?.progress ?: 0
+                    details.id to progress
+                }
+            }
+            .distinctUntilChanged()
+            .flatMapLatest { (mediaId, progress) ->
+                providerNavigationProductRepository.observe(mediaId, progress)
+            }
+            .onEach { productState ->
+                mutableUiState.update { state ->
+                    state.copy(
+                        extensionNavigation = productState.copy(
+                            loading = productState.loading || navigationActionActive,
+                            failure = navigationActionFailure ?: productState.failure,
+                        )
+                    )
+                }
+            }
+            .catch { error ->
+                if (error is CancellationException) throw error
+                navigationActionFailure = NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE
+                mutableUiState.update { state ->
+                    state.copy(
+                        extensionNavigation = state.extensionNavigation.copy(
+                            loading = false,
+                            failure = NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE,
+                        )
+                    )
+                }
             }
             .launchIn(viewModelScope)
 

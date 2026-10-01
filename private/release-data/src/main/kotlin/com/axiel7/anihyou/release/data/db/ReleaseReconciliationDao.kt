@@ -7,6 +7,8 @@ import androidx.room.Query
 
 @Dao
 interface ReleaseReconciliationDao {
+    @Query("SELECT * FROM v3_canonical_release_projection ORDER BY projectionKey LIMIT 10000")
+    fun observeNavigationProjections(): kotlinx.coroutines.flow.Flow<List<CanonicalReleaseProjectionEntity>>
     @Query("SELECT * FROM schema_meta WHERE `key` = 'BASELINE_IMPORT_COMPLETE'")
     suspend fun baselineMarker(): SchemaMetaEntity?
 

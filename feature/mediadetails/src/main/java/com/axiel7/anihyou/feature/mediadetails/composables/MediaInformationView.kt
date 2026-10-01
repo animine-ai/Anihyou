@@ -6,14 +6,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,6 +34,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
 import com.axiel7.anihyou.core.common.utils.ContextUtils.openActionView
 import com.axiel7.anihyou.core.common.utils.DateUtils.toLocalized
 import com.axiel7.anihyou.core.model.media.AnimeSeason
@@ -57,6 +62,10 @@ import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.minutesToLegibleText
 import com.axiel7.anihyou.core.ui.composables.media.releaseInstallmentLabel
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 import com.axiel7.anihyou.feature.mediadetails.MediaDetailsUiState
+import com.axiel7.anihyou.feature.mediadetails.MediaDetailsEvent
+import com.axiel7.anihyou.release.core.navigation.NavigationUnavailableReason
+import com.axiel7.anihyou.release.core.navigation.WatchNextState
+import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import kotlinx.collections.immutable.persistentListOf
 import java.time.ZoneId
 
@@ -66,6 +75,7 @@ private const val TagLimit = 10
 @Composable
 fun MediaInformationView(
     uiState: MediaDetailsUiState,
+    event: MediaDetailsEvent? = null,
     navigateToGenreTag: (mediaType: MediaType, genre: String?, tag: String?) -> Unit,
     navigateToStudioDetails: (Int) -> Unit,
     navigateToAnimeSeason: (AnimeSeason) -> Unit,
@@ -73,7 +83,42 @@ fun MediaInformationView(
     val context = LocalContext.current
     var showSpoiler by remember { mutableStateOf(false) }
     var showAllTags by remember { mutableStateOf(false) }
+    var showNavigationProviderChooser by remember { mutableStateOf(false) }
     val isAnime = uiState.details?.basicMediaDetails?.isAnime() == true
+    val navigationState = uiState.extensionNavigation
+    val overviewProviders = navigationState.providers.filter {
+        NavigationCapability.OVERVIEW_NAVIGATION in it.capabilities
+    }
+    val watchNextProviderChoices = (navigationState.watchNext as? WatchNextState.ChooseProvider)
+        ?.providers.orEmpty()
+
+    if (showNavigationProviderChooser && watchNextProviderChoices.size > 1) {
+        AlertDialog(
+            onDismissRequest = { showNavigationProviderChooser = false },
+            title = { Text(stringResource(R.string.choose_watch_next_provider)) },
+            text = {
+                Column {
+                    watchNextProviderChoices.forEach { provider ->
+                        TextButton(
+                            onClick = {
+                                showNavigationProviderChooser = false
+                                event?.chooseNavigationProvider(provider.key)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !navigationState.loading,
+                        ) {
+                            Text(provider.displayName, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showNavigationProviderChooser = false }) {
+                    Text(stringResource(R.string.close))
+                }
+            },
+        )
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth()
@@ -338,6 +383,62 @@ fun MediaInformationView(
             }
         }
 
+        // Product extension navigation is independent from AniList's metadata links above.
+        // Only the signed provider display name is shown; this view never renders episode URLs.
+        if (uiState.details != null) {
+            InfoTitle(text = stringResource(R.string.provider_sources))
+            if (overviewProviders.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 4.dp)
+                ) {
+                    overviewProviders.forEach { provider ->
+                        AssistChip(
+                            onClick = { event?.openProviderOverview(provider.key) },
+                            enabled = !navigationState.loading,
+                            label = { Text(provider.displayName) },
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                }
+            }
+            if (watchNextProviderChoices.size > 1) {
+                TextButton(
+                    onClick = { showNavigationProviderChooser = true },
+                    enabled = !navigationState.loading,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                ) {
+                    Text(stringResource(R.string.choose_watch_next_provider))
+                }
+            }
+            if (navigationState.loading) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Text(stringResource(R.string.provider_navigation_loading))
+                }
+            } else {
+                val unavailableReason = navigationState.failure
+                    ?: (navigationState.watchNext as? WatchNextState.Unavailable)
+                        ?.reason
+                        ?.takeUnless { it == NavigationUnavailableReason.CHOOSE_PROVIDER }
+                if (unavailableReason != null) {
+                    Text(
+                        text = unavailableReason.localizedNavigationMessage(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+
         // External links
         uiState.details?.externalLinks()?.let { externalLinks ->
             if (externalLinks.isNotEmpty()) {
@@ -428,6 +529,7 @@ private fun MediaInformationViewPreview() {
         Surface {
             MediaInformationView(
                 uiState = MediaDetailsUiState(),
+                event = null,
                 navigateToGenreTag = { _, _, _ -> },
                 navigateToStudioDetails = {},
                 navigateToAnimeSeason = {}
@@ -435,3 +537,20 @@ private fun MediaInformationViewPreview() {
         }
     }
 }
+
+@Composable
+private fun NavigationUnavailableReason.localizedNavigationMessage(): String = stringResource(
+    when (this) {
+        NavigationUnavailableReason.NO_ACTIVE_SOURCE -> R.string.navigation_no_active_source
+        NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE -> R.string.navigation_release_source_unavailable
+        NavigationUnavailableReason.NO_PROVIDERS,
+        NavigationUnavailableReason.PROVIDER_UNAVAILABLE -> R.string.navigation_provider_unavailable
+        NavigationUnavailableReason.CHOOSE_PROVIDER -> R.string.navigation_choose_provider
+        NavigationUnavailableReason.NO_RELEASED_UNWATCHED -> R.string.navigation_no_released_episode
+        NavigationUnavailableReason.MISSING_MAPPING -> R.string.navigation_missing_mapping
+        NavigationUnavailableReason.TRACK_UNAVAILABLE -> R.string.navigation_track_unavailable
+        NavigationUnavailableReason.INVALID_TARGET -> R.string.navigation_invalid_target
+        NavigationUnavailableReason.STALE_RESULT -> R.string.navigation_stale_result
+        NavigationUnavailableReason.LAUNCH_FAILED -> R.string.navigation_launch_failed
+    }
+)

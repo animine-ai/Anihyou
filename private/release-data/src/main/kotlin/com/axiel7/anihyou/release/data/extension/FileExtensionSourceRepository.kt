@@ -37,7 +37,7 @@ internal class FileExtensionSourceRepository(
     private val scheduler: ExtensionSourceScheduler,
     private val clock: Clock,
     private val runtimeSupported: Boolean,
-) : ExtensionSourceRepository {
+) : ExtensionSourceRepository, InstalledExtensionAccess {
     private val registry = ExtensionSourceRegistry(directory)
     private val monitor = Any()
     private val publicationLock = Any()
@@ -49,7 +49,19 @@ internal class FileExtensionSourceRepository(
     private var lifecycleToken = 0L
     private val mutableSources = MutableStateFlow<List<ExtensionSource>>(emptyList())
     override val sources: StateFlow<List<ExtensionSource>> = mutableSources.asStateFlow()
+    override val productPolicy = FileExtensionProductPolicyRepository(directory) { key ->
+        sources.value.usableExtension(key) != null && registry.find(key.sourceId)?.let { it.enabled && !it.removed } == true &&
+            synchronized(monitor) { key.sourceId !in lifecycleIntents }
+    }
     init { publish() }
+
+    override suspend fun loadInstalled(key: ExtensionSelectionKey): VerifiedExtensionPackage? = withContext(Dispatchers.IO) {
+        if (sources.value.usableExtension(key) == null || synchronized(monitor) { key.sourceId in lifecycleIntents }) return@withContext null
+        val store = synchronized(monitor) { stores[key.sourceId] } ?: return@withContext null
+        store.loadUsableExtension(key.extensionId)?.takeIf {
+            it.extensionId.value == key.extensionId && it.providerId.value == key.providerId && it.publisherId == key.publisherId
+        }
+    }
 
     override suspend fun add(url: String): AddExtensionSourceResult = withContext(Dispatchers.IO) {
         val address = runCatching { NormalizedExtensionSource.parse(url) }.getOrNull()
@@ -70,6 +82,7 @@ internal class FileExtensionSourceRepository(
             jobs[id]?.cancel()
             token
         }
+        if (!enabled || removed) productPolicy.invalidateSource(id)
         var applied = false
         lock(id).withLock {
             if (synchronized(monitor) { lifecycleIntents[id] != intent }) return@withLock
@@ -86,6 +99,9 @@ internal class FileExtensionSourceRepository(
 
     override suspend fun refresh(sourceId: String) = operate(sourceId, deduplicate = true) { source ->
         refreshMetadata(source)
+        publish()
+        val selected = productPolicy.policy.value.activeReleaseSource
+        if (selected?.sourceId == sourceId && loadInstalled(selected) == null) productPolicy.invalidateSource(sourceId)
     }
 
     override suspend fun refreshEnabled(): Boolean {
@@ -249,7 +265,8 @@ internal class FileExtensionSourceRepository(
                     binding.releaseSequence, (scope?.roles?.map { it.name }.orEmpty() + binding.navigationCapabilities.map { it.name }).distinct().sorted(),
                     active?.version?.takeIf(String::isNotEmpty), active?.digest,
                     active != null && fresh && binding.releaseSequence > (snapshot.releaseHigh[binding.extensionId] ?: 0) && !revoked,
-                    revoked, source.enabled && fresh && authorized && source.failure == null && !revoked && runtimeSupported)
+                    revoked, source.enabled && fresh && authorized && source.failure == null && !revoked && runtimeSupported,
+                    binding.providerId, binding.publisherId)
             }.sortedBy { it.extensionId }
             val status = when {
                 !source.enabled -> ExtensionSourceStatus.DISABLED

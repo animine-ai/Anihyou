@@ -17,6 +17,7 @@ import com.axiel7.anihyou.core.network.fragment.MediaCharacter
 import com.axiel7.anihyou.core.network.fragment.MediaStaff
 import com.axiel7.anihyou.core.base.state.UiState
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import com.axiel7.anihyou.release.core.navigation.ProviderNavigationProductState
 import com.axiel7.anihyou.core.domain.model.CustomLink
 import com.axiel7.anihyou.core.model.TranslatorApp
 import com.axiel7.anihyou.core.network.type.MediaStatus
@@ -34,6 +35,7 @@ data class MediaDetailsUiState(
 
     val details: MediaDetailsQuery.Media? = null,
     val releasePresentations: List<ReleaseUiPresentation> = emptyList(),
+    val extensionNavigation: ProviderNavigationProductState = ProviderNavigationProductState(),
     val openings: List<AnimeThemes.Theme>? = null,
     val endings: List<AnimeThemes.Theme>? = null,
     val customLinks: List<CustomLink> = emptyList(),

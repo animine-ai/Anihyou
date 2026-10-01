@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 abstract class ReleaseDao {
+    @Query("SELECT * FROM v3_external_mapping WHERE externalProvider = 'anilist' AND externalId = :mediaId AND mappingStatus = 'ACTIVE' AND confidence = 'EXACT' AND subjectType = 'SEASON' AND validatedAt IS NOT NULL AND staleAt IS NULL LIMIT 2")
+    abstract suspend fun navigationOverviewMappings(mediaId: String): List<ExternalMappingEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertProviderSnapshots(rows: List<ProviderSnapshotEntity>)
 

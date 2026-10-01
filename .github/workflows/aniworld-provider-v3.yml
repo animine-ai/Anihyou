@@ -8,6 +8,7 @@ on:
       - feature/aniworld-provider-v3
       - ep03/user-added-sources
       - ep04/aniworld-v1
+      - ep06/provider-navigation-watch-next
     paths:
       - "private/release-core/**"
       - "private/release-data/**"

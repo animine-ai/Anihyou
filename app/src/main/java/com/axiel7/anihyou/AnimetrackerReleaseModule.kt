@@ -74,6 +74,30 @@ val animetrackerReleaseModule = module {
     single<com.axiel7.anihyou.release.core.source.ExtensionSourceRepository> {
         com.axiel7.anihyou.release.data.extension.ProductionExtensionSources.create(androidApplication(), get(), get())
     }
+    single<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository> {
+        requireNotNull(get<com.axiel7.anihyou.release.core.source.ExtensionSourceRepository>().productPolicy)
+    }
+    single<com.axiel7.anihyou.release.data.extension.InstalledExtensionAccess> {
+        get<com.axiel7.anihyou.release.core.source.ExtensionSourceRepository>() as com.axiel7.anihyou.release.data.extension.InstalledExtensionAccess
+    }
+    single<com.axiel7.anihyou.release.core.extension.ExtensionRuntime> {
+        com.axiel7.anihyou.release.data.extension.AndroidIsolatedExtensionRuntime(androidApplication())
+    }
+    single {
+        com.axiel7.anihyou.release.data.extension.FileProviderNavigationStateStore(
+            androidApplication().filesDir.resolve("extension-product"))
+    }
+    single<com.axiel7.anihyou.release.core.navigation.ProviderNavigationGateway> {
+        com.axiel7.anihyou.release.data.extension.InstalledProviderNavigationGateway(get(), get(), get(),
+            androidApplication().filesDir.resolve("release-extension-network"))
+    }
+    single<com.axiel7.anihyou.release.core.navigation.ExternalNavigationLauncher> {
+        com.axiel7.anihyou.release.data.extension.AndroidExternalNavigationLauncher(androidApplication())
+    }
+    single<com.axiel7.anihyou.release.core.navigation.ProviderNavigationProductRepository> {
+        com.axiel7.anihyou.release.data.extension.ExtensionProviderNavigationProductRepository(
+            get(), get(), get(), get(), get(), get(), get())
+    }
     single<ReleaseDatabase> {
         Room.databaseBuilder(
             androidApplication(),
@@ -123,13 +147,17 @@ val animetrackerReleaseModule = module {
         ProductionExtensionHostBoundary.create(androidApplication(), config)
     }
     single<AniWorldShadowRefreshCoordinator> {
-        ExtensionShadowSyncOrchestrator(
-            host = get<ProductionExtensionHostBoundary>().release,
+        com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator(
+            policy = get(),
+            installed = get(),
+            runtime = get(),
+            networkDirectory = androidApplication().filesDir.resolve("release-extension-network"),
             authority = get<ProductionExtensionHostBoundary>().authority,
             reconciliation = get(),
             generations = get(),
             targetSource = get(),
             clock = get(),
+            navigationStore = get(),
         )
     }
     single { AniWorldClient(get()) }

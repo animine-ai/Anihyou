@@ -142,6 +142,24 @@ class ExtensionShadowSyncOrchestratorTest {
     }
 
     @Test
+    fun httpSuccessWithFailedReportDegradesSourceWithoutRecordingLastSuccess() = runBlocking {
+        val rig = rig(runtime = FixtureRuntime(mode = RuntimeMode.REPORT_FAILURE_CALENDAR), httpStatus = 200)
+
+        val result = rig.orchestrator.refreshForWork("health-http-success-report-failure")
+
+        assertTrue(result is ShadowRefreshOutcome.Committed)
+        assertEquals(listOf("HTTP_2XX", "HTTP_2XX", "HTTP_2XX", "HTTP_2XX"),
+            rig.ledger.completions.map { it.outcome })
+        val calendar = requireHealth(ReleaseSourceType.ANIWORLD_CALENDAR)
+        assertEquals(SourceHealthStatus.DEGRADED, calendar.status)
+        assertEquals(NOW, calendar.lastAttemptAt)
+        assertNull(calendar.lastSuccessAt)
+        ROLE_SOURCE_TYPES.values.filter { it != ReleaseSourceType.ANIWORLD_CALENDAR }.forEach { type ->
+            assertEquals(type.name, SourceHealthStatus.HEALTHY, requireHealth(type).status)
+        }
+    }
+
+    @Test
     fun parserFailureAbortsGenerationAndPersistsUnavailableHealthWithoutCycle() = runBlocking {
         val rig = rig(runtime = FixtureRuntime(mode = RuntimeMode.PARSE_FAILURE))
         val workId = "health-parse-failure"
@@ -439,6 +457,7 @@ class ExtensionShadowSyncOrchestratorTest {
     private enum class RuntimeMode {
         SUCCESS,
         PARTIAL_CALENDAR,
+        REPORT_FAILURE_CALENDAR,
         PARSE_FAILURE,
         DEADLINE,
         FUEL_TRAP,
@@ -542,11 +561,13 @@ class ExtensionShadowSyncOrchestratorTest {
         val successful = response.status == ExtensionResponseStatus.OK
         val reportOutcome = when {
             !successful -> ExtensionReportOutcome.FAILURE
+            mode == RuntimeMode.REPORT_FAILURE_CALENDAR && response.sourceRole == SourceRole.CALENDAR ->
+                ExtensionReportOutcome.FAILURE
             mode == RuntimeMode.PARTIAL_CALENDAR && response.sourceRole == SourceRole.CALENDAR ->
                 ExtensionReportOutcome.PARTIAL
             else -> ExtensionReportOutcome.SUCCESS
         }
-        val observation = if (successful) {
+        val observation = if (successful && reportOutcome != ExtensionReportOutcome.FAILURE) {
             val claim = when (response.sourceRole) {
                 SourceRole.CALENDAR -> ObservationClaimKind.FORECAST
                 SourceRole.RECENT -> ObservationClaimKind.RELEASE_LISTING

@@ -127,6 +127,7 @@ import com.axiel7.anihyou.feature.mediadetails.composables.MediaInformationView
 import com.axiel7.anihyou.feature.mediadetails.composables.MediaRelationsView
 import com.axiel7.anihyou.feature.mediadetails.composables.MediaStatsView
 import com.axiel7.anihyou.feature.mediadetails.composables.ReviewThreadListView
+import com.axiel7.anihyou.release.core.navigation.WatchNextState
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamicColorScheme
 import com.materialkolor.dynamiccolor.ColorSpec
@@ -341,23 +342,53 @@ private fun MediaDetailsContent(
             )
         },
         floatingActionButton = {
-            if (uiState.isLoggedIn && uiState.details != null) {
-                ExtendedFloatingActionButton(onClick = { showEditSheet = true }) {
-                    Icon(
-                        painter = painterResource(
-                            if (uiState.isNewEntry) R.drawable.add_24
-                            else R.drawable.edit_24
-                        ),
-                        contentDescription = stringResource(R.string.edit)
-                    )
-                    Text(
-                        text = if (uiState.isNewEntry) stringResource(R.string.add)
-                        else uiState.details.mediaListEntry?.basicMediaListEntry?.status?.localized(
-                            mediaType = uiState.details.basicMediaDetails.type
-                                ?: MediaType.UNKNOWN__
-                        ) ?: stringResource(R.string.edit),
-                        modifier = Modifier.padding(start = 16.dp, end = 8.dp)
-                    )
+            val watchNext = uiState.extensionNavigation.watchNext as? WatchNextState.Candidate
+            val watchNextTarget = uiState.extensionNavigation.watchTarget
+            if ((uiState.isLoggedIn && uiState.details != null) ||
+                (watchNextTarget != null && watchNext != null && watchNext.behindCount > 0)
+            ) {
+                Column(horizontalAlignment = Alignment.End) {
+                    if (watchNextTarget != null && watchNext != null && watchNext.behindCount > 0) {
+                        ExtendedFloatingActionButton(
+                            onClick = {
+                                if (!uiState.extensionNavigation.loading) event?.openWatchNext()
+                            },
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.play_arrow_24),
+                                contentDescription = stringResource(R.string.watch_next),
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.watch_next_behind_count,
+                                    watchNext.behindCount,
+                                ),
+                                modifier = Modifier.padding(start = 12.dp, end = 8.dp),
+                            )
+                        }
+                        if (uiState.isLoggedIn && uiState.details != null) {
+                            Spacer(Modifier.height(12.dp))
+                        }
+                    }
+                    if (uiState.isLoggedIn && uiState.details != null) {
+                        ExtendedFloatingActionButton(onClick = { showEditSheet = true }) {
+                            Icon(
+                                painter = painterResource(
+                                    if (uiState.isNewEntry) R.drawable.add_24
+                                    else R.drawable.edit_24
+                                ),
+                                contentDescription = stringResource(R.string.edit)
+                            )
+                            Text(
+                                text = if (uiState.isNewEntry) stringResource(R.string.add)
+                                else uiState.details.mediaListEntry?.basicMediaListEntry?.status?.localized(
+                                    mediaType = uiState.details.basicMediaDetails.type
+                                        ?: MediaType.UNKNOWN__
+                                ) ?: stringResource(R.string.edit),
+                                modifier = Modifier.padding(start = 16.dp, end = 8.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -644,6 +675,7 @@ fun MediaInfoTabs(
                 MediaDetailsType.INFO ->
                     MediaInformationView(
                         uiState = uiState,
+                        event = event,
                         navigateToGenreTag = navActionManager::toGenreTag,
                         navigateToStudioDetails = navActionManager::toStudioDetails,
                         navigateToAnimeSeason = navActionManager::toAnimeSeason
