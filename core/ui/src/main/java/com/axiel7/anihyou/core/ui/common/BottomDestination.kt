@@ -3,8 +3,11 @@ package com.axiel7.anihyou.core.ui.common
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.navigation3.runtime.NavKey
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import com.axiel7.anihyou.core.model.CurrentListType
 import com.axiel7.anihyou.core.model.media.ChartType
+import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.common.navigation.Route
 
@@ -17,6 +20,16 @@ sealed class BottomDestination(
     val topLevelEligible: Boolean = true,
     val animatedIcon: Boolean = true,
 ) {
+    @Composable
+    fun displayTitle(): String {
+        val chart = (route as? Route.ChartMain)?.let { ChartType.valueOf(it.type) }
+        return if (chart == null) stringResource(title) else stringResource(
+            R.string.main_navigation_chart_label,
+            stringResource(if (chart.mediaType == MediaType.ANIME) R.string.anime else R.string.manga),
+            stringResource(title),
+        )
+    }
+
     data object Home : BottomDestination(
         stableId = "home",
         index = 0,

@@ -36,6 +36,18 @@ data class ExtensionPreferences(
     }.sortedBy { track ->
         languageOrder.indexOf(track.substringBeforeLast('_').lowercase(Locale.ROOT)).let { if (it < 0) Int.MAX_VALUE else it }
     }
+
+    companion object {
+        /** Fresh preferences follow signed extension tracks. Saved exclusions always win. */
+        fun forTracks(supported: Set<String>): ExtensionPreferences {
+            val tracks = supported.filter {
+                it.length in 1..64 && it.matches(Regex("[A-Za-z0-9_-]+")) &&
+                    (it.endsWith("_SUB") || it.endsWith("_DUB")) && it.substringBeforeLast('_').isNotBlank()
+            }.sortedWith(compareBy<String> { if (it.endsWith("_SUB")) 0 else 1 }.thenBy { it })
+            return ExtensionPreferences(tracks.toSet(), tracks,
+                tracks.map { it.substringBeforeLast('_').lowercase(Locale.ROOT) }.distinct().sorted())
+        }
+    }
 }
 
 data class ExtensionProductPolicy(
@@ -47,6 +59,8 @@ data class ExtensionProductPolicy(
     val navigationProviderOrder: List<ExtensionSelectionKey> = emptyList(),
 ) {
     fun preferencesFor(key: ExtensionSelectionKey) = preferences[key] ?: ExtensionPreferences()
+    fun preferencesFor(key: ExtensionSelectionKey, supportedTracks: Set<String>) =
+        preferences[key] ?: ExtensionPreferences.forTracks(supportedTracks)
 }
 
 /** Scalar active selection makes multiple active sources unrepresentable. Commit shares the switch lock. */

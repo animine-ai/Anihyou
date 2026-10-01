@@ -60,7 +60,7 @@ fun MainBottomNavBar(
                     icon = {
                         Icon(
                             painter = if (image != null) rememberAnimatedVectorPainter(image, atEnd) else painterResource(dest.icon),
-                            contentDescription = stringResource(dest.title),
+                            contentDescription = dest.displayTitle(),
                         )
                     },
                     modifier = Modifier.semantics {
@@ -69,7 +69,7 @@ fun MainBottomNavBar(
                     },
                     label = {
                         Text(
-                            text = stringResource(dest.title),
+                            text = dest.displayTitle(),
                             textAlign = TextAlign.Center
                         )
                     },

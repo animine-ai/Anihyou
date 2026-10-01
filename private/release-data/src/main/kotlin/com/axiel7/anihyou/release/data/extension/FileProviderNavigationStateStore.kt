@@ -39,13 +39,14 @@ class FileProviderNavigationStateStore(private val directory: File) {
         installments: List<AcceptedProviderInstallment>,
         statistics: Map<String, String> = emptyMap()) = mutate { old ->
         require(packageDigest.matches(Regex("[0-9a-f]{64}")))
-        val retained = if (old.source == source && old.releaseGeneration == releaseGeneration && old.packageDigest == packageDigest)
+        val sameSelection = old.source == source && old.releaseGeneration == releaseGeneration && old.packageDigest == packageDigest
+        val retained = if (sameSelection)
             old.installments else emptyList()
         old.copy(source = source, releaseGeneration = releaseGeneration, packageDigest = packageDigest,
             // Preserve contradictory route receipts so the product can reject ambiguity.
             installments = (retained + installments).distinct().takeLast(10000),
-            syncStatistics = statistics.takeIf { it.isNotEmpty() } ?: if (retained.isNotEmpty()) old.syncStatistics else emptyMap(),
-            navigationStatus = if (old.source == source && old.packageDigest == packageDigest) old.navigationStatus else null)
+            syncStatistics = statistics.takeIf { it.isNotEmpty() } ?: if (sameSelection) old.syncStatistics else emptyMap(),
+            navigationStatus = if (sameSelection) old.navigationStatus else null)
     }
 
     suspend fun recordNavigation(source: ExtensionSelectionKey, packageDigest: String, status: String) = mutate {

@@ -476,17 +476,7 @@ internal fun ExtensionSelectionKey.testTagPart(): String =
     listOf(sourceId, extensionId, publisherId, providerId).joinToString("-")
 
 internal fun ExtensionPreferences.withGenericDefaults(extension: SourceExtension): ExtensionPreferences {
-    val supported = extension.supportedTracks.filter(::isPreferenceTrack)
-    val defaultEnabled = supported.toSet()
-    val preferred = supported.sortedWith(
-        compareBy<String> { if (trackKind(it) == TrackKind.SUB) 0 else 1 }
-            .thenBy { it.substringBeforeLast('_') },
-    )
-    return copy(
-        enabledTracks = defaultEnabled,
-        preferredTrackOrder = preferred,
-        languageOrder = supported.map { it.substringBeforeLast('_').lowercase() }.distinct(),
-    )
+    return ExtensionPreferences.forTracks(extension.supportedTracks).copy(visibleInProviderField = visibleInProviderField)
 }
 
 private fun ExtensionPreferences.withTrackGroup(tracks: List<String>, enabled: Boolean): ExtensionPreferences {

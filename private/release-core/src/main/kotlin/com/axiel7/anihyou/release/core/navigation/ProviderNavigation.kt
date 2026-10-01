@@ -80,7 +80,7 @@ class WatchNextResolver {
         if (preferred != null && eligible.none { it.key == preferred })
             return WatchNextState.Unavailable(NavigationUnavailableReason.PROVIDER_UNAVAILABLE)
         fun actionableFor(provider: NavigationProvider): List<Triple<BigDecimal, ProviderCoordinate, List<String>>> {
-            val ordered = policy.preferencesFor(provider.key).orderedTracks(provider.supportedTracks)
+            val ordered = policy.preferencesFor(provider.key, provider.supportedTracks).orderedTracks(provider.supportedTracks)
             return released.mapNotNull { number ->
                 val coordinate = mappings.filter { it.key == provider.key && it.mediaId == mediaId &&
                     it.canonicalEpisode?.compareTo(number) == 0 }.singleOrNull() ?: return@mapNotNull null
@@ -99,7 +99,7 @@ class WatchNextResolver {
             1 -> actionableProviders.single()
             else -> return WatchNextState.ChooseProvider(actionableProviders)
         }
-        val ordered = policy.preferencesFor(provider.key).orderedTracks(provider.supportedTracks)
+        val ordered = policy.preferencesFor(provider.key, provider.supportedTracks).orderedTracks(provider.supportedTracks)
         if (ordered.isEmpty()) return WatchNextState.Unavailable(NavigationUnavailableReason.TRACK_UNAVAILABLE)
         val actionable = actionableFor(provider)
         val first = actionable.firstOrNull() ?: return WatchNextState.Unavailable(
@@ -151,7 +151,7 @@ class ProviderNavigationCoordinator(
             return unavailable(NavigationUnavailableReason.PROVIDER_UNAVAILABLE)
         val tracks: List<ObservationTrack?> = if (kind == NavigationTargetKind.OVERVIEW) listOf(null) else {
             if (!coordinate.isExactEpisode()) return unavailable(NavigationUnavailableReason.MISSING_MAPPING)
-            policy.preferencesFor(provider.key).orderedTracks(provider.supportedTracks)
+            policy.preferencesFor(provider.key, provider.supportedTracks).orderedTracks(provider.supportedTracks)
                 .filter { it in coordinate.availableTracks }
                 .mapNotNull { value -> ObservationTrack.entries.singleOrNull { it.name == value && it != ObservationTrack.UNKNOWN } }
         }

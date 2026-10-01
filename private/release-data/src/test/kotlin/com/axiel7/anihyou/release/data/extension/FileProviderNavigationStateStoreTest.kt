@@ -16,6 +16,31 @@ class FileProviderNavigationStateStoreTest {
     private fun segment(key: ExtensionSelectionKey, season: Int = 1) =
         ProviderEpisodeSegment(key, 42, "series", season, 1, if (season == 1) 1 else 13, 12)
 
+    @Test fun `statistics and navigation status are persisted and fenced by source and package`() = runBlocking {
+        val directory = Files.createTempDirectory("ep06-statistics").toFile()
+        try {
+            val store = FileProviderNavigationStateStore(directory)
+            val digest = "a".repeat(64)
+            val statistics = mapOf("Last successful sync" to "2026-10-01T12:00:00Z", "Role health" to "CALENDAR: HEALTHY/SUCCESS")
+            store.record(a, 1, digest, emptyList(), statistics)
+            store.recordNavigation(a, digest, "READY")
+            val restarted = FileProviderNavigationStateStore(directory)
+            assertEquals(statistics, restarted.state.value.syncStatistics)
+            assertEquals("READY", restarted.state.value.navigationStatus)
+            restarted.record(a, 1, digest, emptyList())
+            assertEquals(statistics, restarted.state.value.syncStatistics)
+            restarted.recordNavigation(b, digest, "LAUNCHED")
+            restarted.recordNavigation(a, "b".repeat(64), "LAUNCHED")
+            assertEquals("READY", restarted.state.value.navigationStatus)
+            restarted.record(a, 2, digest, emptyList())
+            assertTrue(restarted.state.value.syncStatistics.isEmpty())
+            assertNull(restarted.state.value.navigationStatus)
+            restarted.record(b, 2, "b".repeat(64), emptyList())
+            assertTrue(restarted.state.value.syncStatistics.isEmpty())
+            assertNull(restarted.state.value.navigationStatus)
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun `receipts never merge source generation or package while exact mappings survive restart`() = runBlocking {
         val directory = Files.createTempDirectory("ep06-navigation-store").toFile()
         try {

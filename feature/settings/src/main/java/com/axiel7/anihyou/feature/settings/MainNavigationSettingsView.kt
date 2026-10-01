@@ -62,10 +62,7 @@ fun MainNavigationEditor(
             val index = visible.indexOf(id)
             Row {
                 Column(Modifier.weight(1f)) {
-                    Text(stringResource(destination.title))
-                    if (destination is BottomDestination.Shortcut) {
-                        Text(id.substringBefore('_').replaceFirstChar { it.uppercase() })
-                    }
+                    Text(destination.displayTitle())
                 }
                 if (index >= 0) {
                     TextButton(onClick = { update { it.move(id, -1) } }, enabled = index > 0,

@@ -182,7 +182,8 @@ internal class FileExtensionSourceRepository(
             require(store.loadUsableExtension(extensionId) != null) { "installed package unusable" }
             return@operate
         }
-        require(candidate.binding.releaseSequence > (snapshot.releaseHigh[extensionId] ?: 0)) { "release replay" }
+        val reinstallRemoved = store.canReinstallRemoved(extensionId, candidate.binding.archiveSha256, candidate.binding.releaseSequence)
+        require(candidate.binding.releaseSequence > (snapshot.releaseHigh[extensionId] ?: 0) || reinstallRemoved) { "release replay" }
         require(candidate.binding.archiveSha256 !in snapshot.revokedDigests &&
             candidate.binding.archiveSha256 !in snapshot.quarantinedDigests) { "package revoked or quarantined" }
         val anchor = synchronized(monitor) { anchors.getValue(source.id) }
@@ -194,7 +195,7 @@ internal class FileExtensionSourceRepository(
         try {
             staged.writeBytes(bytes)
             // The store verifies all bytes and runs the isolated runtime smoke before atomic activation.
-            store.install(staged, extensionId, clock.instant(), beforeActivation = {
+            store.install(staged, extensionId, clock.instant(), reinstallRemoved = reinstallRemoved, beforeActivation = {
                 operationJob.ensureActive()
                 fence(source)
             })

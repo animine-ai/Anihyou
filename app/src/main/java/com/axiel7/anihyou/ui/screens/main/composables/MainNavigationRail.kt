@@ -50,10 +50,10 @@ fun MainNavigationRail(
                             Icon(
                                 painter = if (image != null) rememberAnimatedVectorPainter(image, isSelected)
                                     else androidx.compose.ui.res.painterResource(dest.icon),
-                                contentDescription = stringResource(dest.title),
+                                contentDescription = dest.displayTitle(),
                             )
                         },
-                        label = { Text(stringResource(dest.title), textAlign = TextAlign.Center) },
+                        label = { Text(dest.displayTitle(), textAlign = TextAlign.Center) },
                     )
                 }
             }

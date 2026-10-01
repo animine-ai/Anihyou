@@ -1,5 +1,7 @@
 package com.axiel7.anihyou.ui.screens.main
 
+import androidx.compose.ui.platform.LocalContext
+
 import android.appwidget.AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN
 import android.content.Intent
 import android.os.Build

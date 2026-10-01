@@ -20,6 +20,7 @@ import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.erdtman.jcs.JsonCanonicalizer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -461,7 +462,7 @@ class ExtensionInstallStoreTest {
 
         restarted.acceptIndex(latest.envelope, NOW.plusSeconds(30))
         val migrated = stateJson(directory)
-        assertEquals(2, (migrated["schemaVersion"] as JsonPrimitive).content.toInt())
+        assertEquals(3, (migrated["schemaVersion"] as JsonPrimitive).content.toInt())
         for (field in listOf("roots", "indexes", "indexHigh", "indexDigest", "releaseHigh", "revoked", "quarantine", "clock")) {
             assertEquals("preserved $field", legacy[field], migrated[field])
         }
@@ -585,6 +586,52 @@ class ExtensionInstallStoreTest {
         assertEquals(first.binding.archiveSha256, store.quarantineAndRollback(EXTENSION, NOW)!!.digest)
     }
 
+    @Test fun `explicit reinstall accepts only exact removed high water receipt after restart`() {
+        val directory = temporaryFolder.newFolder("explicit-reinstall")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        assertRejected { store.install(first.archive, EXTENSION, NOW, reinstallRemoved = true) }
+        store.removeExtension(EXTENSION)
+        val restarted = fixture.store()
+        assertNull(loadExtension(restarted, EXTENSION))
+        assertTrue(restarted.canReinstallRemoved(EXTENSION, first.binding.archiveSha256, 1))
+        assertFalse(restarted.canReinstallRemoved(EXTENSION, "0".repeat(64), 1))
+        assertFalse(restarted.canReinstallRemoved(EXTENSION, first.binding.archiveSha256, 2))
+        assertRejected { restarted.install(first.archive, EXTENSION, NOW) }
+        restarted.install(first.archive, EXTENSION, NOW, reinstallRemoved = true)
+        assertEquals(1L, restarted.snapshot().releaseHigh.getValue(EXTENSION))
+        assertEquals(first.binding.archiveSha256, loadExtension(restarted, EXTENSION)!!.packageDigest)
+        assertRejected { restarted.install(first.archive, EXTENSION, NOW, reinstallRemoved = true) }
+        restarted.quarantineAndRollback(EXTENSION, NOW)
+        restarted.removeExtension(EXTENSION)
+        assertFalse(restarted.canReinstallRemoved(EXTENSION, first.binding.archiveSha256, 1))
+        assertRejected { restarted.install(first.archive, EXTENSION, NOW, reinstallRemoved = true) }
+    }
+
+    @Test fun `schema two migration preserves installed receipts without inventing uninstall permission`() {
+        val directory = temporaryFolder.newFolder("schema-two-migration")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        val v2 = JsonObject(stateJson(directory).filterKeys { it != "removed" }.toMutableMap().apply {
+            put("schemaVersion", JsonPrimitive(2))
+        })
+        File(directory, "state.json").writeText(v2.toString())
+        val restarted = fixture.store()
+        assertEquals(first.binding.archiveSha256, loadExtension(restarted, EXTENSION)!!.packageDigest)
+        assertFalse(restarted.canReinstallRemoved(EXTENSION, first.binding.archiveSha256, 1))
+        assertRejected { restarted.install(first.archive, EXTENSION, NOW, reinstallRemoved = true) }
+        restarted.promoteHealthy(EXTENSION, NOW)
+        assertEquals(3, (stateJson(directory)["schemaVersion"] as JsonPrimitive).content.toInt())
+        assertTrue((stateJson(directory)["removed"] as JsonObject).isEmpty())
+    }
+
     private fun stateJson(directory: File) =
         ExtensionWireCodec.parseStrictJson(File(directory, "state.json").readBytes(), 8 * 1048576) as JsonObject
 
@@ -596,7 +643,7 @@ class ExtensionInstallStoreTest {
         val healthy = generations.getValue(knownGoodExtension) as JsonObject
         fun withoutVersion(value: JsonElement?) = if (value == null || value == JsonNull) JsonNull else
             JsonObject((value as JsonObject).filterKeys { it != "version" })
-        return JsonObject(current.filterKeys { it !in setOf("schemaVersion", "generations") } + mapOf(
+        return JsonObject(current.filterKeys { it !in setOf("schemaVersion", "generations", "removed") } + mapOf(
             "active" to withoutVersion(active["active"]), "knownGood" to withoutVersion(healthy["knownGood"]),
             "previousGood" to withoutVersion(healthy["previousGood"]),
             "rollbackUsed" to (rollbackUsed?.let(::JsonPrimitive) ?: active.getValue("rollbackUsed")),
