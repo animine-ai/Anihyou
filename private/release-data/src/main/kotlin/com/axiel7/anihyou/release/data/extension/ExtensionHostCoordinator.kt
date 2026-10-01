@@ -199,7 +199,12 @@ class ExtensionHostCoordinator(
                 if (planned.sourceRole == SourceRole.DIRECT) {
                     val target = context.targets.singleOrNull { it.targetToken == planned.targetToken }
                         ?: return ExtensionHostResult.Failed(ExtensionHostFailureCode.HOST_VALIDATION_FAILED)
-                    if (parsed.observations.any { it.providerSeriesKey != target.providerSeriesKey }) {
+                    if (parsed.observations.any {
+                            it.providerSeriesKey != target.providerSeriesKey ||
+                                it.sourceSeason != target.sourceSeason ||
+                                it.navigationSeason != target.navigationSeason ||
+                                it.installment != target.installment || it.track != target.track
+                        }) {
                         return ExtensionHostResult.Failed(ExtensionHostFailureCode.HOST_VALIDATION_FAILED)
                     }
                 }

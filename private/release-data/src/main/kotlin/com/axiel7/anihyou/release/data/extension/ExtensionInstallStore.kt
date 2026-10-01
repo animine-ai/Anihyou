@@ -81,9 +81,10 @@ internal class ExtensionInstallStore(
         val previous = latestIndex(state)
         val acceptedAt = effectiveTime(now)
         val next = trust.index(envelope, root, previous, acceptedAt)
-        require(previous?.sequence == next.sequence || state.indexes.size < 16)
         val revoked = state.revoked + next.packages.filter { it.revoked }.map { it.binding.archiveSha256 }
-        val updated = state.copy(indexes = if (previous?.sequence == next.sequence) state.indexes else state.indexes + SignedRecord(envelope.copyOf(), acceptedAt),
+        val indexes = if (previous?.sequence == next.sequence) state.indexes else
+            state.indexes + SignedRecord(envelope.copyOf(), acceptedAt)
+        val updated = state.copy(indexes = retainReferencedIndexes(indexes, state.generations),
             indexHigh = maxOf(state.indexHigh, next.sequence), indexDigest = next.digest,
             revoked = revoked, clock = acceptedAt)
         commit(updated)
@@ -162,7 +163,9 @@ internal class ExtensionInstallStore(
         val next = if (generation.knownGood?.digest == active.digest) generation else
             generation.copy(knownGood = active, previousGood = generation.knownGood)
         beforePromotion()
-        commit(state.copy(generations = state.generations + (extensionId to next), clock = effectiveTime(now)))
+        val generations = state.generations + (extensionId to next)
+        commit(state.copy(generations = generations,
+            indexes = retainReferencedIndexes(state.indexes, generations), clock = effectiveTime(now)))
         failure.at(InstallBoundary.AFTER_PROMOTION)
     }
 
@@ -186,7 +189,9 @@ internal class ExtensionInstallStore(
         val prior = if (generation.knownGood?.digest == bad.digest) generation.previousGood else generation.knownGood
         val fallback = prior?.takeIf { !generation.rollbackUsed && it.digest != bad.digest && eligible(it, newlyQuarantined) }
         val updated = generation.copy(active = fallback, knownGood = fallback, previousGood = null, rollbackUsed = true)
-        commit(state.copy(generations = state.generations + (extensionId to updated),
+        val generations = state.generations + (extensionId to updated)
+        commit(state.copy(generations = generations,
+            indexes = retainReferencedIndexes(state.indexes, generations),
             quarantine = newlyQuarantined, clock = effectiveTime(now)))
         failure.at(InstallBoundary.QUARANTINE)
         return fallback
@@ -252,6 +257,21 @@ internal class ExtensionInstallStore(
         val signedRoot = roots(s).single { it.version == version }
         return trust.index(record.bytes, signedRoot, null, record.at)
     }
+    /** Keep the latest catalog plus original signed bindings for every usable/rollback receipt.
+     * Sequence high-water and cumulative revocations remain separate durable state, so discarded
+     * catalogs cannot authorize replay or undo a revocation. The 8 MiB state cap still applies.
+     */
+    private fun retainReferencedIndexes(indexes: List<SignedRecord>, generations: Map<String, GenerationState>): List<SignedRecord> {
+        val needed = generations.values.flatMap { listOfNotNull(it.active, it.knownGood, it.previousGood) }
+            .mapTo(mutableSetOf()) { it.indexSequence }
+        val latest = indexes.lastOrNull() ?: return indexes
+        return indexes.filter { record -> record === latest ||
+            (ExtensionWireCodec.parseStrictJson(record.bytes, 262144) as JsonObject).let { envelope ->
+                val signed = envelope["signed"] as JsonObject
+                (signed["sequence"] as JsonPrimitive).long in needed
+            }
+        }
+    }
     private fun effectiveTime(now: Instant) = maxOf(now, state.clock)
     private fun archive(digest: String): File {
         require(digest.matches(Regex("[0-9a-f]{64}")))
@@ -267,7 +287,9 @@ internal class ExtensionInstallStore(
     }
     private fun commit(next: State) {
         val temporary = File(directory, "state.next")
-        FileOutputStream(temporary).use { it.write(encode(next)); it.fd.sync() }
+        val bytes = encode(next)
+        require(bytes.size <= 8 * 1048576) { "install state exceeds durable size limit" }
+        FileOutputStream(temporary).use { it.write(bytes); it.fd.sync() }
         Files.move(temporary.toPath(), stateFile.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         syncDirectory(directory)
         state = next
@@ -365,7 +387,9 @@ internal class ExtensionInstallStore(
             quarantine = (o["quarantine"] as JsonArray).map { (it as JsonPrimitive).content }.toSet(),
             generations = generations, clock = Instant.parse((o["clock"] as JsonPrimitive).content),
         )
-        require(s.roots.size <= 16 && s.indexes.size <= 16)
+        // Older states may still contain a 16-record journal. New commits retain only the
+        // latest catalog and those referenced by persisted generation receipts.
+        require(s.roots.size <= 16 && s.indexes.size <= maxOf(16, 1 + 3 * s.generations.size))
         require(s.roots.all { it.at <= s.clock } && s.indexes.all { it.at <= s.clock })
         require(s.releaseHigh.values.all { it > 0 })
         require((s.revoked + s.quarantine).all { it.matches(Regex("[0-9a-f]{64}")) })

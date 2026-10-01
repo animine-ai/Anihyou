@@ -242,6 +242,7 @@ private object RuntimeProof {
                 .put("planBytes", recovery.size))
             runCatching { asset(context, "aniworld.wasm", 8 * 1024 * 1024) }.getOrNull()?.let { aniWorldModule ->
                 functional.put("ep04AniWorld", runAniWorldProof(context, runtime, aniWorldModule))
+                functional.put("ep05Canary", Ep05CanaryProof.run(context, runtime))
             }
             functional.put("fixtureOnlyNoFallback", true)
         } finally {

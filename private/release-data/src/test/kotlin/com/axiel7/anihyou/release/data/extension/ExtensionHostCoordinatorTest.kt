@@ -197,6 +197,28 @@ class ExtensionHostCoordinatorTest {
     }
 
     @Test
+    fun `direct same-series wrong episode season kind or track cannot gain authority`() = runBlocking {
+        val target = ExtensionTargetV1("target-1", "series-1", null, 2, 3,
+            InstallmentV1(ObservationInstallmentKind.EPISODE, "12"), ObservationTrack.DE_SUB)
+        val altered = listOf(
+            target.copy(sourceSeason = 1), target.copy(navigationSeason = 2),
+            target.copy(installment = InstallmentV1(ObservationInstallmentKind.EPISODE, "13")),
+            target.copy(installment = InstallmentV1(ObservationInstallmentKind.FILM, "12")),
+            target.copy(track = ObservationTrack.DE_DUB), target.copy(track = ObservationTrack.UNKNOWN),
+        )
+        for (observed in listOf(target) + altered) {
+            val runtime = FixtureRuntime(planUrl = "https://aniworld.to/series", addObservation = true,
+                planRole = SourceRole.DIRECT, planTargetToken = target.targetToken,
+                directObservationTargetOverride = observed)
+            val result = coordinator(FakeRepository(extensionPackage(setOf(SourceRole.DIRECT))),
+                runtime, FixtureTransport(), enabled = true).execute(runRequest(setOf(SourceRole.DIRECT), listOf(target)))
+            if (observed == target) assertTrue(result is ExtensionHostResult.Completed)
+            else assertEquals(observed.toString(),
+                ExtensionHostResult.Failed(ExtensionHostFailureCode.HOST_VALIDATION_FAILED), result)
+        }
+    }
+
+    @Test
     fun `extended parse fuel is granted only to the verified extension identity`() = runBlocking {
         for ((grants, expected) in listOf(
             emptyMap<ExtensionId, Long>() to 10_000_000L,
@@ -307,6 +329,7 @@ class ExtensionHostCoordinatorTest {
         private val planRole: SourceRole = SourceRole.CALENDAR,
         private val planTargetToken: String? = null,
         private val directSeriesKeyOverride: String? = null,
+        private val directObservationTargetOverride: ExtensionTargetV1? = null,
     ) : ExtensionRuntime {
         val calls = AtomicInteger()
         val executedLimits = mutableListOf<Pair<String, ExtensionExecutionLimits>>()
@@ -342,13 +365,15 @@ class ExtensionHostCoordinatorTest {
                         val providerSeriesKey = if (response.sourceRole == SourceRole.DIRECT) {
                             directSeriesKeyOverride ?: input.context.targets.single().providerSeriesKey
                         } else null
+                        val coordinate = if (response.sourceRole == SourceRole.DIRECT)
+                            directObservationTargetOverride ?: input.context.targets.single() else null
                         val claimKind = when (response.sourceRole) {
                             SourceRole.CALENDAR -> "FORECAST"
                             SourceRole.RECENT -> "RELEASE_LISTING"
                             SourceRole.POSTPONEMENT -> "CORRECTION"
                             SourceRole.DIRECT -> "DIRECT_AVAILABILITY"
                         }
-                        """[{"schemaVersion":1,"extensionId":"${input.context.extensionId.value}","providerId":"${input.context.providerId.value}","requestId":"${response.requestId}","sourceRole":"${response.sourceRole.name}","providerSeriesKey":${providerSeriesKey?.let { "\"$it\"" } ?: "null"},"rawTitle":"fixture","sourceSeason":null,"navigationSeason":null,"installment":{"kind":"EPISODE","number":"1"},"track":"UNKNOWN","claimKind":"$claimKind","sourceDateText":null,"sourceTimeText":null,"sourceRawText":null,"parsedTimestamp":null,"approximate":false,"scheduleMarker":"NONE","correctionMarker":null,"sourceUrl":"${response.finalUrl}","sourceHash":"${response.sourceHash}","diagnostics":[]}]"""
+                        """[{"schemaVersion":1,"extensionId":"${input.context.extensionId.value}","providerId":"${input.context.providerId.value}","requestId":"${response.requestId}","sourceRole":"${response.sourceRole.name}","providerSeriesKey":${providerSeriesKey?.let { "\"$it\"" } ?: "null"},"rawTitle":"fixture","sourceSeason":${coordinate?.sourceSeason ?: "null"},"navigationSeason":${coordinate?.navigationSeason ?: "null"},"installment":{"kind":"${coordinate?.installment?.kind?.name ?: "EPISODE"}","number":${coordinate?.installment?.number?.let { "\"$it\"" } ?: if (coordinate != null) "null" else "\"1\""}},"track":"${coordinate?.track?.name ?: "UNKNOWN"}","claimKind":"$claimKind","sourceDateText":null,"sourceTimeText":null,"sourceRawText":null,"parsedTimestamp":null,"approximate":false,"scheduleMarker":"NONE","correctionMarker":null,"sourceUrl":"${response.finalUrl}","sourceHash":"${response.sourceHash}","diagnostics":[]}]"""
                     } else "[]"
                     ExtensionRuntimeResult.Success(
                         """{"schemaVersion":1,"observations":$obs,"responseReports":[{"requestId":"${response.requestId}","outcome":"SUCCESS","diagnostics":[] }]}""".toByteArray(),

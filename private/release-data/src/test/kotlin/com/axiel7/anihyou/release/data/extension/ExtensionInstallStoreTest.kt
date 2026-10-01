@@ -110,6 +110,65 @@ class ExtensionInstallStoreTest {
     }
 
     @Test
+    fun `more than sixteen catalogs retain installed signed bindings and high water after restart`() {
+        val directory = temporaryFolder.newFolder("sparse-index-history")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        val third = fixture.release(3)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(second)).envelope, NOW)
+        store.install(second.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(3, listOf(third)).envelope, NOW)
+        store.install(third.archive, EXTENSION, NOW)
+        for (sequence in 4L..25L) {
+            store.acceptIndex(fixture.index(sequence, listOf(third),
+                issuedAt = NOW.minusSeconds(60 - sequence)).envelope, NOW)
+        }
+        val persisted = stateJson(directory)
+        assertEquals(4, (persisted["indexes"] as JsonArray).size)
+        val restarted = fixture.store()
+        assertEquals(25L, restarted.snapshot().index!!.sequence)
+        assertEquals(third.binding.archiveSha256, load(restarted)!!.packageDigest)
+        assertRejected { restarted.acceptIndex(fixture.index(24, listOf(third)).envelope, NOW) }
+        assertRejected { restarted.acceptIndex(fixture.index(25, listOf(second)).envelope, NOW) }
+        assertEquals(second.binding.archiveSha256,
+            restarted.quarantineAndRollback(EXTENSION, NOW)!!.digest)
+        assertEquals(second.binding.archiveSha256, load(fixture.store())!!.packageDigest)
+        assertEquals(2, (stateJson(directory)["indexes"] as JsonArray).size)
+        assertEquals(25L, fixture.store().snapshot().index!!.sequence)
+    }
+
+    @Test
+    fun `revocation still lands after compaction and excludes prior known good`() {
+        val directory = temporaryFolder.newFolder("sparse-index-revocation")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(second)).envelope, NOW)
+        store.install(second.archive, EXTENSION, NOW)
+        for (sequence in 3L..20L) store.acceptIndex(fixture.index(sequence, listOf(second),
+            issuedAt = NOW.minusSeconds(60 - sequence)).envelope, NOW)
+        store.acceptIndex(fixture.index(21, listOf(first.copy(revoked = true), second)).envelope, NOW)
+        val restarted = fixture.store()
+        assertTrue(first.binding.archiveSha256 in restarted.snapshot().revokedDigests)
+        assertEquals(3, (stateJson(directory)["indexes"] as JsonArray).size)
+        assertNull(restarted.quarantineAndRollback(EXTENSION, NOW))
+        assertNull(load(fixture.store()))
+        val after = fixture.store()
+        assertRejected { after.acceptIndex(fixture.index(20, listOf(second)).envelope, NOW) }
+        assertTrue(first.binding.archiveSha256 in after.snapshot().revokedDigests)
+    }
+
+    @Test
     fun `rollback after promotion fault quarantines new generation and preserves release high water`() {
         val directory = temporaryFolder.newFolder("rollback-restart")
         val fixture = StoreFixture(directory)

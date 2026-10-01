@@ -21,6 +21,7 @@ import javax.net.ssl.SSLSocket
 
 /** Local HTTPS fixture for the standalone EP02 proof APK. */
 internal class LocalHttpsFixtureServer(context: Context) : Closeable {
+    private val fixtureContext = context
     private val closed = AtomicBoolean(false)
     private val paths = CopyOnWriteArrayList<String>()
     private val handshakeFailures = AtomicInteger()
@@ -84,6 +85,22 @@ internal class LocalHttpsFixtureServer(context: Context) : Closeable {
                 }
                 paths += requestPath
                 when (requestPath) {
+                    "/animekalender", "/neue-episoden", "/support/frage/anime-verschiebungen",
+                    "/anime/stream/fixture-series", "/anime/stream/fixture-series/staffel-1/episode-1" -> {
+                        val name = when (requestPath) {
+                            "/animekalender" -> "calendar"
+                            "/neue-episoden" -> "recent"
+                            "/support/frage/anime-verschiebungen" -> "postponement"
+                            "/anime/stream/fixture-series" -> "overview"
+                            else -> "direct"
+                        }
+                        val vector = if (name == "overview") "overview-parse" else "$name-release-parse"
+                        val input = fixtureContext.assets.open("aniworld-inputs/$vector-input.json")
+                            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+                        val body = org.json.JSONObject(input).getJSONArray("responses")
+                            .getJSONObject(0).getString("bodyUtf8").toByteArray(Charsets.UTF_8)
+                        respond(connection, 200, "OK", body)
+                    }
                     "/calendar", "/redirect-final" -> respond(
                         connection, 200, "OK", RELEASE_BODY.toByteArray(Charsets.UTF_8))
                     "/nav-source" -> respond(connection, 200, "OK", NAV_BODY.toByteArray(Charsets.UTF_8))

@@ -54,9 +54,10 @@ class RoomExtensionShadowGenerationStore(
 
             val active = poll.activeGeneration(SCOPE_ID)
             if (active != null) {
-                if (active.processEpoch == processEpoch) return@withTransaction ExtensionShadowGenerationClaim.Busy
+                val expired = !now.isBefore(Instant.parse(active.deadlineAt))
+                if (active.processEpoch == processEpoch && !expired) return@withTransaction ExtensionShadowGenerationClaim.Busy
                 check(poll.finishGeneration(active.generationId, active.ownerToken, "ABORTED",
-                    now.toString(), "ABORTED", "process-restart", null) == 1) {
+                    now.toString(), "ABORTED", if (expired) "generation-deadline" else "process-restart", null) == 1) {
                     "stale extension generation could not be fenced"
                 }
                 poll.clearActiveGeneration(active.generationId)
@@ -126,7 +127,9 @@ class RoomExtensionShadowGenerationStore(
             row.processEpoch != token.processEpoch || row.state != "RUNNING" ||
             poll.requestState(SCOPE_ID)?.activeGenerationId != token.executionGenerationId ||
             cycle.id != token.cycleId || cycle.scopeId != SCOPE_ID ||
-            receipt.generationId != token.executionGenerationId) return@withTransaction false
+            receipt.generationId != token.executionGenerationId ||
+            !clock.instant().isBefore(Instant.parse(row.deadlineAt)) ||
+            !cycle.completedAt.isBefore(Instant.parse(row.deadlineAt))) return@withTransaction false
 
         val receiptPayload = receiptPayload(token.workId, receipt)
         if (poll.recordExecutionReceipt(token.executionGenerationId, token.ownerToken, token.processEpoch,

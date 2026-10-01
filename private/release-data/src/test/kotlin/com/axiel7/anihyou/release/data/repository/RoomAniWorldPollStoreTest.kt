@@ -345,11 +345,11 @@ class RoomAniWorldPollStoreTest {
             }
 
             val staleStore = RoomExtensionShadowGenerationStore(
-                reopenedDatabase, reconciliation, processEpoch = "fairness-process-stale")
+                reopenedDatabase, reconciliation, Clock.fixed(secondSelectionAt.plusSeconds(1), ZoneOffset.UTC), processEpoch = "fairness-process-stale")
             val staleToken = (staleStore.claim("mapped-fairness-stale", secondSelectionAt)
                 as ExtensionShadowGenerationClaim.Acquired).token
             val restartedStore = RoomExtensionShadowGenerationStore(
-                reopenedDatabase, reconciliation, processEpoch = "fairness-process-restarted")
+                reopenedDatabase, reconciliation, Clock.fixed(secondSelectionAt.plusSeconds(1), ZoneOffset.UTC), processEpoch = "fairness-process-restarted")
             val currentToken = (restartedStore.claim("mapped-fairness-stale", secondSelectionAt.plusSeconds(1))
                 as ExtensionShadowGenerationClaim.Acquired).token
             assertEquals(staleToken.cycleId, currentToken.cycleId)

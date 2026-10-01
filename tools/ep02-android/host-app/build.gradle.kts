@@ -41,5 +41,6 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.bouncycastle.provider)
     implementation(libs.java.json.canonicalization)
+    implementation("androidx.room:room-runtime:2.8.5")
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 }

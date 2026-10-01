@@ -178,7 +178,10 @@ jobs:
           ./gradlew --console=plain :app:tasks --all
 
       - name: Run core tests
-        run: ./gradlew --console=plain --stacktrace :private:release-core:test
+        run: |
+          mkdir -p build/ep05
+          python3 scripts/verify-extension-only-boundary.py > build/ep05/no-bypass-static.json
+          ./gradlew --console=plain --stacktrace :private:release-core:test
 
       - name: Compile core domain
         run: ./gradlew --console=plain --stacktrace :core:domain:compileDebugKotlin
@@ -252,6 +255,7 @@ jobs:
             app/build/test-results/
             private/release-core/build/test-results/
             private/release-data/build/test-results/
+            build/ep05/no-bypass-static.json
           if-no-files-found: error
           retention-days: 14
 

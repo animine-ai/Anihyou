@@ -16,7 +16,7 @@ cat > "$out/server.ext" <<'EOF'
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
-subjectAltName=DNS:example.org
+subjectAltName=DNS:example.org,DNS:aniworld.to
 subjectKeyIdentifier=hash
 authorityKeyIdentifier=keyid,issuer
 EOF

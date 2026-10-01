@@ -15,6 +15,8 @@ import com.axiel7.anihyou.release.core.model.SourceHealth
 import com.axiel7.anihyou.release.core.model.SourceHealthStatus
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import java.time.Instant
+import java.time.Clock
+import java.time.ZoneOffset
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -44,7 +46,7 @@ class RoomExtensionShadowGenerationStoreTest {
         try {
             val reconciliation = RoomReleaseReconciliationRepository(database)
             reconciliation.importBaseline()
-            val store = RoomExtensionShadowGenerationStore(database, reconciliation, processEpoch = "process-one")
+            val store = RoomExtensionShadowGenerationStore(database, reconciliation, Clock.fixed(completedAt, ZoneOffset.UTC), processEpoch = "process-one")
             val token = (store.claim("work-one", startedAt) as ExtensionShadowGenerationClaim.Acquired).token
             assertEquals(ExtensionShadowGenerationClaim.Busy, store.claim("work-two", startedAt))
 
@@ -80,10 +82,10 @@ class RoomExtensionShadowGenerationStoreTest {
         try {
             val reconciliation = RoomReleaseReconciliationRepository(database)
             reconciliation.importBaseline()
-            val oldStore = RoomExtensionShadowGenerationStore(database, reconciliation, processEpoch = "process-old")
+            val oldStore = RoomExtensionShadowGenerationStore(database, reconciliation, Clock.fixed(completedAt, ZoneOffset.UTC), processEpoch = "process-old")
             val oldToken = (oldStore.claim("work-restart", startedAt) as ExtensionShadowGenerationClaim.Acquired).token
 
-            val newStore = RoomExtensionShadowGenerationStore(database, reconciliation, processEpoch = "process-new")
+            val newStore = RoomExtensionShadowGenerationStore(database, reconciliation, Clock.fixed(completedAt, ZoneOffset.UTC), processEpoch = "process-new")
             val newToken = (newStore.claim("work-restart", completedAt) as ExtensionShadowGenerationClaim.Acquired).token
             assertEquals(oldToken.cycleId, newToken.cycleId)
             assertTrue(oldToken.executionGenerationId != newToken.executionGenerationId)
@@ -94,6 +96,26 @@ class RoomExtensionShadowGenerationStoreTest {
         } finally {
             database.close()
         }
+    }
+
+    @Test
+    fun sameProcessExpiredLeaseIsReclaimedAndLateCommitIsRejected() = runBlocking {
+        val database = openDatabase()
+        try {
+            val reconciliation = RoomReleaseReconciliationRepository(database)
+            reconciliation.importBaseline()
+            val deadline = startedAt.plusSeconds(1800)
+            val store = RoomExtensionShadowGenerationStore(database, reconciliation,
+                Clock.fixed(deadline, ZoneOffset.UTC), processEpoch = "same-process")
+            val old = (store.claim("expired-work", startedAt) as ExtensionShadowGenerationClaim.Acquired).token
+            assertFalse(store.commit(old, cycle(old.cycleId, startedAt, completedAt), receipt(old), emptyList()))
+            val fresh = (store.claim("expired-work", deadline) as ExtensionShadowGenerationClaim.Acquired).token
+            assertEquals(old.cycleId, fresh.cycleId)
+            assertTrue(old.executionGenerationId != fresh.executionGenerationId)
+            assertEquals("generation-deadline", database.aniworldPollDao().generation(old.executionGenerationId)!!.reason)
+            assertFalse(store.commit(old, cycle(old.cycleId, startedAt, completedAt), receipt(old), emptyList()))
+            assertEquals(ExtensionShadowGenerationClaim.Busy, store.claim("other-work", deadline.plusSeconds(1)))
+        } finally { database.close() }
     }
 
     private fun openDatabase(): ReleaseDatabase = Room.databaseBuilder(

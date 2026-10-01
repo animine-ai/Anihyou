@@ -26,6 +26,7 @@ def reply(query):
     qtype = int.from_bytes(query[offset:offset + 2], "big")
     addresses = {
         "example.org": "8.8.8.8",
+        "aniworld.to": "8.8.8.8",  # TEST-ONLY real guest routes to the hermetic TLS fixture.
         "wrong.example.org": "8.8.8.8",
         "private.example.org": "127.0.0.1",
     }

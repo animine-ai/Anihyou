@@ -3,6 +3,7 @@
     <!-- The ephemeral CA is scoped to this standalone test app and fixture host only. -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">example.org</domain>
+        <domain includeSubdomains="false">aniworld.to</domain>
         <trust-anchors>
             <certificates src="@raw/ep02_test_ca" />
         </trust-anchors>
