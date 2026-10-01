@@ -4,12 +4,11 @@ import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
 import com.axiel7.anihyou.release.core.model.Installment
 import com.axiel7.anihyou.release.core.model.ReleaseEvidence
 import com.axiel7.anihyou.release.core.model.ReleasePhase
-import com.axiel7.anihyou.release.core.model.ReleaseSourceType
 import com.axiel7.anihyou.release.core.sync.DirectTargetCandidate
 import com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity
 import com.axiel7.anihyou.release.data.db.ReleaseReconciliationMapper
 import com.axiel7.anihyou.release.data.db.RequestStateEntity
-import java.net.URI
+import java.security.MessageDigest
 import java.time.Instant
 
 /** Resolves only exact, committed V3 projections with matching stored AniWorld provenance. */
@@ -19,6 +18,21 @@ internal object AniWorldDirectTargetResolver {
         evidence: List<ReleaseEvidence>,
         requestState: RequestStateEntity?,
         now: Instant,
+    ): DirectTargetCandidate? = resolveCandidate(row, evidence, requestState, now, mappedOnly = false)
+
+    fun resolveMapped(
+        row: CanonicalReleaseProjectionEntity,
+        evidence: List<ReleaseEvidence>,
+        requestState: RequestStateEntity?,
+        now: Instant,
+    ): DirectTargetCandidate? = resolveCandidate(row, evidence, requestState, now, mappedOnly = true)
+
+    private fun resolveCandidate(
+        row: CanonicalReleaseProjectionEntity,
+        evidence: List<ReleaseEvidence>,
+        requestState: RequestStateEntity?,
+        now: Instant,
+        mappedOnly: Boolean,
     ): DirectTargetCandidate? {
         val identity = CanonicalReleaseIdentity.decode(row.projectionKey) ?: return null
         val state = runCatching { ReleaseReconciliationMapper.state(row) }.getOrNull() ?: return null
@@ -33,13 +47,24 @@ internal object AniWorldDirectTargetResolver {
                 item.siteIdentifier?.canonicalSeriesPath == identity.seriesPath &&
                 item.sourceSeason == identity.sourceSeason && item.languageTrack == identity.track
         }
-        val urls = exactEvidence.mapNotNull { routeUrl(identity, it) }.distinct()
-        if (urls.size != 1) return null // missing or competing route proofs are not resolved by ordering
         val providerSeriesKeys = exactEvidence.mapNotNull { it.siteIdentifier?.slug }.distinct()
         if (providerSeriesKeys.size != 1) return null
         val navigationSeasons = exactEvidence.mapNotNull { it.navigationSeason }.distinct()
         if (identity.installment is Installment.Episode && navigationSeasons.size != 1) return null
-        val url = urls.single()
+        val url = if (mappedOnly) {
+            val episode = identity.installment as? Installment.Episode ?: return null
+            if (episode.fraction != null || navigationSeasons.singleOrNull()?.let { it in 1..9999 } != true) return null
+            // Opaque selection/cooldown key, never a provider URL or network request.
+            val coordinates = listOf(providerSeriesKeys.single(), navigationSeasons.single(), episode.number)
+                .joinToString("\n")
+            "mapped-direct-v1:" + MessageDigest.getInstance("SHA-256")
+                .digest(coordinates.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        } else {
+            val urls = exactEvidence.mapNotNull { LegacyAniWorldDirectRoute.url(identity, it) }.distinct()
+            if (urls.size != 1) return null
+            urls.single()
+        }
         val attempt = requestState?.lastAttemptAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
         val first = requestState?.firstEligibleAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
             ?: state.latestCompletedAt ?: now
@@ -62,50 +87,4 @@ internal object AniWorldDirectTargetResolver {
         )
     }
 
-    private fun routeUrl(identity: CanonicalReleaseIdentity, evidence: ReleaseEvidence): String? {
-        val path = identity.seriesPath
-        val route = when (val installment = identity.installment) {
-            is Installment.Episode -> {
-                val navigationSeason = evidence.navigationSeason ?: return null
-                // sourceSeason and navigationSeason coexist in this exact AniWorld
-                // observation; this is the only accepted fallback route mapping.
-                if (evidence.sourceSeason != identity.sourceSeason) return null
-                val suffix = installment.fraction?.let { ".$it" }.orEmpty()
-                val exactStoredLink = if (evidence.sourceType == ReleaseSourceType.ANIWORLD_DIRECT_PAGE) {
-                    val parsed = parseSafe(evidence.sourceUrl) ?: return null
-                    if (parsed.canonicalSeriesPath != path || parsed.season != navigationSeason ||
-                        parsed.installment != installment || parsed.kind != AniWorldCanonicalRouteKind.EPISODE) return null
-                    evidence.sourceUrl
-                } else {
-                    "https://aniworld.to$path/staffel-$navigationSeason/episode-${installment.number}$suffix"
-                }
-                exactStoredLink
-            }
-            is Installment.Film -> {
-                val number = installment.number?.takeIf { it > 0 } ?: return null
-                if (identity.sourceSeason != null) return null
-                if (evidence.sourceType == ReleaseSourceType.ANIWORLD_DIRECT_PAGE) {
-                    val parsed = parseSafe(evidence.sourceUrl) ?: return null
-                    if (parsed.canonicalSeriesPath != path || parsed.installment != installment ||
-                        parsed.kind != AniWorldCanonicalRouteKind.FILM) return null
-                    evidence.sourceUrl
-                } else "https://aniworld.to$path/filme/film-$number"
-            }
-            is Installment.Special -> return null
-        }
-        val parsed = parseSafe(route) ?: return null
-        if (parsed.canonicalSeriesPath != path || parsed.installment != identity.installment) return null
-        if (identity.installment is Installment.Episode && parsed.season != evidence.navigationSeason) return null
-        return "https://aniworld.to${URI(route).rawPath}"
-    }
-
-    private fun parseSafe(value: String): AniWorldCanonicalRoute? {
-        if (value.length !in 1..2048) return null
-        val uri = runCatching { URI(value) }.getOrNull() ?: return null
-        if (!uri.scheme.equals("https", true) || uri.host?.lowercase() !in setOf("aniworld.to", "www.aniworld.to") ||
-            uri.userInfo != null || uri.port != -1 || uri.rawQuery != null || uri.rawFragment != null ||
-            uri.rawPath.contains("%2f", true) || uri.rawPath.split('/').any { it == "." || it == ".." } ||
-            uri.rawPath.any { it.code < 0x20 || it.code == 0x7f }) return null
-        return (AniWorldCanonicalRouteParser.parse(value) as? AniWorldCanonicalRouteResult.Success)?.route
-    }
 }

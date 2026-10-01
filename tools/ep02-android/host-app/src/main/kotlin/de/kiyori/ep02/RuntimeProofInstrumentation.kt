@@ -9,12 +9,17 @@ import com.axiel7.anihyou.release.core.extension.ExtensionContextV1
 import com.axiel7.anihyou.release.core.extension.ExtensionExecutionLimits
 import com.axiel7.anihyou.release.core.extension.ExtensionId
 import com.axiel7.anihyou.release.core.extension.ExtensionMethod
+import com.axiel7.anihyou.release.core.extension.ExtensionReportOutcome
 import com.axiel7.anihyou.release.core.extension.ExtensionResponseStatus
 import com.axiel7.anihyou.release.core.extension.ExtensionRuntimeErrorCode
 import com.axiel7.anihyou.release.core.extension.ExtensionRuntimeResult
+import com.axiel7.anihyou.release.core.extension.InstallmentV1
 import com.axiel7.anihyou.release.core.extension.NavigationContextV1
 import com.axiel7.anihyou.release.core.extension.NavigationResponseEnvelopeV1
 import com.axiel7.anihyou.release.core.extension.NavigationTargetKind
+import com.axiel7.anihyou.release.core.extension.ObservationClaimKind
+import com.axiel7.anihyou.release.core.extension.ObservationInstallmentKind
+import com.axiel7.anihyou.release.core.extension.ObservationScheduleMarker
 import com.axiel7.anihyou.release.core.extension.ObservationTrack
 import com.axiel7.anihyou.release.core.extension.ParseInputV1
 import com.axiel7.anihyou.release.core.extension.PlanInputV1
@@ -25,6 +30,7 @@ import com.axiel7.anihyou.release.core.extension.SourceRole
 import com.axiel7.anihyou.release.data.extension.AndroidIsolatedExtensionRuntime
 import com.axiel7.anihyou.release.data.extension.DestinationBoundExtensionTransport
 import com.axiel7.anihyou.release.data.extension.ExtensionHostCoordinator
+import com.axiel7.anihyou.release.data.extension.ExtensionHostFailureCode
 import com.axiel7.anihyou.release.data.extension.ExtensionHostResult
 import com.axiel7.anihyou.release.data.extension.ExtensionObservationPolicy
 import com.axiel7.anihyou.release.data.extension.ExtensionRunRequest
@@ -282,75 +288,395 @@ private object RuntimeProof {
         check(verified.grantedHosts == setOf("aniworld.to"))
         check(verified.moduleDigest == sha256(module))
 
-        val recentBody = String(asset(context, "aniworld-recent.html", 512 * 1024), Charsets.UTF_8)
-        val releaseContext = ExtensionContextV1(
-            verified.extensionId, verified.providerId, listOf(SourceRole.RECENT),
-            "2026-09-30T12:00:00Z", emptyList())
+        // These assets are copied from `release-extentions/tools/aniworld_vectors.py` by the
+        // EP04 workflow. Run the generated wire inputs verbatim through the real isolated guest.
+        val vectorDirectory = "aniworld-inputs/"
+        val vectorLimit = aniWorldParseLimits.maxInputBytes
+        fun vector(name: String): ByteArray = asset(
+            context, "$vectorDirectory$name-input.json", vectorLimit)
+
+        val vectorCaseNames = JSONArray(String(
+            asset(context, "$vectorDirectory" + "cases.json", 256 * 1024), Charsets.UTF_8))
+            .let { cases -> (0 until cases.length()).map { cases.getJSONObject(it).getString("name") }.toSet() }
+        val requiredVectors = setOf(
+            "release-plan", "calendar-release-parse", "recent-release-parse",
+            "postponement-release-parse", "direct-release-parse", "bot-release-parse",
+            "truncated-release-parse", "malformed-date-release-parse",
+            "unknown-track-release-parse", "missing-direct-release-parse",
+            "overview-plan", "overview-parse", "episode-plan", "episode-parse",
+            "canonical-mismatch-episode-parse", "missing-episode-parse",
+            "unavailable-dub-episode-parse",
+        )
+        check(vectorCaseNames.containsAll(requiredVectors)) {
+            "generated AniWorld vector catalog is missing ${requiredVectors - vectorCaseNames}"
+        }
+
+        val releasePlanInputBytes = vector("release-plan")
+        val releasePlanInput = ExtensionWireCodec.decodePlanInput(releasePlanInputBytes)
+        check(releasePlanInput.context.extensionId == verified.extensionId)
+        check(releasePlanInput.context.providerId == verified.providerId)
+        check(releasePlanInput.context.sourceRoles.toSet() == SourceRole.entries.toSet())
+        check(releasePlanInput.context.targets.single().targetToken == "t1")
+
+        // First use this module digest only after a deliberately mismatched, syntactically valid
+        // digest has been rejected. That exercises the runtime's module/digest binding before
+        // the isolated process can cache this module under its real digest.
+        val wrongModuleDigest = (if (verified.moduleDigest.first() == '0') "1" else "0") +
+            verified.moduleDigest.drop(1)
+        val moduleDigestMismatch = runtime.execute(
+            wrongModuleDigest, module, "plan_requests", releasePlanInputBytes, planLimits)
+        check(moduleDigestMismatch is ExtensionRuntimeResult.Failure &&
+            moduleDigestMismatch.code == ExtensionRuntimeErrorCode.INVALID_INPUT)
+
+        // Cancel an actual AniWorld operation after the isolated service has accepted it.
+        // A cold module compile keeps this synchronization independent of short parse timing.
+        val realGuestCancellation = coroutineScope {
+            val call = async(Dispatchers.Default) {
+                runtime.execute(verified.moduleDigest, verified.moduleBytes, "parse_responses",
+                    vector("recent-145-rows-large-dom-release-parse"), aniWorldParseLimits)
+            }
+            check(runtime.awaitActiveInvocationForTesting())
+            call.cancel()
+            val failure = runCatching { withTimeout(4_000) { call.await() } }.exceptionOrNull()
+            check(failure is CancellationException)
+            true
+        }
+        check(runtime.proveLateResultFenceForTesting())
+
         val releasePlanBytes = executeSuccess(
-            runtime, verified, "plan_requests",
-            ExtensionWireCodec.encodePlanInput(PlanInputV1(1, releaseContext)), planLimits)
-        val releasePlan = ExtensionWireCodec.decodePlanOutput(releasePlanBytes, releaseContext)
-        val request = releasePlan.requests.single()
-        check(request.requestId == "recent")
-        check(request.url == "https://aniworld.to/neue-episoden")
-        val recentHash = sha256(recentBody.toByteArray(Charsets.UTF_8))
-        val releaseInput = ParseInputV1(
-            1, releaseContext,
-            listOf(ResponseEnvelope(
-                "recent", SourceRole.RECENT, ExtensionResponseStatus.OK, 200,
-                request.url, recentBody, recentHash)))
-        val releaseOutputBytes = executeSuccess(
-            runtime, verified, "parse_responses",
-            ExtensionWireCodec.encodeParseInput(releaseInput), aniWorldParseLimits)
-        val releaseOutput = ExtensionWireCodec.decodeParseOutput(releaseOutputBytes, releaseInput)
-        check(releaseOutput.observations.size == 2)
-        check(releaseOutput.observations.all {
-            it.extensionId == verified.extensionId && it.providerId == verified.providerId &&
-                it.sourceRole == SourceRole.RECENT && it.providerSeriesKey == "fixture-series"
+            runtime, verified, "plan_requests", releasePlanInputBytes, planLimits)
+        val releasePlan = ExtensionWireCodec.decodePlanOutput(
+            releasePlanBytes, releasePlanInput.context)
+        val expectedReleaseUrls = mapOf(
+            SourceRole.CALENDAR to "https://aniworld.to/animekalender",
+            SourceRole.RECENT to "https://aniworld.to/neue-episoden",
+            SourceRole.POSTPONEMENT to "https://aniworld.to/support/frage/anime-verschiebungen",
+            SourceRole.DIRECT to "https://aniworld.to/anime/stream/fixture-series/staffel-1/episode-1",
+        )
+        check(releasePlan.requests.size == expectedReleaseUrls.size)
+        check(releasePlan.requests.map { it.sourceRole }.toSet() == expectedReleaseUrls.keys)
+        releasePlan.requests.forEach { request ->
+            check(request.url == expectedReleaseUrls.getValue(request.sourceRole))
+            check(request.requestId == when (request.sourceRole) {
+                SourceRole.CALENDAR -> "calendar"
+                SourceRole.RECENT -> "recent"
+                SourceRole.POSTPONEMENT -> "postponement"
+                SourceRole.DIRECT -> "direct-0"
+            })
+            if (request.sourceRole == SourceRole.DIRECT) {
+                check(request.targetToken == "t1")
+            } else {
+                check(request.targetToken == null)
+            }
+        }
+
+        suspend fun parseVector(name: String) = run {
+            val inputBytes = vector(name)
+            val input = ExtensionWireCodec.decodeParseInput(inputBytes)
+            check(input.context.extensionId == verified.extensionId)
+            check(input.context.providerId == verified.providerId)
+            val outputBytes = executeSuccess(
+                runtime, verified, "parse_responses", inputBytes, aniWorldParseLimits)
+            ExtensionWireCodec.decodeParseOutput(outputBytes, input)
+        }
+
+        val calendar = parseVector("calendar-release-parse")
+        check(calendar.observations.size == 2)
+        check(calendar.observations.all {
+            it.sourceRole == SourceRole.CALENDAR && it.claimKind == ObservationClaimKind.FORECAST &&
+                it.approximate && it.parsedTimestamp == null && it.providerSeriesKey == "fixture-series"
         })
+        check(calendar.observations.map { it.track }.toSet() == setOf(ObservationTrack.DE_SUB, ObservationTrack.DE_DUB))
+        check(calendar.responseReports.single().outcome == ExtensionReportOutcome.SUCCESS)
+
+        val recent = parseVector("recent-release-parse")
+        check(recent.observations.size == 2)
+        check(recent.observations.all {
+            it.sourceRole == SourceRole.RECENT && it.claimKind == ObservationClaimKind.RELEASE_LISTING &&
+                !it.approximate && it.providerSeriesKey == "fixture-series"
+        })
+        check(recent.observations.map { it.track }.toSet() == setOf(ObservationTrack.DE_SUB, ObservationTrack.DE_DUB))
+        check(recent.responseReports.single().outcome == ExtensionReportOutcome.SUCCESS)
+
+        val postponement = parseVector("postponement-release-parse")
+        check(postponement.observations.size == 2)
+        check(postponement.observations.all {
+            it.sourceRole == SourceRole.POSTPONEMENT && it.claimKind == ObservationClaimKind.CORRECTION &&
+                it.scheduleMarker == ObservationScheduleMarker.POSTPONED && it.providerSeriesKey == null
+        })
+        check(postponement.observations.map { it.track }.toSet() == setOf(ObservationTrack.DE_SUB, ObservationTrack.DE_DUB))
+        check(postponement.responseReports.single().outcome == ExtensionReportOutcome.SUCCESS)
+
+        val direct = parseVector("direct-release-parse")
+        check(direct.observations.size == 1)
+        check(direct.observations.single().let {
+            it.sourceRole == SourceRole.DIRECT && it.claimKind == ObservationClaimKind.DIRECT_AVAILABILITY &&
+                it.providerSeriesKey == "fixture-series" && it.sourceSeason == 1 &&
+                it.installment == InstallmentV1(ObservationInstallmentKind.EPISODE, "1") &&
+                it.track == ObservationTrack.DE_SUB
+        })
+        check(direct.responseReports.single().outcome == ExtensionReportOutcome.SUCCESS)
+
+        val failClosedCases = JSONObject()
+        suspend fun assertFailClosed(
+            name: String,
+            expectedOutcome: ExtensionReportOutcome,
+        ) {
+            val output = parseVector(name)
+            check(output.observations.isEmpty()) { "$name emitted ${output.observations.size} observations" }
+            check(output.responseReports.single().outcome == expectedOutcome) { "$name outcome was ${output.responseReports}" }
+            failClosedCases.put(name, expectedOutcome.name)
+        }
+        assertFailClosed("bot-release-parse", ExtensionReportOutcome.FAILURE)
+        assertFailClosed("truncated-release-parse", ExtensionReportOutcome.FAILURE)
+        assertFailClosed("malformed-date-release-parse", ExtensionReportOutcome.PARTIAL)
+        assertFailClosed("unknown-track-release-parse", ExtensionReportOutcome.PARTIAL)
+        assertFailClosed("missing-direct-release-parse", ExtensionReportOutcome.FAILURE)
+
+        suspend fun runNavigationPlan(name: String): Pair<NavigationContextV1, List<String>> {
+            val inputBytes = vector(name)
+            val navContext = navigationContextFromVector(inputBytes)
+            check(navContext.extensionId == verified.extensionId && navContext.providerId == verified.providerId)
+            val outputBytes = executeSuccess(
+                runtime, verified, "plan_navigation", inputBytes, planLimits)
+            val plan = NavigationWireCodecV1.decodePlan(
+                outputBytes, navContext, verified.grantedHosts)
+            return navContext to plan.requests.map { it.url }
+        }
+
+        suspend fun runNavigationParse(name: String) = run {
+            val inputBytes = vector(name)
+            val navContext = navigationContextFromVector(inputBytes)
+            val responses = navigationResponsesFromVector(inputBytes)
+            val outputBytes = executeSuccess(
+                runtime, verified, "parse_navigation", inputBytes, aniWorldParseLimits)
+            NavigationWireCodecV1.decodeTargets(
+                outputBytes, navContext, responses, verified.grantedHosts).targets
+        }
+
+        val (overviewContext, overviewUrls) = runNavigationPlan("overview-plan")
+        check(overviewContext.targetKind == NavigationTargetKind.OVERVIEW)
+        check(overviewUrls == listOf("https://aniworld.to/anime/stream/fixture-series"))
+        val overviewTargets = runNavigationParse("overview-parse")
+        check(overviewTargets.single().let {
+            it.targetKind == NavigationTargetKind.OVERVIEW &&
+                it.url == "https://aniworld.to/anime/stream/fixture-series" && it.providerEpisode == null
+        })
+
+        val (episodeContext, episodeUrls) = runNavigationPlan("episode-plan")
+        check(episodeContext.targetKind == NavigationTargetKind.EPISODE)
+        check(episodeUrls == listOf(expectedReleaseUrls.getValue(SourceRole.DIRECT)))
+        val episodeTargets = runNavigationParse("episode-parse")
+        check(episodeTargets.single().let {
+            it.targetKind == NavigationTargetKind.EPISODE && it.url == expectedReleaseUrls.getValue(SourceRole.DIRECT) &&
+                it.providerEpisode == "1" && it.track == ObservationTrack.DE_SUB
+        })
+
+        suspend fun assertNavigationFailClosed(name: String) {
+            val targets = runNavigationParse(name)
+            check(targets.isEmpty()) { "$name returned navigation targets: $targets" }
+            failClosedCases.put(name, "NO_TARGET")
+        }
+        assertNavigationFailClosed("canonical-mismatch-episode-parse")
+        assertNavigationFailClosed("missing-episode-parse")
+        assertNavigationFailClosed("unavailable-dub-episode-parse")
+
+        // The coordinator sees the real verified package and real isolated guest. Only its HTTP
+        // boundary is replaced with generated response vectors, so this proof performs no network.
+        val roleResponses = listOf(
+            "calendar-release-parse", "recent-release-parse",
+            "postponement-release-parse", "direct-release-parse",
+        ).map { name ->
+            ExtensionWireCodec.decodeParseInput(vector(name)).responses.single()
+        }.associateBy { it.sourceRole }
+        val vectorTransport = object : DestinationBoundExtensionTransport {
+            override val dnsDestinationBindingVerified: Boolean = true
+            override suspend fun execute(
+                extension: VerifiedExtensionPackage,
+                request: RequestSpec,
+            ): ResponseEnvelope {
+                check(extension.packageDigest == verified.packageDigest)
+                val response = roleResponses.getValue(request.sourceRole)
+                check(response.requestId == request.requestId)
+                check(response.finalUrl == request.url)
+                if (request.sourceRole == SourceRole.DIRECT) check(request.targetToken == "t1")
+                return response
+            }
+        }
+        fun coordinator(transport: DestinationBoundExtensionTransport) = ExtensionHostCoordinator(
+            repository = object : VerifiedExtensionRepository {
+                override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? =
+                    verified.takeIf { it.providerId == providerId }
+            },
+            runtime = runtime,
+            transport = transport,
+            observationPolicy = ExtensionObservationPolicy { extension, observation ->
+                extension.extensionId == observation.extensionId && extension.providerId == observation.providerId
+            },
+            enabled = { true },
+            parseFuelByExtensionId = mapOf(verified.extensionId to 25_000_000L),
+        )
+
+        val requestGeneration = "ep04-aniworld-vector-generation"
+        val serviceGenerationBeforeCoordinator = runtime.lastDiagnostics?.serviceGeneration
+        val coordinated = coordinator(vectorTransport).execute(ExtensionRunRequest(
+            verified.providerId, requestGeneration, SourceRole.entries.toSet(), releasePlanInput.context.targets))
+        check(coordinated is ExtensionHostResult.Completed) { "AniWorld coordinator failed: $coordinated" }
+        check(coordinated.receipt.generationId == requestGeneration)
+        check(coordinated.receipt.moduleDigest == verified.moduleDigest)
+        check(coordinated.receipt.packageDigest == verified.packageDigest)
+        check(coordinated.observations.size == 7)
+        check(coordinated.observations.groupingBy { it.sourceRole }.eachCount() == mapOf(
+            SourceRole.CALENDAR to 2, SourceRole.RECENT to 2,
+            SourceRole.POSTPONEMENT to 2, SourceRole.DIRECT to 1,
+        ))
+        val serviceGenerationAfterCoordinator = requireNotNull(runtime.lastDiagnostics).serviceGeneration
+        check(serviceGenerationBeforeCoordinator == serviceGenerationAfterCoordinator)
+
+        val recentResponse = roleResponses.getValue(SourceRole.RECENT)
+        val correctRecentHash = sha256(requireNotNull(recentResponse.bodyUtf8).toByteArray(Charsets.UTF_8))
+        val wrongRecentHash = if (correctRecentHash.first() == '0') "1" + correctRecentHash.drop(1)
+            else "0" + correctRecentHash.drop(1)
+        val badDigestTransport = object : DestinationBoundExtensionTransport {
+            override val dnsDestinationBindingVerified: Boolean = true
+            override suspend fun execute(
+                extension: VerifiedExtensionPackage,
+                request: RequestSpec,
+            ): ResponseEnvelope = recentResponse.copy(sourceHash = wrongRecentHash)
+        }
+        val badDigestResult = coordinator(badDigestTransport).execute(ExtensionRunRequest(
+            verified.providerId, "ep04-aniworld-bad-response-digest", setOf(SourceRole.RECENT), emptyList()))
+        check(badDigestResult is ExtensionHostResult.Failed &&
+            badDigestResult.code == ExtensionHostFailureCode.HOST_VALIDATION_FAILED)
+
+        val cacheHitPlan = executeSuccess(
+            runtime, verified, "plan_requests", releasePlanInputBytes, planLimits)
+        check(cacheHitPlan.contentEquals(releasePlanBytes))
+        val cacheDiagnostics = requireNotNull(runtime.lastDiagnostics)
+        check(cacheDiagnostics.cacheHit)
+
+        // Fuel exhaustion is a deterministic guest abort, independent of scheduler timing. The
+        // subsequent ordinary invocation proves that the service and module remain usable.
+        val abort = runtime.execute(
+            verified.moduleDigest, verified.moduleBytes, "parse_responses", vector("recent-release-parse"),
+            aniWorldParseLimits.copy(fuel = 1L, deadlineMillis = 2_000))
+        check(abort == ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)) {
+            "fuel-limited AniWorld call returned $abort"
+        }
+        val afterAbort = executeSuccess(
+            runtime, verified, "plan_requests", releasePlanInputBytes, planLimits)
+        check(ExtensionWireCodec.decodePlanOutput(afterAbort, releasePlanInput.context).requests.size == 4)
+
+        val identityBeforeRestart = requireNotNull(runtime.lastDiagnostics)
+        check(!identityBeforeRestart.serviceInternetPermissionGranted)
+        check(runtime.killServiceForTesting())
+        var recoveredIdentity: ExtensionRuntimeCallDiagnostics? = null
+        withTimeout(10_000) {
+            while (recoveredIdentity == null) {
+                when (val recoveredCall = runtime.execute(
+                    verified.moduleDigest, verified.moduleBytes, "plan_requests", releasePlanInputBytes, planLimits)) {
+                    is ExtensionRuntimeResult.Success -> {
+                        val plan = ExtensionWireCodec.decodePlanOutput(
+                            recoveredCall.outputUtf8, releasePlanInput.context)
+                        check(plan.requests.size == 4)
+                        val diagnostics = requireNotNull(runtime.lastDiagnostics)
+                        if (diagnostics.serviceGeneration > identityBeforeRestart.serviceGeneration &&
+                            diagnostics.servicePid != identityBeforeRestart.servicePid) {
+                            recoveredIdentity = diagnostics
+                        }
+                    }
+                    is ExtensionRuntimeResult.Failure -> delay(10)
+                }
+            }
+        }
+        check(!requireNotNull(recoveredIdentity).serviceInternetPermissionGranted)
+
         val releaseDiagnostics = requireNotNull(runtime.lastDiagnostics)
         check(!releaseDiagnostics.serviceInternetPermissionGranted)
-
-        val episodeBody = String(asset(context, "aniworld-episode.html", 256 * 1024), Charsets.UTF_8)
-        val navContext = NavigationContextV1(
-            1, verified.extensionId, verified.providerId, "2026-09-30T12:00:00Z",
-            NavigationTargetKind.EPISODE, "ep04-episode-1", "fixture-series", null,
-            1, "1", ObservationTrack.DE_SUB)
-        val navPlanBytes = executeSuccess(
-            runtime, verified, "plan_navigation",
-            NavigationWireCodecV1.encodeContext(navContext), planLimits)
-        val navPlan = NavigationWireCodecV1.decodePlan(
-            navPlanBytes, navContext, verified.grantedHosts)
-        val navRequest = navPlan.requests.single()
-        val expectedUrl = "https://aniworld.to/anime/stream/fixture-series/staffel-1/episode-1"
-        check(navRequest.url == expectedUrl)
-        val episodeHash = sha256(episodeBody.toByteArray(Charsets.UTF_8))
-        val navResponse = NavigationResponseEnvelopeV1(
-            navRequest.requestId, ExtensionResponseStatus.OK, 200,
-            expectedUrl, episodeBody, episodeHash)
-        val navInput = NavigationWireCodecV1.encodeParseInput(
-            navContext, listOf(navResponse), verified.grantedHosts)
-        val navOutputBytes = executeSuccess(
-            runtime, verified, "parse_navigation", navInput, aniWorldParseLimits)
-        val target = NavigationWireCodecV1.decodeTargets(
-            navOutputBytes, navContext, listOf(navResponse), verified.grantedHosts).targets.single()
-        check(target.url == expectedUrl)
-        check(target.providerEpisode == "1")
-        check(target.track == ObservationTrack.DE_SUB)
-        val navDiagnostics = requireNotNull(runtime.lastDiagnostics)
-        check(!navDiagnostics.serviceInternetPermissionGranted)
-
         return JSONObject()
             .put("sourceCommit", sourceCommit)
             .put("moduleDigest", verified.moduleDigest)
             .put("packageDigest", verified.packageDigest)
-            .put("releaseObservations", releaseOutput.observations.size)
-            .put("navigationUrl", target.url)
+            .put("generatedVectorCount", vectorCaseNames.size)
+            .put("releasePlanRoles", JSONArray(releasePlan.requests.map { it.sourceRole.name }))
+            .put("calendarObservations", calendar.observations.size)
+            .put("recentObservations", recent.observations.size)
+            .put("postponementObservations", postponement.observations.size)
+            .put("directObservations", direct.observations.size)
+            .put("overviewNavigationUrl", overviewTargets.single().url)
+            .put("episodeNavigationUrl", episodeTargets.single().url)
+            .put("failClosedVectors", failClosedCases)
+            .put("moduleDigestMismatchRejected", (moduleDigestMismatch as ExtensionRuntimeResult.Failure).code.name)
+            .put("responseBodyDigestMismatchRejected", (badDigestResult as ExtensionHostResult.Failed).code.name)
+            .put("realGuestCoordinator", JSONObject()
+                .put("completed", true)
+                .put("observationCount", coordinated.observations.size)
+                .put("requestGenerationId", requestGeneration)
+                .put("receiptGenerationId", coordinated.receipt.generationId)
+                .put("receiptGenerationMatchesRequest", coordinated.receipt.generationId == requestGeneration)
+                .put("runtimeServiceGenerationBefore", serviceGenerationBeforeCoordinator)
+                .put("runtimeServiceGenerationAfter", serviceGenerationAfterCoordinator)
+                .put("productionNetworkLedgerUsed", false))
+            .put("realGuestCacheHit", JSONObject()
+                .put("cacheHit", cacheDiagnostics.cacheHit)
+                .put("outputStable", cacheHitPlan.contentEquals(releasePlanBytes)))
+            .put("realGuestCancellation", JSONObject()
+                .put("enteredIsolatedService", true)
+                .put("coroutineCancelled", realGuestCancellation)
+                .put("lateResultFenced", true)
+                .put("normalCallRecovered", true))
+            .put("realGuestFuelAbort", JSONObject()
+                .put("fuel", 1)
+                .put("runtimeResult", "FAILURE")
+                .put("errorCode", ExtensionRuntimeErrorCode.TRAP.name)
+                .put("normalCallRecovered", true))
+            .put("realGuestRestartRecovery", JSONObject()
+                .put("oldPid", identityBeforeRestart.servicePid)
+                .put("newPid", requireNotNull(recoveredIdentity).servicePid)
+                .put("oldGeneration", identityBeforeRestart.serviceGeneration)
+                .put("newGeneration", requireNotNull(recoveredIdentity).serviceGeneration)
+                .put("normalCallRecovered", true))
             .put("releaseGuestMicros", releaseDiagnostics.guestMicros)
             .put("releaseCompileMicros", releaseDiagnostics.compileMicros)
             .put("releaseInstantiateMicros", releaseDiagnostics.instantiateMicros)
-            .put("navigationGuestMicros", navDiagnostics.guestMicros)
             .put("isolatedServiceNoInternet", true)
+    }
+
+    private fun navigationContextFromVector(bytes: ByteArray): NavigationContextV1 {
+        val root = JSONObject(String(bytes, Charsets.UTF_8))
+        val value = root.optJSONObject("context") ?: root
+        fun optionalString(key: String): String? = if (value.isNull(key)) null else value.getString(key)
+        val track = optionalString("track")?.let(ObservationTrack::valueOf)
+        return NavigationContextV1(
+            schemaVersion = value.getInt("schemaVersion"),
+            extensionId = ExtensionId.parse(value.getString("extensionId")),
+            providerId = ProviderId.parse(value.getString("providerId")),
+            observedAt = value.getString("observedAt"),
+            targetKind = NavigationTargetKind.valueOf(value.getString("targetKind")),
+            targetToken = value.getString("targetToken"),
+            providerSeriesKey = value.getString("providerSeriesKey"),
+            providerRouteHint = optionalString("providerRouteHint"),
+            sourceSeason = if (value.isNull("sourceSeason")) null else value.getInt("sourceSeason"),
+            providerEpisode = optionalString("providerEpisode"),
+            track = track,
+        )
+    }
+
+    private fun navigationResponsesFromVector(bytes: ByteArray): List<NavigationResponseEnvelopeV1> {
+        val root = JSONObject(String(bytes, Charsets.UTF_8))
+        val values = root.getJSONArray("responses")
+        return (0 until values.length()).map { index ->
+            val response = values.getJSONObject(index)
+            fun optionalString(key: String): String? = if (response.isNull(key)) null else response.getString(key)
+            NavigationResponseEnvelopeV1(
+                requestId = response.getString("requestId"),
+                status = ExtensionResponseStatus.valueOf(response.getString("status")),
+                httpStatus = if (response.isNull("httpStatus")) null else response.getInt("httpStatus"),
+                finalUrl = optionalString("finalUrl"),
+                bodyUtf8 = optionalString("bodyUtf8"),
+                sourceHash = optionalString("sourceHash"),
+            )
+        }
     }
 
     private suspend fun runReleaseHost(

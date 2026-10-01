@@ -36,6 +36,9 @@ class RoomAniWorldPollStore(
     override suspend fun eligibleDirectTargets(now: Instant): List<DirectTargetCandidate> =
         database.withTransaction { readCandidates(now, rememberFirstEligibility = true) }
 
+    override suspend fun eligibleMappedDirectTargets(now: Instant): List<DirectTargetCandidate> =
+        database.withTransaction { readCandidates(now, rememberFirstEligibility = true, mappedOnly = true) }
+
     override suspend fun shadowComparison(now: Instant): ShadowComparison =
         database.withTransaction { compareInTransaction(now) }
 
@@ -287,7 +290,7 @@ class RoomAniWorldPollStore(
         return manifest
     }
 
-    private suspend fun readCandidates(now: Instant, rememberFirstEligibility: Boolean): List<DirectTargetCandidate> {
+    private suspend fun readCandidates(now: Instant, rememberFirstEligibility: Boolean, mappedOnly: Boolean = false): List<DirectTargetCandidate> {
         val candidates = mutableListOf<DirectTargetCandidate>()
         var after: String? = null
         while (true) {
@@ -300,7 +303,9 @@ class RoomAniWorldPollStore(
                 val evidence = receipts.mapNotNull { receipt ->
                     reconciliationDao.evidenceById(receipt.canonicalEvidenceId)?.toDomainOrNull()
                 }
-                val initial = AniWorldDirectTargetResolver.resolve(projection, evidence, null, now) ?: continue
+                val initial = if (mappedOnly) AniWorldDirectTargetResolver.resolveMapped(projection, evidence, null, now)
+                    else AniWorldDirectTargetResolver.resolve(projection, evidence, null, now)
+                if (initial == null) continue
                 val stateKey = urlKey(initial.canonicalUrl)
                 var requestState = poll.requestState(stateKey)
                 if (rememberFirstEligibility && requestState?.firstEligibleAt == null) {
@@ -308,8 +313,9 @@ class RoomAniWorldPollStore(
                     poll.putRequestState(row.copy(firstEligibleAt = now.toPollTimestamp(), policyVersion = 1))
                     requestState = row.copy(firstEligibleAt = now.toPollTimestamp(), policyVersion = 1)
                 }
-                val candidate = AniWorldDirectTargetResolver.resolve(projection, evidence, requestState, now)
-                    ?: continue
+                val candidate = if (mappedOnly) AniWorldDirectTargetResolver.resolveMapped(projection, evidence, requestState, now)
+                    else AniWorldDirectTargetResolver.resolve(projection, evidence, requestState, now)
+                if (candidate == null) continue
                 candidates += candidate
             }
             if (page.size < PAGE_SIZE) break

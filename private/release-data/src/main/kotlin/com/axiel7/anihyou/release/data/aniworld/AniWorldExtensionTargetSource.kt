@@ -25,7 +25,7 @@ class AniWorldExtensionTargetSource(
 ) : ExtensionTargetSource {
     override suspend fun targets(): List<ExtensionAcquisitionTarget> {
         val now = clock.instant()
-        val candidates = pollStore.eligibleDirectTargets(now)
+        val candidates = pollStore.eligibleMappedDirectTargets(now)
         return DirectTargetSelectionPolicy.select(candidates, now)
             .flatMap { candidate -> candidate.exactTargetKeys.mapNotNull { target(candidate, it) } }
             .distinctBy { it.target.targetToken }

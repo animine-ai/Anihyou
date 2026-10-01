@@ -141,6 +141,8 @@ sealed interface ShadowRefreshOutcome {
 
 interface AniWorldShadowPollStore {
     suspend fun eligibleDirectTargets(now: Instant): List<DirectTargetCandidate>
+    /** Extension ingress selects mapped coordinates and never invokes legacy route construction. */
+    suspend fun eligibleMappedDirectTargets(now: Instant): List<DirectTargetCandidate> = emptyList()
     suspend fun shadowComparison(now: Instant): ShadowComparison
     suspend fun beginGeneration(manifest: ShadowGenerationManifest, candidateSnapshotDigest: String): Boolean
     suspend fun currentGeneration(token: ShadowGenerationToken): ShadowGenerationSnapshot?

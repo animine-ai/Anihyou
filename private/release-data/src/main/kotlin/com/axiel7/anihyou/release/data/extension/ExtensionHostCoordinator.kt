@@ -115,7 +115,12 @@ class ExtensionHostCoordinator(
     private val clock: Clock = Clock.systemUTC(),
     /** False by default; production execution remains disabled until trust/runtime gates close. */
     private val enabled: () -> Boolean = { false },
+    parseFuelByExtensionId: Map<ExtensionId, Long> = emptyMap(),
 ) {
+    private val parseFuelGrants = parseFuelByExtensionId.toMap().also { grants ->
+        require(grants.values.all { it in 10_000_000L..25_000_000L })
+    }
+
     suspend fun execute(request: ExtensionRunRequest): ExtensionHostResult {
         if (!enabled()) return ExtensionHostResult.Failed(ExtensionHostFailureCode.DISABLED)
         if (request.generationId.isBlank() || request.generationId.length > 128 || request.sourceRoles.isEmpty()) {
@@ -255,7 +260,8 @@ class ExtensionHostCoordinator(
     ): ByteArray {
         val limits = when (exportName) {
             "plan_requests" -> PLAN_LIMITS
-            "parse_responses" -> PARSE_LIMITS
+            "parse_responses" -> PARSE_LIMITS.copy(
+                fuel = parseFuelGrants[packageInfo.extensionId] ?: PARSE_LIMITS.fuel)
             else -> throw IllegalArgumentException("export is not allowlisted")
         }
         if (input.size > limits.maxInputBytes) {
@@ -363,7 +369,7 @@ class ExtensionHostCoordinator(
             maxInputBytes = 4 * 1024 * 1024,
             maxOutputBytes = 1024 * 1024,
             memoryBytes = 32 * 1024 * 1024,
-            fuel = 25_000_000,
+            fuel = 10_000_000,
             deadlineMillis = 2_000,
         )
         val SHA256 = Regex("[0-9a-f]{64}")

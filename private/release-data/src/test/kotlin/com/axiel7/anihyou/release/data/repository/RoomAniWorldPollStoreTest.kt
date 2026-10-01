@@ -217,6 +217,13 @@ class RoomAniWorldPollStoreTest {
             reconciliation.persistCompletedCycle(seedCycle)
 
             val store = RoomAniWorldPollStore(database, reconciliation, clock)
+            val mapped = store.eligibleMappedDirectTargets(startedAt)
+            assertEquals(200, mapped.sumOf { it.exactTargetKeys.size })
+            assertTrue(mapped.all { it.canonicalUrl.startsWith("mapped-direct-v1:") &&
+                !it.canonicalUrl.contains("https://") && it.providerSeriesKey != null && it.navigationSeason != null })
+            val mappedSelected = DirectTargetSelectionPolicy.select(mapped, startedAt)
+            assertEquals(4, mappedSelected.size)
+            assertTrue(mappedSelected.all { it.exactTargetKeys.size == 2 })
             val candidates = store.eligibleDirectTargets(startedAt)
             assertEquals(200, candidates.sumOf { it.exactTargetKeys.size })
             val selected = DirectTargetSelectionPolicy.select(candidates, startedAt)

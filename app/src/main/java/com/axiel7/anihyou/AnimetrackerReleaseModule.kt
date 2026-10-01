@@ -112,6 +112,8 @@ val animetrackerReleaseModule = module {
             repositoryId = BuildConfig.EXTENSION_REPOSITORY_ID,
             initialRootSha256 = rootDigest,
             distributionOrigins = BuildConfig.EXTENSION_DISTRIBUTION_ORIGINS.split(',').toSet(),
+            parseFuelByExtensionId = mapOf(
+                com.axiel7.anihyou.release.core.extension.ExtensionId.parse("de.aniworld") to 25_000_000L),
             allowedHosts = BuildConfig.EXTENSION_ALLOWED_HOSTS.split(',').toSet(),
             approvedAuthority = setOf(ApprovedExtensionAuthorityTuple(
                 BuildConfig.EXTENSION_PUBLISHER_ID, BuildConfig.EXTENSION_SIGNING_KEY_ID,

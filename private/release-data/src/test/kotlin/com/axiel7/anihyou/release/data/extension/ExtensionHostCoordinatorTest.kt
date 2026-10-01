@@ -196,6 +196,31 @@ class ExtensionHostCoordinatorTest {
         )
     }
 
+    @Test
+    fun `extended parse fuel is granted only to the verified extension identity`() = runBlocking {
+        for ((grants, expected) in listOf(
+            emptyMap<ExtensionId, Long>() to 10_000_000L,
+            mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L) to 25_000_000L,
+            mapOf(ExtensionId.parse("other.extension") to 25_000_000L) to 10_000_000L,
+        )) {
+            val runtime = FixtureRuntime(planUrl = "https://aniworld.to/calendar")
+            val coordinator = ExtensionHostCoordinator(
+                FakeRepository(extensionPackage()), runtime, FixtureTransport(),
+                ExtensionObservationPolicy { _, _ -> true }, enabled = { true },
+                parseFuelByExtensionId = grants)
+            assertTrue(coordinator.execute(runRequest()) is ExtensionHostResult.Completed)
+            assertEquals(10_000_000L, runtime.executedLimits.single { it.first == "plan_requests" }.second.fuel)
+            assertEquals(expected, runtime.executedLimits.single { it.first == "parse_responses" }.second.fuel)
+        }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `resource grants cannot raise the hard parse fuel ceiling`() {
+        ExtensionHostCoordinator(FakeRepository(extensionPackage()), FixtureRuntime(), FixtureTransport(),
+            ExtensionObservationPolicy { _, _ -> true },
+            parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_001L))
+    }
+
     private fun coordinator(
         repository: FakeRepository,
         runtime: ExtensionRuntime,
@@ -284,6 +309,7 @@ class ExtensionHostCoordinatorTest {
         private val directSeriesKeyOverride: String? = null,
     ) : ExtensionRuntime {
         val calls = AtomicInteger()
+        val executedLimits = mutableListOf<Pair<String, ExtensionExecutionLimits>>()
 
         override suspend fun execute(
             moduleDigest: String,
@@ -293,6 +319,7 @@ class ExtensionHostCoordinatorTest {
             limits: ExtensionExecutionLimits,
         ): ExtensionRuntimeResult {
             calls.incrementAndGet()
+            executedLimits += exportName to limits
             return when (exportName) {
                 "plan_requests" -> {
                     val planInput = ExtensionWireCodec.decodePlanInput(inputUtf8)

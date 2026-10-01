@@ -58,7 +58,7 @@ class AniWorldExtensionTargetSourceTest {
             confidence = ConfidenceVector(1.0, 1.0, 1.0, 1.0, 1.0),
         )
         val key = CanonicalReleaseIdentity.from(evidence)!!.key
-        val url = "https://aniworld.to/anime/stream/v3-target-series/staffel-2/episode-5"
+        val url = "mapped-direct-v1:" + "a".repeat(64)
         val candidate = DirectTargetCandidate(
             canonicalUrl = url,
             exactTargetKey = key,
@@ -88,7 +88,8 @@ class AniWorldExtensionTargetSourceTest {
     }
 
     private class PollStore(private val candidate: DirectTargetCandidate) : AniWorldShadowPollStore {
-        override suspend fun eligibleDirectTargets(now: Instant) = listOf(candidate)
+        override suspend fun eligibleDirectTargets(now: Instant): List<DirectTargetCandidate> = error("legacy route path must not run")
+        override suspend fun eligibleMappedDirectTargets(now: Instant) = listOf(candidate)
         override suspend fun shadowComparison(now: Instant): ShadowComparison = error("unused")
         override suspend fun beginGeneration(manifest: ShadowGenerationManifest, candidateSnapshotDigest: String): Boolean = error("unused")
         override suspend fun currentGeneration(token: ShadowGenerationToken): ShadowGenerationSnapshot? = error("unused")

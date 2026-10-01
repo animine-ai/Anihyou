@@ -1,6 +1,7 @@
 package com.axiel7.anihyou.release.data.extension
 
 import android.content.Context
+import com.axiel7.anihyou.release.core.extension.ExtensionId
 import com.axiel7.anihyou.release.core.extension.SourceRole
 import java.io.File
 import java.time.Instant
@@ -13,6 +14,7 @@ data class ProductionExtensionHostConfiguration(
     val distributionOrigins: Set<String>,
     val allowedHosts: Set<String>,
     val approvedAuthority: Set<ApprovedExtensionAuthorityTuple>,
+    val parseFuelByExtensionId: Map<ExtensionId, Long> = emptyMap(),
 )
 
 /**
@@ -81,7 +83,8 @@ class ProductionExtensionHostBoundary private constructor(
                     ExtensionWireCodec.decodePlanOutput(output.outputUtf8, contextV1)
                 })
             val dispatch = ProductionExtensionDispatches.create(store, runtime,
-                File(context.filesDir, "release-extension-network"), authority.observationPolicy())
+                File(context.filesDir, "release-extension-network"), authority.observationPolicy(),
+                configuration.parseFuelByExtensionId)
             return ProductionExtensionHostBoundary(dispatch.release, dispatch.navigation, authority, store)
         }
     }
