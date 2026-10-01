@@ -34,7 +34,7 @@ class RoomAniWorldPollStore(
     private val releaseDao = database.releaseDao()
 
     override suspend fun eligibleDirectTargets(now: Instant): List<DirectTargetCandidate> =
-        database.withTransaction { readCandidates(now, rememberFirstEligibility = true) }
+        emptyList() // Retired built-in Direct ingress cannot select provider routes.
 
     override suspend fun eligibleMappedDirectTargets(now: Instant): List<DirectTargetCandidate> =
         database.withTransaction { readCandidates(now, rememberFirstEligibility = true, mappedOnly = true) }
@@ -291,6 +291,7 @@ class RoomAniWorldPollStore(
     }
 
     private suspend fun readCandidates(now: Instant, rememberFirstEligibility: Boolean, mappedOnly: Boolean = false): List<DirectTargetCandidate> {
+        if (!mappedOnly) return emptyList()
         val candidates = mutableListOf<DirectTargetCandidate>()
         var after: String? = null
         while (true) {
@@ -303,8 +304,7 @@ class RoomAniWorldPollStore(
                 val evidence = receipts.mapNotNull { receipt ->
                     reconciliationDao.evidenceById(receipt.canonicalEvidenceId)?.toDomainOrNull()
                 }
-                val initial = if (mappedOnly) AniWorldDirectTargetResolver.resolveMapped(projection, evidence, null, now)
-                    else AniWorldDirectTargetResolver.resolve(projection, evidence, null, now)
+                val initial = AniWorldDirectTargetResolver.resolveMapped(projection, evidence, null, now)
                 if (initial == null) continue
                 val stateKey = urlKey(initial.canonicalUrl)
                 var requestState = poll.requestState(stateKey)
@@ -313,8 +313,7 @@ class RoomAniWorldPollStore(
                     poll.putRequestState(row.copy(firstEligibleAt = now.toPollTimestamp(), policyVersion = 1))
                     requestState = row.copy(firstEligibleAt = now.toPollTimestamp(), policyVersion = 1)
                 }
-                val candidate = if (mappedOnly) AniWorldDirectTargetResolver.resolveMapped(projection, evidence, requestState, now)
-                    else AniWorldDirectTargetResolver.resolve(projection, evidence, requestState, now)
+                val candidate = AniWorldDirectTargetResolver.resolveMapped(projection, evidence, requestState, now)
                 if (candidate == null) continue
                 candidates += candidate
             }

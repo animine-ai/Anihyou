@@ -8,7 +8,6 @@ import com.axiel7.anihyou.release.core.api.ShadowGenerationToken
 import com.axiel7.anihyou.release.core.api.ShadowSourceSpec
 import com.axiel7.anihyou.release.core.model.AbsencePolicySnapshot
 import com.axiel7.anihyou.release.core.model.AniWorldSiteIdentifier
-import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
 import com.axiel7.anihyou.release.core.model.ConfidenceVector
 import com.axiel7.anihyou.release.core.model.CompletedObservationCycle
 import com.axiel7.anihyou.release.core.model.CycleResult
@@ -28,7 +27,6 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
-import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -189,7 +187,7 @@ class RoomAniWorldPollStoreTest {
     }
 
     @Test
-    fun hundredsOfTrackDecisionsShareFourDirectUrlsAndFourWireReservations() = runBlocking {
+    fun hundredsOfTrackDecisionsShareFourOpaqueTargetsAndLegacyIngressStaysRetired() = runBlocking {
         val database = openDatabase()
         try {
             val reconciliation = RoomReleaseReconciliationRepository(database)
@@ -224,43 +222,14 @@ class RoomAniWorldPollStoreTest {
             val mappedSelected = DirectTargetSelectionPolicy.select(mapped, startedAt)
             assertEquals(4, mappedSelected.size)
             assertTrue(mappedSelected.all { it.exactTargetKeys.size == 2 })
-            val candidates = store.eligibleDirectTargets(startedAt)
-            assertEquals(200, candidates.sumOf { it.exactTargetKeys.size })
-            val selected = DirectTargetSelectionPolicy.select(candidates, startedAt)
-            assertEquals(4, selected.size)
-            assertTrue(selected.all { it.exactTargetKeys.size == 2 })
-
-            val sources = fixedListSources() + selected.flatMap { candidate ->
-                candidate.exactTargetKeys.sorted().map { key ->
-                    val identity = requireNotNull(CanonicalReleaseIdentity.decode(key))
-                    ShadowSourceSpec(
-                        instanceId = "aw:direct-target:v1:" + sha256(candidate.canonicalUrl + key),
-                        sourceType = ReleaseSourceType.ANIWORLD_DIRECT_PAGE.name,
-                        targetKey = key,
-                        track = identity.track.name,
-                        requestUrl = candidate.canonicalUrl,
-                        requiredForRun = false,
-                        physicalRequestId = "aw:direct-url:v1:" + sha256(candidate.canonicalUrl),
-                    )
-                }
-            }
-            val manifest = ShadowGenerationManifest(
-                ShadowGenerationToken("aw-shadow-v1:fanout", "owner-fanout", "process-fanout"),
-                1, startedAt, startedAt.plus(Duration.ofMinutes(4)), sources,
-                AniWorldShadowManifestCodec.digest(sources),
-            )
-            assertTrue(store.beginGeneration(manifest, DirectTargetSelectionPolicy.snapshotDigest(candidates)))
-
-            selected.forEach { candidate ->
-                assertNotNull(store.reserveRequest(manifest.token, "DIRECT", candidate.canonicalUrl,
-                    candidate.canonicalUrl, startedAt.plusSeconds(1)))
-            }
-            assertNull(store.reserveRequest(manifest.token, "DIRECT", selected.first().canonicalUrl,
-                selected.first().canonicalUrl, startedAt.plusSeconds(2)))
-            val snapshot = store.currentGeneration(manifest.token)
+            // The retired built-in path must never recreate a website URL from these projections.
+            assertTrue(store.eligibleDirectTargets(startedAt).isEmpty())
+            val legacyManifest = manifest("retired-direct")
+            assertTrue(store.beginGeneration(legacyManifest,
+                DirectTargetSelectionPolicy.snapshotDigest(emptyList())))
+            val snapshot = store.currentGeneration(legacyManifest.token)
             assertNotNull(snapshot)
-            assertEquals(4, snapshot!!.directReserved)
-            assertEquals(0, snapshot.listReserved)
+            assertEquals(0, snapshot!!.directReserved)
         } finally {
             database.close()
         }
@@ -334,9 +303,6 @@ class RoomAniWorldPollStoreTest {
         )
         return item.copy(id = ReleaseEvidenceFingerprintV2.evidenceId(item))
     }
-
-    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
     private fun scalar(db: androidx.sqlite.db.SupportSQLiteDatabase, query: String): Long =
         db.query(query).use { assertTrue(it.moveToFirst()); it.getLong(0) }

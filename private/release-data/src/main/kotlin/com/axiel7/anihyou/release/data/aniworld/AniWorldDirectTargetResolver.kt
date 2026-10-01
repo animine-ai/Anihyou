@@ -13,27 +13,13 @@ import java.time.Instant
 
 /** Resolves only exact, committed V3 projections with matching stored AniWorld provenance. */
 internal object AniWorldDirectTargetResolver {
-    fun resolve(
-        row: CanonicalReleaseProjectionEntity,
-        evidence: List<ReleaseEvidence>,
-        requestState: RequestStateEntity?,
-        now: Instant,
-    ): DirectTargetCandidate? = resolveCandidate(row, evidence, requestState, now, mappedOnly = false)
-
     fun resolveMapped(
         row: CanonicalReleaseProjectionEntity,
         evidence: List<ReleaseEvidence>,
         requestState: RequestStateEntity?,
         now: Instant,
-    ): DirectTargetCandidate? = resolveCandidate(row, evidence, requestState, now, mappedOnly = true)
-
-    private fun resolveCandidate(
-        row: CanonicalReleaseProjectionEntity,
-        evidence: List<ReleaseEvidence>,
-        requestState: RequestStateEntity?,
-        now: Instant,
-        mappedOnly: Boolean,
     ): DirectTargetCandidate? {
+
         val identity = CanonicalReleaseIdentity.decode(row.projectionKey) ?: return null
         val state = runCatching { ReleaseReconciliationMapper.state(row) }.getOrNull() ?: return null
         val hasOpenConflict = state.conflicts.any { it.open }
@@ -51,20 +37,14 @@ internal object AniWorldDirectTargetResolver {
         if (providerSeriesKeys.size != 1) return null
         val navigationSeasons = exactEvidence.mapNotNull { it.navigationSeason }.distinct()
         if (identity.installment is Installment.Episode && navigationSeasons.size != 1) return null
-        val url = if (mappedOnly) {
-            val episode = identity.installment as? Installment.Episode ?: return null
-            if (episode.fraction != null || navigationSeasons.singleOrNull()?.let { it in 1..9999 } != true) return null
-            // Opaque selection/cooldown key, never a provider URL or network request.
-            val coordinates = listOf(providerSeriesKeys.single(), navigationSeasons.single(), episode.number)
-                .joinToString("\n")
-            "mapped-direct-v1:" + MessageDigest.getInstance("SHA-256")
-                .digest(coordinates.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
-        } else {
-            val urls = exactEvidence.mapNotNull { LegacyAniWorldDirectRoute.url(identity, it) }.distinct()
-            if (urls.size != 1) return null
-            urls.single()
-        }
+        val episode = identity.installment as? Installment.Episode ?: return null
+        if (episode.fraction != null || navigationSeasons.singleOrNull()?.let { it in 1..9999 } != true) return null
+        // Opaque selection/cooldown key, never a provider URL or network request.
+        val coordinates = listOf(providerSeriesKeys.single(), navigationSeasons.single(), episode.number)
+            .joinToString("\n")
+        val selectionKey = "mapped-direct-v1:" + MessageDigest.getInstance("SHA-256")
+            .digest(coordinates.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         val attempt = requestState?.lastAttemptAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
         val first = requestState?.firstEligibleAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
             ?: state.latestCompletedAt ?: now
@@ -75,7 +55,7 @@ internal object AniWorldDirectTargetResolver {
             else -> 2
         }
         return DirectTargetCandidate(
-            canonicalUrl = url,
+            canonicalUrl = selectionKey,
             exactTargetKey = identity.key,
             tracks = setOf(identity.track.name),
             priority = priority,
