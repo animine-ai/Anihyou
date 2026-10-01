@@ -449,7 +449,7 @@ private object RuntimeProof {
             val navContext = navigationContextFromVector(inputBytes)
             val responses = navigationResponsesFromVector(inputBytes)
             val outputBytes = executeSuccess(
-                runtime, verified, "parse_navigation", inputBytes, aniWorldParseLimits)
+                runtime, verified, "parse_navigation", inputBytes, parseLimits.copy(maxOutputBytes = 64 * 1024))
             NavigationWireCodecV1.decodeTargets(
                 outputBytes, navContext, responses, verified.grantedHosts).targets
         }
