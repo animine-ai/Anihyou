@@ -37,7 +37,7 @@ import com.axiel7.anihyou.release.core.source.ExtensionSource
 import com.axiel7.anihyou.release.core.source.ExtensionSourceStatus
 import com.axiel7.anihyou.release.core.source.SourceExtension
 import com.axiel7.anihyou.release.data.extension.FileExtensionProductPolicyRepository
-import com.axiel7.anihyou.ui.screens.main.MainActivity
+import androidx.activity.ComponentActivity
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -56,7 +56,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ExtensionProductSettingsComposeTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<MainActivity>()
+    val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
     fun settingsKeepActiveSourceNavigationAndPerExtensionPreferencesSeparate() {

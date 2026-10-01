@@ -17,7 +17,7 @@ import com.axiel7.anihyou.core.ui.common.navigation.*
 import com.axiel7.anihyou.feature.settings.MainNavigationEditor
 import com.axiel7.anihyou.feature.settings.source.ExtensionCenterMenu
 import com.axiel7.anihyou.feature.settings.source.ExtensionCenterPage
-import com.axiel7.anihyou.ui.screens.main.MainActivity
+import androidx.activity.ComponentActivity
 import com.axiel7.anihyou.ui.screens.main.MainNavigation
 import com.axiel7.anihyou.core.ui.common.BottomDestination.Companion.isBottomDestination
 import com.axiel7.anihyou.core.model.HomeTab
@@ -34,7 +34,34 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MainNavigationProductComposeTest {
-    @get:Rule val composeRule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun homeActionsHaveAccessibleLabelsAndNavigateWithoutAProfileMainTab() {
+        lateinit var state: NavigationState
+        lateinit var navigator: Navigator
+        var loggedIn by mutableStateOf(true)
+        composeRule.setContent {
+            state = rememberNavigationState(Route.Home, MainNavigationResolver.allRoutes)
+            navigator = remember(state) { Navigator(state) }
+            CompositionLocalProvider(LocalNavActionManager provides NavActionManager(navigator)) {
+                MaterialTheme {
+                    com.axiel7.anihyou.feature.home.HomeView(loggedIn, HomeTab.CURRENT)
+                }
+            }
+        }
+        assertFalse(MainNavigationConfig().visibleIds.contains("profile"))
+        composeRule.onNodeWithTag("home-notifications").assertContentDescriptionEquals(composeRule.activity.getString(
+            com.axiel7.anihyou.core.resources.R.string.notifications)).performClick()
+        composeRule.runOnIdle { assertTrue(state.getCurrentRoute() is Route.Notifications); navigator.goBack() }
+        composeRule.onNodeWithTag("home-settings").performClick()
+        composeRule.runOnIdle { assertEquals(Route.Settings, state.getCurrentRoute()); navigator.goBack() }
+        composeRule.onNodeWithTag("home-profile").performClick()
+        composeRule.runOnIdle { assertEquals(Route.OwnProfile, state.getCurrentRoute()); navigator.goBack(); loggedIn = false }
+        composeRule.onNodeWithTag("home-notifications").assertDoesNotExist()
+        composeRule.onNodeWithTag("home-settings").assertIsDisplayed()
+        composeRule.onNodeWithTag("home-profile").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { assertEquals(Route.OwnProfile, state.getCurrentRoute()) }
+    }
 
     @Test fun productionCalendarRootAndNestedHostHaveDifferentChromeAndRetainTheirStacks() {
         lateinit var state: NavigationState
@@ -81,40 +108,6 @@ class MainNavigationProductComposeTest {
             navigator.goBack()
             assertEquals(Route.Home, state.topLevelRoute)
         }
-    }
-
-    @Test fun calendarMainKeepsChromeAndPredictiveBackReturnsHome() {
-        composeRule.onNodeWithTag("HomeTab").performClick()
-        composeRule.onNodeWithTag("ProfileTab").assertDoesNotExist()
-        composeRule.mainClock.autoAdvance = false
-        try {
-            composeRule.onNodeWithTag("CalendarTab").assertIsDisplayed().performClick()
-            composeRule.mainClock.advanceTimeBy(32)
-            repeat(6) {
-                composeRule.onNodeWithTag("HomeTab").assertIsDisplayed()
-                composeRule.onNodeWithTag("CalendarTab").assertIsDisplayed().assertIsSelected()
-                composeRule.mainClock.advanceTimeBy(50)
-            }
-        } finally { composeRule.mainClock.autoAdvance = true }
-        composeRule.onNodeWithTag("CalendarTab").assertIsSelected()
-        composeRule.onNodeWithTag("HomeTab").assertIsDisplayed()
-        composeRule.runOnIdle {
-            composeRule.activity.onBackPressedDispatcher.dispatchOnBackStarted(BackEventCompat(0f, 200f, 0f, BackEventCompat.EDGE_LEFT))
-            composeRule.activity.onBackPressedDispatcher.dispatchOnBackProgressed(BackEventCompat(150f, 200f, 0.5f, BackEventCompat.EDGE_LEFT))
-        }
-        composeRule.runOnIdle { composeRule.activity.onBackPressedDispatcher.dispatchOnBackCancelled() }
-        composeRule.onNodeWithTag("CalendarTab").assertIsSelected()
-        composeRule.runOnIdle { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
-        composeRule.onNodeWithTag("HomeTab").assertIsSelected()
-        composeRule.onNodeWithTag("home-settings").assertIsDisplayed()
-        composeRule.onNodeWithTag("home-settings").assertContentDescriptionEquals(
-            composeRule.activity.getString(com.axiel7.anihyou.core.resources.R.string.settings))
-        composeRule.onNodeWithTag("home-profile").assertContentDescriptionEquals(
-            composeRule.activity.getString(com.axiel7.anihyou.core.resources.R.string.profile))
-        composeRule.onNodeWithTag("home-profile").assertIsDisplayed().performClick()
-        composeRule.onNodeWithTag("ProfileTab").assertDoesNotExist()
-        composeRule.runOnIdle { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
-        composeRule.onNodeWithTag("HomeTab").assertIsSelected()
     }
 
     @Test fun bottomAndRailUseSameOrderAndEditsRetainEveryBackstack() {

@@ -37,7 +37,7 @@ import com.axiel7.anihyou.release.core.source.ExtensionPreferences
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicy
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
-import com.axiel7.anihyou.ui.screens.main.MainActivity
+import androidx.activity.ComponentActivity
 import java.math.BigDecimal
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -53,7 +53,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MediaDetailsNavigationComposeTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<MainActivity>()
+    val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
     fun watchNextButtonRequiresObservedTargetAndPositiveBehindCount() = runBlocking {
