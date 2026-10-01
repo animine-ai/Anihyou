@@ -173,7 +173,7 @@ private object RuntimeProof {
             functional.put("productionNavigationDispatch", runProductionNavigationDispatch(
                 runtime, verified, navigationTransport, httpsFixture))
             functional.put("ep06ProductPolicy", Ep06ProductPolicyProof.run(
-                context, runtime, verified, freshProductionTransport(context, "ep06-product"), httpsFixture))
+                context, runtime, verified, freshProductionTransport(context, "ep-six-product"), httpsFixture))
             functional.put("navigationOverview", runNavigation(runtime, verified, NavigationTargetKind.OVERVIEW))
             functional.put("navigationEpisode", runNavigation(runtime, verified, NavigationTargetKind.EPISODE))
             functional.put("productionTransportFactoryBoundary", proveProductionTransportFactoryBoundary(context, verified))
