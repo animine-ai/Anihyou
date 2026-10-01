@@ -23,6 +23,40 @@ class FileExtensionProductPolicyRepositoryTest {
     val temporaryFolder = TemporaryFolder()
 
     @Test
+    fun `provider order survives restart without changing release selection or generation`() = runBlocking {
+        val directory = temporaryFolder.newFolder("provider-order")
+        val repository = repository(directory)
+        repository.selectActiveSource(KEY_A)
+        val before = repository.policy.value
+        repository.setNavigationProviderOrder(listOf(KEY_B, KEY_A))
+        assertEquals(KEY_A, repository.policy.value.activeReleaseSource)
+        assertEquals(before.releaseGeneration, repository.policy.value.releaseGeneration)
+        assertEquals("allowed", repository.withCurrentSelection(before) { "allowed" })
+        assertNull(repository.withCurrentPolicy(before) { "stale" })
+        assertEquals(listOf(KEY_B, KEY_A), repository(directory).policy.value.navigationProviderOrder)
+    }
+
+    @Test
+    fun `old policy migrates provider order and removal preserves preferences for reinstall`() = runBlocking {
+        val directory = temporaryFolder.newFolder("migration-order")
+        val repository = repository(directory)
+        val preferences = ExtensionPreferences(setOf("DE_DUB"), listOf("DE_DUB"))
+        repository.setPreferences(KEY_A, preferences)
+        repository.selectActiveSource(KEY_A)
+        repository.selectNavigationProvider(KEY_B)
+        val file = File(directory, "product-policy.json")
+        val original = kotlinx.serialization.json.Json.parseToJsonElement(file.readText()) as kotlinx.serialization.json.JsonObject
+        file.writeText(kotlinx.serialization.json.JsonObject(original - "navigationProviderOrder").toString())
+        val restored = repository(directory)
+        assertTrue(restored.policy.value.navigationProviderOrder.isEmpty())
+        restored.invalidateExtension(KEY_A)
+        assertNull(restored.policy.value.activeReleaseSource)
+        assertEquals(KEY_B, restored.policy.value.preferredNavigationProvider)
+        restored.selectActiveSource(KEY_A)
+        assertEquals(preferences, restored.policy.value.preferencesFor(KEY_A))
+    }
+
+    @Test
     fun `new repository has no active source and cannot commit through an empty selection`() = runBlocking {
         val repository = repository(temporaryFolder.newFolder("no-active-source"))
         val snapshot = repository.policy.value

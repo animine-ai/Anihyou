@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.Badge
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
@@ -24,6 +25,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import com.axiel7.anihyou.core.ui.common.navigation.Route
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -87,6 +90,8 @@ fun HomeView(
                 )
                 IconButtonWithBadge(
                     icon = R.drawable.notifications_24,
+                    modifier = Modifier.testTag("home-notifications"),
+                    contentDescription = stringResource(R.string.notifications),
                     badge = {
                         if (unreadNotificationCount > 0) {
                             Badge {
@@ -97,6 +102,10 @@ fun HomeView(
                     onClick = { navActionManager.toNotifications(unreadNotificationCount) }
                 )
             }
+            HomeAccountActions(
+                onSettings = { navActionManager.toSettings() },
+                onProfile = { navActionManager.navigate(Route.OwnProfile) },
+            )
         },
         scrollBehavior = topAppBarScrollBehavior,
         topAppBarColors = topAppBarColors,
@@ -147,4 +156,14 @@ fun HomeView(
             }
         }//:Column
     }//:Scaffold
+}
+
+@Composable
+fun HomeAccountActions(onSettings: () -> Unit, onProfile: () -> Unit) {
+    IconButton(onClick = onSettings, modifier = Modifier.testTag("home-settings")) {
+        Icon(painterResource(R.drawable.settings_24), contentDescription = stringResource(R.string.settings))
+    }
+    IconButton(onClick = onProfile, modifier = Modifier.testTag("home-profile")) {
+        Icon(painterResource(R.drawable.person_24), contentDescription = stringResource(R.string.profile))
+    }
 }

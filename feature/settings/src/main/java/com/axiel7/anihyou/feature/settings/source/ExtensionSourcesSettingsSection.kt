@@ -108,49 +108,6 @@ fun ExtensionSourcesSettingsSection(
             )
         } else {
             Spacer(Modifier.height(16.dp))
-            PreferencesTitle(text = stringResource(R.string.extension_sources_product_policy_title))
-            Text(
-                text = stringResource(R.string.extension_sources_single_active_explanation),
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            val activeKey = uiState.productPolicy.activeReleaseSource
-            val activeKeyIsUsable = activeKey != null && uiState.sources.any { source ->
-                source.enabled && source.extensions.any { extension ->
-                    source.selectionKey(extension) == activeKey && extension.isUsableInstalled()
-                }
-            }
-            SelectionOption(
-                label = stringResource(R.string.extension_sources_no_active_source),
-                selected = !activeKeyIsUsable,
-                enabled = uiState.canEditProductPolicy,
-                onClick = { event.selectActiveSource(null) },
-                testTag = "extension-product-active-none",
-            )
-            val navigationKeys = uiState.sources.flatMap { source ->
-                source.extensions.mapNotNull { extension ->
-                    source.selectionKey(extension)?.takeIf {
-                        source.enabled && extension.isUsableInstalled() && extension.supportsNavigation()
-                    }
-                }
-            }.toSet()
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = stringResource(R.string.extension_sources_preferred_navigation_provider),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = stringResource(R.string.extension_sources_navigation_provider_explanation),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            SelectionOption(
-                label = stringResource(R.string.extension_sources_no_preferred_navigation_provider),
-                selected = uiState.productPolicy.preferredNavigationProvider !in navigationKeys,
-                enabled = uiState.canEditProductPolicy,
-                onClick = { event.selectNavigationProvider(null) },
-                testTag = "extension-product-navigation-none",
-            )
-            Spacer(Modifier.height(8.dp))
             uiState.sources.forEach { source ->
                 ExtensionSourceCard(
                     source = source,
@@ -195,21 +152,6 @@ private fun ExtensionSourceCard(
                         stringResource(sourceFailureString(failure)),
                     ),
                     style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.extension_sources_enabled),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Switch(
-                    checked = source.enabled,
-                    onCheckedChange = { event.setEnabled(source.id, it) },
-                    modifier = Modifier.testTag("extension-source-enabled"),
                 )
             }
             Row(
@@ -307,7 +249,7 @@ private fun SourceExtensionInfo(
     }
     if (extension.activationAllowed && sourceEnabled) {
         TextButton(onClick = { event.activate(source.id, extension.extensionId) }) {
-            Text(stringResource(R.string.extension_sources_activate))
+            Text(stringResource(if (extension.installedDigest == null) R.string.extension_install else R.string.extension_update))
         }
     } else {
         Text(
@@ -315,52 +257,16 @@ private fun SourceExtensionInfo(
             style = MaterialTheme.typography.bodySmall,
         )
     }
-    val key = source.selectionKey(extension)
-    if (key != null && extension.isUsableInstalled()) {
-        val preferences = policy.preferences[key]
-            ?: ExtensionPreferences().withGenericDefaults(extension)
-        Spacer(Modifier.height(8.dp))
-        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-        Text(
-            text = stringResource(R.string.extension_sources_data_source_heading),
-            style = MaterialTheme.typography.titleSmall,
-        )
-        SelectionOption(
-            label = stringResource(R.string.extension_sources_use_active_source),
-            selected = sourceEnabled && policy.activeReleaseSource == key,
-            enabled = canEditPolicy && sourceEnabled && extension.capabilities.any { role ->
-                com.axiel7.anihyou.release.core.extension.SourceRole.entries.any { it.name == role }
-            },
-            onClick = { event.selectActiveSource(key) },
-            testTag = "extension-product-active-${key.testTagPart()}",
-        )
-        if (extension.supportsNavigation()) {
-            Text(
-                text = stringResource(R.string.extension_sources_navigation_provider_heading),
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            SelectionOption(
-                label = stringResource(R.string.extension_sources_prefer_navigation_provider),
-                selected = sourceEnabled && policy.preferredNavigationProvider == key,
-                enabled = canEditPolicy && sourceEnabled,
-                onClick = { event.selectNavigationProvider(key) },
-                testTag = "extension-product-navigation-${key.testTagPart()}",
-            )
+    if (extension.installedDigest != null) {
+        TextButton(onClick = { event.removeExtension(source.id, extension.extensionId) },
+            modifier = Modifier.testTag("extension-remove-" + extension.extensionId)) {
+            Text(stringResource(R.string.extension_remove))
         }
-        ExtensionTrackPreferences(
-            key = key,
-            extension = extension,
-            preferences = preferences,
-            enabled = canEditPolicy && sourceEnabled,
-            canShowInProviderField = extension.capabilities.contains("OVERVIEW_NAVIGATION"),
-            event = event,
-        )
     }
 }
 
 @Composable
-private fun ExtensionTrackPreferences(
+internal fun ExtensionTrackPreferences(
     key: ExtensionSelectionKey,
     extension: SourceExtension,
     preferences: ExtensionPreferences,
@@ -479,7 +385,7 @@ private fun ExtensionTrackPreferences(
 }
 
 @Composable
-private fun SelectionOption(
+internal fun SelectionOption(
     label: String,
     selected: Boolean,
     enabled: Boolean,
@@ -526,7 +432,7 @@ private fun TrackPriorityOption(
 }
 
 @Composable
-private fun TrackSwitch(
+internal fun TrackSwitch(
     label: String,
     checked: Boolean,
     enabled: Boolean,
@@ -560,16 +466,16 @@ private fun isPreferenceTrack(track: String): Boolean =
     track != "UNKNOWN" && track.matches(Regex("[A-Za-z0-9_-]+")) &&
         trackKind(track) != TrackKind.OTHER && track.substringBeforeLast('_').isNotBlank()
 
-private fun SourceExtension.isUsableInstalled(): Boolean =
+internal fun SourceExtension.isUsableInstalled(): Boolean =
     installedDigest != null && activationAllowed && !revoked
 
-private fun SourceExtension.supportsNavigation(): Boolean =
+internal fun SourceExtension.supportsNavigation(): Boolean =
     capabilities.any { it == "OVERVIEW_NAVIGATION" || it == "EPISODE_NAVIGATION" }
 
-private fun ExtensionSelectionKey.testTagPart(): String =
+internal fun ExtensionSelectionKey.testTagPart(): String =
     listOf(sourceId, extensionId, publisherId, providerId).joinToString("-")
 
-private fun ExtensionPreferences.withGenericDefaults(extension: SourceExtension): ExtensionPreferences {
+internal fun ExtensionPreferences.withGenericDefaults(extension: SourceExtension): ExtensionPreferences {
     val supported = extension.supportedTracks.filter(::isPreferenceTrack)
     val defaultEnabled = supported.toSet()
     val preferred = supported.sortedWith(
@@ -579,7 +485,7 @@ private fun ExtensionPreferences.withGenericDefaults(extension: SourceExtension)
     return copy(
         enabledTracks = defaultEnabled,
         preferredTrackOrder = preferred,
-        languageOrder = (listOf("de") + supported.map { it.substringBeforeLast('_').lowercase() }).distinct(),
+        languageOrder = supported.map { it.substringBeforeLast('_').lowercase() }.distinct(),
     )
 }
 

@@ -58,12 +58,14 @@ import org.koin.compose.viewmodel.koinViewModel
 fun CurrentFullListView(
     isLoggedIn: Boolean,
     listType: CurrentListType,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isMain: Boolean = false,
 ) {
     val viewModel: CurrentViewModel = koinViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     CurrentFullListContent(
+        isMain = isMain,
         isLoggedIn = isLoggedIn,
         listType = listType,
         uiState = uiState,
@@ -75,6 +77,7 @@ fun CurrentFullListView(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun CurrentFullListContent(
+    isMain: Boolean = false,
     isLoggedIn: Boolean,
     listType: CurrentListType,
     uiState: CurrentUiState,
@@ -139,7 +142,7 @@ private fun CurrentFullListContent(
         title = listType.localized(),
         modifier = modifier,
         navigationIcon = {
-            BackIconButton(onClick = navActionManager::goBack)
+            if (!isMain) BackIconButton(onClick = navActionManager::goBack)
         },
         scrollBehavior = topAppBarScrollBehavior,
         snackbarHost = snackbarManager::SnackbarHost,

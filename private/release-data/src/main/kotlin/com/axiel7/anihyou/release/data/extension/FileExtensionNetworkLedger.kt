@@ -24,12 +24,18 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
         prune(rows, now.epochSecond)
         val scope = hash("$provider\u0000$generation")
         val host = hash("$provider\u0000${URI(hopUrl).host}")
-        val root = hash("$provider\u0000$rootUrl")
-        val hop = hash("$provider\u0000$hopUrl")
+        // Interactive navigation has its own success freshness window. Host-level 429 and
+        // concurrent/rate budgets still span packages and arbitrarily minted generations.
+        val resourceScope = if (role == "NAVIGATION") "$provider\u0000NAVIGATION" else provider
+        val root = hash("$resourceScope\u0000$rootUrl")
+        val hop = hash("$resourceScope\u0000$hopUrl")
         val attempts = rows.filter { it.scope == scope && it.kind == 'A' }
         val roleCount = attempts.count { it.role == role }
         val active = attempts.count { it.outcome == "RESERVED" && it.at + 240 > now.epochSecond }
+        val hostAttempts = rows.filter { it.kind == 'A' && it.host == host }
         if (attempts.size >= 22 || active >= 2 ||
+            hostAttempts.count { it.outcome == "RESERVED" && it.at + 240 > now.epochSecond } >= 2 ||
+            (role == "NAVIGATION" && hostAttempts.count { it.role == "NAVIGATION" && it.at > now.epochSecond - 60 } >= 6) ||
             (role == "DIRECT" && roleCount >= 4) ||
             (role != "DIRECT" && role != "NAVIGATION" && attempts.count {
                 it.role != "DIRECT" && it.role != "NAVIGATION"
@@ -60,6 +66,7 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
                 outcome == "HTTP_429" -> maxOf(backoff, retryAfterSeconds?.coerceIn(0, 21_600) ?: 0)
                 outcome == "HTTP_304" -> 1_800L
                 failure -> backoff
+                attempt.role == "NAVIGATION" -> 1L
                 else -> 21_600L
             }
             val keys = (listOf(attempt.key, attempt.aux) +

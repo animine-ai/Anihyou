@@ -1,0 +1,18 @@
+<resources>
+    <string name="main_navigation_title">Main navigation</string>
+    <string name="main_navigation_explanation">Choose up to five main tabs. Home stays available and can be moved. Hidden tabs keep their navigation state.</string>
+    <string name="main_navigation_reset">Restore defaults</string>
+    <string name="main_navigation_save_failed">Could not save the navigation settings.</string>
+    <string name="extension_center_title">Extensions &amp; Provider</string>
+    <string name="extension_center_manage">Manage extensions</string>
+    <string name="extension_center_source">Data source &amp; preferences</string>
+    <string name="extension_center_providers">Provider display</string>
+    <string name="extension_center_statistics">Statistics</string>
+    <string name="extension_center_diagnostics">Diagnostics</string>
+    <string name="extension_install">Install extension</string>
+    <string name="extension_update">Update extension</string>
+    <string name="extension_remove">Remove extension</string>
+    <string name="extension_diagnostics_copy">Copy diagnostics</string>
+    <string name="extension_no_measurement">Not measured</string>
+    <string name="extension_statistics_empty">Select an installed data source to see its statistics.</string>
+</resources>

@@ -91,7 +91,19 @@ class SingleSourceShadowRefreshCoordinator(
                         evidence.navigationSeason ?: return@mapNotNull null,
                         episode.number.toString() + (episode.fraction?.let { ".$it" } ?: ""), identity.track.name)
                 }
-                navigationStore.record(selected, snapshot.releaseGeneration, pinned.packageDigest, accepted)
+                val previous = navigationStore.state.value.takeIf {
+                    it.source == selected && it.releaseGeneration == snapshot.releaseGeneration && it.packageDigest == pinned.packageDigest
+                }?.syncStatistics.orEmpty()
+                val statistics = buildMap {
+                    val successful = outcome.cycle.sources.all { it.result == CycleResult.SUCCESS }
+                    put("Last successful sync", if (successful) outcome.cycle.completedAt.toString() else previous["Last successful sync"].orEmpty())
+                    put("Role health", outcome.cycle.sources.groupBy { it.sourceType }.entries.joinToString("; ") {
+                        it.key.name + ": " + it.value.map { row -> row.health.name + "/" + row.result.name }.distinct().joinToString()
+                    })
+                    put("Last parse status", if (successful) "SUCCESS" else "PARTIAL_OR_FAILED")
+                    put("Sync duration", java.time.Duration.between(outcome.cycle.startedAt, outcome.cycle.completedAt).toMillis().toString() + " ms")
+                }
+                navigationStore.record(selected, snapshot.releaseGeneration, pinned.packageDigest, accepted, statistics)
             }
         }
         return outcome

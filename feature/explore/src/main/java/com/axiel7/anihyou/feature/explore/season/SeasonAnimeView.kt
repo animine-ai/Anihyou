@@ -75,11 +75,13 @@ import org.koin.core.parameter.parametersOf
 fun SeasonAnimeView(
     isLoggedIn: Boolean,
     arguments: Route.SeasonAnime,
+    isMain: Boolean = false,
 ) {
     val viewModel: SeasonAnimeViewModel = koinViewModel(parameters = { parametersOf(arguments) })
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     SeasonAnimeContent(
+        isMain = isMain,
         isLoggedIn = isLoggedIn,
         uiState = uiState,
         event = viewModel,
@@ -89,6 +91,7 @@ fun SeasonAnimeView(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SeasonAnimeContent(
+    isMain: Boolean = false,
     isLoggedIn: Boolean,
     uiState: SeasonAnimeUiState,
     event: SeasonAnimeEvent?,
@@ -144,7 +147,7 @@ private fun SeasonAnimeContent(
             }
         },
         navigationIcon = {
-            BackIconButton(onClick = navActionManager::goBack)
+            if (!isMain) BackIconButton(onClick = navActionManager::goBack)
         },
         actions = {
             IconButton(

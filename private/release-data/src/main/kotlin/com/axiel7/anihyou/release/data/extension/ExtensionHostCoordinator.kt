@@ -356,7 +356,7 @@ class ExtensionHostCoordinator(
     private fun looksLikeIpLiteral(host: String): Boolean =
         ':' in host || host.all { it.isDigit() || it == '.' }
 
-    private companion object {
+    internal companion object {
         const val ABI_VERSION = 1
         const val MAX_MODULE_BYTES = 8 * 1024 * 1024
         const val MIN_MODULE_BYTES = 8

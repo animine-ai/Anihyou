@@ -52,6 +52,8 @@ import com.axiel7.anihyou.core.model.NovelTab
 import com.axiel7.anihyou.core.model.Theme
 import com.axiel7.anihyou.core.resources.dark_scrim
 import com.axiel7.anihyou.core.resources.light_scrim
+import com.axiel7.anihyou.core.ui.common.navigation.MainNavigationConfigStore
+import com.axiel7.anihyou.core.ui.common.navigation.MainNavigationResolver
 import com.axiel7.anihyou.core.ui.common.BottomDestination
 import com.axiel7.anihyou.core.ui.common.BottomDestination.Companion.isBottomDestination
 import com.axiel7.anihyou.core.ui.common.BottomDestination.Companion.toBottomDestinationRoute
@@ -60,6 +62,7 @@ import com.axiel7.anihyou.core.ui.common.LocalHideScores
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
 import com.axiel7.anihyou.core.ui.common.LocalScoreFormat
 import com.axiel7.anihyou.core.ui.common.navigation.NavActionManager
+import com.axiel7.anihyou.core.ui.common.navigation.Route
 import com.axiel7.anihyou.core.ui.common.navigation.Navigator
 import com.axiel7.anihyou.core.ui.common.navigation.rememberNavigationState
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
@@ -248,11 +251,19 @@ fun MainView(
     paletteStyle: PaletteStyle,
     setNavigationBarContrastEnforced: (Boolean) -> Unit,
 ) {
-    val startKey = remember(tabToOpen) {
-        tabToOpen.toBottomDestinationRoute() ?: BottomDestination.Home.route
+    val navigationConfigStore = MainNavigationConfigStore.get(LocalContext.current)
+    val mainConfig by navigationConfigStore.config.collectAsStateWithLifecycle()
+    val destinations = MainNavigationResolver.destinations(mainConfig)
+    // The stable universe never depends on the editor config or a date-dependent season.
+    val navigationState = rememberNavigationState(Route.Home, MainNavigationResolver.allRoutes)
+    val navigator = remember(navigationState) { Navigator(navigationState) }
+    LaunchedEffect(tabToOpen) {
+        val requested = tabToOpen.toBottomDestinationRoute()
+        if (destinations.any { it.route == requested } && requested != null) navigator.navigate(requested)
     }
-    val navigationState = rememberNavigationState(startKey, BottomDestination.routes)
-    val navigator = remember { Navigator(navigationState) }
+    LaunchedEffect(mainConfig) {
+        navigationState.topLevelRoute = MainNavigationResolver.visibleRoot(navigationState.topLevelRoute, mainConfig)
+    }
     val isBottomDestination by remember {
         derivedStateOf { navigationState.getCurrentRoute()?.isBottomDestination() == true }
     }
@@ -269,6 +280,7 @@ fun MainView(
                 if (isCompactScreen) {
                     MainBottomNavBar(
                         currentTopRoute = navigator.state.topLevelRoute,
+                        destinations = destinations,
                         isVisible = isBottomDestination,
                         onItemSelected = { event?.saveLastTab(it) }
                     )
@@ -298,6 +310,7 @@ fun MainView(
                 ) {
                     MainNavigationRail(
                         navigator = navigator,
+                        destinations = destinations,
                         onItemSelected = { event?.saveLastTab(it) },
                     )
                     MainNavigation(

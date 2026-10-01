@@ -47,6 +47,32 @@ class FileExtensionSourceRepositoryTest {
     val temporaryFolder = TemporaryFolder()
 
     @Test
+    fun `extension removal clears selection retains trust and reinstall preference`() = runBlocking {
+        val rig = SourceRig()
+        val directory = temporaryFolder.newFolder("remove-extension")
+        val repository = rig.repository(directory)
+        val id = repository.addSource()
+        repository.activate(id, EXTENSION_ID)
+        val source = repository.source(id)
+        val key = requireNotNull(source.extensions.single().let {
+            com.axiel7.anihyou.release.core.source.ExtensionSelectionKey(source.id, it.extensionId, it.publisherId, it.providerId)
+        })
+        val preferences = com.axiel7.anihyou.release.core.source.ExtensionPreferences(setOf("DE_DUB"), listOf("DE_DUB"))
+        repository.productPolicy.setPreferences(key, preferences)
+        repository.productPolicy.selectActiveSource(key)
+        val root = repository.source(id).rootDigest
+        repository.removeExtension(id, EXTENSION_ID)
+        assertNull(repository.productPolicy.policy.value.activeReleaseSource)
+        assertNull(repository.loadInstalled(key))
+        assertNull(repository.source(id).extensions.single().installedDigest)
+        assertEquals(root, repository.source(id).rootDigest)
+        repository.activate(id, EXTENSION_ID)
+        assertNull(repository.productPolicy.policy.value.activeReleaseSource)
+        assertEquals(preferences, repository.productPolicy.policy.value.preferencesFor(key))
+        assertTrue(repository.loadInstalled(key) != null)
+    }
+
+    @Test
     fun `zero sources perform zero authentication transport storage or scheduling`() = runBlocking {
         val rig = SourceRig()
         val repository = rig.repository(temporaryFolder.newFolder("empty"))

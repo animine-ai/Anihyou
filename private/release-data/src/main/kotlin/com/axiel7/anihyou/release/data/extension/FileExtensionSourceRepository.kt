@@ -86,6 +86,53 @@ internal class FileExtensionSourceRepository(
     override suspend fun setEnabled(sourceId: String, enabled: Boolean) = changeLifecycle(sourceId, enabled, false)
     override suspend fun remove(sourceId: String) = changeLifecycle(sourceId, false, true)
 
+    override suspend fun removeExtension(sourceId: String, extensionId: String) = withContext(Dispatchers.IO + NonCancellable) {
+        val entry = sources.value.singleOrNull { it.id == sourceId }?.let { source ->
+            source.extensions.singleOrNull { it.extensionId == extensionId }?.let { source.selectionKey(it) }
+        } ?: return@withContext
+        val intent = synchronized(monitor) {
+            val token = ++lifecycleToken
+            lifecycleIntents[sourceId] = token
+            jobs[sourceId]?.cancel()
+            token
+        }
+        productPolicy.invalidateExtension(entry)
+        lock(sourceId).withLock {
+            if (synchronized(monitor) { lifecycleIntents[sourceId] == intent }) {
+                synchronized(monitor) { stores[sourceId] }?.removeExtension(extensionId)
+                synchronized(monitor) { lifecycleIntents.remove(sourceId) }
+            }
+        }
+        publish()
+    }
+
+    override suspend fun diagnostics(key: ExtensionSelectionKey): Map<String, String> = withContext(Dispatchers.IO) {
+        lock(key.sourceId).withLock {
+            val source = sources.value.singleOrNull { it.id == key.sourceId } ?: return@withLock emptyMap()
+            val store = synchronized(monitor) { stores[key.sourceId] } ?: return@withLock emptyMap()
+            val snapshot = store.snapshot()
+            val generation = snapshot.generations[key.extensionId]
+            val verified = store.loadUsableExtension(key.extensionId)
+            buildMap {
+                put("Extension ID", key.extensionId); put("Provider ID", key.providerId)
+                put("Publisher", key.publisherId); put("Repository", source.origin)
+                put("Trust status", source.status.name)
+                put("Version", source.extensions.firstOrNull { it.extensionId == key.extensionId }?.installedVersion.orEmpty())
+                put("Key ID", verified?.signingKeyId.orEmpty())
+                put("Signed displayName", verified?.displayName.orEmpty())
+                put("Package SHA", verified?.packageDigest.orEmpty()); put("WASM SHA", verified?.moduleDigest.orEmpty())
+                put("Active package generation", generation?.active?.digest.orEmpty())
+                put("LKG", generation?.knownGood?.digest.orEmpty()); put("Previous Good", generation?.previousGood?.digest.orEmpty())
+                put("Capabilities", verified?.let { it.grantedRoles.map { role -> role.name } + it.navigationCapabilities.map { cap -> cap.name } }?.joinToString().orEmpty())
+                put("Allowed Hosts", verified?.grantedHosts?.sorted()?.joinToString().orEmpty())
+                put("Runtime", verified?.runtimeVersion.orEmpty())
+                put("Rollback", generation?.rollbackUsed?.toString().orEmpty())
+                put("Quarantine", snapshot.quarantinedDigests.size.toString())
+                put("Last metadata failure", source.lastFailure?.name.orEmpty())
+            }
+        }
+    }
+
     private suspend fun changeLifecycle(id: String, enabled: Boolean, removed: Boolean) = withContext(Dispatchers.IO + NonCancellable) {
         val intent = synchronized(monitor) {
             val token = ++lifecycleToken

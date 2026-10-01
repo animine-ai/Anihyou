@@ -24,7 +24,8 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesEvent
-import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesSettingsSection
+import com.axiel7.anihyou.feature.settings.source.ExtensionDataSourcePreferences
+import com.axiel7.anihyou.feature.settings.source.ExtensionProviderDisplay
 import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesUiState
 import com.axiel7.anihyou.release.core.source.AddExtensionSourceResult
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
@@ -75,20 +76,13 @@ class ExtensionProductSettingsComposeTest {
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState()),
                     ) {
-                        ExtensionSourcesSettingsSection(
-                            uiState = ExtensionSourcesUiState(
-                                sources = sources.value,
-                                productPolicy = policy,
-                                canEditProductPolicy = true,
-                            ),
-                            event = event,
-                        )
+                        val state = ExtensionSourcesUiState(sources = sources.value, productPolicy = policy, canEditProductPolicy = true)
+                        ExtensionDataSourcePreferences(state, event)
+                        ExtensionProviderDisplay(state, event)
                     }
                 }
             }
 
-            composeRule.onNodeWithText("Signed Provider Alpha").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithText("Signed Provider Beta").performScrollTo().assertIsDisplayed()
             val keyATag = keyA.testTagPart()
             val keyBTag = keyB.testTagPart()
             val activeNoneTag = "extension-product-active-none"
@@ -140,7 +134,7 @@ class ExtensionProductSettingsComposeTest {
             awaitPolicy(policyRepository) { it.preferences[keyB]?.enabledTracks?.isEmpty() == true }
             composeRule.onNodeWithTag(subB).assertIsOff()
             composeRule.onNodeWithTag(dubB).assertIsOff()
-            composeRule.onNodeWithTag("extension-preference-provider-visible-$keyBTag").assertIsOn()
+            composeRule.onNodeWithTag("extension-preference-provider-visible-$keyBTag").performScrollTo().assertIsOn()
 
             val recreatedPolicy = FileExtensionProductPolicyRepository(directory) { it in eligibleKeys }
             val persistedA = recreatedPolicy.policy.value.preferences.getValue(keyA)

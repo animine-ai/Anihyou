@@ -19,6 +19,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.runtime.key
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
@@ -34,6 +36,7 @@ fun MainBottomNavBar(
     currentTopRoute: Route,
     isVisible: Boolean,
     onItemSelected: (Int) -> Unit,
+    destinations: List<BottomDestination> = BottomDestination.values,
 ) {
     val navActionManager = LocalNavActionManager.current
     AnimatedVisibility(
@@ -42,10 +45,11 @@ fun MainBottomNavBar(
         exit = slideOutVertically(targetOffsetY = { it })
     ) {
         NavigationBar {
-            BottomDestination.values.forEachIndexed { index, dest ->
+            destinations.forEach { dest ->
+                key(dest.stableId) {
                 val isSelected = dest.route == currentTopRoute
 
-                val image = AnimatedImageVector.animatedVectorResource(dest.icon)
+                val image = if (dest.animatedIcon) AnimatedImageVector.animatedVectorResource(dest.icon) else null
                 var atEnd by rememberSaveable { mutableStateOf(isSelected) }
 
                 LaunchedEffect(isSelected) {
@@ -55,7 +59,7 @@ fun MainBottomNavBar(
                 NavigationBarItem(
                     icon = {
                         Icon(
-                            painter = rememberAnimatedVectorPainter(image, atEnd),
+                            painter = if (image != null) rememberAnimatedVectorPainter(image, atEnd) else painterResource(dest.icon),
                             contentDescription = stringResource(dest.title),
                         )
                     },
@@ -81,11 +85,12 @@ fun MainBottomNavBar(
                             }
                         } else {
                             atEnd = !atEnd
-                            onItemSelected(index)
+                            onItemSelected(dest.index)
                             navActionManager.navigate(dest.route)
                         }
                     }
                 )
+                }
             }
         }
     }

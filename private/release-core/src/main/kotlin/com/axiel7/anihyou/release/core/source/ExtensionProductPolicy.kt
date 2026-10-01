@@ -44,6 +44,7 @@ data class ExtensionProductPolicy(
     val preferredNavigationProvider: ExtensionSelectionKey? = null,
     val preferences: Map<ExtensionSelectionKey, ExtensionPreferences> = emptyMap(),
     val releaseGeneration: Long = 0,
+    val navigationProviderOrder: List<ExtensionSelectionKey> = emptyList(),
 ) {
     fun preferencesFor(key: ExtensionSelectionKey) = preferences[key] ?: ExtensionPreferences()
 }
@@ -55,6 +56,8 @@ interface ExtensionProductPolicyRepository {
     suspend fun selectNavigationProvider(key: ExtensionSelectionKey?)
     suspend fun setPreferences(key: ExtensionSelectionKey, preferences: ExtensionPreferences)
     suspend fun invalidateSource(sourceId: String)
+    suspend fun invalidateExtension(key: ExtensionSelectionKey) { invalidateSource(key.sourceId) }
+    suspend fun setNavigationProviderOrder(keys: List<ExtensionSelectionKey>) {}
     suspend fun <T> withCurrentSelection(snapshot: ExtensionProductPolicy, block: suspend () -> T): T?
     suspend fun <T> withCurrentPolicy(snapshot: ExtensionProductPolicy, block: suspend () -> T): T? =
         if (policy.value == snapshot) block() else null

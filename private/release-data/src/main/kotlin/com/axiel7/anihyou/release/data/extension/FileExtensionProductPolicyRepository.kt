@@ -50,6 +50,16 @@ class FileExtensionProductPolicyRepository(
             preferredNavigationProvider = it.preferredNavigationProvider?.takeUnless { key -> key.sourceId == sourceId })
     }
 
+    override suspend fun invalidateExtension(key: ExtensionSelectionKey) = mutate {
+        it.copy(activeReleaseSource = it.activeReleaseSource?.takeUnless { selected -> selected == key },
+            preferredNavigationProvider = it.preferredNavigationProvider?.takeUnless { selected -> selected == key })
+    }
+
+    override suspend fun setNavigationProviderOrder(keys: List<ExtensionSelectionKey>) = mutate {
+        require(keys.size <= 256 && keys.distinct() == keys && keys.all(navigationEligible))
+        it.copy(navigationProviderOrder = keys)
+    }
+
     override suspend fun <T> withCurrentSelection(snapshot: ExtensionProductPolicy, block: suspend () -> T): T? =
         mutex.withLock {
             val active = snapshot.activeReleaseSource ?: return@withLock null
@@ -89,6 +99,7 @@ class FileExtensionProductPolicyRepository(
         put("releaseGeneration", value.releaseGeneration)
         put("activeReleaseSource", key(value.activeReleaseSource))
         put("preferredNavigationProvider", key(value.preferredNavigationProvider))
+        put("navigationProviderOrder", JsonArray(value.navigationProviderOrder.map { key(it) }))
         put("preferences", JsonArray(value.preferences.map { (k, p) -> buildJsonObject {
             put("key", key(k))
             put("enabledTracks", JsonArray(p.enabledTracks.sorted().map(::JsonPrimitive)))
@@ -100,7 +111,8 @@ class FileExtensionProductPolicyRepository(
 
     private fun decode(bytes: ByteArray): ExtensionProductPolicy {
         val json = ExtensionWireCodec.parseStrictJson(bytes, 256 * 1024).jsonObject
-        require(json.keys == setOf("schemaVersion", "generation", "releaseGeneration", "activeReleaseSource", "preferredNavigationProvider", "preferences"))
+        val required = setOf("schemaVersion", "generation", "releaseGeneration", "activeReleaseSource", "preferredNavigationProvider", "preferences")
+        require(json.keys == required || json.keys == required + "navigationProviderOrder")
         require(json.getValue("schemaVersion").jsonPrimitive.int == 1)
         fun parseKey(value: JsonElement): ExtensionSelectionKey? {
             if (value == JsonNull) return null
@@ -118,9 +130,11 @@ class FileExtensionProductPolicyRepository(
                 strings("preferredTrackOrder"), strings("languageOrder"), e.getValue("visibleInProviderField").jsonPrimitive.boolean)
         }
         require(preferences.map { it.first }.distinct().size == preferences.size)
+        val order = json["navigationProviderOrder"]?.jsonArray?.map { requireNotNull(parseKey(it)) }.orEmpty()
+        require(order.size <= 256 && order.distinct() == order)
         return ExtensionProductPolicy(json.getValue("generation").jsonPrimitive.long.also { require(it >= 0) },
             parseKey(json.getValue("activeReleaseSource")), parseKey(json.getValue("preferredNavigationProvider")), preferences.toMap(),
-            json.getValue("releaseGeneration").jsonPrimitive.long.also { require(it >= 0) })
+            json.getValue("releaseGeneration").jsonPrimitive.long.also { require(it >= 0) }, order)
     }
 }
 

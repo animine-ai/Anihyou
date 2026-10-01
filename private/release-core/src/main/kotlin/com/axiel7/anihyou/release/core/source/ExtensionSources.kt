@@ -58,6 +58,8 @@ interface ExtensionSourceRepository {
     /** True requests a bounded retry for transient failures only. */
     suspend fun refreshEnabled(): Boolean
     suspend fun activate(sourceId: String, extensionId: String)
+    suspend fun removeExtension(sourceId: String, extensionId: String) { error("Removal unavailable") }
+    suspend fun diagnostics(key: ExtensionSelectionKey): Map<String, String> = emptyMap()
 }
 
 interface ExtensionSourceScheduler {

@@ -23,6 +23,8 @@ data class ProviderNavigationStoredState(
     val packageDigest: String? = null,
     val installments: List<AcceptedProviderInstallment> = emptyList(),
     val segments: List<ProviderEpisodeSegment> = emptyList(),
+    val syncStatistics: Map<String, String> = emptyMap(),
+    val navigationStatus: String? = null,
 )
 
 /** Separate source-bound product receipt. Never reads R2 as release truth. */
@@ -34,13 +36,21 @@ class FileProviderNavigationStateStore(private val directory: File) {
     val state = mutable.asStateFlow()
 
     suspend fun record(source: ExtensionSelectionKey, releaseGeneration: Long, packageDigest: String,
-        installments: List<AcceptedProviderInstallment>) = mutate { old ->
+        installments: List<AcceptedProviderInstallment>,
+        statistics: Map<String, String> = emptyMap()) = mutate { old ->
         require(packageDigest.matches(Regex("[0-9a-f]{64}")))
         val retained = if (old.source == source && old.releaseGeneration == releaseGeneration && old.packageDigest == packageDigest)
             old.installments else emptyList()
         old.copy(source = source, releaseGeneration = releaseGeneration, packageDigest = packageDigest,
             // Preserve contradictory route receipts so the product can reject ambiguity.
-            installments = (retained + installments).distinct().takeLast(10000))
+            installments = (retained + installments).distinct().takeLast(10000),
+            syncStatistics = statistics.takeIf { it.isNotEmpty() } ?: if (retained.isNotEmpty()) old.syncStatistics else emptyMap(),
+            navigationStatus = if (old.source == source && old.packageDigest == packageDigest) old.navigationStatus else null)
+    }
+
+    suspend fun recordNavigation(source: ExtensionSelectionKey, packageDigest: String, status: String) = mutate {
+        require(status in setOf("READY", "UNAVAILABLE", "LAUNCHED", "LAUNCH_REJECTED"))
+        if (it.source == source && it.packageDigest == packageDigest) it.copy(navigationStatus = status) else it
     }
 
     /** Only host matching/manual binding calls this. Ambiguous overlapping segments remain non-actionable. */
@@ -60,6 +70,8 @@ class FileProviderNavigationStateStore(private val directory: File) {
     private suspend fun mutate(transform: (ProviderNavigationStoredState) -> ProviderNavigationStoredState) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val next = transform(mutable.value)
+            if (next == mutable.value) return@withLock
+            require(next.syncStatistics.size <= 16 && next.syncStatistics.all { it.key.length <= 64 && it.value.length <= 4096 })
             val bytes = encode(next).toString().toByteArray()
             require(bytes.size <= 4 * 1024 * 1024)
             require(directory.isDirectory || directory.mkdirs())
@@ -82,6 +94,8 @@ class FileProviderNavigationStateStore(private val directory: File) {
     private fun encode(state: ProviderNavigationStoredState) = buildJsonObject {
         put("schemaVersion", 1); put("source", key(state.source)); put("releaseGeneration", state.releaseGeneration)
         put("packageDigest", state.packageDigest?.let(::JsonPrimitive) ?: JsonNull)
+        put("syncStatistics", JsonObject(state.syncStatistics.mapValues { JsonPrimitive(it.value) }))
+        put("navigationStatus", state.navigationStatus?.let(::JsonPrimitive) ?: JsonNull)
         put("installments", JsonArray(state.installments.map { i -> JsonArray(
             listOf(i.projectionKey, i.seriesKey, i.sourceSeason.toString(), i.providerEpisode, i.track).map(::JsonPrimitive)) }))
         put("segments", JsonArray(state.segments.map { s -> buildJsonObject {
@@ -92,7 +106,8 @@ class FileProviderNavigationStateStore(private val directory: File) {
     }
     private fun decode(bytes: ByteArray): ProviderNavigationStoredState {
         val json = ExtensionWireCodec.parseStrictJson(bytes, 4 * 1024 * 1024).jsonObject
-        require(json.keys == setOf("schemaVersion", "source", "releaseGeneration", "packageDigest", "installments", "segments"))
+        val required = setOf("schemaVersion", "source", "releaseGeneration", "packageDigest", "installments", "segments")
+        require(json.keys == required || json.keys == required + setOf("syncStatistics", "navigationStatus"))
         require(json.getValue("schemaVersion").jsonPrimitive.int == 1)
         val rows = json.getValue("installments").jsonArray; require(rows.size <= 10000)
         val installments = rows.map { row ->
@@ -112,6 +127,12 @@ class FileProviderNavigationStateStore(private val directory: File) {
         return ProviderNavigationStoredState(parseKey(json.getValue("source")),
             json.getValue("releaseGeneration").jsonPrimitive.long.also { require(it >= 0) },
             json.getValue("packageDigest").takeUnless { it == JsonNull }?.jsonPrimitive?.content?.also { require(it.matches(Regex("[0-9a-f]{64}"))) },
-            installments, segments)
+            installments, segments,
+            json["syncStatistics"]?.jsonObject?.mapValues { it.value.jsonPrimitive.content }.orEmpty().also { values ->
+                require(values.size <= 16 && values.all { it.key.length <= 64 && it.value.length <= 4096 })
+            },
+            json["navigationStatus"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.also {
+                require(it in setOf("READY", "UNAVAILABLE", "LAUNCHED", "LAUNCH_REJECTED"))
+            })
     }
 }

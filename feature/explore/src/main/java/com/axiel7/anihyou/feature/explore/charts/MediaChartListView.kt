@@ -49,11 +49,13 @@ import org.koin.core.parameter.parametersOf
 fun MediaChartListView(
     isLoggedIn: Boolean,
     arguments: Route.MediaChartList,
+    isMain: Boolean = false,
 ) {
     val viewModel: MediaChartViewModel = koinViewModel(parameters = { parametersOf(arguments) })
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     MediaChartListContent(
+        isMain = isMain,
         isLoggedIn = isLoggedIn,
         uiState = uiState,
         event = viewModel,
@@ -63,6 +65,7 @@ fun MediaChartListView(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MediaChartListContent(
+    isMain: Boolean = false,
     isLoggedIn: Boolean,
     uiState: MediaChartUiState,
     event: MediaChartEvent?,
@@ -96,7 +99,7 @@ private fun MediaChartListContent(
     DefaultScaffoldWithMediumTopAppBar(
         title = uiState.chartType?.localized().orEmpty(),
         navigationIcon = {
-            BackIconButton(onClick = navActionManager::goBack)
+            if (!isMain) BackIconButton(onClick = navActionManager::goBack)
         },
         scrollBehavior = topAppBarScrollBehavior,
         snackbarHost = snackbarManager::SnackbarHost

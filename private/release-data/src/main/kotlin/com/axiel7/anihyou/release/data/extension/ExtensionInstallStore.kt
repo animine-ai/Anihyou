@@ -207,6 +207,12 @@ internal class ExtensionInstallStore(
         loadExtension(extensionId)
     }
 
+    /** Uninstall all executable generations while retaining monotone trust/release high-water. */
+    fun removeExtension(extensionId: String) = serialized {
+        val generations = state.generations - extensionId
+        commit(state.copy(generations = generations, indexes = retainReferencedIndexes(state.indexes, generations)))
+    }
+
     private fun loadExtension(extensionId: String): VerifiedExtensionPackage? {
         val selected = state.generations[extensionId]?.active ?: return null
         val active = if (eligible(selected)) selected else rollbackBad(extensionId, Instant.now()) ?: return null

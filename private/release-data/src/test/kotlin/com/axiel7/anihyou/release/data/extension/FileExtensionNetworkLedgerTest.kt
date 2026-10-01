@@ -24,6 +24,27 @@ class FileExtensionNetworkLedgerTest {
     val temporaryFolder = TemporaryFolder()
 
     @Test
+    fun navigationIsInteractiveButCannotResetRateOrHost429WithNewGenerations() = runBlocking {
+        val directory = temporaryFolder.newFolder("interactive-navigation")
+        val ledger = FileExtensionNetworkLedger(directory)
+        val root = url("navigation")
+        val first = requireNotNull(reserve(ledger, root = root, role = "NAVIGATION", at = NOW))
+        ledger.complete(first, "HTTP_2XX", null, NOW)
+        assertNull(reserve(ledger, root = root, role = "NAVIGATION", generation = "new-0", at = NOW))
+        repeat(5) { index ->
+            val at = NOW.plusSeconds(index.toLong() + 1)
+            val next = requireNotNull(reserve(ledger, root = root, role = "NAVIGATION", generation = "new-$index", at = at))
+            ledger.complete(next, "HTTP_2XX", null, at)
+        }
+        val restarted = FileExtensionNetworkLedger(directory)
+        assertNull(reserve(restarted, root = url("fresh"), role = "NAVIGATION", generation = "new-6", digest = DIGEST_B, at = NOW.plusSeconds(6)))
+        val later = requireNotNull(reserve(restarted, root = url("fresh"), role = "NAVIGATION", generation = "new-7", at = NOW.plusSeconds(61)))
+        restarted.complete(later, "HTTP_429", 3600, NOW.plusSeconds(61))
+        assertNull(reserve(restarted, root = url("another"), role = "NAVIGATION", generation = "new-8", at = NOW.plusSeconds(120)))
+        assertNull(reserve(restarted, root = url("another"), role = "CALENDAR", generation = "new-9", at = NOW.plusSeconds(120)))
+    }
+
+    @Test
     fun restartAndFreshLogicalRootsDoNotResetScopedQuota() = runBlocking {
         val directory = temporaryFolder.newFolder("restart-reservation")
         val original = FileExtensionNetworkLedger(directory)

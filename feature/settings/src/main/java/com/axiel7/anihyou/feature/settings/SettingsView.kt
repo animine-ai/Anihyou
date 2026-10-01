@@ -89,10 +89,9 @@ private const val versionString = "${BuildConfig.VERSION_NAME} (${BuildConfig.VE
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun SettingsView() {
+    val navActionManager = LocalNavActionManager.current
     val viewModel: SettingsViewModel = koinViewModel()
-    val extensionSourcesViewModel: ExtensionSourcesViewModel = koinViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val extensionSourcesUiState by extensionSourcesViewModel.uiState.collectAsStateWithLifecycle()
     val notificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS)
     } else null
@@ -102,9 +101,15 @@ fun SettingsView() {
         event = viewModel,
         notificationPermission = notificationPermission,
         extensionSourcesContent = {
-            ExtensionSourcesSettingsSection(
-                uiState = extensionSourcesUiState,
-                event = extensionSourcesViewModel,
+            PlainPreference(
+                title = stringResource(com.axiel7.anihyou.feature.settings.R.string.main_navigation_title),
+                onClick = { navActionManager.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.MainNavigationSettings) },
+                shape = topShape,
+            )
+            PlainPreference(
+                title = stringResource(com.axiel7.anihyou.feature.settings.R.string.extension_center_title),
+                onClick = { navActionManager.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.ExtensionCenter) },
+                shape = bottomShape,
             )
         },
     )

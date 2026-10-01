@@ -82,6 +82,31 @@ sealed interface Route : NavKey {
     object Calendar: Route
 
     @Serializable
+    object CalendarMain: Route
+
+    @Serializable
+    data class CurrentListMain(val listType: CurrentListType): Route
+
+    @Serializable
+    data class ChartMain(val type: String): Route
+
+    /** Relative season identity stays stable across dates and configuration edits. */
+    @Serializable
+    data class SeasonMain(val next: Boolean): Route
+
+    @Serializable
+    object OwnProfile: Route
+
+    @Serializable
+    object MainNavigationSettings: Route
+
+    @Serializable
+    object ExtensionCenter: Route
+
+    @Serializable
+    data class ExtensionCenterPage(val page: String): Route
+
+    @Serializable
     @Immutable
     data class CharacterDetails(val id: Int): Route
 

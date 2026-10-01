@@ -26,6 +26,7 @@ data class ExtensionSourcesUiState(
     val isAdding: Boolean = false,
     val addResult: AddExtensionSourceResult? = null,
     val actionFailed: Boolean = false,
+    val diagnostics: Map<ExtensionSelectionKey, Map<String, String>> = emptyMap(),
 )
 
 interface ExtensionSourcesEvent {
@@ -38,12 +39,16 @@ interface ExtensionSourcesEvent {
     fun selectActiveSource(key: ExtensionSelectionKey?)
     fun selectNavigationProvider(key: ExtensionSelectionKey?)
     fun setPreferences(key: ExtensionSelectionKey, preferences: ExtensionPreferences)
+    fun removeExtension(sourceId: String, extensionId: String) {}
+    fun setProviderOrder(keys: List<ExtensionSelectionKey>) {}
+    fun refreshDiagnostics() {}
     fun clearActionFailure()
 }
 
 class ExtensionSourcesViewModel(
     private val repository: ExtensionSourceRepository,
     private val productPolicyRepository: ExtensionProductPolicyRepository? = null,
+    private val diagnosticsRepository: com.axiel7.anihyou.release.core.source.ExtensionDiagnosticsRepository? = null,
 ) : ViewModel(), ExtensionSourcesEvent {
 
     private val _uiState = MutableStateFlow(
@@ -132,6 +137,21 @@ class ExtensionSourcesViewModel(
             }
             productPolicyRepository?.setPreferences(key, preferences)
         }
+
+    override fun removeExtension(sourceId: String, extensionId: String) = performAction {
+        repository.removeExtension(sourceId, extensionId)
+    }
+
+    override fun setProviderOrder(keys: List<ExtensionSelectionKey>) = performPolicyAction {
+        productPolicyRepository?.setNavigationProviderOrder(keys)
+    }
+
+    override fun refreshDiagnostics() = performAction {
+        val selected = uiState.value.productPolicy.activeReleaseSource
+        val keys = uiState.value.sources.flatMap { source -> source.extensions.mapNotNull { source.selectionKey(it) } }
+        val details = keys.associateWith { diagnosticsRepository?.inspect(it) ?: repository.diagnostics(it) }
+        _uiState.update { it.copy(diagnostics = details) }
+    }
 
     override fun clearActionFailure() {
         _uiState.update { it.copy(actionFailed = false) }

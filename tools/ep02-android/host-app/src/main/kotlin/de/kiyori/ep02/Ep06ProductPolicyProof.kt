@@ -185,8 +185,10 @@ internal object Ep06ProductPolicyProof {
         check(overviewResult.target.url == "https://example.org/series/1")
         check(overviewResult.target.provider.key == providerB)
 
+        // Production success throttling applies across interactive navigation generations.
+        kotlinx.coroutines.delay(1_100)
         val episodeResult = coordinator.resolve(episodeCoordinate, NavigationTargetKind.EPISODE)
-        check(episodeResult is ProviderNavigationResult.Ready)
+        check(episodeResult is ProviderNavigationResult.Ready) { "episode navigation: $episodeResult" }
         check(episodeResult.target.url == "https://example.org/series/1/episode/15")
         check(episodeResult.target.provider.key == providerB)
         check(gateway.dispatches.size == 2)
@@ -211,6 +213,7 @@ internal object Ep06ProductPolicyProof {
             ) = dispatcher.navigate(request, generation)?.copy(url = "https://untrusted.example/episode/15")
         }
         val invalidCoordinator = ProviderNavigationCoordinator(invalidGateway, reopened)
+        kotlinx.coroutines.delay(1_100)
         val invalidTarget = invalidCoordinator.resolve(episodeCoordinate, NavigationTargetKind.EPISODE)
         if (invalidTarget is ProviderNavigationResult.Ready) {
             invalidCoordinator.launch(invalidTarget.target) {

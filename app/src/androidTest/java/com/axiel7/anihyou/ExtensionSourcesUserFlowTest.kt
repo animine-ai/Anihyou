@@ -31,9 +31,11 @@ class ExtensionSourcesUserFlowTest {
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun cleanInstall_addDuplicateRejectInvalid_refreshFailClosed_toggleAndRemove() {
-        composeRule.onNodeWithTag("ProfileTab").performClick()
-        composeRule.onNodeWithText(text(CoreR.string.settings)).performClick()
+    fun cleanInstall_addDuplicateRejectInvalid_refreshFailClosed_andRemove() {
+        composeRule.onNodeWithTag("ProfileTab").assertDoesNotExist()
+        composeRule.onNodeWithTag("home-settings").performClick()
+        composeRule.onNodeWithText(text(SettingsR.string.extension_center_title)).performScrollTo().performClick()
+        composeRule.onNodeWithTag("extension-center-manage").performClick()
 
         composeRule.onNodeWithText(text(SettingsR.string.extension_sources_title))
             .performScrollTo()
@@ -76,22 +78,7 @@ class ExtensionSourcesUserFlowTest {
         composeRule.onNodeWithTag("extension-source-refresh").performScrollTo().performClick()
         awaitText(trustUnavailable)
 
-        composeRule.onNodeWithTag("extension-source-enabled")
-            .performScrollTo()
-            .assertIsOn()
-            .performClick()
-        val disabled = text(
-            SettingsR.string.extension_sources_status,
-            text(SettingsR.string.extension_sources_status_disabled),
-        )
-        awaitText(disabled)
-        composeRule.onNodeWithTag("extension-source-enabled").assertIsOff()
-        composeRule.onNodeWithTag("extension-source-status")
-            .assertTextEquals(disabled)
-
-        composeRule.onNodeWithTag("extension-source-enabled").performScrollTo().performClick()
-        awaitText(trustUnavailable)
-        composeRule.onNodeWithTag("extension-source-enabled").assertIsOn()
+        composeRule.onNodeWithTag("extension-source-enabled").assertDoesNotExist()
         composeRule.onNodeWithTag("extension-source-remove").performScrollTo().performClick()
         awaitText(text(SettingsR.string.extension_sources_empty)).assertIsDisplayed()
         awaitNoSourceCards()

@@ -89,6 +89,8 @@ class ExtensionProviderNavigationProductRepository(
             targetCache[key] = CachedTarget(result, System.nanoTime() + 30_000_000_000L)
             while (targetCache.size > 512) targetCache.remove(targetCache.keys.first())
         }
+        store.recordNavigation(provider.key, provider.packageDigest,
+            if (result is ProviderNavigationResult.Ready) "READY" else "UNAVAILABLE")
         return result
     }
 
@@ -115,6 +117,9 @@ class ExtensionProviderNavigationProductRepository(
         val p = policy.policy.value
         val sourceSnapshot = sources.sources.value
         val providers = gateway.providers().filter { p.preferencesFor(it.key).visibleInProviderField }
+            .sortedWith(compareBy<NavigationProvider> {
+                p.navigationProviderOrder.indexOf(it.key).let { index -> if (index < 0) Int.MAX_VALUE else index }
+            }.thenBy { it.key.sourceId }.thenBy { it.key.extensionId })
         val visible = providers.filter { NavigationCapability.OVERVIEW_NAVIGATION in it.capabilities && overviewCoordinate(mediaId, it) != null }
         val active = p.activeReleaseSource
         val stored = store.state.value
@@ -172,7 +177,12 @@ class ExtensionProviderNavigationProductRepository(
             ?: ProviderNavigationResult.Unavailable(state.failure ?: (state.watchNext as? WatchNextState.Unavailable)?.reason ?: NavigationUnavailableReason.CHOOSE_PROVIDER)
     }
     override suspend fun preferProvider(key: ExtensionSelectionKey) = policy.selectNavigationProvider(key)
-    override suspend fun launch(target: ValidatedNavigationTarget) = coordinator.launch(target, launcher)
+    override suspend fun launch(target: ValidatedNavigationTarget): ProviderNavigationResult {
+        val result = coordinator.launch(target, launcher)
+        store.recordNavigation(target.provider.key, target.provider.packageDigest,
+            if (result is ProviderNavigationResult.Ready) "LAUNCHED" else "LAUNCH_REJECTED")
+        return result
+    }
     override suspend fun setEpisodeMapping(segment: ProviderEpisodeSegment) {
         require(gateway.providers().any { it.key == segment.key }) { "mapping provider unavailable" }
         store.upsertSegment(segment)

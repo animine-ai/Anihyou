@@ -1,0 +1,18 @@
+<resources>
+    <string name="main_navigation_title">Hauptnavigation</string>
+    <string name="main_navigation_explanation">Wähle bis zu fünf Haupttabs. Home bleibt verfügbar und lässt sich verschieben. Ausgeblendete Tabs behalten ihren Navigationszustand.</string>
+    <string name="main_navigation_reset">Standard wiederherstellen</string>
+    <string name="main_navigation_save_failed">Die Navigationseinstellungen konnten nicht gespeichert werden.</string>
+    <string name="extension_center_title">Extensions &amp; Provider</string>
+    <string name="extension_center_manage">Extensions verwalten</string>
+    <string name="extension_center_source">Datenquelle &amp; Präferenzen</string>
+    <string name="extension_center_providers">Provider-Anzeige</string>
+    <string name="extension_center_statistics">Statistik</string>
+    <string name="extension_center_diagnostics">Diagnose</string>
+    <string name="extension_install">Extension installieren</string>
+    <string name="extension_update">Extension aktualisieren</string>
+    <string name="extension_remove">Extension entfernen</string>
+    <string name="extension_diagnostics_copy">Diagnose kopieren</string>
+    <string name="extension_no_measurement">Nicht gemessen</string>
+    <string name="extension_statistics_empty">Wähle eine installierte Datenquelle, um ihre Statistik zu sehen.</string>
+</resources>

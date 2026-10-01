@@ -91,13 +91,17 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 fun CalendarView(
     isLoggedIn: Boolean,
+    isMain: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val viewModel: CalendarViewModel = koinViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     CalendarViewContent(
         isLoggedIn = isLoggedIn,
         uiState = uiState,
-        event = viewModel
+        event = viewModel,
+        isMain = isMain,
+        modifier = modifier,
     )
 }
 
@@ -106,7 +110,9 @@ fun CalendarView(
 private fun CalendarViewContent(
     isLoggedIn: Boolean,
     uiState: CalendarUiState,
-    event: CalendarEvent?
+    event: CalendarEvent?,
+    isMain: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val haptic = LocalHapticFeedback.current
     val navActionManager = LocalNavActionManager.current
@@ -153,7 +159,8 @@ private fun CalendarViewContent(
 
     DefaultScaffoldWithSmallTopAppBar(
         title = stringResource(R.string.calendar),
-        navigationIcon = { BackIconButton(onClick = navActionManager::goBack) },
+        modifier = modifier,
+        navigationIcon = { if (!isMain) BackIconButton(onClick = navActionManager::goBack) },
         actions = {
             AppBarActions(
                 uiState = uiState,
