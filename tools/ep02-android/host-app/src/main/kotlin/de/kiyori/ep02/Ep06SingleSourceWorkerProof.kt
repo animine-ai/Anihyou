@@ -241,6 +241,7 @@ internal object Ep06SingleSourceWorkerProof {
             val watchTarget = requireNotNull(state.watchTarget)
             check(watchTarget.provider.key == providerB)
             check(watchTarget.url == "https://example.org/series/1/episode/15")
+            kotlinx.coroutines.delay(1_100)
             val overview = product.overview(MEDIA_ID, providerB)
             check(overview is ProviderNavigationResult.Ready)
             check(overview.target.provider.key == providerB)
@@ -253,10 +254,28 @@ internal object Ep06SingleSourceWorkerProof {
             check(httpsFixture.pathCount("/nav-source") >= pathCountBeforeProduct + 2)
             check(sourcePaths.all { path -> httpsFixture.pathCount(path) >= fixtureCountsBeforeWorker.getValue(path) + 2 })
 
+            // Both real signed identities may be displayed while A alone retains release authority.
+            // Use an already-watched position so this display/order proof needs no extra dispatch.
+            val releaseGenerationBeforeDisplay = policy.policy.value.releaseGeneration
+            policy.setPreferences(sourceA, policy.policy.value.preferencesFor(sourceA).copy(visibleInProviderField = true))
+            policy.setNavigationProviderOrder(listOf(providerB, sourceA))
+            val multipleProviders = withTimeout(20_000) {
+                product.observe(MEDIA_ID, 9999).first { !it.loading }
+            }
+            check(multipleProviders.providers.map { it.key } == listOf(providerB, sourceA))
+            check(policy.policy.value.activeReleaseSource == sourceA)
+            check(policy.policy.value.releaseGeneration == releaseGenerationBeforeDisplay)
+            check(database.aniworldPollDao().committedCycleGeneration(
+                RoomExtensionShadowGenerationStore.SCOPE_ID, committed.generationId,
+            )?.manifestPayload == committedRow.manifestPayload)
+
             return JSONObject()
                 .put("status", "PASS")
                 .put("releaseEvidenceTransport", "production-http-transport-test-fixture-responses")
                 .put("testSignedPackages", 2)
+                .put("multipleSignedProvidersInProductField", true)
+                .put("providerOrderIndependentOfActiveReleaseSource", true)
+                .put("providerVisibilityProofSequence", "A hidden, then signed A and B visible")
                 .put("productionSignedProviderInstallations", 0)
                 .put("singleSourceWorkerInvoked", true)
                 .put("actualExtensionHostCoordinator", true)
