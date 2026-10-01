@@ -4,6 +4,8 @@ on:
     branches: [feature/aniworld-provider-v3, ep03/user-added-sources, ep04/aniworld-v1]
     paths:
       - "settings.gradle.kts"
+      - "app/src/main/java/com/axiel7/anihyou/AnimetrackerReleaseModule.kt"
+      - ".github/workflows/aniworld-provider-v3.yml"
       - "tools/ep02-android/**"
       - "private/release-core/**"
       - "private/release-data/**"

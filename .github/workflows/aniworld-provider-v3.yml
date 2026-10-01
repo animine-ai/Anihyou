@@ -26,8 +26,8 @@ on:
       - "version.properties"
       - ".github/workflows/aniworld-provider-v3.yml"
       - ".github/scripts/verify-extension-native-packaging.py"
-      - "tools/ep02-android/native/**"
-      - "tools/ep02-android/build-native.sh"
+      - "tools/ep02-android/**"
+  workflow_dispatch:
 
 permissions:
   contents: read
