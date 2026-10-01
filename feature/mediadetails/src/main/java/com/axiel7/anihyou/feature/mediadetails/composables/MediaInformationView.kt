@@ -73,6 +73,7 @@ import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 import com.axiel7.anihyou.feature.mediadetails.MediaDetailsUiState
 import com.axiel7.anihyou.feature.mediadetails.MediaDetailsEvent
 import com.axiel7.anihyou.feature.mediadetails.EpisodeMappingSaveState
+import com.axiel7.anihyou.feature.mediadetails.isValidProviderSeriesKey
 import com.axiel7.anihyou.release.core.navigation.NavigationProvider
 import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import kotlinx.collections.immutable.persistentListOf
