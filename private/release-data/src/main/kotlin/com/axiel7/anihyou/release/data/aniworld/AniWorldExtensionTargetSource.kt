@@ -49,7 +49,6 @@ class AniWorldExtensionTargetSource(
         val track = when (identity.track) {
             LanguageTrack.DE_SUB -> ObservationTrack.DE_SUB
             LanguageTrack.DE_DUB -> ObservationTrack.DE_DUB
-            else -> return null
         }
         val token = "aw-target-v1-${sha256(key)}"
         return ExtensionAcquisitionTarget(

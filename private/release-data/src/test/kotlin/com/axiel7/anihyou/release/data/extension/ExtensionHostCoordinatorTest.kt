@@ -133,7 +133,7 @@ class ExtensionHostCoordinatorTest {
     @Test
     fun `extension coordinator has no direct reference to embedded AniWorld parsers`() {
         val path = ExtensionHostCoordinator::class.java.name.replace('.', '/') + ".class"
-        val classBytes = ExtensionHostCoordinator::class.java.classLoader.getResourceAsStream(path)!!.use { it.readBytes() }
+        val classBytes = requireNotNull(ExtensionHostCoordinator::class.java.classLoader).getResourceAsStream(path)!!.use { it.readBytes() }
         val constantPool = String(classBytes, Charsets.ISO_8859_1)
 
         assertFalse(constantPool.contains("AniWorldProvider"))
