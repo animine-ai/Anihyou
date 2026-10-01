@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -45,64 +46,74 @@ class ExtensionSourcesUserFlowTest {
         composeRule.onNodeWithTag("extension-source-url")
             .performTextInput("http://example.org/repository")
         composeRule.onNodeWithTag("extension-source-url").performImeAction()
-        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_invalid_url)).assertIsDisplayed()
-        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_empty))
-            .performScrollTo()
+        awaitText(text(SettingsR.string.extension_sources_invalid_url))
             .assertIsDisplayed()
+        awaitText(text(SettingsR.string.extension_sources_empty))
+            .assertIsDisplayed()
+        awaitNoSourceCards()
 
         val sourceUrl = "https://example.org/repository"
         composeRule.onNodeWithTag("extension-source-url").performTextClearance()
         composeRule.onNodeWithTag("extension-source-url").performTextInput(sourceUrl)
         composeRule.onNodeWithTag("extension-source-url").performImeAction()
-        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_added)).assertIsDisplayed()
+        awaitText(text(SettingsR.string.extension_sources_added)).assertIsDisplayed()
+        awaitTag("extension-source-card")
         composeRule.onNodeWithTag("extension-source-card").performScrollTo().assertIsDisplayed()
         // Adding schedules a background refresh, so Added is only a transient status.
         // No production trust is provisioned in this clean-install test.
-        composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.onAllNodesWithText(
-                text(
-                    SettingsR.string.extension_sources_status,
-                    text(SettingsR.string.extension_sources_status_trust_unavailable),
-                ),
-            ).fetchSemanticsNodes().isNotEmpty()
-        }
+        val trustUnavailable = text(
+            SettingsR.string.extension_sources_status,
+            text(SettingsR.string.extension_sources_status_trust_unavailable),
+        )
+        awaitText(trustUnavailable)
         composeRule.onNodeWithTag("extension-source-status")
-            .assertTextEquals(
-                text(
-                    SettingsR.string.extension_sources_status,
-                    text(SettingsR.string.extension_sources_status_trust_unavailable),
-                ),
-            )
+            .assertTextEquals(trustUnavailable)
 
         composeRule.onNodeWithTag("extension-source-url").performTextInput(sourceUrl)
         composeRule.onNodeWithTag("extension-source-url").performImeAction()
-        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_duplicate)).assertIsDisplayed()
+        awaitText(text(SettingsR.string.extension_sources_duplicate)).assertIsDisplayed()
 
-        composeRule.onNodeWithTag("extension-source-refresh").performClick()
-        composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.onAllNodesWithText(
-                text(
-                    SettingsR.string.extension_sources_status,
-                    text(SettingsR.string.extension_sources_status_trust_unavailable)),
-            ).fetchSemanticsNodes().isNotEmpty()
-        }
+        composeRule.onNodeWithTag("extension-source-refresh").performScrollTo().performClick()
+        awaitText(trustUnavailable)
 
-        composeRule.onNodeWithTag("extension-source-enabled").assertIsOn().performClick()
+        composeRule.onNodeWithTag("extension-source-enabled")
+            .performScrollTo()
+            .assertIsOn()
+            .performClick()
+        val disabled = text(
+            SettingsR.string.extension_sources_status,
+            text(SettingsR.string.extension_sources_status_disabled),
+        )
+        awaitText(disabled)
         composeRule.onNodeWithTag("extension-source-enabled").assertIsOff()
         composeRule.onNodeWithTag("extension-source-status")
-            .assertTextEquals(
-                text(
-                    SettingsR.string.extension_sources_status,
-                    text(SettingsR.string.extension_sources_status_disabled),
-                ),
-            )
+            .assertTextEquals(disabled)
 
-        composeRule.onNodeWithTag("extension-source-enabled").performClick()
+        composeRule.onNodeWithTag("extension-source-enabled").performScrollTo().performClick()
+        awaitText(trustUnavailable)
         composeRule.onNodeWithTag("extension-source-enabled").assertIsOn()
-        composeRule.onNodeWithTag("extension-source-remove").performClick()
-        composeRule.onNodeWithText(text(SettingsR.string.extension_sources_empty))
-            .performScrollTo()
-            .assertIsDisplayed()
+        composeRule.onNodeWithTag("extension-source-remove").performScrollTo().performClick()
+        awaitText(text(SettingsR.string.extension_sources_empty)).assertIsDisplayed()
+        awaitNoSourceCards()
+    }
+
+    private fun awaitText(expected: String) = composeRule.run {
+        waitUntil(timeoutMillis = 10_000) {
+            onAllNodesWithText(expected).fetchSemanticsNodes().isNotEmpty()
+        }
+        onNodeWithText(expected).performScrollTo()
+    }
+
+    private fun awaitTag(tag: String) {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun awaitNoSourceCards() {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("extension-source-card").fetchSemanticsNodes().isEmpty()
+        }
     }
 
     private fun text(resourceId: Int, vararg arguments: Any): String =
