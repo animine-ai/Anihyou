@@ -27,6 +27,15 @@ data class DirectTargetCandidate(
 
 object DirectTargetSelectionPolicy {
     const val MAX_URLS = 4
+    /** Shared coordinate key for selection history, independent of website routes and tracks. */
+    fun mappedCoordinateKey(providerSeriesKey: String, navigationSeason: Int, episode: Int): String? {
+        if (providerSeriesKey.length !in 1..128 || navigationSeason !in 1..9999 || episode !in 1..9999) return null
+        val coordinates = listOf(providerSeriesKey, navigationSeason, episode).joinToString("\n")
+        return "mapped-direct-v1:" + MessageDigest.getInstance("SHA-256")
+            .digest(coordinates.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
     private val order = compareBy<DirectTargetCandidate>({ it.priority },
         { it.lastAttemptAt ?: Instant.MIN }, { it.firstEligibleAt }, { it.canonicalUrl })
 

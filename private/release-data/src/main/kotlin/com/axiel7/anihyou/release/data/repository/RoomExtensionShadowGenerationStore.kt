@@ -1,6 +1,9 @@
 package com.axiel7.anihyou.release.data.repository
 
 import androidx.room.withTransaction
+import com.axiel7.anihyou.release.core.extension.ObservationInstallmentKind
+import com.axiel7.anihyou.release.core.sync.DirectTargetSelectionPolicy
+import com.axiel7.anihyou.release.data.extension.ExtensionAcquisitionTarget
 import com.axiel7.anihyou.release.core.extension.ExtensionExecutionReceipt
 import com.axiel7.anihyou.release.core.model.CompletedObservationCycle
 import com.axiel7.anihyou.release.core.model.SourceHealth
@@ -116,6 +119,7 @@ class RoomExtensionShadowGenerationStore(
         cycle: CompletedObservationCycle,
         receipt: ExtensionExecutionReceipt,
         sourceHealth: List<SourceHealth>,
+        targets: List<ExtensionAcquisitionTarget> = emptyList(),
     ): Boolean = database.withTransaction {
         val row = poll.generation(token.executionGenerationId) ?: return@withTransaction false
         if (row.scopeId != SCOPE_ID || row.ownerToken != token.ownerToken ||
@@ -128,7 +132,33 @@ class RoomExtensionShadowGenerationStore(
         if (poll.recordExecutionReceipt(token.executionGenerationId, token.ownerToken, token.processEpoch,
                 receiptPayload, sha256(receiptPayload)) != 1) return@withTransaction false
 
+        require(targets.size <= 8)
         reconciliation.persistCompletedCycle(cycle)
+        // The caller supplies host-selected protocol coordinates. Persist logical attempt
+        // history in the same fenced transaction, even when no requested track was found.
+        // The transport ledger independently retains all physical URL cooldowns.
+        val selectedKeys = targets.mapNotNull { selected ->
+            val target = selected.target
+            if (target.installment.kind != ObservationInstallmentKind.EPISODE) return@mapNotNull null
+            val number = target.installment.number ?: return@mapNotNull null
+            val episode = number.toIntOrNull()?.takeIf { it.toString() == number } ?: return@mapNotNull null
+            DirectTargetSelectionPolicy.mappedCoordinateKey(
+                target.providerSeriesKey ?: return@mapNotNull null,
+                target.navigationSeason ?: return@mapNotNull null, episode)
+        }.distinct()
+        selectedKeys.forEach { key ->
+            val stateKey = "url:$key"
+            val current = poll.requestState(stateKey) ?: RequestStateEntity(
+                scopeKey = stateKey, firstEligibleAt = cycle.startedAt.toString(),
+                lastAttemptAt = null, lastSuccessAt = null, failureCount = 0,
+                nextEligibleAt = null, lastAppliedGeneration = null, lastAppliedOrdinal = null,
+                activeGenerationId = null, policyVersion = 1,
+            )
+            poll.putRequestState(current.copy(
+                lastAttemptAt = cycle.completedAt.toString(),
+                lastAppliedGeneration = cycle.id, policyVersion = 1,
+            ))
+        }
         sourceHealth.forEach { incoming ->
             val current = poll.health(incoming.sourceType.name)?.toDomainOrNull()
             poll.putHealth(SourceHealthPersistencePolicy.merge(current, incoming).toEntity())

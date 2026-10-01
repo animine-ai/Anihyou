@@ -128,7 +128,7 @@ class ExtensionShadowSyncOrchestrator(
                             ExpectedSourceInstance(it.instanceId, it.sourceType, it.targetKey, it.track, false)
                         },
                     )
-                    if (!generations.commit(lease, cycle, result.receipt, health)) {
+                    if (!generations.commit(lease, cycle, result.receipt, health, targets)) {
                         ShadowRefreshOutcome.Failed("stale-generation-token", retryable = false)
                     } else {
                         ShadowRefreshOutcome.Committed(lease.cycleId, cycle)

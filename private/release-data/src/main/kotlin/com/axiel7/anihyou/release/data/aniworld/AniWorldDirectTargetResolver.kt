@@ -4,11 +4,11 @@ import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
 import com.axiel7.anihyou.release.core.model.Installment
 import com.axiel7.anihyou.release.core.model.ReleaseEvidence
 import com.axiel7.anihyou.release.core.model.ReleasePhase
+import com.axiel7.anihyou.release.core.sync.DirectTargetSelectionPolicy
 import com.axiel7.anihyou.release.core.sync.DirectTargetCandidate
 import com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity
 import com.axiel7.anihyou.release.data.db.ReleaseReconciliationMapper
 import com.axiel7.anihyou.release.data.db.RequestStateEntity
-import java.security.MessageDigest
 import java.time.Instant
 
 /** Resolves only exact, committed V3 projections with matching stored AniWorld provenance. */
@@ -39,12 +39,8 @@ internal object AniWorldDirectTargetResolver {
         if (identity.installment is Installment.Episode && navigationSeasons.size != 1) return null
         val episode = identity.installment as? Installment.Episode ?: return null
         if (episode.fraction != null || navigationSeasons.singleOrNull()?.let { it in 1..9999 } != true) return null
-        // Opaque selection/cooldown key, never a provider URL or network request.
-        val coordinates = listOf(providerSeriesKeys.single(), navigationSeasons.single(), episode.number)
-            .joinToString("\n")
-        val selectionKey = "mapped-direct-v1:" + MessageDigest.getInstance("SHA-256")
-            .digest(coordinates.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        val selectionKey = DirectTargetSelectionPolicy.mappedCoordinateKey(
+            providerSeriesKeys.single(), navigationSeasons.single(), episode.number) ?: return null
         val attempt = requestState?.lastAttemptAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
         val first = requestState?.firstEligibleAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
             ?: state.latestCompletedAt ?: now
