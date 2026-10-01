@@ -2,7 +2,7 @@ name: EP01 Android WASM Runtime
 on:
   push:
     branches: [feature/aniworld-provider-v3, ep04/aniworld-v1]
-    paths: ["tools/ep01-android/**", "private/release-core/**", "private/release-data/**", ".github/workflows/ep01-android-runtime.yml"]
+    paths: ["app/src/androidTest/java/com/axiel7/anihyou/ExtensionSourcesUserFlowTest.kt", "tools/ep01-android/**", "private/release-core/**", "private/release-data/**", ".github/workflows/ep01-android-runtime.yml"]
   workflow_dispatch:
 permissions:
   contents: read

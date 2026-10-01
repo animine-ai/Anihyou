@@ -3,6 +3,7 @@ on:
   push:
     branches: [feature/aniworld-provider-v3, ep03/user-added-sources, ep04/aniworld-v1]
     paths:
+      - "app/src/androidTest/java/com/axiel7/anihyou/ExtensionSourcesUserFlowTest.kt"
       - "settings.gradle.kts"
       - "app/src/main/java/com/axiel7/anihyou/AnimetrackerReleaseModule.kt"
       - ".github/workflows/aniworld-provider-v3.yml"
