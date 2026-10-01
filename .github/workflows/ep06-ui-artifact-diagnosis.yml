@@ -1,4 +1,4 @@
-name: EP06 UI failure artifact diagnosis
+name: EP06 final artifact proof inspection
 on:
   push:
     branches: [ep06/ui-failure-diagnostics]
@@ -12,39 +12,44 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify final-head unit report archive
+      - name: Verify final-head unit, migration and product UI reports
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           python3 - <<'PY'
-          import hashlib, io, os, urllib.request, urllib.error, zipfile, xml.etree.ElementTree as ET
+          import hashlib, io, json, os, urllib.request, urllib.error, zipfile, xml.etree.ElementTree as ET
           class NoRedirect(urllib.request.HTTPRedirectHandler):
               def redirect_request(self, req, fp, code, msg, headers, newurl):
                   return None
-          url = "https://api.github.com/repos/animine-ai/Anihyou/actions/artifacts/11196811627/zip"
-          request = urllib.request.Request(url, headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"], "Accept": "application/vnd.github+json"})
-          try:
-              response = urllib.request.build_opener(NoRedirect).open(request, timeout=30)
-              data = response.read()
-          except urllib.error.HTTPError as error:
-              if error.code != 302:
-                  raise
-              location = error.headers["Location"]
-              data = urllib.request.urlopen(location, timeout=30).read()
-          assert hashlib.sha256(data).hexdigest() == "aec901dc5fd388890bba96d86d2f347378bb2d4bf9e3b8a12630b3c4de773361"
-          with zipfile.ZipFile(io.BytesIO(data)) as archive:
-              for path in archive.namelist():
-                  if not path.endswith(".xml"):
-                      continue
-                  root = ET.fromstring(archive.read(path))
-                  print("SUITE", path, root.attrib)
-                  for case in root.iter("testcase"):
-                      failures = list(case.findall("failure")) + list(case.findall("error"))
-                      if not failures and case.attrib.get("classname", "").endswith("ExtensionSourcesViewModelTest"):
-                          print("PASS", case.attrib.get("classname"), case.attrib.get("name"))
-                      for failure in failures:
-                          print("FAIL", case.attrib.get("classname"), case.attrib.get("name"))
-                          print(failure.attrib)
-                          print((failure.text or "")[:24000])
+          artifacts = [{"id":11196852815,"name":"android-migration-test-reports","digest":"aecd45ef6b112864f79da0b7c1aebefc208a50b00d8b23146b84e3f7ec549e1a"},{"id":11196811627,"name":"upstream-release-regression-reports","digest":"aec901dc5fd388890bba96d86d2f347378bb2d4bf9e3b8a12630b3c4de773361"},{"id":11196499652,"name":"foss-debug-android-test-reports","digest":"238a9eb061dc9aa1aec0dbfc8efe8ed1edcb0db3fcbf34bbb98d91c81491a834"}]
+          for artifact in artifacts:
+              request = urllib.request.Request("https://api.github.com/repos/animine-ai/Anihyou/actions/artifacts/" + str(artifact["id"]) + "/zip",
+                  headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"], "Accept": "application/vnd.github+json"})
+              try:
+                  response = urllib.request.build_opener(NoRedirect).open(request, timeout=30)
+                  data = response.read()
+              except urllib.error.HTTPError as error:
+                  if error.code != 302:
+                      raise
+                  data = urllib.request.urlopen(error.headers["Location"], timeout=30).read()
+              assert hashlib.sha256(data).hexdigest() == artifact["digest"]
+              counts = dict(tests=0, failures=0, errors=0, skipped=0)
+              with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                  for path in archive.namelist():
+                      if path.endswith("no-bypass-static.json") or path.endswith("ep06-product-boundary.json"):
+                          print("BOUNDARY", json.dumps(json.loads(archive.read(path)), separators=(",", ":")))
+                      if not path.endswith(".xml"):
+                          continue
+                      root = ET.fromstring(archive.read(path))
+                      for key in counts:
+                          counts[key] += int(root.attrib.get(key, 0))
+                      for case in root.iter("testcase"):
+                          failures = list(case.findall("failure")) + list(case.findall("error"))
+                          if "foss-debug-android" in artifact["name"] or case.attrib.get("classname", "").endswith("ExtensionSourcesViewModelTest"):
+                              print("ASSERTION", "FAIL" if failures else "PASS", case.attrib.get("classname"), case.attrib.get("name"))
+                          for failure in failures:
+                              print((failure.text or "")[:12000])
+              print("VERIFIED_ARTIFACT", json.dumps(dict(artifact, counts=counts), separators=(",", ":")))
+              assert counts["tests"] > 0 and not any(counts[key] for key in ("failures", "errors", "skipped"))
           PY
