@@ -6,6 +6,7 @@ on:
       - "app/**"
       - "core/**"
       - "feature/**"
+      - "gradle/**"
       - "settings.gradle.kts"
       - "app/src/main/java/com/axiel7/anihyou/AnimetrackerReleaseModule.kt"
       - ".github/workflows/aniworld-provider-v3.yml"

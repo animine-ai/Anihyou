@@ -81,7 +81,7 @@ sealed class BottomDestination(
         val railValues = values
         val catalog: List<BottomDestination> = listOf(Home, AnimeList, MangaList, Explore, Calendar, Profile) +
             CurrentListType.entries.mapIndexed { index, type ->
-                Shortcut("current_" + type.name.lowercase(), Route.CurrentListMain(type), when(type) {
+                Shortcut("current_" + type.name.lowercase(java.util.Locale.ROOT), Route.CurrentListMain(type), when(type) {
                     CurrentListType.AIRING -> R.string.airing
                     CurrentListType.BEHIND -> R.string.anime_behind
                     CurrentListType.ANIME -> R.string.watching
@@ -89,7 +89,7 @@ sealed class BottomDestination(
                     CurrentListType.NEXT_SEASON -> R.string.next_season
                 }, R.drawable.play_arrow_24, 100 + index)
             } + ChartType.entries.mapIndexed { index, type ->
-                Shortcut("chart_" + type.name.lowercase(), Route.ChartMain(type.name), when(type) {
+                Shortcut("chart_" + type.name.lowercase(java.util.Locale.ROOT), Route.ChartMain(type.name), when(type) {
                     ChartType.TOP_ANIME, ChartType.TOP_MANGA -> R.string.top_100
                     ChartType.POPULAR_ANIME, ChartType.POPULAR_MANGA -> R.string.top_popular
                     ChartType.POPULAR_MANHWA -> R.string.popular_manhwa

@@ -4,7 +4,6 @@ import com.axiel7.anihyou.release.core.source.ExtensionSourceFailure
 import java.io.File
 import java.io.FileOutputStream
 import java.net.URI
-import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.time.Instant
@@ -78,7 +77,7 @@ internal class ExtensionSourceRegistry(private val directory: File) {
         val temporary = File(directory, "sources.next")
         FileOutputStream(temporary).use { it.write(json.toString().toByteArray()); it.fd.sync() }
         Files.move(temporary.toPath(), stateFile.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-        FileChannel.open(directory.toPath()).use { it.force(true) }
+        ExtensionFileDurability.syncDirectory(directory)
         records = next
     }
 

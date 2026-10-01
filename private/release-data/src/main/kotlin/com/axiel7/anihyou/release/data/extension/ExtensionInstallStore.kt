@@ -318,7 +318,7 @@ internal class ExtensionInstallStore(
         syncDirectory(directory)
         state = next
     }
-    private fun syncDirectory(dir: File) { FileChannel.open(dir.toPath()).use { it.force(true) } }
+    private fun syncDirectory(dir: File) { ExtensionFileDurability.syncDirectory(dir) }
     private fun digest(file: File): String {
         val hash = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input -> val bytes = ByteArray(8192); while (true) {
@@ -454,5 +454,28 @@ internal class ExtensionInstallStore(
             requireNotNull(validated(extensionId, receipt))
         }
         return s.copy(generations = normalizedGenerations, removed = removed)
+    }
+}
+
+/** Directory durability on Android API 21+ and on the exported JVM compatibility host. */
+internal object ExtensionFileDurability {
+    fun syncDirectory(directory: File) {
+        if (System.getProperty("java.vm.name") != "Dalvik") {
+            FileChannel.open(directory.toPath()).use { it.force(true) }
+            return
+        }
+        // Public Android APIs are resolved reflectively because this exact source also runs
+        // in the plain JVM compatibility harness. NIO's emulated FileChannel cannot open directories.
+        val os = Class.forName("android.system.Os")
+        val constants = Class.forName("android.system.OsConstants")
+        val flags = constants.getField("O_RDONLY").getInt(null) or
+            constants.getField("O_DIRECTORY").getInt(null)
+        val descriptor = os.getMethod("open", String::class.java, Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType).invoke(null, directory.absolutePath, flags, 0)
+        try {
+            os.getMethod("fsync", java.io.FileDescriptor::class.java).invoke(null, descriptor)
+        } finally {
+            os.getMethod("close", java.io.FileDescriptor::class.java).invoke(null, descriptor)
+        }
     }
 }

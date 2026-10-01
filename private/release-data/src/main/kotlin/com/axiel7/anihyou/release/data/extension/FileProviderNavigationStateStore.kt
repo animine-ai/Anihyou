@@ -4,7 +4,6 @@ import com.axiel7.anihyou.release.core.navigation.ProviderEpisodeSegment
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import kotlinx.coroutines.Dispatchers
@@ -79,7 +78,7 @@ class FileProviderNavigationStateStore(private val directory: File) {
             val temporary = File(directory, "navigation-state.next")
             FileOutputStream(temporary).use { it.write(bytes); it.fd.sync() }
             Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            FileChannel.open(directory.toPath()).use { it.force(true) }
+            ExtensionFileDurability.syncDirectory(directory)
             mutable.value = next
         }
     }

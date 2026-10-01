@@ -3,7 +3,6 @@ package com.axiel7.anihyou.release.data.extension
 import com.axiel7.anihyou.release.core.source.*
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import kotlinx.coroutines.Dispatchers
@@ -85,7 +84,7 @@ class FileExtensionProductPolicyRepository(
             val temporary = File(directory, "product-policy.next")
             FileOutputStream(temporary).use { it.write(bytes); it.fd.sync() }
             Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            FileChannel.open(directory.toPath()).use { it.force(true) }
+            ExtensionFileDurability.syncDirectory(directory)
             state.value = next
         }
     }

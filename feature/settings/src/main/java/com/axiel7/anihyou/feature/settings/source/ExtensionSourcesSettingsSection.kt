@@ -280,7 +280,7 @@ internal fun ExtensionTrackPreferences(
     val subTracks = tracksByKind[TrackKind.SUB].orEmpty()
     val dubTracks = tracksByKind[TrackKind.DUB].orEmpty()
     val languages = (subTracks + dubTracks)
-        .map { it.substringBeforeLast('_').lowercase() }
+        .map { it.substringBeforeLast('_').lowercase(java.util.Locale.ROOT) }
         .distinct()
         .sorted()
 

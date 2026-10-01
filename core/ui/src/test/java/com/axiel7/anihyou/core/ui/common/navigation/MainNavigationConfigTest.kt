@@ -5,6 +5,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MainNavigationConfigTest {
+    @Test fun persistedShortcutIdsSurviveDeviceLanguageChanges() {
+        val original = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"))
+            val config = MainNavigationConfig().hide("anime").show("chart_airing_anime")
+            assertTrue(config.visibleIds.contains("chart_airing_anime"))
+            val encoded = MainNavigationConfigCodec.encode(config)
+            java.util.Locale.setDefault(java.util.Locale.GERMAN)
+            assertEquals(config, MainNavigationConfigCodec.decode(encoded))
+        } finally { java.util.Locale.setDefault(original) }
+    }
+
     @Test fun defaultOrderAndProfileAreExact() {
         assertEquals(listOf("home", "anime", "manga", "explore", "calendar"), MainNavigationConfig().visibleIds)
         assertFalse(MainNavigationResolver.destinations(MainNavigationConfig()).any { it.route == Route.Profile })

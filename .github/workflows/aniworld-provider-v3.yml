@@ -353,7 +353,7 @@ jobs:
           arch: x86_64
           profile: pixel_2
           emulator-boot-timeout: 900
-          disable-animations: true
+          disable-animations: false
           disable-linux-hw-accel: false
           script: |
             adb shell svc wifi disable || true
