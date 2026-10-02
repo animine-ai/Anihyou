@@ -142,7 +142,8 @@ class ExtensionUpdateComposeTest {
             .assertTextContains("Update failed", substring = true)
         composeRule.onNodeWithTag("extension-action-${key.extensionId}").assertTextContains("Check")
         composeRule.onNodeWithTag("extension-rollback-${key.extensionId}").performScrollTo().performClick()
-        composeRule.onNodeWithText("Installed version: 1.1.0", substring = true).assertIsDisplayedCompat()
+        composeRule.onNodeWithTag("extension-installed-version-${key.extensionId}")
+            .assertTextContains("Installed version: 1.1.0")
         composeRule.onNodeWithText("Previous Good version: 1.0.0", substring = true).assertIsDisplayedCompat()
         composeRule.onNodeWithText("Previous Good trust: TRUSTED").assertIsDisplayedCompat()
         composeRule.onNodeWithText("Reason: Package health check failed").assertIsDisplayedCompat()
@@ -381,9 +382,10 @@ class ExtensionUpdateComposeTest {
             .assertTextContains("Installed and current", substring = true)
         composeRule.onNodeWithTag("extension-update-state-${updateKey.extensionId}")
             .assertTextContains("Update available", substring = true)
-        composeRule.onNodeWithTag("extension-progress-${updateKey.extensionId}").assertIsDisplayedCompat()
+        composeRule.onNodeWithTag("extension-progress-${updateKey.extensionId}")
+            .performScrollTo().assertIsDisplayedCompat()
         composeRule.onNodeWithTag("extension-update-failure-${updateKey.extensionId}")
-            .assertTextContains("Network unavailable", substring = true)
+            .performScrollTo().assertTextContains("Network unavailable", substring = true)
         captureScreenshot("manage-overview")
     }
 
