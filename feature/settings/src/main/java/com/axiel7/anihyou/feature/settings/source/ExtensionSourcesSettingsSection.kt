@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
@@ -42,7 +43,6 @@ import com.axiel7.anihyou.core.ui.composables.PreferencesTitle
 import com.axiel7.anihyou.feature.settings.R
 import com.axiel7.anihyou.release.core.source.AddExtensionSourceResult
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
-import com.axiel7.anihyou.release.core.source.ExtensionProductPolicy
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.core.source.ExtensionSource
 import com.axiel7.anihyou.release.core.source.ExtensionSourceFailure
@@ -123,8 +123,6 @@ fun ExtensionSourcesSettingsSection(
             uiState.sources.forEach { source ->
                 ExtensionSourceCard(
                     source = source,
-                    policy = uiState.productPolicy,
-                    canEditPolicy = uiState.canEditProductPolicy,
                     diagnostics = uiState.diagnostics,
                     busySourceIds = uiState.busySourceIds,
                     event = event,
@@ -138,8 +136,6 @@ fun ExtensionSourcesSettingsSection(
 @Composable
 private fun ExtensionSourceCard(
     source: ExtensionSource,
-    policy: ExtensionProductPolicy,
-    canEditPolicy: Boolean,
     diagnostics: Map<ExtensionSelectionKey, Map<String, String>>,
     busySourceIds: Set<String>,
     event: ExtensionSourcesEvent,
@@ -147,13 +143,19 @@ private fun ExtensionSourceCard(
 ) {
     val sourceBusy = source.id in busySourceIds || source.extensions.any { it.updateState.isInFlight() }
     var showRemoveConfirmation by remember(source.id) { mutableStateOf(false) }
+    val refreshLabel = stringResource(if (sourceBusy) R.string.extension_manage_working else R.string.extension_sources_refresh)
+    val refreshModifier = if (sourceBusy) Modifier.semantics {
+        liveRegion = LiveRegionMode.Polite
+        stateDescription = refreshLabel
+    } else Modifier
     Card(modifier = modifier.fillMaxWidth().testTag("extension-source-card")) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
         ) {
-            Text(source.url, style = MaterialTheme.typography.titleMedium)
+            Text(repositoryHost(source.url) ?: stringResource(R.string.extension_manage_unknown_repository),
+                style = MaterialTheme.typography.titleMedium)
             Text(
                 text = stringResource(R.string.extension_manage_repository_summary, source.id, source.origin),
                 style = MaterialTheme.typography.bodySmall,
@@ -185,7 +187,7 @@ private fun ExtensionSourceCard(
                     modifier = Modifier.testTag("extension-source-refresh"),
                     enabled = !sourceBusy,
                 ) {
-                    Text(stringResource(if (sourceBusy) R.string.extension_manage_working else R.string.extension_sources_refresh))
+                    Text(refreshLabel, modifier = refreshModifier)
                 }
                 TextButton(
                     onClick = { showRemoveConfirmation = true },
@@ -200,8 +202,6 @@ private fun ExtensionSourceCard(
                 SourceExtensionInfo(
                     source = source,
                     extension = extension,
-                    policy = policy,
-                    canEditPolicy = canEditPolicy,
                     sourceBusy = sourceBusy,
                     diagnostics = source.selectionKey(extension)?.let { diagnostics[it] }.orEmpty(),
                     event = event,
@@ -221,12 +221,12 @@ private fun ExtensionSourceCard(
                         event.removeSource(source.id)
                     },
                     enabled = !sourceBusy,
-                    modifier = Modifier.testTag("extension-source-remove-confirm-${source.id}"),
+                    modifier = Modifier.testTag("extension-source-remove-confirm"),
                 ) { Text(stringResource(R.string.extension_sources_remove)) }
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveConfirmation = false },
-                    modifier = Modifier.testTag("extension-source-remove-cancel-${source.id}")) {
+                    modifier = Modifier.testTag("extension-source-remove-cancel")) {
                     Text(stringResource(R.string.extension_manage_cancel))
                 }
             },
@@ -238,8 +238,6 @@ private fun ExtensionSourceCard(
 private fun SourceExtensionInfo(
     source: ExtensionSource,
     extension: SourceExtension,
-    policy: ExtensionProductPolicy,
-    canEditPolicy: Boolean,
     sourceBusy: Boolean,
     diagnostics: Map<String, String>,
     event: ExtensionSourcesEvent,
@@ -248,10 +246,12 @@ private fun SourceExtensionInfo(
     var rollbackRequest by remember(source.id, extension.extensionId) { mutableStateOf<RollbackRequest?>(null) }
     val actionBusy = sourceBusy || extension.updateState.isInFlight()
     val updateStateLabel = stringResource(extensionUpdateStateLabel(extension.updateState))
+    val updateStatusText = stringResource(R.string.extension_manage_status, updateStateLabel)
     val installedStatusLabel = stringResource(installedPackageStatusLabel(extension))
     val latestVersion = extension.latestAvailableVersion
 
-    Text(extension.displayName, style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.extension_manage_signed_name, extension.displayName),
+        style = MaterialTheme.typography.titleSmall)
     Text(
         text = stringResource(R.string.extension_manage_signed_id, extension.extensionId),
         style = MaterialTheme.typography.bodySmall,
@@ -272,12 +272,13 @@ private fun SourceExtensionInfo(
         modifier = Modifier.testTag("extension-installed-status-${extension.extensionId}"),
     )
     val digest = extension.installedDigest
-    Text(
-        text = stringResource(R.string.extension_manage_package_summary,
-            extension.packageGeneration,
-            digest?.take(12) ?: stringResource(R.string.extension_manage_unavailable)),
-        style = MaterialTheme.typography.bodySmall,
-    )
+    if (digest != null) {
+        Text(
+            text = stringResource(R.string.extension_manage_package_summary,
+                extension.packageGeneration, digest.take(12)),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
     val repoTrust = diagnostics["Trust status"]
     if (repoTrust != null) {
         Text(
@@ -295,7 +296,7 @@ private fun SourceExtensionInfo(
         )
     }
     Text(
-        text = updateStateLabel,
+        text = updateStatusText,
         style = MaterialTheme.typography.bodySmall,
         modifier = Modifier
             .testTag("extension-update-state-${extension.extensionId}")
@@ -305,21 +306,24 @@ private fun SourceExtensionInfo(
             },
     )
     if (actionBusy) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("extension-progress-${extension.extensionId}")) {
-            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-            Text("  " + updateStateLabel, style = MaterialTheme.typography.bodySmall,
+        val progressLabel = stringResource(R.string.extension_manage_working)
+        Row(verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.testTag("extension-progress-${extension.extensionId}").semantics {
+                liveRegion = LiveRegionMode.Polite
+                stateDescription = progressLabel
+            }) {
+            CircularProgressIndicator(Modifier.size(16.dp).semantics {
+                stateDescription = progressLabel
+            }, strokeWidth = 2.dp)
+            Text("  " + progressLabel, style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.semantics {
                     liveRegion = LiveRegionMode.Polite
-                    stateDescription = updateStateLabel
+                    stateDescription = progressLabel
                 })
         }
     }
 
-    val current = extension.installedUsable && !extension.updateAvailable && extension.updateState in setOf(
-        ExtensionUpdateState.INSTALLED_CURRENT,
-        ExtensionUpdateState.UPDATED,
-        ExtensionUpdateState.ROLLED_BACK,
-    )
+    val current = extension.installedUsable && !extension.updateAvailable
     val primaryAction = when {
         source.enabled && !actionBusy && extension.activationAllowed && extension.installedDigest == null &&
             extension.installedStatus == com.axiel7.anihyou.release.core.source.InstalledPackageStatus.NOT_INSTALLED ->
@@ -408,6 +412,10 @@ private fun SourceExtensionInfo(
         )
     }
     rollbackRequest?.let { request ->
+        val rollbackTargetStillCurrent = extension.packageGeneration == request.expectedGeneration &&
+            extension.rollbackTarget?.digest == request.target.digest &&
+            extension.rollbackTarget?.trustState == request.target.trustState &&
+            request.target.trustState == "TRUSTED"
         AlertDialog(
             onDismissRequest = { rollbackRequest = null },
             title = { Text(stringResource(R.string.extension_manage_rollback_title)) },
@@ -419,6 +427,10 @@ private fun SourceExtensionInfo(
                     Text(stringResource(R.string.extension_manage_rollback_reason,
                         request.reason?.let { stringResource(it) } ?: stringResource(R.string.extension_manage_rollback_reason_default)))
                     Text(stringResource(R.string.extension_manage_rollback_warning))
+                    if (!rollbackTargetStillCurrent) {
+                        Text(stringResource(R.string.extension_manage_rollback_target_changed),
+                            color = MaterialTheme.colorScheme.error)
+                    }
                 }
             },
             confirmButton = {
@@ -428,7 +440,7 @@ private fun SourceExtensionInfo(
                         event.rollback(request.sourceId, request.extensionId,
                             request.expectedGeneration, request.target.digest)
                     },
-                    enabled = !actionBusy,
+                    enabled = !actionBusy && rollbackTargetStillCurrent,
                     modifier = Modifier.testTag("extension-rollback-confirm-${extension.extensionId}"),
                 ) { Text(stringResource(R.string.extension_manage_previous_good)) }
             },
@@ -440,13 +452,9 @@ private fun SourceExtensionInfo(
             },
         )
     }
-    if (extension.lastUpdateResult != null) {
-        Text(stringResource(R.string.extension_manage_last_update_result, extension.lastUpdateResult),
-            style = MaterialTheme.typography.bodySmall)
-    }
-    if (extension.lastUpdateAt != null) {
-        Text(stringResource(R.string.extension_manage_last_update_at, extension.lastUpdateAt.toString()),
-            style = MaterialTheme.typography.bodySmall)
+    if (extension.rollbackTarget == null && extension.installedDigest != null &&
+        extension.updateState in setOf(ExtensionUpdateState.UPDATE_FAILED, ExtensionUpdateState.ROLLBACK_AVAILABLE)) {
+        Text(stringResource(R.string.extension_manage_no_previous_good), style = MaterialTheme.typography.bodySmall)
     }
     if (!extension.metadataFresh) {
         Text(stringResource(R.string.extension_manage_metadata_stale), style = MaterialTheme.typography.bodySmall)
@@ -501,7 +509,7 @@ private fun ExtensionCapabilityDialog(extension: SourceExtension, onDismiss: () 
     )
 }
 
-private fun ExtensionUpdateState.isInFlight(): Boolean = when (this) {
+internal fun ExtensionUpdateState.isInFlight(): Boolean = when (this) {
     ExtensionUpdateState.CHECKING,
     ExtensionUpdateState.DOWNLOADING,
     ExtensionUpdateState.VERIFYING,
@@ -511,7 +519,7 @@ private fun ExtensionUpdateState.isInFlight(): Boolean = when (this) {
     else -> false
 }
 
-private fun extensionUpdateStateLabel(state: ExtensionUpdateState): Int = when (state) {
+internal fun extensionUpdateStateLabel(state: ExtensionUpdateState): Int = when (state) {
     ExtensionUpdateState.NOT_INSTALLED -> R.string.extension_manage_state_not_installed
     ExtensionUpdateState.INSTALLED_CURRENT -> R.string.extension_manage_state_current
     ExtensionUpdateState.UPDATE_AVAILABLE -> R.string.extension_manage_state_update_available
@@ -531,7 +539,7 @@ private fun extensionUpdateStateLabel(state: ExtensionUpdateState): Int = when (
     ExtensionUpdateState.TRUST_UNAVAILABLE -> R.string.extension_manage_state_trust_unavailable
 }
 
-private fun installedPackageStatusLabel(extension: SourceExtension): Int =
+internal fun installedPackageStatusLabel(extension: SourceExtension): Int =
     when (extension.installedStatus) {
         com.axiel7.anihyou.release.core.source.InstalledPackageStatus.NOT_INSTALLED -> R.string.extension_manage_trust_not_installed
         com.axiel7.anihyou.release.core.source.InstalledPackageStatus.USABLE -> R.string.extension_manage_trust_usable
@@ -541,7 +549,7 @@ private fun installedPackageStatusLabel(extension: SourceExtension): Int =
         com.axiel7.anihyou.release.core.source.InstalledPackageStatus.TRUST_UNAVAILABLE -> R.string.extension_manage_trust_unavailable
     }
 
-private fun updateFailureLabel(failure: ExtensionUpdateFailure): Int = when (failure) {
+internal fun updateFailureLabel(failure: ExtensionUpdateFailure): Int = when (failure) {
     ExtensionUpdateFailure.NETWORK -> R.string.extension_manage_failure_network
     ExtensionUpdateFailure.TRUST -> R.string.extension_manage_failure_trust
     ExtensionUpdateFailure.METADATA -> R.string.extension_manage_failure_metadata
@@ -554,6 +562,11 @@ private fun updateFailureLabel(failure: ExtensionUpdateFailure): Int = when (fai
     ExtensionUpdateFailure.CANCELLED -> R.string.extension_manage_failure_cancelled
     ExtensionUpdateFailure.INTERRUPTED -> R.string.extension_manage_failure_interrupted
 }
+
+private fun repositoryHost(url: String): String? = try {
+    java.net.URI(url).host?.takeIf { it.isNotBlank() }
+} catch (_: Exception) {
+    null
 }
 
 @Composable
@@ -758,7 +771,7 @@ private fun isPreferenceTrack(track: String): Boolean =
         trackKind(track) != TrackKind.OTHER && track.substringBeforeLast('_').isNotBlank()
 
 internal fun SourceExtension.isUsableInstalled(): Boolean =
-    installedDigest != null && activationAllowed && !revoked
+    installedDigest != null && installedUsable
 
 internal fun SourceExtension.supportsNavigation(): Boolean =
     capabilities.any { it == "OVERVIEW_NAVIGATION" || it == "EPISODE_NAVIGATION" }

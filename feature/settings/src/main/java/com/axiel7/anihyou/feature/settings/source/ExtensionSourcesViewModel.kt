@@ -9,6 +9,7 @@ import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.core.source.ExtensionSource
 import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
+import com.axiel7.anihyou.release.core.source.ExtensionUpdateState
 import com.axiel7.anihyou.release.core.source.selectionKey
 import com.axiel7.anihyou.release.core.source.usableExtension
 import kotlinx.coroutines.CancellationException
@@ -26,6 +27,7 @@ data class ExtensionSourcesUiState(
     val isAdding: Boolean = false,
     val addResult: AddExtensionSourceResult? = null,
     val actionFailed: Boolean = false,
+    val busySourceIds: Set<String> = emptySet(),
     val diagnostics: Map<ExtensionSelectionKey, Map<String, String>> = emptyMap(),
 )
 
@@ -40,6 +42,7 @@ interface ExtensionSourcesEvent {
     fun selectNavigationProvider(key: ExtensionSelectionKey?)
     fun setPreferences(key: ExtensionSelectionKey, preferences: ExtensionPreferences)
     fun removeExtension(sourceId: String, extensionId: String) {}
+    fun rollback(sourceId: String, extensionId: String, expectedGeneration: Long, targetDigest: String) {}
     fun setProviderOrder(keys: List<ExtensionSelectionKey>) {}
     fun refreshDiagnostics() {}
     fun clearActionFailure()
@@ -55,6 +58,7 @@ class ExtensionSourcesViewModel(
         ExtensionSourcesUiState(canEditProductPolicy = productPolicyRepository != null),
     )
     val uiState = _uiState.asStateFlow()
+    private val sourceActionLock = Any()
 
     init {
         viewModelScope.launch {
@@ -71,6 +75,7 @@ class ExtensionSourcesViewModel(
                 }
             }
         }
+        performAction { repository.restoreInstalled() }
     }
 
     override fun onUrlChanged(value: String) {
@@ -94,7 +99,9 @@ class ExtensionSourcesViewModel(
                 }
                 // Foreground onboarding must not wait for constrained background work.
                 // Refresh authenticates metadata only; package installation stays explicit.
-                if (result is AddExtensionSourceResult.Added) repository.refresh(result.sourceId)
+                if (result is AddExtensionSourceResult.Added) {
+                    performSourceAction(result.sourceId) { repository.refresh(result.sourceId) }
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -103,19 +110,19 @@ class ExtensionSourcesViewModel(
         }
     }
 
-    override fun setEnabled(sourceId: String, enabled: Boolean) = performAction {
+    override fun setEnabled(sourceId: String, enabled: Boolean) = performSourceAction(sourceId) {
         repository.setEnabled(sourceId, enabled)
     }
 
-    override fun removeSource(sourceId: String) = performAction {
+    override fun removeSource(sourceId: String) = performSourceAction(sourceId) {
         repository.remove(sourceId)
     }
 
-    override fun refreshSource(sourceId: String) = performAction {
+    override fun refreshSource(sourceId: String) = performSourceAction(sourceId) {
         repository.refresh(sourceId)
     }
 
-    override fun activate(sourceId: String, extensionId: String) = performAction {
+    override fun activate(sourceId: String, extensionId: String) = performSourceAction(sourceId) {
         repository.activate(sourceId, extensionId)
     }
 
@@ -143,9 +150,14 @@ class ExtensionSourcesViewModel(
             productPolicyRepository?.setPreferences(key, preferences)
         }
 
-    override fun removeExtension(sourceId: String, extensionId: String) = performAction {
+    override fun removeExtension(sourceId: String, extensionId: String) = performSourceAction(sourceId) {
         repository.removeExtension(sourceId, extensionId)
     }
+
+    override fun rollback(sourceId: String, extensionId: String, expectedGeneration: Long, targetDigest: String) =
+        performSourceAction(sourceId) {
+            repository.rollback(sourceId, extensionId, expectedGeneration, targetDigest)
+        }
 
     override fun setProviderOrder(keys: List<ExtensionSelectionKey>) = performPolicyAction {
         productPolicyRepository?.setNavigationProviderOrder(keys)
@@ -176,8 +188,44 @@ class ExtensionSourcesViewModel(
         }
     }
 
+    /** Claim the source before launching so sibling extension taps cannot race the coroutine. */
+    private fun performSourceAction(sourceId: String, action: suspend () -> Unit) {
+        val claimed = synchronized(sourceActionLock) {
+            val current = _uiState.value
+            val sourceOperationActive = current.sources.any { source ->
+                source.id == sourceId && source.extensions.any { it.updateState.isInFlight() }
+            }
+            if (sourceId in current.busySourceIds || sourceOperationActive) {
+                false
+            } else {
+                _uiState.update { it.copy(busySourceIds = it.busySourceIds + sourceId) }
+                true
+            }
+        }
+        if (!claimed) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(actionFailed = false) }
+            try {
+                action()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.update { it.copy(actionFailed = true) }
+            } finally {
+                synchronized(sourceActionLock) {
+                    _uiState.update { it.copy(busySourceIds = it.busySourceIds - sourceId) }
+                }
+            }
+        }
+    }
+
     private fun performPolicyAction(action: suspend () -> Unit) {
         if (productPolicyRepository == null) return
+        val state = uiState.value
+        if (state.busySourceIds.isNotEmpty() || state.sources.any { source ->
+                source.extensions.any { it.updateState.isInFlight() }
+            }) return
         performAction(action)
     }
 
@@ -187,9 +235,19 @@ class ExtensionSourcesViewModel(
     private fun isUsableNavigationProvider(key: ExtensionSelectionKey): Boolean =
         uiState.value.sources.any { source ->
             source.id == key.sourceId && source.enabled && source.extensions.any { extension ->
-                source.selectionKey(extension) == key &&
+                    source.selectionKey(extension) == key &&
                     extension.capabilities.any { it == "OVERVIEW_NAVIGATION" || it == "EPISODE_NAVIGATION" } &&
-                    extension.installedDigest != null && extension.activationAllowed && !extension.revoked
+                    extension.installedDigest != null && extension.installedUsable
             }
         }
+
+    private fun ExtensionUpdateState.isInFlight(): Boolean = when (this) {
+        ExtensionUpdateState.CHECKING,
+        ExtensionUpdateState.DOWNLOADING,
+        ExtensionUpdateState.VERIFYING,
+        ExtensionUpdateState.STAGING,
+        ExtensionUpdateState.ACTIVATING,
+        ExtensionUpdateState.ROLLING_BACK -> true
+        else -> false
+    }
 }

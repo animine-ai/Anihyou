@@ -81,6 +81,8 @@ class ExtensionSourcesUserFlowTest {
 
         composeRule.onNodeWithTag("extension-source-enabled").assertDoesNotExist()
         composeRule.onNodeWithTag("extension-source-remove").performScrollTo().performClick()
+        awaitText("Remove repository?").assertIsDisplayed()
+        composeRule.onNodeWithTag("extension-source-remove-confirm").performClick()
         awaitText(text(SettingsR.string.extension_sources_empty)).assertIsDisplayed()
         awaitNoSourceCards()
     }
