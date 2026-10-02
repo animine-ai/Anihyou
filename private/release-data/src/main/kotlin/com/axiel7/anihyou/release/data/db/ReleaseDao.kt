@@ -130,6 +130,7 @@ abstract class ReleaseDao {
         WHERE externalProvider = 'anilist'
           AND mappingStatus = 'ACTIVE'
           AND staleAt IS NULL
+          AND validatedAt IS NOT NULL
           AND externalId IS NOT NULL
           AND confidence IN ('EXACT', 'HIGH')
         ORDER BY seriesStableKey, mappingSubjectKey

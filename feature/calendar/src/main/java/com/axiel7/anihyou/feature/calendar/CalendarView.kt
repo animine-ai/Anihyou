@@ -169,9 +169,9 @@ private fun CalendarViewContent(
                 onClick = {
                     scope.launch {
                         if (uiState.listStyle == ListStyle.GRID) {
-                            gridState.animateScrollToItem(uiState.todayFirstItemIndex, 500)
+                            gridState.animateScrollToItem(uiState.todayFirstItemIndex)
                         } else {
-                            listState.animateScrollToItem(uiState.todayFirstItemIndex, 500)
+                            listState.animateScrollToItem(uiState.todayFirstItemIndex)
                         }
                     }
                 },
@@ -331,7 +331,7 @@ private fun StickyHeader(
     )
 }
 
-private data class CalendarRow(
+internal data class CalendarRow(
     val key: String,
     val media: ExploreMedia?,
     val releasePresentations: List<ReleaseUiCalendarItem>,
@@ -348,14 +348,14 @@ private fun CalendarRow.providerFallbackTitle(): String? =
             part.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase() else char.toString() }
         }
 
-private data class CalendarDay(
+internal data class CalendarDay(
     val date: LocalDate,
     val rows: List<CalendarRow>,
 )
 
-private fun CalendarUiState.presentationDays(): List<CalendarDay> {
+internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
     val metadataByMediaId = weeklyAnime.values.asSequence().flatten().associateBy { it.id }
-    return (weeklyAnime.keys + providerRowsByDate.keys + providerOnlyByDate.keys)
+    return (weeklyAnime.keys + providerRowsByDate.keys + providerOnlyByDate.keys + today)
         .toSortedSet()
         .mapNotNull { date ->
             val providerRows = providerRowsByDate[date].orEmpty()
@@ -386,7 +386,7 @@ private fun CalendarUiState.presentationDays(): List<CalendarDay> {
                     )
                 }
             }
-            rows.takeIf { it.isNotEmpty() }?.let { CalendarDay(date, it) }
+            if (rows.isNotEmpty() || date == today) CalendarDay(date, rows) else null
         }
 }
 
@@ -421,7 +421,7 @@ private fun ListView(
     }
     LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex) {
         if (uiState.todayAnchorReady && uiState.autoScrollToToday) {
-            listState.animateScrollToItem(uiState.todayFirstItemIndex, 500)
+            listState.animateScrollToItem(uiState.todayFirstItemIndex)
             event?.onAutoScrolled()
         }
     }
@@ -432,7 +432,7 @@ private fun ListView(
         state = listState,
     ) {
         uiState.presentationDays().forEach { day ->
-            stickyHeader {
+            stickyHeader(key = "date-${day.date}") {
                 StickyHeader(
                     mediaList = day.rows.mapNotNull { it.media }.distinctBy { it.id }.toImmutableList(),
                     date = day.date,
@@ -469,7 +469,7 @@ private fun ListView(
                 )
             }
         }
-        if (uiState.isLoading && uiState.presentationDays().isEmpty()) {
+        if (uiState.isLoading && uiState.presentationDays().all { it.rows.isEmpty() }) {
             item {
                 CalendarBannerPlaceholder(modifier = Modifier.padding(bottom = 8.dp))
             }
@@ -497,7 +497,7 @@ private fun GridView(
     }
     LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex) {
         if (uiState.todayAnchorReady && uiState.autoScrollToToday) {
-            gridState.animateScrollToItem(uiState.todayFirstItemIndex, 500)
+            gridState.animateScrollToItem(uiState.todayFirstItemIndex)
             event?.onAutoScrolled()
         }
     }
@@ -511,7 +511,7 @@ private fun GridView(
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
         uiState.presentationDays().forEach { day ->
-            stickyHeader {
+            stickyHeader(key = "date-${day.date}") {
                 StickyHeader(
                     mediaList = day.rows.mapNotNull { it.media }.distinctBy { it.id }.toImmutableList(),
                     date = day.date,
@@ -560,7 +560,7 @@ private fun GridView(
                 )
             }
         }
-        if (uiState.isLoading && uiState.presentationDays().isEmpty()) {
+        if (uiState.isLoading && uiState.presentationDays().all { it.rows.isEmpty() }) {
             item {
                 CalendarBannerPlaceholder(modifier = Modifier.padding(bottom = 8.dp))
             }

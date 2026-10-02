@@ -12,6 +12,8 @@ import com.axiel7.anihyou.release.core.model.AniWorldMappingSubject
 import com.axiel7.anihyou.release.core.model.AniWorldSiteIdentifier
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
+import com.axiel7.anihyou.release.data.db.ExternalMappingEntity
+import com.axiel7.anihyou.release.data.db.toDomainOrNull
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -20,6 +22,7 @@ import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -51,6 +54,11 @@ class FileExtensionPostponementStore(
     private val file = File(directory, FILE_NAME)
     private val mutableSnapshot = MutableStateFlow(load())
     override val snapshot = mutableSnapshot.asStateFlow()
+    override val presentation = combine(snapshot, database.releaseDao().observeActiveAniListMappings()) { value, mappings ->
+        value.copy(notices = value.notices.map { notice ->
+            notice.copy(mediaId = mappedAniListId(value.source, notice, mappings))
+        })
+    }
 
     suspend fun record(
         source: ExtensionSelectionKey,
@@ -82,19 +90,11 @@ class FileExtensionPostponementStore(
                     marker = observation.scheduleMarker,
                     rawText = observation.sourceRawText,
                     providerSeriesKey = observation.providerSeriesKey,
-                    mediaId = mappedAniListId(observation),
+                    // Persist presentation coordinates, never durable catalogue authority.
+                    mediaId = null,
                 )
             }
-            .distinctBy { notice ->
-                listOf(
-                    notice.title,
-                    notice.sourceSeason?.toString().orEmpty(),
-                    notice.installmentNumber.orEmpty(),
-                    notice.track.name,
-                    notice.marker.name,
-                    notice.rawText.orEmpty(),
-                ).joinToString("|")
-            }
+            .distinctBy { it.presentationKey }
 
         val next = ExtensionPostponementSnapshot(
             source = source,
@@ -106,19 +106,32 @@ class FileExtensionPostponementStore(
         )
         withContext(Dispatchers.IO) {
             mutex.withLock {
-                persist(next)
-                mutableSnapshot.value = next
+                // Missing rows in a partial upstream page are not removal authority.
+                val previous = mutableSnapshot.value.takeIf { it.source == source }
+                val incomingKeys = notices.mapTo(mutableSetOf()) { it.presentationKey }
+                val retained = previous?.notices.orEmpty().filter { it.presentationKey !in incomingKeys }
+                val incremental = next.copy(notices = (notices + retained).take(MAX_NOTICES))
+                persist(incremental)
+                mutableSnapshot.value = incremental
             }
         }
     }
 
-    private suspend fun mappedAniListId(observation: ProviderObservationV1): Int? {
-        val slug = observation.providerSeriesKey ?: return null
-        val navigationSeason = observation.navigationSeason ?: return null
+    private fun mappedAniListId(
+        source: ExtensionSelectionKey?,
+        notice: ExtensionPostponementNotice,
+        mappings: List<ExternalMappingEntity>,
+    ): Int? {
+        if (source?.providerId != "aniworld") return null
+        val slug = notice.providerSeriesKey ?: return null
+        val navigationSeason = notice.navigationSeason ?: return null
         val site = runCatching { AniWorldSiteIdentifier(slug) }.getOrNull() ?: return null
         val subject = runCatching { AniWorldMappingSubject.Season(site, navigationSeason) }.getOrNull()
             ?: return null
-        val row = database.releaseDao().getExternalMapping(subject.stableKey, "anilist") ?: return null
+        val row = mappings.singleOrNull {
+            it.mappingSubjectKey == subject.stableKey && it.externalProvider == "anilist"
+        } ?: return null
+        if (row.toDomainOrNull()?.subject != subject) return null
         if (row.mappingStatus != "ACTIVE" ||
             row.confidence !in setOf("EXACT", "HIGH") ||
             row.validatedAt == null ||

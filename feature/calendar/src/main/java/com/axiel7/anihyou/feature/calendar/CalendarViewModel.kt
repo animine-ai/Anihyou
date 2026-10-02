@@ -17,7 +17,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
@@ -41,13 +40,16 @@ class CalendarViewModel(
     private val extensionRefreshScheduler: com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler? = null,
 ) : PagedUiStateViewModel<CalendarUiState>(), CalendarEvent {
 
-    override val initialState = CalendarUiState(day = nowLocalDateTime().minusDays(1))
+    override val initialState = CalendarUiState(
+        day = nowLocalDateTime().minusDays(1),
+        today = nowLocalDateTime().toLocalDate(),
+    )
 
     private fun nowLocalDateTime(): LocalDateTime =
         LocalDateTime.ofInstant(clock.instant(), ZoneId.systemDefault())
 
     private val onMyList = defaultPreferencesRepository.calendarOnMyList
-    private val myUserId = defaultPreferencesRepository.userId.filterNotNull()
+    private val myUserId = defaultPreferencesRepository.userId
     private val displayAdult = defaultPreferencesRepository.displayAdult
 
     private val today = nowLocalDateTime().toLocalDate()
@@ -126,8 +128,6 @@ class CalendarViewModel(
                 page = 1,
                 hasNextPage = true,
                 isLoading = true,
-                todayFirstItemIndex = 0,
-                todayAnchorReady = false,
                 autoScrollToToday = false,
             )
         }
@@ -208,7 +208,7 @@ class CalendarViewModel(
             .flatMapLatest { endDate ->
                 myUserId.flatMapLatest { accountId ->
                     releasePresentationRepository.observeCalendar(
-                        accountId = accountId.toLong(),
+                        accountId = accountId?.toLong(),
                         range = today.minusDays(14)..endDate,
                     )
                 }
@@ -334,7 +334,6 @@ class CalendarViewModel(
     }
 
     private fun CalendarUiState.withTodayFirstItemIndex(): CalendarUiState {
-        if (day.toLocalDate() < today) return this
         val index = (weeklyAnime.keys + providerRowsByDate.keys + providerOnlyByDate.keys)
             .filter { it < today }
             .sumOf { date ->

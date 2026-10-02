@@ -16,6 +16,7 @@ data class CalendarUiState(
     val todayFirstItemIndex: Int = 0,
     val todayAnchorReady: Boolean = false,
     val autoScrollToToday: Boolean = true,
+    val today: LocalDate = LocalDate.of(2000, 1, 1),
     val day: LocalDateTime = LocalDateTime.of(2000, 1, 1, 0, 0),
     val weeklyAnime: MutableMap<LocalDate, List<ExploreMedia>> = mutableMapOf(),
     val releaseCalendarRows: List<ReleaseUiCalendarItem> = emptyList(),

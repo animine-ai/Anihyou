@@ -176,7 +176,7 @@ internal object Ep07UpdateRollbackProof {
                     },
                 ).also(stores::add)
             },
-            scheduler = ExtensionSourceScheduler { },
+            scheduler = object : ExtensionSourceScheduler { override fun scheduleRefresh() = Unit },
             clock = CLOCK,
             runtimeSupported = true,
         )
@@ -368,7 +368,8 @@ internal object Ep07UpdateRollbackProof {
                     smoke = { candidate -> runGuest(candidate) },
                 ).also(stores::add)
             },
-            scheduler = ExtensionSourceScheduler { }, clock = CLOCK, runtimeSupported = true,
+            scheduler = object : ExtensionSourceScheduler { override fun scheduleRefresh() = Unit },
+            clock = CLOCK, runtimeSupported = true,
         )
         interruptedRepository.restoreInstalled()
         val recoveredStore = stores.last()

@@ -5,6 +5,7 @@ import com.axiel7.anihyou.release.core.extension.ObservationTrack
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import java.time.Instant
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Presentation-only postponement notice from the selected release extension.
@@ -25,6 +26,19 @@ data class ExtensionPostponementNotice(
     val providerSeriesKey: String?,
     val mediaId: Int?,
 ) {
+    /** Provider coordinates keep a correction on the same row; incomplete identities stay separate. */
+    val presentationKey: String
+        get() {
+            val coordinates = listOf(
+                providerSeriesKey.orEmpty(), navigationSeason?.toString().orEmpty(),
+                installmentNumber.orEmpty(), track.name,
+            )
+            val parts = if (providerSeriesKey != null && navigationSeason != null &&
+                installmentNumber != null && track != ObservationTrack.UNKNOWN
+            ) coordinates else coordinates + listOf(title, sourceSeason?.toString().orEmpty(), marker.name, rawText.orEmpty())
+            return parts.joinToString("") { "${it.length}:$it" }
+        }
+
     init {
         require(title.isNotBlank() && title.length <= 1024)
         require(sourceSeason == null || sourceSeason >= 0)
@@ -55,4 +69,6 @@ data class ExtensionPostponementSnapshot(
 
 interface ExtensionPostponementPresentationRepository {
     val snapshot: StateFlow<ExtensionPostponementSnapshot>
+    /** Revalidates persisted bindings against current mappings before exposing catalogue links. */
+    val presentation: Flow<ExtensionPostponementSnapshot> get() = snapshot
 }

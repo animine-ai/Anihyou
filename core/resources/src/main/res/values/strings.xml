@@ -256,6 +256,7 @@
     <string name="jump_to_today">Today</string>
     <string name="postponements">Schedule changes</string>
     <string name="postponements_empty">No schedule changes from the active extension.</string>
+    <string name="postponements_unassigned">Without a verified AniList match</string>
     <string name="postponements_last_updated">Last updated: %1$s</string>
     <string name="postponements_season">S%1$d</string>
     <string name="postponements_episode">E%1$s</string>

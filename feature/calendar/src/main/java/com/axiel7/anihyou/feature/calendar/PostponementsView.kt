@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
+import com.axiel7.anihyou.core.ui.common.LocalBlurAdult
+import com.axiel7.anihyou.core.ui.composables.media.MediaItemHorizontal
 import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithSmallTopAppBar
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.release.core.api.ExtensionPostponementNotice
@@ -75,16 +77,33 @@ fun PostponementsView(
                 }
             } else {
                 items(
-                    items = state.notices,
-                    key = { it.stableKey() },
+                    items = state.notices.filter { it.mediaId != null },
+                    key = { it.presentationKey },
                 ) { notice ->
-                    PostponementRow(
-                        notice = notice,
-                        onClick = notice.mediaId?.let { mediaId ->
-                            { nav.toMediaDetails(mediaId) }
-                        },
+                    val details = notice.mediaId?.let(state.metadata::get)
+                    MediaItemHorizontal(
+                        title = details?.title?.takeIf { it.isNotBlank() } ?: notice.title,
+                        imageUrl = details?.cover,
+                        blurImage = LocalBlurAdult.current && details?.adult == true,
+                        subtitle1 = { Text(notice.detailsLabel(), color = MaterialTheme.colorScheme.primary) },
+                        subtitle2 = { notice.rawText?.let { Text(it) } },
+                        onClick = { notice.mediaId?.let(nav::toMediaDetails) },
                     )
                     HorizontalDivider()
+                }
+                val unassigned = state.notices.filter { it.mediaId == null }
+                if (unassigned.isNotEmpty()) {
+                    item(key = "postponements-unassigned") {
+                        Text(
+                            stringResource(R.string.postponements_unassigned),
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
+                        )
+                    }
+                    items(unassigned, key = { it.presentationKey }) { notice ->
+                        PostponementRow(notice, onClick = null)
+                        HorizontalDivider()
+                    }
                 }
             }
         }
@@ -148,15 +167,5 @@ private fun ExtensionPostponementNotice.detailsLabel(): String {
     }
     return listOf(coordinates, status).filter { it.isNotBlank() }.joinToString(" · ")
 }
-
-private fun ExtensionPostponementNotice.stableKey(): String =
-    listOf(
-        title,
-        sourceSeason?.toString().orEmpty(),
-        installmentNumber.orEmpty(),
-        track.name,
-        marker.name,
-        rawText.orEmpty(),
-    ).joinToString("|")
 
 private val UPDATED_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")

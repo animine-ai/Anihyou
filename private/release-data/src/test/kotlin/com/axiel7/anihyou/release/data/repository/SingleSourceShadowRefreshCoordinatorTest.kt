@@ -72,7 +72,8 @@ class SingleSourceShadowRefreshCoordinatorTest {
         assertEquals(NOW.toString(), rig.navigationStore.state.value.syncStatistics["Last successful sync"])
         val exports = rig.runtime.exports.toList()
         assertEquals(ShadowRefreshOutcome.Skipped("extension-data-fresh"),
-            product(rig, access).refresh("product-restarted", false))
+            product(rig.copy(navigationStore = FileProviderNavigationStateStore(rig.navigationDirectory)), access)
+                .refresh("product-restarted", false))
         assertEquals(exports, rig.runtime.exports)
         assertTrue(rig.navigationStore.state.value.installments.isNotEmpty())
     }
@@ -393,7 +394,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
                 )
             },
         )
-        return Rig(worker, policy, navigationStore, runtime, reconciliation)
+        return Rig(worker, policy, navigationStore, runtime, reconciliation, File(root, "navigation"))
     }
 
     private suspend fun assertCurrentEvidenceProducedReceipt(outcome: ShadowRefreshOutcome, rig: Rig) {
@@ -465,6 +466,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val navigationStore: FileProviderNavigationStateStore,
         val runtime: FixtureRuntime,
         val reconciliation: RoomReleaseReconciliationRepository,
+        val navigationDirectory: File,
     )
 
     private class AtomicInstalledAccess(packages: Map<ExtensionSelectionKey, VerifiedExtensionPackage>) : InstalledExtensionAccess {

@@ -255,6 +255,7 @@
     <string name="jump_to_today">Heute</string>
     <string name="postponements">Verschiebungen</string>
     <string name="postponements_empty">Keine Verschiebungen der aktiven Extension vorhanden.</string>
+    <string name="postponements_unassigned">Ohne bestätigte AniList-Zuordnung</string>
     <string name="postponements_last_updated">Aktualisiert: %1$s</string>
     <string name="postponements_season">S%1$d</string>
     <string name="postponements_episode">E%1$s</string>
