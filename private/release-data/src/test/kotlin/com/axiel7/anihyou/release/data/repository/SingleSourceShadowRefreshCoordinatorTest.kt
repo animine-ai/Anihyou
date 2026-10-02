@@ -74,7 +74,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
     @Test
     fun `worker resolves the source selected immediately before execution`() = runBlocking {
         val selectedAtExecution = SOURCE_B_KEY
-        val access = AtomicInstalledAccess(mapOf(selectedAtExecution to extensionPackage(selectedAtExecution)))
+        val access = AtomicInstalledAccess(mapOf(selectedAtExecution to extensionPackage(selectedAtExecution, packageGeneration = 4)))
         val runtime = FixtureRuntime()
         val rig = rig(access, active = null, runtime = runtime)
         rig.policy.selectActiveSource(selectedAtExecution)
@@ -85,6 +85,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
         assertTrue(access.loads.contains(selectedAtExecution))
         assertFalse(access.loads.contains(SOURCE_A_KEY))
         assertEquals(selectedAtExecution, rig.navigationStore.state.value.source)
+        assertEquals(4L, rig.navigationStore.state.value.packageGeneration)
         assertCurrentEvidenceProducedReceipt(outcome, rig)
     }
 
@@ -192,6 +193,31 @@ class SingleSourceShadowRefreshCoordinatorTest {
             assertEquals(ShadowRefreshOutcome.Failed("stale-generation-token", retryable = false), outcome)
             assertHealthUnchanged()
             assertNull(rig.navigationStore.state.value.source)
+        }
+    }
+
+    @Test
+    fun `ABA reinstall with the original digest is fenced by the pinned package generation`() = runBlocking {
+        val first = extensionPackage(SOURCE_A_KEY, packageGeneration = 10)
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to first))
+        val runtime = FixtureRuntime(blockParsing = true)
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = runtime)
+        seedHealth()
+        withTimeout(30_000) {
+            val running = async { rig.worker.refreshForWork("aba-package-reinstall") }
+            runtime.parseEntered.await()
+
+            access.replace(SOURCE_A_KEY, extensionPackage(SOURCE_A_KEY,
+                packageDigest = sha256("package-v2".toByteArray()), packageGeneration = 11))
+            access.replace(SOURCE_A_KEY, extensionPackage(SOURCE_A_KEY,
+                packageDigest = first.packageDigest, packageGeneration = 12))
+            runtime.releaseParsing.complete(Unit)
+            val outcome = running.await()
+
+            assertEquals(ShadowRefreshOutcome.Failed("stale-generation-token", retryable = false), outcome)
+            assertHealthUnchanged()
+            assertNull(rig.navigationStore.state.value.source)
+            assertNull(database.aniworldPollDao().activeGeneration(RoomExtensionShadowGenerationStore.SCOPE_ID))
         }
     }
 
@@ -350,6 +376,20 @@ class SingleSourceShadowRefreshCoordinatorTest {
             if (matches) block() else null
         }
 
+        override suspend fun <T> withCurrentGeneration(
+            key: ExtensionSelectionKey,
+            digest: String,
+            generation: Long,
+            block: suspend () -> T,
+        ): T? = mutex.withLock {
+            val current = synchronized(mutablePackages) { mutablePackages[key] }
+            if (current?.packageDigest == digest && current.packageGeneration == generation) block() else null
+        }
+
+        suspend fun replace(key: ExtensionSelectionKey, packageInfo: VerifiedExtensionPackage) = mutex.withLock {
+            synchronized(mutablePackages) { mutablePackages[key] = packageInfo }
+        }
+
         suspend fun revoke(key: ExtensionSelectionKey) = mutex.withLock {
             synchronized(mutablePackages) { mutablePackages.remove(key) }
         }
@@ -463,6 +503,8 @@ class SingleSourceShadowRefreshCoordinatorTest {
     private fun extensionPackage(
         key: ExtensionSelectionKey,
         roles: Set<SourceRole> = ALL_ROLES,
+        packageDigest: String = sha256("package:${key.sourceId}".toByteArray()),
+        packageGeneration: Long = 0,
     ) = VerifiedExtensionPackage(
         extensionId = ExtensionId.parse(key.extensionId),
         providerId = ProviderId.parse(key.providerId),
@@ -473,7 +515,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
         releaseSequence = 1,
         abiVersion = 1,
         policyVersion = 1,
-        packageDigest = sha256("package:${key.sourceId}".toByteArray()),
+        packageDigest = packageDigest,
         manifestDigest = sha256("manifest:${key.sourceId}".toByteArray()),
         moduleDigest = sha256(MODULE_BYTES),
         moduleBytes = MODULE_BYTES,
@@ -481,7 +523,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
         navigationCapabilities = if (roles.isEmpty()) setOf(NavigationCapability.EPISODE_NAVIGATION) else emptySet(),
         grantedHosts = setOf("aniworld.to"),
         runtimeVersion = "wasmtime-48.0.3-test",
-    )
+    ).also { it.packageGeneration = packageGeneration }
 
     companion object {
         private const val SIGNING_KEY_ID = "fixture-key"

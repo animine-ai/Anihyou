@@ -18,6 +18,7 @@ data class NavigationProvider(
     val capabilities: Set<NavigationCapability>,
     val allowedHosts: Set<String>,
     val supportedTracks: Set<String>,
+    val packageGeneration: Long = 0,
 )
 
 /** Exact mappings, including split/cour offsets, are supplied by the host matching plane. */

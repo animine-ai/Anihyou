@@ -60,6 +60,10 @@ class VerifiedExtensionPackage internal constructor(
 ) {
     private val moduleContent = moduleBytes.copyOf()
     val moduleBytes: ByteArray get() = moduleContent.copyOf()
+
+    /** Monotonic host lifecycle token; unlike the digest it also fences ABA reinstalls. */
+    var packageGeneration: Long = 0
+        internal set
 }
 
 /**

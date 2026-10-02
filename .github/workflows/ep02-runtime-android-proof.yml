@@ -1,7 +1,7 @@
 name: EP02 Production Runtime Android Proof
 on:
   push:
-    branches: [feature/aniworld-provider-v3, ep03/user-added-sources, ep04/aniworld-v1, ep06/provider-navigation-watch-next]
+    branches: [feature/aniworld-provider-v3, ep03/user-added-sources, ep04/aniworld-v1, ep06/provider-navigation-watch-next, ep07/extension-update-ux]
     paths:
       - "app/**"
       - "core/**"

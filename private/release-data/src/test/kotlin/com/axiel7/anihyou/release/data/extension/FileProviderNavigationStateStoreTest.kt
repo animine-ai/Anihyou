@@ -22,22 +22,38 @@ class FileProviderNavigationStateStoreTest {
             val store = FileProviderNavigationStateStore(directory)
             val digest = "a".repeat(64)
             val statistics = mapOf("Last successful sync" to "2026-10-01T12:00:00Z", "Role health" to "CALENDAR: HEALTHY/SUCCESS")
-            store.record(a, 1, digest, emptyList(), statistics)
-            store.recordNavigation(a, digest, "READY")
+            store.record(a, 1, digest, emptyList(), statistics, packageGeneration = 7)
+            store.recordNavigation(a, digest, "READY", packageGeneration = 7)
             val restarted = FileProviderNavigationStateStore(directory)
             assertEquals(statistics, restarted.state.value.syncStatistics)
             assertEquals("READY", restarted.state.value.navigationStatus)
-            restarted.record(a, 1, digest, emptyList())
+            assertEquals(7, restarted.state.value.packageGeneration)
+            restarted.record(a, 1, digest, emptyList(), packageGeneration = 7)
             assertEquals(statistics, restarted.state.value.syncStatistics)
-            restarted.recordNavigation(b, digest, "LAUNCHED")
-            restarted.recordNavigation(a, "b".repeat(64), "LAUNCHED")
+            restarted.recordNavigation(b, digest, "LAUNCHED", packageGeneration = 7)
+            restarted.recordNavigation(a, digest, "LAUNCHED", packageGeneration = 8)
+            restarted.recordNavigation(a, "b".repeat(64), "LAUNCHED", packageGeneration = 7)
             assertEquals("READY", restarted.state.value.navigationStatus)
-            restarted.record(a, 2, digest, emptyList())
+            restarted.record(a, 1, digest, emptyList(), packageGeneration = 8)
             assertTrue(restarted.state.value.syncStatistics.isEmpty())
             assertNull(restarted.state.value.navigationStatus)
             restarted.record(b, 2, "b".repeat(64), emptyList())
             assertTrue(restarted.state.value.syncStatistics.isEmpty())
             assertNull(restarted.state.value.navigationStatus)
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `legacy receipt without package generation reopens as generation zero`() = runBlocking {
+        val directory = Files.createTempDirectory("ep06-navigation-legacy-generation").toFile()
+        try {
+            val store = FileProviderNavigationStateStore(directory)
+            store.record(a, 1, "a".repeat(64), emptyList())
+            val file = directory.resolve("navigation-state.json")
+            file.writeText(file.readText().replace(",\"packageGeneration\":0", ""))
+
+            val reopened = FileProviderNavigationStateStore(directory)
+
+            assertEquals(0, reopened.state.value.packageGeneration)
         } finally { directory.deleteRecursively() }
     }
 

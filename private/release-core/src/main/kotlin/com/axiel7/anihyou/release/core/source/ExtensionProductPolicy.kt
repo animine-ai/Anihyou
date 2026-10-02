@@ -84,5 +84,5 @@ fun ExtensionSource.selectionKey(extension: SourceExtension): ExtensionSelection
 fun List<ExtensionSource>.usableExtension(key: ExtensionSelectionKey): SourceExtension? =
     singleOrNull { it.id == key.sourceId && it.enabled }?.extensions?.singleOrNull {
         it.extensionId == key.extensionId && it.publisherId == key.publisherId && it.providerId == key.providerId &&
-            it.installedDigest != null && it.activationAllowed && !it.revoked
+            it.installedDigest != null && it.installedUsable
     }

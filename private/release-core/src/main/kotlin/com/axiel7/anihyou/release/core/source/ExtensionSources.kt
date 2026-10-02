@@ -6,6 +6,15 @@ import kotlinx.coroutines.flow.StateFlow
 enum class ExtensionSourceStatus { ADDED, DISABLED, TRUST_UNAVAILABLE, CURRENT, UPDATE_AVAILABLE, ERROR, REVOKED }
 enum class ExtensionSourceFailure { AUTHENTICATION_UNAVAILABLE, NETWORK, INVALID_METADATA, INVALID_PACKAGE, UNSUPPORTED_RUNTIME, STORAGE }
 
+enum class ExtensionUpdateState {
+    NOT_INSTALLED, INSTALLED_CURRENT, UPDATE_AVAILABLE, CHECKING, DOWNLOADING, VERIFYING,
+    STAGING, ACTIVATING, UPDATED, UPDATE_FAILED, ROLLBACK_AVAILABLE, ROLLING_BACK, ROLLED_BACK,
+    REVOKED, QUARANTINED, UNUSABLE, TRUST_UNAVAILABLE,
+}
+enum class InstalledPackageStatus { NOT_INSTALLED, USABLE, REVOKED, QUARANTINED, UNUSABLE, TRUST_UNAVAILABLE }
+enum class ExtensionUpdateFailure { NETWORK, TRUST, METADATA, SIGNATURE_OR_BINDING, DIGEST, RUNTIME, SMOKE, ACTIVATION, STORAGE, CANCELLED, INTERRUPTED }
+data class ExtensionRollbackTarget(val version: String, val digest: String, val trustState: String = "TRUSTED")
+
 data class SourceExtension(
     val extensionId: String,
     val displayName: String,
@@ -22,6 +31,19 @@ data class SourceExtension(
     val publisherId: String = "",
     // ABI v1 currently knows these tracks. A later ABI can extend this set without changing preferences.
     val supportedTracks: Set<String> = setOf("DE_SUB", "DE_DUB"),
+    val installedUsable: Boolean = installedDigest != null && activationAllowed && !revoked,
+    val installedStatus: InstalledPackageStatus = if (installedDigest == null) InstalledPackageStatus.NOT_INSTALLED
+        else if (installedUsable) InstalledPackageStatus.USABLE else InstalledPackageStatus.UNUSABLE,
+    val updateState: ExtensionUpdateState = if (updateAvailable) ExtensionUpdateState.UPDATE_AVAILABLE
+        else if (installedDigest == null) ExtensionUpdateState.NOT_INSTALLED else ExtensionUpdateState.INSTALLED_CURRENT,
+    val latestAvailableVersion: String? = version,
+    val metadataFresh: Boolean = true,
+    val candidateYanked: Boolean = false,
+    val packageGeneration: Long = 0,
+    val rollbackTarget: ExtensionRollbackTarget? = null,
+    val lastUpdateAt: Instant? = null,
+    val lastUpdateResult: String? = null,
+    val lastUpdateFailure: ExtensionUpdateFailure? = null,
 )
 
 data class ExtensionSource(
@@ -59,6 +81,9 @@ interface ExtensionSourceRepository {
     suspend fun refreshEnabled(): Boolean
     suspend fun activate(sourceId: String, extensionId: String)
     suspend fun removeExtension(sourceId: String, extensionId: String) { error("Removal unavailable") }
+    suspend fun rollback(sourceId: String, extensionId: String, expectedGeneration: Long, targetDigest: String) { error("Rollback unavailable") }
+    /** Reconstruct only independently authenticated local journals, without fetching packages. */
+    suspend fun restoreInstalled() {}
     suspend fun diagnostics(key: ExtensionSelectionKey): Map<String, String> = emptyMap()
 }
 

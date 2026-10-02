@@ -50,7 +50,9 @@ class SingleSourceShadowRefreshCoordinator(
         val repository = object : VerifiedExtensionRepository {
             override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? {
                 if (providerId.value != selected.providerId || !current(snapshot)) return null
-                return installed.loadInstalled(selected)?.takeIf { it.packageDigest == pinned.packageDigest }
+                return installed.loadInstalled(selected)?.takeIf {
+                    it.packageDigest == pinned.packageDigest && it.packageGeneration == pinned.packageGeneration
+                }
             }
         }
         val dispatch = releaseHostFactory.create(repository, runtime, networkDirectory, authority.observationPolicy())
@@ -62,19 +64,22 @@ class SingleSourceShadowRefreshCoordinator(
             else emptyList()
         }
         val scopedWorkId = MessageDigest.getInstance("SHA-256").digest(
-            "$workId/${snapshot.releaseGeneration}/${pinned.packageDigest}".toByteArray()).joinToString("") { "%02x".format(it) }
+            "$workId/${snapshot.releaseGeneration}/${pinned.packageDigest}/${pinned.packageGeneration}".toByteArray())
+            .joinToString("") { "%02x".format(it) }
         val outcome = ExtensionShadowSyncOrchestrator(dispatch, authority, reconciliation, generations, targets, clock,
             providerId = pinned.providerId,
             sourceRoles = pinned.grantedRoles,
             enabledTracks = effectiveTracks,
             commitGuard = { commit -> policy.withCurrentSelection(snapshot) {
-                installed.withCurrentPackage(selected, pinned.packageDigest, commit) ?: false
+                installed.withCurrentGeneration(selected, pinned.packageDigest, pinned.packageGeneration, commit) ?: false
             } ?: false },
             // This callback is invoked while commitGuard already holds policy then package locks.
-            currentSelection = { current(snapshot) && installed.loadInstalled(selected)?.packageDigest == pinned.packageDigest },
+            currentSelection = { current(snapshot) && installed.loadInstalled(selected)?.let {
+                it.packageDigest == pinned.packageDigest && it.packageGeneration == pinned.packageGeneration
+            } == true },
         ).refreshForWork(scopedWorkId)
         if (outcome is ShadowRefreshOutcome.Committed) policy.withCurrentSelection(snapshot) {
-            installed.withCurrentPackage(selected, pinned.packageDigest) {
+            installed.withCurrentGeneration(selected, pinned.packageDigest, pinned.packageGeneration) {
                 val reducer = AniWorldReleaseAuthorityReducer()
                 val accepted = outcome.cycle.sources.flatMap { it.evidence }.mapNotNull { evidence ->
                     if (evidence.evidenceType.name !in setOf("CONFIRMATION", "VERIFICATION")) return@mapNotNull null
@@ -93,7 +98,8 @@ class SingleSourceShadowRefreshCoordinator(
                         episode.number.toString() + (episode.fraction?.let { ".$it" } ?: ""), identity.track.name)
                 }
                 val previous = navigationStore.state.value.takeIf {
-                    it.source == selected && it.releaseGeneration == snapshot.releaseGeneration && it.packageDigest == pinned.packageDigest
+                    it.source == selected && it.releaseGeneration == snapshot.releaseGeneration &&
+                        it.packageDigest == pinned.packageDigest && it.packageGeneration == pinned.packageGeneration
                 }?.syncStatistics.orEmpty()
                 val statistics = buildMap {
                     val successful = outcome.cycle.sources.all { it.result == CycleResult.SUCCESS }
@@ -108,20 +114,23 @@ class SingleSourceShadowRefreshCoordinator(
                     put("Transport status", "COORDINATOR_COMPLETED")
                     put("Sync duration", java.time.Duration.between(outcome.cycle.startedAt, outcome.cycle.completedAt).toMillis().toString() + " ms")
                 }
-                navigationStore.record(selected, snapshot.releaseGeneration, pinned.packageDigest, accepted, statistics)
+                navigationStore.record(selected, snapshot.releaseGeneration, pinned.packageDigest, accepted, statistics,
+                    pinned.packageGeneration)
             }
         }
         if (outcome is ShadowRefreshOutcome.Failed) policy.withCurrentSelection(snapshot) {
-            installed.withCurrentPackage(selected, pinned.packageDigest) {
+            installed.withCurrentGeneration(selected, pinned.packageDigest, pinned.packageGeneration) {
                 val previous = navigationStore.state.value.takeIf {
-                    it.source == selected && it.releaseGeneration == snapshot.releaseGeneration && it.packageDigest == pinned.packageDigest
+                    it.source == selected && it.releaseGeneration == snapshot.releaseGeneration &&
+                        it.packageDigest == pinned.packageDigest && it.packageGeneration == pinned.packageGeneration
                 }?.syncStatistics.orEmpty()
                 // Only a host-owned status code, never an exception message or transport URL.
                 val reason = outcome.reason.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,128}")) } ?: "FAILED"
                 navigationStore.record(selected, snapshot.releaseGeneration, pinned.packageDigest, emptyList(),
                     previous + mapOf("Last sync outcome" to "FAILED", "Last sync failure" to reason,
                         "Last parse status" to "NO_COMMITTED_PARSE", "Transport status" to "COORDINATOR_ABORTED",
-                        "Role health" to pinned.grantedRoles.sortedBy { it.name }.joinToString("; ") { it.name + ": ABORTED" }))
+                        "Role health" to pinned.grantedRoles.sortedBy { it.name }.joinToString("; ") { it.name + ": ABORTED" }),
+                    pinned.packageGeneration)
             }
         }
         return outcome

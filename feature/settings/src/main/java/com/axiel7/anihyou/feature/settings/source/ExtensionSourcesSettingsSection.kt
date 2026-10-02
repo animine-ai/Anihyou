@@ -2,6 +2,7 @@ package com.axiel7.anihyou.feature.settings.source
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,7 +12,9 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -20,10 +23,17 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -37,6 +47,8 @@ import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.core.source.ExtensionSource
 import com.axiel7.anihyou.release.core.source.ExtensionSourceFailure
 import com.axiel7.anihyou.release.core.source.ExtensionSourceStatus
+import com.axiel7.anihyou.release.core.source.ExtensionUpdateFailure
+import com.axiel7.anihyou.release.core.source.ExtensionUpdateState
 import com.axiel7.anihyou.release.core.source.SourceExtension
 import com.axiel7.anihyou.release.core.source.selectionKey
 
@@ -113,6 +125,8 @@ fun ExtensionSourcesSettingsSection(
                     source = source,
                     policy = uiState.productPolicy,
                     canEditPolicy = uiState.canEditProductPolicy,
+                    diagnostics = uiState.diagnostics,
+                    busySourceIds = uiState.busySourceIds,
                     event = event,
                     modifier = Modifier.padding(vertical = 6.dp),
                 )
@@ -126,9 +140,13 @@ private fun ExtensionSourceCard(
     source: ExtensionSource,
     policy: ExtensionProductPolicy,
     canEditPolicy: Boolean,
+    diagnostics: Map<ExtensionSelectionKey, Map<String, String>>,
+    busySourceIds: Set<String>,
     event: ExtensionSourcesEvent,
     modifier: Modifier = Modifier,
 ) {
+    val sourceBusy = source.id in busySourceIds || source.extensions.any { it.updateState.isInFlight() }
+    var showRemoveConfirmation by remember(source.id) { mutableStateOf(false) }
     Card(modifier = modifier.fillMaxWidth().testTag("extension-source-card")) {
         Column(
             modifier = Modifier
@@ -136,6 +154,10 @@ private fun ExtensionSourceCard(
                 .padding(16.dp),
         ) {
             Text(source.url, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = stringResource(R.string.extension_manage_repository_summary, source.id, source.origin),
+                style = MaterialTheme.typography.bodySmall,
+            )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = stringResource(
@@ -161,12 +183,14 @@ private fun ExtensionSourceCard(
                 TextButton(
                     onClick = { event.refreshSource(source.id) },
                     modifier = Modifier.testTag("extension-source-refresh"),
+                    enabled = !sourceBusy,
                 ) {
-                    Text(stringResource(R.string.extension_sources_refresh))
+                    Text(stringResource(if (sourceBusy) R.string.extension_manage_working else R.string.extension_sources_refresh))
                 }
                 TextButton(
-                    onClick = { event.removeSource(source.id) },
+                    onClick = { showRemoveConfirmation = true },
                     modifier = Modifier.testTag("extension-source-remove"),
+                    enabled = !sourceBusy,
                 ) {
                     Text(stringResource(R.string.extension_sources_remove))
                 }
@@ -175,94 +199,361 @@ private fun ExtensionSourceCard(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 SourceExtensionInfo(
                     source = source,
-                    sourceEnabled = source.enabled,
                     extension = extension,
                     policy = policy,
                     canEditPolicy = canEditPolicy,
+                    sourceBusy = sourceBusy,
+                    diagnostics = source.selectionKey(extension)?.let { diagnostics[it] }.orEmpty(),
                     event = event,
                 )
             }
         }
+    }
+    if (showRemoveConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showRemoveConfirmation = false },
+            title = { Text(stringResource(R.string.extension_manage_remove_source_title)) },
+            text = { Text(stringResource(R.string.extension_manage_remove_source_message, source.id)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRemoveConfirmation = false
+                        event.removeSource(source.id)
+                    },
+                    enabled = !sourceBusy,
+                    modifier = Modifier.testTag("extension-source-remove-confirm-${source.id}"),
+                ) { Text(stringResource(R.string.extension_sources_remove)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveConfirmation = false },
+                    modifier = Modifier.testTag("extension-source-remove-cancel-${source.id}")) {
+                    Text(stringResource(R.string.extension_manage_cancel))
+                }
+            },
+        )
     }
 }
 
 @Composable
 private fun SourceExtensionInfo(
     source: ExtensionSource,
-    sourceEnabled: Boolean,
     extension: SourceExtension,
     policy: ExtensionProductPolicy,
     canEditPolicy: Boolean,
+    sourceBusy: Boolean,
+    diagnostics: Map<String, String>,
     event: ExtensionSourcesEvent,
 ) {
+    var dialog by remember(source.id, extension.extensionId) { mutableStateOf<ExtensionManageDialog?>(null) }
+    var rollbackRequest by remember(source.id, extension.extensionId) { mutableStateOf<RollbackRequest?>(null) }
+    val actionBusy = sourceBusy || extension.updateState.isInFlight()
+    val updateStateLabel = stringResource(extensionUpdateStateLabel(extension.updateState))
+    val installedStatusLabel = stringResource(installedPackageStatusLabel(extension))
+    val latestVersion = extension.latestAvailableVersion
+
     Text(extension.displayName, style = MaterialTheme.typography.titleSmall)
     Text(
-        text = stringResource(R.string.extension_sources_extension_id, extension.extensionId),
+        text = stringResource(R.string.extension_manage_signed_id, extension.extensionId),
         style = MaterialTheme.typography.bodySmall,
     )
     Text(
-        text = stringResource(R.string.extension_sources_version, extension.version),
+        text = stringResource(R.string.extension_manage_installed_version,
+            extension.installedVersion ?: stringResource(R.string.extension_manage_not_installed)),
         style = MaterialTheme.typography.bodySmall,
     )
     Text(
-        text = stringResource(
-            R.string.extension_sources_capabilities,
-            extension.capabilities.joinToString().ifBlank {
-                stringResource(R.string.extension_sources_no_capabilities)
-            },
-        ),
+        text = stringResource(R.string.extension_manage_latest_authenticated_version,
+            latestVersion ?: stringResource(R.string.extension_manage_unavailable)),
         style = MaterialTheme.typography.bodySmall,
     )
-    val installedVersion = extension.installedVersion
-    if (installedVersion != null) {
+    Text(
+        text = stringResource(R.string.extension_manage_package_trust, installedStatusLabel),
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.testTag("extension-installed-status-${extension.extensionId}"),
+    )
+    val digest = extension.installedDigest
+    Text(
+        text = stringResource(R.string.extension_manage_package_summary,
+            extension.packageGeneration,
+            digest?.take(12) ?: stringResource(R.string.extension_manage_unavailable)),
+        style = MaterialTheme.typography.bodySmall,
+    )
+    val repoTrust = diagnostics["Trust status"]
+    if (repoTrust != null) {
         Text(
-            text = stringResource(R.string.extension_sources_installed, installedVersion),
-            style = MaterialTheme.typography.bodySmall,
-        )
-    } else {
-        Text(
-            text = stringResource(R.string.extension_sources_not_installed),
+            text = stringResource(R.string.extension_manage_authenticated_trust, repoTrust),
             style = MaterialTheme.typography.bodySmall,
         )
     }
-    Text(
-        text = stringResource(
-            if (extension.updateAvailable) {
-                R.string.extension_sources_update_available
-            } else {
-                R.string.extension_sources_no_update
-            },
-        ),
-        style = MaterialTheme.typography.bodySmall,
-    )
-    if (extension.revoked) {
+    if (extension.lastUpdateFailure != null) {
         Text(
-            text = stringResource(R.string.extension_sources_revoked),
+            text = stringResource(R.string.extension_manage_update_failure,
+                stringResource(updateFailureLabel(extension.lastUpdateFailure))),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
-        )
-    } else {
-        Text(
-            text = stringResource(R.string.extension_sources_not_revoked),
-            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("extension-update-failure-${extension.extensionId}"),
         )
     }
-    if (extension.activationAllowed && sourceEnabled) {
-        TextButton(onClick = { event.activate(source.id, extension.extensionId) }) {
-            Text(stringResource(if (extension.installedDigest == null) R.string.extension_install else R.string.extension_update))
+    Text(
+        text = updateStateLabel,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier
+            .testTag("extension-update-state-${extension.extensionId}")
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                stateDescription = updateStateLabel
+            },
+    )
+    if (actionBusy) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("extension-progress-${extension.extensionId}")) {
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            Text("  " + updateStateLabel, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.semantics {
+                    liveRegion = LiveRegionMode.Polite
+                    stateDescription = updateStateLabel
+                })
         }
-    } else {
-        Text(
-            text = stringResource(R.string.extension_sources_activation_unavailable),
-            style = MaterialTheme.typography.bodySmall,
-        )
     }
-    if (extension.installedDigest != null) {
-        TextButton(onClick = { event.removeExtension(source.id, extension.extensionId) },
-            modifier = Modifier.testTag("extension-remove-" + extension.extensionId)) {
-            Text(stringResource(R.string.extension_remove))
+
+    val current = extension.installedUsable && !extension.updateAvailable && extension.updateState in setOf(
+        ExtensionUpdateState.INSTALLED_CURRENT,
+        ExtensionUpdateState.UPDATED,
+        ExtensionUpdateState.ROLLED_BACK,
+    )
+    val primaryAction = when {
+        source.enabled && !actionBusy && extension.activationAllowed && extension.installedDigest == null &&
+            extension.installedStatus == com.axiel7.anihyou.release.core.source.InstalledPackageStatus.NOT_INSTALLED ->
+            ExtensionPrimaryAction.INSTALL
+        source.enabled && !actionBusy && extension.updateAvailable && extension.activationAllowed ->
+            ExtensionPrimaryAction.UPDATE
+        source.enabled && !actionBusy && current -> ExtensionPrimaryAction.CHECK
+        else -> null
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (primaryAction != null) {
+            TextButton(
+                onClick = {
+                    when (primaryAction) {
+                        ExtensionPrimaryAction.INSTALL, ExtensionPrimaryAction.UPDATE ->
+                            event.activate(source.id, extension.extensionId)
+                        ExtensionPrimaryAction.CHECK -> event.refreshSource(source.id)
+                    }
+                },
+                enabled = !actionBusy,
+                modifier = Modifier.testTag("extension-action-${extension.extensionId}"),
+            ) {
+                Text(stringResource(when (primaryAction) {
+                    ExtensionPrimaryAction.INSTALL -> R.string.extension_install
+                    ExtensionPrimaryAction.UPDATE -> R.string.extension_manage_update
+                    ExtensionPrimaryAction.CHECK -> R.string.extension_manage_check
+                }))
+            }
+        } else if (!extension.activationAllowed && (extension.updateAvailable ||
+                extension.installedStatus == com.axiel7.anihyou.release.core.source.InstalledPackageStatus.NOT_INSTALLED)) {
+            Text(
+                text = stringResource(R.string.extension_sources_activation_unavailable),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        TextButton(onClick = { dialog = ExtensionManageDialog.CAPABILITIES },
+            modifier = Modifier.testTag("extension-details-${extension.extensionId}")) {
+            Text(stringResource(R.string.extension_manage_details))
+        }
+        if (digest != null) {
+            TextButton(onClick = { dialog = ExtensionManageDialog.REMOVE_EXTENSION },
+                enabled = !actionBusy,
+                modifier = Modifier.testTag("extension-remove-${extension.extensionId}")) {
+                Text(stringResource(R.string.extension_remove))
+            }
+        }
+        val target = extension.rollbackTarget
+        if (target != null && !actionBusy) {
+            TextButton(onClick = {
+                rollbackRequest = RollbackRequest(
+                    sourceId = source.id,
+                    extensionId = extension.extensionId,
+                    expectedGeneration = extension.packageGeneration,
+                    currentVersion = extension.installedVersion ?: stringResource(R.string.extension_manage_unavailable),
+                    target = target,
+                    reason = extension.lastUpdateFailure?.let(::updateFailureLabel),
+                )
+            }, modifier = Modifier.testTag("extension-rollback-${extension.extensionId}")) {
+                Text(stringResource(R.string.extension_manage_previous_good))
+            }
         }
     }
+    if (dialog == ExtensionManageDialog.CAPABILITIES) {
+        ExtensionCapabilityDialog(extension, onDismiss = { dialog = null })
+    } else if (dialog == ExtensionManageDialog.REMOVE_EXTENSION) {
+        AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text(stringResource(R.string.extension_manage_remove_extension_title)) },
+            text = { Text(stringResource(R.string.extension_manage_remove_extension_message, extension.displayName)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        dialog = null
+                        event.removeExtension(source.id, extension.extensionId)
+                    },
+                    enabled = !actionBusy,
+                    modifier = Modifier.testTag("extension-remove-confirm-${extension.extensionId}"),
+                ) { Text(stringResource(R.string.extension_sources_remove)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { dialog = null },
+                    modifier = Modifier.testTag("extension-remove-cancel-${extension.extensionId}")) {
+                    Text(stringResource(R.string.extension_manage_cancel))
+                }
+            },
+        )
+    }
+    rollbackRequest?.let { request ->
+        AlertDialog(
+            onDismissRequest = { rollbackRequest = null },
+            title = { Text(stringResource(R.string.extension_manage_rollback_title)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.extension_manage_rollback_versions,
+                        request.currentVersion, request.target.version))
+                    Text(stringResource(R.string.extension_manage_rollback_trust, request.target.trustState))
+                    Text(stringResource(R.string.extension_manage_rollback_reason,
+                        request.reason?.let { stringResource(it) } ?: stringResource(R.string.extension_manage_rollback_reason_default)))
+                    Text(stringResource(R.string.extension_manage_rollback_warning))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        rollbackRequest = null
+                        event.rollback(request.sourceId, request.extensionId,
+                            request.expectedGeneration, request.target.digest)
+                    },
+                    enabled = !actionBusy,
+                    modifier = Modifier.testTag("extension-rollback-confirm-${extension.extensionId}"),
+                ) { Text(stringResource(R.string.extension_manage_previous_good)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { rollbackRequest = null },
+                    modifier = Modifier.testTag("extension-rollback-cancel-${extension.extensionId}")) {
+                    Text(stringResource(R.string.extension_manage_cancel))
+                }
+            },
+        )
+    }
+    if (extension.lastUpdateResult != null) {
+        Text(stringResource(R.string.extension_manage_last_update_result, extension.lastUpdateResult),
+            style = MaterialTheme.typography.bodySmall)
+    }
+    if (extension.lastUpdateAt != null) {
+        Text(stringResource(R.string.extension_manage_last_update_at, extension.lastUpdateAt.toString()),
+            style = MaterialTheme.typography.bodySmall)
+    }
+    if (!extension.metadataFresh) {
+        Text(stringResource(R.string.extension_manage_metadata_stale), style = MaterialTheme.typography.bodySmall)
+    }
+    if (extension.candidateYanked) {
+        Text(stringResource(R.string.extension_manage_candidate_yanked),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+}
+
+private enum class ExtensionPrimaryAction { INSTALL, CHECK, UPDATE }
+private enum class ExtensionManageDialog { CAPABILITIES, REMOVE_EXTENSION }
+
+private data class RollbackRequest(
+    val sourceId: String,
+    val extensionId: String,
+    val expectedGeneration: Long,
+    val currentVersion: String,
+    val target: com.axiel7.anihyou.release.core.source.ExtensionRollbackTarget,
+    val reason: Int?,
+)
+
+@Composable
+private fun ExtensionCapabilityDialog(extension: SourceExtension, onDismiss: () -> Unit) {
+    val releaseCapabilities = extension.capabilities.filter { it in setOf("CALENDAR", "RECENT", "DIRECT", "POSTPONEMENT") }
+    val navigationCapabilities = extension.capabilities.filter { it in setOf("OVERVIEW_NAVIGATION", "EPISODE_NAVIGATION") }
+    val otherCapabilities = extension.capabilities.filterNot { it in releaseCapabilities || it in navigationCapabilities }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.extension_manage_details_title, extension.displayName)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.extension_manage_release_capabilities), style = MaterialTheme.typography.titleSmall)
+                Text(releaseCapabilities.joinToString().ifBlank { stringResource(R.string.extension_manage_none) })
+                Text(stringResource(R.string.extension_manage_navigation_capabilities),
+                    style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                Text(navigationCapabilities.joinToString().ifBlank { stringResource(R.string.extension_manage_none) })
+                Text(stringResource(R.string.extension_manage_authority_separation),
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                if (otherCapabilities.isNotEmpty()) {
+                    Text(stringResource(R.string.extension_manage_other_capabilities),
+                        style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                    Text(otherCapabilities.joinToString())
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("extension-details-close-${extension.extensionId}")) {
+                Text(stringResource(R.string.extension_manage_close))
+            }
+        },
+    )
+}
+
+private fun ExtensionUpdateState.isInFlight(): Boolean = when (this) {
+    ExtensionUpdateState.CHECKING,
+    ExtensionUpdateState.DOWNLOADING,
+    ExtensionUpdateState.VERIFYING,
+    ExtensionUpdateState.STAGING,
+    ExtensionUpdateState.ACTIVATING,
+    ExtensionUpdateState.ROLLING_BACK -> true
+    else -> false
+}
+
+private fun extensionUpdateStateLabel(state: ExtensionUpdateState): Int = when (state) {
+    ExtensionUpdateState.NOT_INSTALLED -> R.string.extension_manage_state_not_installed
+    ExtensionUpdateState.INSTALLED_CURRENT -> R.string.extension_manage_state_current
+    ExtensionUpdateState.UPDATE_AVAILABLE -> R.string.extension_manage_state_update_available
+    ExtensionUpdateState.CHECKING -> R.string.extension_manage_state_checking
+    ExtensionUpdateState.DOWNLOADING -> R.string.extension_manage_state_downloading
+    ExtensionUpdateState.VERIFYING -> R.string.extension_manage_state_verifying
+    ExtensionUpdateState.STAGING -> R.string.extension_manage_state_staging
+    ExtensionUpdateState.ACTIVATING -> R.string.extension_manage_state_activating
+    ExtensionUpdateState.UPDATED -> R.string.extension_manage_state_updated
+    ExtensionUpdateState.UPDATE_FAILED -> R.string.extension_manage_state_update_failed
+    ExtensionUpdateState.ROLLBACK_AVAILABLE -> R.string.extension_manage_state_previous_good_available
+    ExtensionUpdateState.ROLLING_BACK -> R.string.extension_manage_state_rolling_back
+    ExtensionUpdateState.ROLLED_BACK -> R.string.extension_manage_state_rolled_back
+    ExtensionUpdateState.REVOKED -> R.string.extension_manage_state_revoked
+    ExtensionUpdateState.QUARANTINED -> R.string.extension_manage_state_quarantined
+    ExtensionUpdateState.UNUSABLE -> R.string.extension_manage_state_unusable
+    ExtensionUpdateState.TRUST_UNAVAILABLE -> R.string.extension_manage_state_trust_unavailable
+}
+
+private fun installedPackageStatusLabel(extension: SourceExtension): Int =
+    when (extension.installedStatus) {
+        com.axiel7.anihyou.release.core.source.InstalledPackageStatus.NOT_INSTALLED -> R.string.extension_manage_trust_not_installed
+        com.axiel7.anihyou.release.core.source.InstalledPackageStatus.USABLE -> R.string.extension_manage_trust_usable
+        com.axiel7.anihyou.release.core.source.InstalledPackageStatus.REVOKED -> R.string.extension_manage_trust_revoked
+        com.axiel7.anihyou.release.core.source.InstalledPackageStatus.QUARANTINED -> R.string.extension_manage_trust_quarantined
+        com.axiel7.anihyou.release.core.source.InstalledPackageStatus.UNUSABLE -> R.string.extension_manage_trust_unusable
+        com.axiel7.anihyou.release.core.source.InstalledPackageStatus.TRUST_UNAVAILABLE -> R.string.extension_manage_trust_unavailable
+    }
+
+private fun updateFailureLabel(failure: ExtensionUpdateFailure): Int = when (failure) {
+    ExtensionUpdateFailure.NETWORK -> R.string.extension_manage_failure_network
+    ExtensionUpdateFailure.TRUST -> R.string.extension_manage_failure_trust
+    ExtensionUpdateFailure.METADATA -> R.string.extension_manage_failure_metadata
+    ExtensionUpdateFailure.SIGNATURE_OR_BINDING -> R.string.extension_manage_failure_signature
+    ExtensionUpdateFailure.DIGEST -> R.string.extension_manage_failure_digest
+    ExtensionUpdateFailure.RUNTIME -> R.string.extension_manage_failure_runtime
+    ExtensionUpdateFailure.SMOKE -> R.string.extension_manage_failure_smoke
+    ExtensionUpdateFailure.ACTIVATION -> R.string.extension_manage_failure_activation
+    ExtensionUpdateFailure.STORAGE -> R.string.extension_manage_failure_storage
+    ExtensionUpdateFailure.CANCELLED -> R.string.extension_manage_failure_cancelled
+    ExtensionUpdateFailure.INTERRUPTED -> R.string.extension_manage_failure_interrupted
+}
 }
 
 @Composable

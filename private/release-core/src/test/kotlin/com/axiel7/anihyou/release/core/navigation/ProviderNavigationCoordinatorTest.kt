@@ -185,6 +185,23 @@ class ProviderNavigationCoordinatorTest {
     }
 
     @Test
+    fun `ABA package replacement with the original digest still makes dispatch result stale`() = runBlocking {
+        lateinit var fixture: Fixture
+        fixture = fixture(onDispatch = { original, request, _ ->
+            fixture.gateway.availableProviders = listOf(original.copy(packageGeneration = 1))
+            fixture.gateway.availableProviders = listOf(original.copy(packageGeneration = 2))
+            target(request)
+        })
+
+        val result = fixture.coordinator.resolve(coordinate(), NavigationTargetKind.EPISODE)
+
+        assertEquals(NavigationUnavailableReason.STALE_RESULT,
+            (result as ProviderNavigationResult.Unavailable).reason)
+        assertEquals("fixture-package-digest", fixture.gateway.availableProviders.single().packageDigest)
+        assertEquals(2, fixture.gateway.availableProviders.single().packageGeneration)
+    }
+
+    @Test
     fun `preference change while extension dispatches makes the result stale`() = runBlocking {
         lateinit var fixture: Fixture
         fixture = fixture(onDispatch = { _, request, _ ->
@@ -236,6 +253,24 @@ class ProviderNavigationCoordinatorTest {
         val target = (fixture.coordinator.resolve(coordinate(), NavigationTargetKind.EPISODE)
             as ProviderNavigationResult.Ready).target
         fixture.gateway.availableProviders = listOf(provider(packageDigest = "replacement-digest"))
+        var launchCalls = 0
+
+        val result = fixture.coordinator.launch(target) {
+            launchCalls++
+            true
+        }
+
+        assertEquals(0, launchCalls)
+        assertEquals(NavigationUnavailableReason.STALE_RESULT,
+            (result as ProviderNavigationResult.Unavailable).reason)
+    }
+
+    @Test
+    fun `ABA package replacement with the original digest rejects a pinned launch`() = runBlocking {
+        val fixture = fixture()
+        val target = (fixture.coordinator.resolve(coordinate(), NavigationTargetKind.EPISODE)
+            as ProviderNavigationResult.Ready).target
+        fixture.gateway.availableProviders = listOf(target.provider.copy(packageGeneration = 2))
         var launchCalls = 0
 
         val result = fixture.coordinator.launch(target) {

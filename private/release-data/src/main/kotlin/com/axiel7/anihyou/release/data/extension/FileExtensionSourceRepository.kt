@@ -46,6 +46,7 @@ internal class FileExtensionSourceRepository(
     private val stores = HashMap<String, ExtensionInstallStore>()
     private val anchors = HashMap<String, AuthenticatedExtensionSourceAnchor>()
     private val lifecycleIntents = HashMap<String, Long>()
+    private val phases = HashMap<String, ExtensionUpdateState>()
     private var lifecycleToken = 0L
     private val mutableSources = MutableStateFlow<List<ExtensionSource>>(emptyList())
     override val sources: StateFlow<List<ExtensionSource>> = mutableSources.asStateFlow()
@@ -64,15 +65,49 @@ internal class FileExtensionSourceRepository(
     override suspend fun loadInstalled(key: ExtensionSelectionKey): VerifiedExtensionPackage? = withContext(Dispatchers.IO) {
         if (sources.value.usableExtension(key) == null || synchronized(monitor) { key.sourceId in lifecycleIntents }) return@withContext null
         val store = synchronized(monitor) { stores[key.sourceId] } ?: return@withContext null
-        store.loadUsableExtension(key.extensionId)?.takeIf {
+        val installed = store.loadUsableExtension(key.extensionId)?.takeIf {
             it.extensionId.value == key.extensionId && it.providerId.value == key.providerId && it.publisherId == key.publisherId
         }
+        val shown = sources.value.usableExtension(key)
+        if (shown?.installedDigest != installed?.packageDigest || shown?.packageGeneration != installed?.packageGeneration) publish()
+        installed
     }
 
     override suspend fun <T> withCurrentPackage(key: ExtensionSelectionKey, digest: String, block: suspend () -> T): T? =
         lock(key.sourceId).withLock {
             if (loadInstalled(key)?.packageDigest == digest) block() else null
         }
+
+    override suspend fun <T> withCurrentGeneration(key: ExtensionSelectionKey, digest: String, generation: Long, block: suspend () -> T): T? =
+        lock(key.sourceId).withLock {
+            val current = loadInstalled(key)
+            if (current?.packageDigest == digest && current.packageGeneration == generation) block() else null
+        }
+
+    override suspend fun restoreInstalled() = withContext(Dispatchers.IO) {
+        registry.all().filter { it.enabled && !it.removed && File(directory, it.id).resolve("state.json").isFile }.forEach { source ->
+            lock(source.id).withLock {
+                if (synchronized(monitor) { source.id in lifecycleIntents || stores.containsKey(source.id) }) return@withLock
+                val anchor = bootstrap.authenticate(source.address) ?: return@withLock
+                fence(source)
+                require(source.address.origin in anchor.pin.distributionOrigins)
+                val store = storeFactory.create(File(directory, source.id), anchor)
+                store.recoverInterrupted(clock.instant())
+                // Existing installer policy performs only signed trusted LKG recovery.
+                store.snapshot().generations.keys.forEach { store.loadUsableExtension(it) }
+                synchronized(monitor) { anchors[source.id] = anchor; stores[source.id] = store }
+            }
+        }
+        publish()
+        reconcileSelections()
+    }
+
+    private suspend fun reconcileSelections() {
+        val policy = productPolicy.policy.value
+        listOfNotNull(policy.activeReleaseSource, policy.preferredNavigationProvider).distinct().forEach { key ->
+            if (loadInstalled(key) == null) productPolicy.invalidateExtension(key)
+        }
+    }
 
     override suspend fun add(url: String): AddExtensionSourceResult = withContext(Dispatchers.IO) {
         val address = runCatching { NormalizedExtensionSource.parse(url) }.getOrNull()
@@ -123,7 +158,8 @@ internal class FileExtensionSourceRepository(
             buildMap {
                 put("Extension ID", key.extensionId); put("Provider ID", key.providerId)
                 put("Publisher", key.publisherId); put("Repository", source.origin)
-                put("Trust status", source.status.name)
+                put("Trust status", if (verified != null) "TRUSTED" else source.extensions.firstOrNull { it.extensionId == key.extensionId }?.installedStatus?.name.orEmpty())
+                put("Repository status", source.status.name)
                 put("Version", generation?.active?.version ?: source.extensions.firstOrNull { it.extensionId == key.extensionId }?.installedVersion.orEmpty())
                 // Authenticated public metadata remains inspectable after revocation, without
                 // loading unusable WASM or granting the catalog any execution authority.
@@ -131,7 +167,22 @@ internal class FileExtensionSourceRepository(
                 put("Signed displayName", verified?.displayName ?: catalog?.displayName.orEmpty())
                 put("Package SHA", verified?.packageDigest ?: receipt?.digest ?: catalog?.archiveSha256.orEmpty())
                 put("WASM SHA", verified?.moduleDigest.orEmpty())
-                put("Active package generation", generation?.active?.digest.orEmpty())
+                val projection = source.extensions.firstOrNull { it.extensionId == key.extensionId }
+                put("Current Version", generation?.active?.version.orEmpty())
+                put("Latest Available", projection?.latestAvailableVersion.orEmpty())
+                put("Release Sequence", generation?.active?.sequence?.toString().orEmpty())
+                put("Active package generation", generation?.packageGeneration?.toString().orEmpty())
+                put("Known Good", generation?.knownGood?.version.orEmpty())
+                put("Previous Good Version", generation?.previousGood?.version.orEmpty())
+                put("Last Update Check", source.lastAttemptAt?.toString().orEmpty())
+                put("Last Update Result", projection?.lastUpdateResult.orEmpty())
+                put("Last Update Failure", projection?.lastUpdateFailure?.name.orEmpty())
+                put("Last Successful Update", snapshot.operations[key.extensionId]?.takeIf { it.state == ExtensionUpdateState.UPDATED }?.completedAt?.toString().orEmpty())
+                put("Rollback Available", (store.safePreviousGood(key.extensionId) != null).toString())
+                put("Revocation", snapshot.revokedDigests.sorted().joinToString())
+                put("Repository metadata freshness", if (projection?.metadataFresh == true) "FRESH" else "STALE_OR_UNAVAILABLE")
+                put("Last metadata success", source.lastSuccessAt?.toString().orEmpty())
+                put("Yanked candidate", projection?.candidateYanked?.toString().orEmpty())
                 put("LKG", generation?.knownGood?.digest.orEmpty()); put("Previous Good", generation?.previousGood?.digest.orEmpty())
                 put("Capabilities", (verified?.let { it.grantedRoles.map { role -> role.name } + it.navigationCapabilities.map { cap -> cap.name } }
                     ?: (publisher?.roles?.map { it.name }.orEmpty() + catalog?.navigationCapabilities?.map { it.name }.orEmpty()))
@@ -171,59 +222,115 @@ internal class FileExtensionSourceRepository(
     override suspend fun refresh(sourceId: String) {
         operate(sourceId, deduplicate = true) { source -> refreshMetadata(source) }
         // Never acquire the policy mutex while holding a source operation mutex.
-        val selected = productPolicy.policy.value.activeReleaseSource
-        if (selected?.sourceId == sourceId && loadInstalled(selected) == null) productPolicy.invalidateSource(sourceId)
+        reconcileSelections()
     }
 
     override suspend fun refreshEnabled(): Boolean {
+        restoreInstalled()
         registry.all().filter { it.enabled && !it.removed }.forEach { refresh(it.id) }
         return registry.all().any { it.enabled && !it.removed && it.failure == ExtensionSourceFailure.NETWORK }
     }
 
-    override suspend fun activate(sourceId: String, extensionId: String) = operate(sourceId, deduplicate = false) { source ->
-        val store = refreshMetadata(source) ?: return@operate
-        if (!runtimeSupported) {
-            registry.update(source.id) { it.copy(failure = ExtensionSourceFailure.UNSUPPORTED_RUNTIME) }
-            return@operate
-        }
-        val snapshot = store.snapshot()
-        val candidate = snapshot.index?.packages?.filter { it.binding.extensionId == extensionId }
-            ?.maxByOrNull { it.binding.releaseSequence } ?: error("no eligible signed extension")
-        require(!candidate.revoked && !candidate.binding.yanked) { "latest signed extension revoked or yanked" }
-        val installed = snapshot.generations[extensionId]?.active
-        if (installed?.digest == candidate.binding.archiveSha256) {
-            require(store.loadUsableExtension(extensionId) != null) { "installed package unusable" }
-            return@operate
-        }
-        val reinstallRemoved = store.canReinstallRemoved(extensionId, candidate.binding.archiveSha256, candidate.binding.releaseSequence)
-        require(candidate.binding.releaseSequence > (snapshot.releaseHigh[extensionId] ?: 0) || reinstallRemoved) { "release replay" }
-        require(candidate.binding.archiveSha256 !in snapshot.revokedDigests &&
-            candidate.binding.archiveSha256 !in snapshot.quarantinedDigests) { "package revoked or quarantined" }
-        val anchor = synchronized(monitor) { anchors.getValue(source.id) }
-        val bytes = transport.fetch(candidate.url, anchor.pin.distributionOrigins, 8 * 1024 * 1024)
-        currentCoroutineContext().ensureActive()
-        fence(source)
-        val staged = File.createTempFile("download-", ".arex", directory)
-        val operationJob = currentCoroutineContext()[Job]!!
-        try {
-            staged.writeBytes(bytes)
-            // The store verifies all bytes and runs the isolated runtime smoke before atomic activation.
-            store.install(staged, extensionId, clock.instant(), reinstallRemoved = reinstallRemoved, beforeActivation = {
-                operationJob.ensureActive()
+    override suspend fun activate(sourceId: String, extensionId: String) {
+        try { operate(sourceId, deduplicate = true, phase = ExtensionUpdateState.CHECKING) { source ->
+            val existing = synchronized(monitor) { stores[source.id] }
+            existing?.beginOperation(extensionId, ExtensionUpdateState.CHECKING, "", clock.instant())
+            var store = existing
+            try {
+                store = refreshMetadata(source) ?: throw SourceOperationFailure(ExtensionSourceFailure.AUTHENTICATION_UNAVAILABLE,
+                    IllegalStateException("independent trust unavailable"))
+                if (!runtimeSupported) throw SourceOperationFailure(ExtensionSourceFailure.UNSUPPORTED_RUNTIME,
+                    IllegalStateException("unsupported runtime"))
+                val snapshot = store.snapshot()
+                val candidate = snapshot.index?.packages?.filter { it.binding.extensionId == extensionId }
+                    ?.maxByOrNull { it.binding.releaseSequence } ?: error("no eligible signed extension")
+                require(!candidate.revoked && !candidate.binding.yanked) { "latest signed extension revoked or yanked" }
+                val installed = snapshot.generations[extensionId]?.active
+                if (installed?.digest == candidate.binding.archiveSha256) {
+                    require(store.loadUsableExtension(extensionId) != null) { "installed package unusable" }
+                    store.finishOperation(extensionId, ExtensionUpdateState.INSTALLED_CURRENT, null, clock.instant())
+                    return@operate
+                }
+                if (installed != null) require(installed.provider == candidate.binding.providerId &&
+                    store.installedBinding(extensionId)?.publisherId == candidate.binding.publisherId) { "installed identity changed" }
+                val reinstallRemoved = store.canReinstallRemoved(extensionId, candidate.binding.archiveSha256, candidate.binding.releaseSequence)
+                require(candidate.binding.releaseSequence > (snapshot.releaseHigh[extensionId] ?: 0) || reinstallRemoved) { "release replay" }
+                require(candidate.binding.archiveSha256 !in snapshot.revokedDigests &&
+                    candidate.binding.archiveSha256 !in snapshot.quarantinedDigests) { "package revoked or quarantined" }
+                store.beginOperation(extensionId, ExtensionUpdateState.CHECKING, candidate.binding.archiveSha256, clock.instant())
+                val anchor = synchronized(monitor) { anchors.getValue(source.id) }
+                progress(source.id, ExtensionUpdateState.DOWNLOADING)
+                val bytes = transport.fetch(candidate.url, anchor.pin.distributionOrigins, 8 * 1024 * 1024)
+                currentCoroutineContext().ensureActive()
                 fence(source)
-            })
-            operationJob.ensureActive()
-            fence(source)
-            store.promoteHealthy(extensionId, clock.instant(), beforePromotion = {
-                operationJob.ensureActive()
-                fence(source)
-            })
-        } catch (error: Exception) {
-            if (store.snapshot().generations[extensionId]?.active?.digest == candidate.binding.archiveSha256) {
-                store.quarantineAndRollback(extensionId, clock.instant())
+                val staged = File.createTempFile("download-", ".arex", directory)
+                val operationJob = currentCoroutineContext()[Job]!!
+                try {
+                    progress(source.id, ExtensionUpdateState.STAGING)
+                    staged.writeBytes(bytes)
+                    store.install(staged, extensionId, clock.instant(), reinstallRemoved = reinstallRemoved, beforeActivation = {
+                        operationJob.ensureActive(); fence(source)
+                    }, onProgress = { progress(source.id, it) })
+                    operationJob.ensureActive(); fence(source)
+                    store.promoteHealthy(extensionId, clock.instant(), beforePromotion = {
+                        operationJob.ensureActive(); fence(source)
+                    })
+                    store.finishOperation(extensionId, ExtensionUpdateState.UPDATED, null, clock.instant())
+                } catch (error: Exception) {
+                    val generation = store.snapshot().generations[extensionId]
+                    // A post-promotion cancellation cannot undo an already healthy commit.
+                    if (generation?.active?.digest == candidate.binding.archiveSha256 &&
+                        generation.knownGood?.digest != candidate.binding.archiveSha256)
+                        store.quarantineAndRollback(extensionId, clock.instant())
+                    throw error
+                } finally { staged.delete() }
+            } catch (error: Exception) {
+                store?.finishOperation(extensionId, ExtensionUpdateState.UPDATE_FAILED, classifyUpdate(error, source.id), clock.instant())
+                throw error
             }
-            throw error
-        } finally { staged.delete() }
+        } } finally { withContext(NonCancellable) { reconcileSelections() } }
+    }
+
+    override suspend fun rollback(sourceId: String, extensionId: String, expectedGeneration: Long, targetDigest: String) {
+        try { operate(sourceId, deduplicate = true, phase = ExtensionUpdateState.ROLLING_BACK) { source ->
+            val store = synchronized(monitor) { stores[source.id] } ?: error("no authenticated installed journal")
+            store.beginOperation(extensionId, ExtensionUpdateState.ROLLING_BACK, targetDigest, clock.instant())
+            val job = currentCoroutineContext()[Job]!!
+            try {
+                store.rollback(extensionId, expectedGeneration, targetDigest, clock.instant()) { job.ensureActive(); fence(source) }
+                store.finishOperation(extensionId, ExtensionUpdateState.ROLLED_BACK, null, clock.instant())
+            } catch (error: Exception) {
+                store.finishOperation(extensionId, ExtensionUpdateState.UPDATE_FAILED, classifyUpdate(error, source.id), clock.instant())
+                throw error
+            }
+        } } finally { withContext(NonCancellable) { reconcileSelections() } }
+    }
+
+    private fun classifyUpdate(error: Exception, sourceId: String): ExtensionUpdateFailure = when (error) {
+        is CancellationException -> ExtensionUpdateFailure.CANCELLED
+        is IOException -> ExtensionUpdateFailure.NETWORK
+        is ExtensionSmokeException -> ExtensionUpdateFailure.SMOKE
+        is ExtensionPackageVerificationException -> when (error.failure) {
+            ExtensionPackageFailure.DIGEST_MISMATCH -> ExtensionUpdateFailure.DIGEST
+            ExtensionPackageFailure.UNSUPPORTED_ABI, ExtensionPackageFailure.MODULE_PROFILE_REJECTED -> ExtensionUpdateFailure.RUNTIME
+            else -> ExtensionUpdateFailure.SIGNATURE_OR_BINDING
+        }
+        is SourceOperationFailure -> when (error.classification) {
+            ExtensionSourceFailure.AUTHENTICATION_UNAVAILABLE -> ExtensionUpdateFailure.TRUST
+            ExtensionSourceFailure.INVALID_METADATA -> ExtensionUpdateFailure.METADATA
+            ExtensionSourceFailure.UNSUPPORTED_RUNTIME -> ExtensionUpdateFailure.RUNTIME
+            else -> ExtensionUpdateFailure.STORAGE
+        }
+        else -> if (synchronized(monitor) { phases[sourceId] } == ExtensionUpdateState.ACTIVATING)
+            ExtensionUpdateFailure.ACTIVATION else ExtensionUpdateFailure.SIGNATURE_OR_BINDING
+    }
+
+    /** Progress never re-enters the install journal while its atomic transaction holds the lock. */
+    private fun progress(sourceId: String, state: ExtensionUpdateState) = synchronized(publicationLock) {
+        synchronized(monitor) { phases[sourceId] = state }
+        mutableSources.value = mutableSources.value.map { source ->
+            if (source.id == sourceId) source.copy(extensions = source.extensions.map { it.copy(updateState = state) }) else source
+        }
     }
 
     private suspend fun refreshMetadata(source: RegisteredExtensionSource): ExtensionInstallStore? = try {
@@ -265,11 +372,12 @@ internal class FileExtensionSourceRepository(
         currentCoroutineContext().ensureActive()
         fence(source)
         store.acceptIndex(index, clock.instant())
+        store.snapshot().generations.keys.forEach { store.loadUsableExtension(it) }
         registry.update(source.id) { it.copy(succeededAt = clock.instant(), failure = null) }
         return store
     }
 
-    private suspend fun operate(id: String, deduplicate: Boolean, action: suspend (RegisteredExtensionSource) -> Unit) =
+    private suspend fun operate(id: String, deduplicate: Boolean, phase: ExtensionUpdateState = ExtensionUpdateState.CHECKING, action: suspend (RegisteredExtensionSource) -> Unit) =
         withContext(Dispatchers.IO) {
             coroutineScope {
                 val mutex = lock(id)
@@ -282,6 +390,7 @@ internal class FileExtensionSourceRepository(
                         if (id in lifecycleIntents) false else { jobs[id] = operationJob; true }
                     }
                     if (!accepted) return@coroutineScope
+                    progress(id, phase)
                     try {
                         withContext(ExtensionSourceRuntimeCancellation.job.asContextElement(operationJob)) {
                             action(source)
@@ -295,7 +404,7 @@ internal class FileExtensionSourceRepository(
                     } catch (_: Exception) {
                         registry.update(id) { it.copy(failure = if (deduplicate) ExtensionSourceFailure.INVALID_METADATA else ExtensionSourceFailure.INVALID_PACKAGE) }
                     } finally {
-                        synchronized(monitor) { jobs.remove(id) }
+                        synchronized(monitor) { jobs.remove(id); phases.remove(id) }
                         publish()
                     }
                 } finally { mutex.unlock() }
@@ -319,26 +428,68 @@ internal class FileExtensionSourceRepository(
             val fresh = currentRoot != null && currentIndex != null &&
                 currentRoot.expiresAt.isAfter(effectiveTime) && currentIndex.expiresAt.isAfter(effectiveTime) &&
                 currentIndex.rootVersion == currentRoot.version
-            val extensions = snapshot?.index?.packages.orEmpty().groupBy { it.binding.extensionId }.values.map { entries ->
-                val entry = entries.maxBy { it.binding.releaseSequence }
-                val binding = entry.binding
-                val active = snapshot?.generations?.get(binding.extensionId)?.active
-                val root = snapshot!!.root
+            val catalog = snapshot?.index?.packages.orEmpty().groupBy { it.binding.extensionId }
+            val identities = catalog.keys + snapshot?.generations.orEmpty().keys
+            val extensions = identities.mapNotNull { extensionId ->
+                val installedBinding = store?.installedBinding(extensionId)
+                val entries = catalog[extensionId].orEmpty()
+                val entry = entries.maxByOrNull { it.binding.releaseSequence }
+                val binding = installedBinding ?: entry?.binding ?: return@mapNotNull null
+                val generation = snapshot?.generations?.get(extensionId)
+                val active = generation?.active
+                val verified = store?.inspectInstalled(extensionId)
+                val root = snapshot?.root
+                val candidate = entry?.binding
                 val scope = root?.publishers?.singleOrNull {
-                    it.publisherId == binding.publisherId && it.extensionId == binding.extensionId &&
-                        it.providerId == binding.providerId && it.keyId == binding.keyId &&
+                    candidate != null && it.publisherId == candidate.publisherId && it.extensionId == candidate.extensionId &&
+                        it.providerId == candidate.providerId && it.keyId == candidate.keyId &&
                         effectiveTime >= it.notBefore && effectiveTime < it.expiresAt
                 }
-                val revoked = entry.revoked || binding.yanked || binding.archiveSha256 in snapshot!!.revokedDigests ||
-                    binding.archiveSha256 in snapshot.quarantinedDigests ||
-                    binding.keyId in root?.revokedKeys.orEmpty() || binding.keyId !in root?.keys.orEmpty()
-                val authorized = scope != null && scope.navigation.containsAll(binding.navigationCapabilities)
-                SourceExtension(binding.extensionId, binding.displayName, binding.version, binding.archiveSha256,
-                    binding.releaseSequence, (scope?.roles?.map { it.name }.orEmpty() + binding.navigationCapabilities.map { it.name }).distinct().sorted(),
-                    active?.version?.takeIf(String::isNotEmpty), active?.digest,
-                    active != null && fresh && binding.releaseSequence > (snapshot.releaseHigh[binding.extensionId] ?: 0) && !revoked,
-                    revoked, source.enabled && fresh && authorized && source.failure == null && !revoked && runtimeSupported,
-                    binding.providerId, binding.publisherId)
+                val candidateRevoked = entry?.revoked == true || candidate?.archiveSha256 in snapshot?.revokedDigests.orEmpty() ||
+                    candidate?.keyId in root?.revokedKeys.orEmpty() || candidate != null && candidate.keyId !in root?.keys.orEmpty()
+                val candidateQuarantined = candidate?.archiveSha256 in snapshot?.quarantinedDigests.orEmpty()
+                val authorized = candidate != null && scope != null && scope.navigation.containsAll(candidate.navigationCapabilities) &&
+                    candidate.providerId == binding.providerId && candidate.publisherId == binding.publisherId
+                val allowed = source.enabled && fresh && source.failure == null && authorized && !candidateRevoked &&
+                    !candidateQuarantined && candidate?.yanked != true && runtimeSupported
+                val usable = active != null && verified != null && source.enabled && runtimeSupported
+                val packageStatus = when {
+                    active == null -> if (generation != null && snapshot?.quarantinedDigests?.isNotEmpty() == true)
+                        InstalledPackageStatus.QUARANTINED else InstalledPackageStatus.NOT_INSTALLED
+                    active.digest in snapshot?.revokedDigests.orEmpty() || active.key in root?.revokedKeys.orEmpty() -> InstalledPackageStatus.REVOKED
+                    active.digest in snapshot?.quarantinedDigests.orEmpty() -> InstalledPackageStatus.QUARANTINED
+                    usable -> InstalledPackageStatus.USABLE
+                    else -> InstalledPackageStatus.UNUSABLE
+                }
+                val update = active != null && allowed && candidate!!.releaseSequence > (snapshot?.releaseHigh?.get(extensionId) ?: 0)
+                val previous = store?.safePreviousGood(extensionId)
+                val operation = snapshot?.operations?.get(extensionId)
+                val phase = synchronized(monitor) { phases[source.id] }
+                val updateState = phase ?: when {
+                    packageStatus == InstalledPackageStatus.REVOKED -> ExtensionUpdateState.REVOKED
+                    packageStatus == InstalledPackageStatus.QUARANTINED -> ExtensionUpdateState.QUARANTINED
+                    active != null && !usable -> ExtensionUpdateState.UNUSABLE
+                    source.failure == ExtensionSourceFailure.AUTHENTICATION_UNAVAILABLE -> ExtensionUpdateState.TRUST_UNAVAILABLE
+                    operation?.failure != null -> ExtensionUpdateState.UPDATE_FAILED
+                    update -> ExtensionUpdateState.UPDATE_AVAILABLE
+                    operation?.state == ExtensionUpdateState.UPDATED -> ExtensionUpdateState.UPDATED
+                    operation?.state == ExtensionUpdateState.ROLLED_BACK -> ExtensionUpdateState.ROLLED_BACK
+                    active == null -> ExtensionUpdateState.NOT_INSTALLED
+                    previous != null -> ExtensionUpdateState.ROLLBACK_AVAILABLE
+                    else -> ExtensionUpdateState.INSTALLED_CURRENT
+                }
+                SourceExtension(extensionId, verified?.displayName ?: binding.displayName, candidate?.version ?: binding.version,
+                    candidate?.archiveSha256 ?: binding.archiveSha256, candidate?.releaseSequence ?: binding.releaseSequence,
+                    (verified?.let { it.grantedRoles.map { role -> role.name } + it.navigationCapabilities.map { cap -> cap.name } }
+                        ?: (scope?.roles?.map { it.name }.orEmpty() + binding.navigationCapabilities.map { it.name })).distinct().sorted(),
+                    active?.version?.takeIf(String::isNotEmpty), active?.digest, update, candidateRevoked, allowed,
+                    binding.providerId, binding.publisherId, installedUsable = usable, installedStatus = packageStatus,
+                    updateState = updateState, latestAvailableVersion = candidate?.version?.takeIf { fresh && !candidateRevoked &&
+                        !candidateQuarantined && candidate.yanked != true && authorized }, metadataFresh = fresh,
+                    candidateYanked = candidate?.yanked == true, packageGeneration = generation?.packageGeneration ?: 0,
+                    rollbackTarget = previous?.let { ExtensionRollbackTarget(it.version, it.digest) },
+                    lastUpdateAt = operation?.completedAt, lastUpdateResult = operation?.state?.name,
+                    lastUpdateFailure = operation?.failure)
             }.sortedBy { it.extensionId }
             val status = when {
                 !source.enabled -> ExtensionSourceStatus.DISABLED
@@ -347,7 +498,7 @@ internal class FileExtensionSourceRepository(
                 store == null && source.attemptedAt == null -> ExtensionSourceStatus.ADDED
                 store == null -> ExtensionSourceStatus.TRUST_UNAVAILABLE
                 snapshot == null || !fresh -> ExtensionSourceStatus.ERROR
-                extensions.any { it.revoked } || snapshot.generations.values.any {
+                extensions.any { it.installedStatus == InstalledPackageStatus.REVOKED } || snapshot.generations.values.any {
                     it.active?.digest in snapshot.revokedDigests || it.active?.key in snapshot.root?.revokedKeys.orEmpty()
                 } -> ExtensionSourceStatus.REVOKED
                 extensions.any { it.updateAvailable } -> ExtensionSourceStatus.UPDATE_AVAILABLE

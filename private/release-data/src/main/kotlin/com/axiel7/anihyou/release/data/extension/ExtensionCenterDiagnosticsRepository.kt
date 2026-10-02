@@ -15,7 +15,8 @@ class ExtensionCenterDiagnosticsRepository(
         val extension = sources.sources.value.usableExtension(key) ?: return metadata
         val recorded = store.state.value
         val current = selection.activeReleaseSource == key && recorded.source == key &&
-            recorded.releaseGeneration == selection.releaseGeneration && recorded.packageDigest == extension.installedDigest
+            recorded.releaseGeneration == selection.releaseGeneration && recorded.packageDigest == extension.installedDigest &&
+            recorded.packageGeneration == extension.packageGeneration
         val values = metadata.toMutableMap()
         if (current) {
             values.putAll(recorded.syncStatistics)
@@ -33,7 +34,9 @@ class ExtensionCenterDiagnosticsRepository(
             (if (key.extensionId == "de.aniworld") 25_000_000L else ExtensionHostCoordinator.PARSE_LIMITS.fuel).toString() + " parse"
         values["Memory limit"] = ExtensionHostCoordinator.PARSE_LIMITS.memoryBytes.toString() + " B"
         values["Deadline limit"] = ExtensionHostCoordinator.PARSE_LIMITS.deadlineMillis.toString() + " ms"
-        return if (policy.policy.value == selection && sources.sources.value.usableExtension(key)?.installedDigest == extension.installedDigest)
+        return if (policy.policy.value == selection && sources.sources.value.usableExtension(key)?.let {
+                it.installedDigest == extension.installedDigest && it.packageGeneration == extension.packageGeneration
+            } == true)
             values else emptyMap()
     }
 }

@@ -141,4 +141,14 @@ interface InstalledExtensionAccess {
     suspend fun loadInstalled(key: ExtensionSelectionKey): VerifiedExtensionPackage?
     suspend fun <T> withCurrentPackage(key: ExtensionSelectionKey, digest: String, block: suspend () -> T): T? =
         if (loadInstalled(key)?.packageDigest == digest) block() else null
+
+    /** Generation-aware fence for operations pinned to one installed-package lifecycle. */
+    suspend fun <T> withCurrentGeneration(
+        key: ExtensionSelectionKey,
+        digest: String,
+        generation: Long,
+        block: suspend () -> T,
+    ): T? = loadInstalled(key)?.let { current ->
+        if (current.packageDigest == digest && current.packageGeneration == generation) block() else null
+    }
 }

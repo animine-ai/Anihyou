@@ -29,7 +29,8 @@ class InstalledProviderNavigationGateway(
             val packageValue = installed.loadInstalled(key) ?: continue
             if (packageValue.navigationCapabilities.isEmpty()) continue
             add(NavigationProvider(key, packageValue.displayName, packageValue.packageDigest,
-                packageValue.navigationCapabilities, packageValue.grantedHosts, entry.supportedTracks))
+                packageValue.navigationCapabilities, packageValue.grantedHosts, entry.supportedTracks,
+                packageValue.packageGeneration))
         }
     }
 
@@ -37,14 +38,14 @@ class InstalledProviderNavigationGateway(
         val repository = object : VerifiedExtensionRepository {
             override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? =
                 if (providerId.value != provider.key.providerId) null else installed.loadInstalled(provider.key)
-                    ?.takeIf { it.packageDigest == provider.packageDigest }
+                    ?.takeIf { it.packageDigest == provider.packageDigest && it.packageGeneration == provider.packageGeneration }
         }
         return ProductionExtensionDispatches.create(repository, runtime, networkDirectory,
             ExtensionObservationPolicy { _, _ -> false }).navigation.navigate(request, generation)
     }
 
     override suspend fun <T> withCurrentProvider(provider: NavigationProvider, block: suspend () -> T): T? =
-        installed.withCurrentPackage(provider.key, provider.packageDigest) {
+        installed.withCurrentGeneration(provider.key, provider.packageDigest, provider.packageGeneration) {
             if (providers().singleOrNull { it.key == provider.key } == provider) block() else null
         }
 }
@@ -90,7 +91,8 @@ class ExtensionProviderNavigationProductRepository(
             while (targetCache.size > 512) targetCache.remove(targetCache.keys.first())
         }
         store.recordNavigation(provider.key, provider.packageDigest,
-            if (result is ProviderNavigationResult.Ready) "READY" else "UNAVAILABLE")
+            if (result is ProviderNavigationResult.Ready) "READY" else "UNAVAILABLE",
+            provider.packageGeneration)
         return result
     }
 
@@ -125,7 +127,8 @@ class ExtensionProviderNavigationProductRepository(
         val stored = store.state.value
         val activeProvider = active?.let { selected -> sources.sources.value.usableExtension(selected) }
         val sourceReady = active != null && activeProvider != null && stored.source == active &&
-            stored.releaseGeneration == p.releaseGeneration && stored.packageDigest == activeProvider.installedDigest
+            stored.releaseGeneration == p.releaseGeneration && stored.packageDigest == activeProvider.installedDigest &&
+            stored.packageGeneration == activeProvider.packageGeneration
         if (!sourceReady) return ProviderNavigationProductState(visible,
             WatchNextState.Unavailable(if (active == null) NavigationUnavailableReason.NO_ACTIVE_SOURCE else NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE),
             mappingProviders = providers, activeReleaseSource = active)
@@ -180,7 +183,8 @@ class ExtensionProviderNavigationProductRepository(
     override suspend fun launch(target: ValidatedNavigationTarget): ProviderNavigationResult {
         val result = coordinator.launch(target, launcher)
         store.recordNavigation(target.provider.key, target.provider.packageDigest,
-            if (result is ProviderNavigationResult.Ready) "LAUNCHED" else "LAUNCH_REJECTED")
+            if (result is ProviderNavigationResult.Ready) "LAUNCHED" else "LAUNCH_REJECTED",
+            target.provider.packageGeneration)
         return result
     }
     override suspend fun setEpisodeMapping(segment: ProviderEpisodeSegment) {
