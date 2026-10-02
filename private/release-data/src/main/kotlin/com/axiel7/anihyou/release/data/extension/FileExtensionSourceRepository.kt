@@ -262,13 +262,16 @@ internal class FileExtensionSourceRepository(
                 val snapshot = store.snapshot()
                 val candidate = snapshot.index?.packages?.filter { it.binding.extensionId == extensionId }
                     ?.maxByOrNull { it.binding.releaseSequence } ?: error("no eligible signed extension")
-                require(!candidate.revoked && !candidate.binding.yanked) { "latest signed extension revoked or yanked" }
+                require(!candidate.revoked) { "latest signed extension revoked" }
                 val installed = snapshot.generations[extensionId]?.active
                 if (installed?.digest == candidate.binding.archiveSha256) {
+                    // D1: a yank of the release that is already installed and healthy does not stop it. The package
+                    // must still be usable under every trust rule, and revocation was rejected above.
                     require(store.loadUsableExtension(extensionId) != null) { "installed package unusable" }
                     store.finishOperation(extensionId, ExtensionUpdateState.INSTALLED_CURRENT, null, clock.instant())
                     return@operate
                 }
+                require(!candidate.binding.yanked) { "latest signed extension yanked" }
                 if (installed != null) require(installed.provider == candidate.binding.providerId &&
                     store.installedBinding(extensionId)?.publisherId == candidate.binding.publisherId) { "installed identity changed" }
                 val reinstallRemoved = store.canReinstallRemoved(extensionId, candidate.binding.archiveSha256, candidate.binding.releaseSequence)

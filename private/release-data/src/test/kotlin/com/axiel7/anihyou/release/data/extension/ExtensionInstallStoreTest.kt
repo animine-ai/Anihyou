@@ -1059,6 +1059,210 @@ class ExtensionInstallStoreTest {
         ))
     }
 
+    // ---- Planner decision D1: a yank is separate from permanent revocation -------------------------------------
+
+    private fun yanked(release: PackageDocument) = release.copy(binding = release.binding.copy(yanked = true))
+
+    private fun assertRejectedByPolicy(block: () -> Unit) {
+        try {
+            block()
+        } catch (_: IllegalArgumentException) {
+            return
+        } catch (_: IllegalStateException) {
+            return
+        }
+        throw AssertionError("expected install-store policy rejection")
+    }
+
+    @Test
+    fun `index yank keeps a healthy installed package running across restart but blocks reinstalling the digest`() {
+        val directory = temporaryFolder.newFolder("d1-yank-keeps-running")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        val before = store.snapshot().generations.getValue(EXTENSION)
+
+        store.acceptIndex(fixture.index(2, listOf(yanked(first))).envelope, NOW)
+
+        for (reader in listOf(store, fixture.store())) {
+            assertEquals(first.binding.archiveSha256, load(reader)!!.packageDigest)
+        }
+        val after = fixture.store().snapshot()
+        val generation = after.generations.getValue(EXTENSION)
+        assertEquals(first.binding.archiveSha256, generation.active?.digest)
+        assertEquals(first.binding.archiveSha256, generation.knownGood?.digest)
+        assertEquals("no generation reset", before.packageGeneration, generation.packageGeneration)
+        assertEquals("no journal reset", before.journalRevision, generation.journalRevision)
+        assertTrue("a yank is not a security classification", after.quarantinedDigests.isEmpty())
+        assertTrue(after.revokedDigests.isEmpty())
+        assertNull(after.operations[EXTENSION]?.failure)
+        assertRejectedByPolicy { fixture.store().install(first.archive, EXTENSION, NOW) }
+    }
+
+    @Test
+    fun `yanked candidate and yanked previous good are never selected and only a higher authenticated index lifts a pure yank`() {
+        val directory = temporaryFolder.newFolder("d1-yank-selection")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        val third = fixture.release(3)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+        store.install(second.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        val generation = store.snapshot().generations.getValue(EXTENSION)
+
+        // Yanked previous good: no new rollback target.
+        store.acceptIndex(fixture.index(3, listOf(yanked(first), second)).envelope, NOW)
+        assertNull(store.safePreviousGood(EXTENSION, NOW))
+        assertRollbackRejected {
+            store.rollback(EXTENSION, generation.packageGeneration, first.binding.archiveSha256, NOW)
+        }
+        assertEquals(second.binding.archiveSha256, load(store)!!.packageDigest)
+
+        // A replayed, expired or equivocating index cannot lift the yank.
+        assertRejectedByPolicy { store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW) }
+        assertRejectedByPolicy {
+            store.acceptIndex(fixture.index(4, listOf(first, second), issuedAt = NOW.minusSeconds(864_000),
+                expiresAt = NOW.minusSeconds(259_200)).envelope, NOW)
+        }
+        assertRejectedByPolicy { store.acceptIndex(fixture.index(3, listOf(first, second)).envelope, NOW) }
+        assertNull(store.safePreviousGood(EXTENSION, NOW))
+
+        // A strictly newer authenticated index lifts the pure yank again.
+        store.acceptIndex(fixture.index(4, listOf(first, second)).envelope, NOW)
+        assertEquals(first.binding.archiveSha256, store.safePreviousGood(EXTENSION, NOW)?.digest)
+
+        // Yanked candidate: no update. After a higher index drops the yank, the same candidate is distributable.
+        store.acceptIndex(fixture.index(5, listOf(first, second, yanked(third))).envelope, NOW)
+        assertRejectedByPolicy { store.install(third.archive, EXTENSION, NOW) }
+        store.acceptIndex(fixture.index(6, listOf(first, second, third)).envelope, NOW)
+        assertEquals(3L, store.install(third.archive, EXTENSION, NOW).sequence)
+    }
+
+    @Test
+    fun `revocation stays permanent after a later index drops the flag and survives restart and reinstall`() {
+        val directory = temporaryFolder.newFolder("d1-revocation-permanent")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+
+        // Reading the published package while revoked would stamp the wall clock into the journal, so the later
+        // index is accepted first and both readers are checked afterwards.
+        store.acceptIndex(fixture.index(2, listOf(first.copy(revoked = true))).envelope, NOW)
+        store.acceptIndex(fixture.index(3, listOf(first)).envelope, NOW)
+
+        for (reader in listOf(store, fixture.store())) assertNull(load(reader))
+        assertTrue(first.binding.archiveSha256 in fixture.store().snapshot().revokedDigests)
+        assertRejectedByPolicy { fixture.store().install(first.archive, EXTENSION, NOW) }
+    }
+
+    @Test
+    fun `revocation wins over a yank and over a later lifted yank, also when it comes from the root`() {
+        val directory = temporaryFolder.newFolder("d1-revocation-wins")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(yanked(first))).envelope, NOW)
+        assertEquals(first.binding.archiveSha256, load(store)!!.packageDigest)
+
+        // The root revokes the digest while the catalog still only yanks it: revocation wins immediately.
+        store.acceptRoot(fixture.rootEnvelope(2, revokedDigests = setOf(first.binding.archiveSha256)), NOW)
+        // Lifting the yank later cannot restore a digest the root revoked.
+        store.acceptIndex(fixture.index(3, listOf(first), rootVersion = 2).envelope, NOW)
+        assertNull(load(store))
+        assertNull(load(fixture.store()))
+        assertTrue(first.binding.archiveSha256 in fixture.store().snapshot().revokedDigests)
+    }
+
+    @Test
+    fun `index yank and revoke together are treated as revoked`() {
+        val directory = temporaryFolder.newFolder("d1-yank-and-revoke")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+
+        store.acceptIndex(fixture.index(2, listOf(yanked(first).copy(revoked = true))).envelope, NOW)
+        store.acceptIndex(fixture.index(3, listOf(first)).envelope, NOW)
+        assertNull(load(store))
+        assertNull(load(fixture.store()))
+        assertTrue(first.binding.archiveSha256 in fixture.store().snapshot().revokedDigests)
+    }
+
+    @Test
+    fun `smoke quarantine is not lifted when a yank on the same digest is later removed`() {
+        val directory = temporaryFolder.newFolder("d1-smoke-quarantine-stays")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+        try {
+            fixture.store(smoke = { error("rejected by smoke") }).install(second.archive, EXTENSION, NOW)
+            throw AssertionError("smoke-rejected candidate was activated")
+        } catch (_: ExtensionSmokeException) { }
+
+        store.acceptIndex(fixture.index(3, listOf(first, yanked(second))).envelope, NOW)
+        store.acceptIndex(fixture.index(4, listOf(first, second)).envelope, NOW)
+
+        assertTrue(second.binding.archiveSha256 in fixture.store().snapshot().quarantinedDigests)
+        assertRejectedByPolicy { fixture.store().install(second.archive, EXTENSION, NOW) }
+        assertEquals(first.binding.archiveSha256, load(fixture.store())!!.packageDigest)
+    }
+
+    @Test
+    fun `automatic recovery continues the published healthy package even when it is yanked but never picks a yanked older one`() {
+        // Continuation: the candidate fails, the already published package is yanked in the meantime.
+        val continuation = StoreFixture(temporaryFolder.newFolder("d1-recovery-continues"))
+        val one = continuation.release(1)
+        val two = continuation.release(2)
+        val store = continuation.store()
+        continuation.initialize(store, continuation.index(1, listOf(one)))
+        store.install(one.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(continuation.index(2, listOf(one, two)).envelope, NOW)
+        store.install(two.archive, EXTENSION, NOW)
+        store.acceptIndex(continuation.index(3, listOf(yanked(one), two)).envelope, NOW)
+        val recovered = store.quarantineAndRollback(EXTENSION, NOW)
+        assertEquals(one.binding.archiveSha256, recovered?.digest)
+        assertEquals(one.binding.archiveSha256, load(continuation.store())!!.packageDigest)
+        assertTrue(two.binding.archiveSha256 in continuation.store().snapshot().quarantinedDigests)
+        assertFalse(one.binding.archiveSha256 in continuation.store().snapshot().quarantinedDigests)
+
+        // Selection: the published package loses trust and the only fallback is a yanked older release.
+        val selection = StoreFixture(temporaryFolder.newFolder("d1-recovery-selection"))
+        val older = selection.release(1)
+        val newer = selection.release(2)
+        val chosen = selection.store()
+        selection.initialize(chosen, selection.index(1, listOf(older)))
+        chosen.install(older.archive, EXTENSION, NOW)
+        chosen.promoteHealthy(EXTENSION, NOW)
+        chosen.acceptIndex(selection.index(2, listOf(older, newer)).envelope, NOW)
+        chosen.install(newer.archive, EXTENSION, NOW)
+        chosen.promoteHealthy(EXTENSION, NOW)
+        chosen.acceptIndex(selection.index(3, listOf(yanked(older), newer.copy(revoked = true))).envelope, NOW)
+        assertNull(chosen.quarantineAndRollback(EXTENSION, NOW))
+        assertNull(load(selection.store()))
+    }
+
     private fun loadExtension(store: ExtensionInstallStore, extensionId: String) = runBlocking {
         store.loadUsableExtension(extensionId)
     }

@@ -183,7 +183,9 @@ internal class ExtensionInstallStore(
     private fun promote(extensionId: String, now: Instant, beforePromotion: () -> Unit) {
         val generation = state.generations[extensionId] ?: error("no installed extension")
         val active = generation.active ?: error("no active generation")
-        require(eligible(active))
+        // Promoting a candidate is a new activation, so a yank blocks it. Re-confirming the already healthy
+        // package is not, and a yank must not turn an idempotent promotion into a failure.
+        require(if (generation.knownGood?.digest == active.digest) trustEligible(active) else activationEligible(active))
         failure.at(InstallBoundary.BEFORE_PROMOTION)
         val next = if (generation.knownGood?.digest == active.digest) generation else
             generation.copy(knownGood = active, previousGood = generation.knownGood,
@@ -213,7 +215,15 @@ internal class ExtensionInstallStore(
         val bad = generation.active ?: return null
         val newlyQuarantined = state.quarantine + bad.digest
         val prior = if (generation.knownGood?.digest == bad.digest) generation.previousGood else generation.knownGood
-        val fallback = prior?.takeIf { !generation.rollbackUsed && it.digest != bad.digest && eligible(it, newlyQuarantined) && verifiedReceipt(it) != null }
+        // Restoring the package that is already published and healthy continues it; it needs trust, not a clean
+        // catalog flag. Selecting an older PreviousGood is a new activation and may not be yanked.
+        val continuesPublished = generation.knownGood != null && generation.knownGood.digest != bad.digest &&
+            prior?.digest == generation.knownGood.digest
+        val fallback = prior?.takeIf {
+            !generation.rollbackUsed && it.digest != bad.digest &&
+                (if (continuesPublished) trustEligible(it, newlyQuarantined) else activationEligible(it, newlyQuarantined)) &&
+                verifiedReceipt(it) != null
+        }
         val nextRevision = Math.addExact(state.revisions[extensionId] ?: 0, 1)
         val updated = generation.copy(active = fallback, knownGood = fallback, previousGood = null,
             rollbackUsed = true, lastRejected = bad, knownGoodGeneration = nextRevision)
@@ -246,14 +256,14 @@ internal class ExtensionInstallStore(
         return generation.previousGood?.takeIf {
             !generation.rollbackUsed && generation.knownGood?.digest == active.digest &&
                 it.digest != active.digest && it.extension == active.extension && it.provider == active.provider &&
-                eligible(it) && receiptPublisher(it) == receiptPublisher(active)
+                activationEligible(it) && receiptPublisher(it) == receiptPublisher(active)
         }
     }
     private fun receiptPublisher(receipt: InstallReceipt): String? =
         indexAt(state, receipt.indexSequence)?.packages?.singleOrNull { it.binding.archiveSha256 == receipt.digest }?.binding?.publisherId
 
     private fun verifiedReceipt(receipt: InstallReceipt): VerifiedExtensionPackage? = runCatching {
-        if (!eligible(receipt)) return@runCatching null
+        if (!trustEligible(receipt)) return@runCatching null
         val root = roots(state).last()
         val entry = indexAt(state, receipt.indexSequence)!!.packages.single { it.binding.archiveSha256 == receipt.digest }
         verifier.verify(archive(receipt.digest), entry.binding, trust.publisher(root, entry, receipt.acceptedAt),
@@ -261,7 +271,7 @@ internal class ExtensionInstallStore(
     }.getOrNull()
 
     private fun freshRollbackPackage(receipt: InstallReceipt, now: Instant): VerifiedExtensionPackage? = runCatching {
-        if (!eligible(receipt)) return@runCatching null
+        if (!activationEligible(receipt)) return@runCatching null
         val effective = effectiveTime(now)
         val root = roots(state).lastOrNull() ?: return@runCatching null
         val index = latestIndex(state) ?: return@runCatching null
@@ -361,7 +371,8 @@ internal class ExtensionInstallStore(
         // Such a receipt is diagnostic history, not an installed activation intent.
         if (generation.active == null) return null
         val published = generation.knownGood ?: return null
-        if (generation.active?.digest == published.digest && !eligible(published)) {
+        // Only a lost trust or health condition retires the published package. A yank alone never does (D1).
+        if (generation.active?.digest == published.digest && !trustEligible(published)) {
             rollbackBad(extensionId, Instant.now())
             generation = state.generations[extensionId] ?: return null
         }
@@ -392,15 +403,20 @@ internal class ExtensionInstallStore(
             }, state.releaseHigh.toMap(), state.revoked.toSet(), state.quarantine.toSet(), state.clock, state.operations.toMap())
     }
 
-    private fun eligible(receipt: InstallReceipt, quarantine: Set<String> = state.quarantine): Boolean {
+    /**
+     * Trust and health of an installed package: signature chain, publisher scope, key and digest revocation,
+     * smoke or integrity quarantine, binding and file integrity. A catalog yank is deliberately not part of this.
+     * Revocation is permanent because [State.revoked] only ever grows and quarantine is never cleared.
+     */
+    private fun trustEligible(receipt: InstallReceipt, quarantine: Set<String> = state.quarantine): Boolean {
         val root = roots(state).lastOrNull() ?: return false
         val current = indexAt(state, receipt.indexSequence) ?: return false
         val entry = current.packages.singleOrNull { it.binding.archiveSha256 == receipt.digest } ?: return false
         val latest = latestIndex(state)?.packages?.singleOrNull { it.binding.archiveSha256 == receipt.digest }
         val packageFile = archive(receipt.digest)
         return receipt.digest !in quarantine && receipt.digest !in state.revoked && receipt.digest !in root.revokedDigests &&
-            receipt.key !in root.revokedKeys && receipt.key in root.keys && !entry.revoked && !entry.binding.yanked &&
-            latest?.revoked != true && latest?.binding?.yanked != true &&
+            receipt.key !in root.revokedKeys && receipt.key in root.keys && !entry.revoked &&
+            latest?.revoked != true &&
             entry.binding.extensionId == receipt.extension && entry.binding.providerId == receipt.provider &&
             entry.binding.keyId == receipt.key && entry.binding.releaseSequence == receipt.sequence &&
             current.rootVersion == receipt.rootVersion &&
@@ -408,6 +424,17 @@ internal class ExtensionInstallStore(
             digest(packageFile) == receipt.digest &&
             runCatching { trust.publisher(root, entry, receipt.acceptedAt) }.isSuccess
     }
+
+    /** A yank in the receipt's own catalog entry or in the newest authenticated catalog. A later higher index clears it. */
+    private fun yanked(receipt: InstallReceipt): Boolean {
+        val entry = indexAt(state, receipt.indexSequence)?.packages?.singleOrNull { it.binding.archiveSha256 == receipt.digest }
+        val latest = latestIndex(state)?.packages?.singleOrNull { it.binding.archiveSha256 == receipt.digest }
+        return entry?.binding?.yanked == true || latest?.binding?.yanked == true
+    }
+
+    /** Gate for any new activation: promoting a candidate, choosing an older fallback or an explicit rollback target. */
+    private fun activationEligible(receipt: InstallReceipt, quarantine: Set<String> = state.quarantine): Boolean =
+        trustEligible(receipt, quarantine) && !yanked(receipt)
 
     private fun roots(s: State): List<TrustedRoot> {
         var previous: TrustedRoot? = null
