@@ -105,6 +105,7 @@ fun HomeView(
             HomeAccountActions(
                 onSettings = { navActionManager.toSettings() },
                 onProfile = { navActionManager.navigate(Route.OwnProfile) },
+                onPostponements = navActionManager::toPostponements,
             )
         },
         scrollBehavior = topAppBarScrollBehavior,
@@ -159,7 +160,17 @@ fun HomeView(
 }
 
 @Composable
-fun HomeAccountActions(onSettings: () -> Unit, onProfile: () -> Unit) {
+fun HomeAccountActions(
+    onSettings: () -> Unit,
+    onProfile: () -> Unit,
+    onPostponements: () -> Unit = {},
+) {
+    IconButton(onClick = onPostponements, modifier = Modifier.testTag("home-postponements")) {
+        Icon(
+            painterResource(R.drawable.schedule_24),
+            contentDescription = stringResource(R.string.postponements),
+        )
+    }
     IconButton(onClick = onSettings, modifier = Modifier.testTag("home-settings")) {
         Icon(painterResource(R.drawable.settings_24), contentDescription = stringResource(R.string.settings))
     }
