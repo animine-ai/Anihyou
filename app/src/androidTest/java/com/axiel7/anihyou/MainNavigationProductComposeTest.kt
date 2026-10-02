@@ -53,6 +53,9 @@ class MainNavigationProductComposeTest {
         composeRule.onNodeWithTag("home-notifications").assertContentDescriptionEquals(composeRule.activity.getString(
             com.axiel7.anihyou.core.resources.R.string.notifications)).performClick()
         composeRule.runOnIdle { assertTrue(state.getCurrentRoute() is Route.Notifications); navigator.goBack() }
+        composeRule.onNodeWithTag("home-postponements").assertContentDescriptionEquals(composeRule.activity.getString(
+            com.axiel7.anihyou.core.resources.R.string.postponements)).performClick()
+        composeRule.runOnIdle { assertEquals(Route.Postponements, state.getCurrentRoute()); navigator.goBack() }
         composeRule.onNodeWithTag("home-settings").performClick()
         composeRule.runOnIdle { assertEquals(Route.Settings, state.getCurrentRoute()); navigator.goBack() }
         composeRule.onNodeWithTag("home-profile").performClick()

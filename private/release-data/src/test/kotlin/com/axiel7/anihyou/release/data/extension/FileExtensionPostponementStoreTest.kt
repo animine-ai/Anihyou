@@ -11,6 +11,8 @@ import java.time.Instant
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.rules.TemporaryFolder
@@ -51,8 +53,11 @@ class FileExtensionPostponementStoreTest {
         database.releaseDao().upsertExternalMapping(mapping)
         store.record(key, 1, "a".repeat(64), 1, now, listOf(observation()))
         assertEquals(7, store.presentation.first().notices.single().mediaId)
+        val awaitingInvalidation = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeout(5_000) { store.presentation.first { it.notices.single().mediaId == null } }
+        }
         database.releaseDao().upsertExternalMapping(mapping.copy(staleAt = now.toString()))
-        assertNull(withTimeout(5_000) { store.presentation.first { it.notices.single().mediaId == null } }
+        assertNull(awaitingInvalidation.await()
             .notices.single().mediaId)
     }
 

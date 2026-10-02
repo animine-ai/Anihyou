@@ -37,6 +37,11 @@ fun PostponementsView(
 ) {
     val model: PostponementsViewModel = koinViewModel()
     val state by model.uiState.collectAsStateWithLifecycle()
+    PostponementsViewContent(state, modifier)
+}
+
+@Composable
+fun PostponementsViewContent(state: PostponementsUiState, modifier: Modifier = Modifier) {
     val nav = LocalNavActionManager.current
 
     DefaultScaffoldWithSmallTopAppBar(

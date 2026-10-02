@@ -46,7 +46,7 @@ fun CalendarBanner(
 ) {
     val haptic = LocalHapticFeedback.current
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = {},

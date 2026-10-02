@@ -49,6 +49,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -104,7 +105,7 @@ fun CalendarView(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun CalendarViewContent(
+fun CalendarViewContent(
     isLoggedIn: Boolean,
     uiState: CalendarUiState,
     event: CalendarEvent?,
@@ -327,7 +328,7 @@ private fun StickyHeader(
         height = 100.dp,
         color = imageColor,
         onLongClick = onLongClick,
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth().testTag("calendar-day-$date")
     )
 }
 
@@ -427,7 +428,7 @@ private fun ListView(
     }
 
     LazyColumn(
-        modifier = modifier,
+        modifier = modifier.testTag("calendar-list"),
         contentPadding = contentPadding,
         state = listState,
     ) {
@@ -504,7 +505,7 @@ private fun GridView(
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = (MEDIA_POSTER_SMALL_WIDTH + 8).dp),
-        modifier = modifier,
+        modifier = modifier.testTag("calendar-grid"),
         contentPadding = contentPadding,
         state = gridState,
         verticalArrangement = Arrangement.spacedBy(16.dp),

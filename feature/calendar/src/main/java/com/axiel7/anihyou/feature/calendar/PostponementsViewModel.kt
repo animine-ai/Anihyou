@@ -47,11 +47,15 @@ class PostponementsViewModel(
         productPolicyRepository.policy,
         sources.sources,
     ) { snapshot, policy, catalog ->
-        if (snapshot.source != null && snapshot.source == policy.activeReleaseSource &&
-            catalog.usableExtension(snapshot.source) != null
+        val source = snapshot.source
+        if (source != null && source == policy.activeReleaseSource &&
+            catalog.usableExtension(source) != null
         ) {
             PostponementsUiState(
-                notices = snapshot.notices,
+                notices = snapshot.notices.filter {
+                    it.track == com.axiel7.anihyou.release.core.extension.ObservationTrack.UNKNOWN ||
+                        it.track.name in policy.preferencesFor(source).enabledTracks
+                },
                 observedAt = snapshot.observedAt,
             )
         } else {
