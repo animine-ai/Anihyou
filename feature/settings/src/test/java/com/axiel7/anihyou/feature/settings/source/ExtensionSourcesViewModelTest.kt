@@ -39,6 +39,13 @@ class ExtensionSourcesViewModelTest {
     }
 
     @Test
+    fun trustAvailabilityIsTakenFromTheRepositoryAndDefaultsToAvailable() = runTest {
+        assertTrue(ExtensionSourcesViewModel(repository).uiState.value.trustAvailable)
+        repository.trustAvailable = false
+        assertFalse(ExtensionSourcesViewModel(repository).uiState.value.trustAvailable)
+    }
+
+    @Test
     fun diagnosticsFromOldPackageOrSelectionCannotReappearAfterAnAsyncRefresh() = runTest {
         val key = usableKey()
         val sources = repositoryWithUsableExtension(key)
@@ -332,6 +339,7 @@ class ExtensionSourcesViewModelTest {
 
     private class FakeExtensionSourceRepository : ExtensionSourceRepository {
         override val sources = MutableStateFlow<List<ExtensionSource>>(emptyList())
+        override var trustAvailable: Boolean = true
         val addedUrls = mutableListOf<String>()
         val refreshedSourceIds = mutableListOf<String>()
         val removedExtensions = mutableListOf<Pair<String, String>>()

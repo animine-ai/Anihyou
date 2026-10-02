@@ -2,11 +2,17 @@ package com.axiel7.anihyou.feature.settings.source
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -16,6 +22,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
@@ -40,8 +50,36 @@ enum class ExtensionCenterPage(val id: String, val title: Int) {
 @Composable
 fun ExtensionCenterView() {
     val nav = LocalNavActionManager.current
+    val model: ExtensionSourcesViewModel = koinViewModel()
+    val state by model.uiState.collectAsStateWithLifecycle()
     ExtensionCenterScaffold(stringResource(R.string.extension_center_title)) {
+        if (!state.trustAvailable) ExtensionTrustUnavailableNotice()
         ExtensionCenterMenu { page -> nav.navigate(Route.ExtensionCenterPage(page.id)) }
+    }
+}
+
+/**
+ * Shown when this build has no independently authenticated source identity. The area stays visible and readable,
+ * but nothing that can only fail later (add, install, update, rollback) is offered. Local cleanup stays possible.
+ */
+@Composable
+fun ExtensionTrustUnavailableNotice(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.fillMaxWidth().padding(bottom = 12.dp).testTag("extension-trust-unavailable"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                text = stringResource(R.string.extension_center_unavailable_title),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.semantics { heading() },
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.extension_center_unavailable_message),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }
 
@@ -63,6 +101,7 @@ fun ExtensionCenterPageView(pageId: String) {
         if (page == ExtensionCenterPage.STATISTICS || page == ExtensionCenterPage.DIAGNOSTICS) model.refreshDiagnostics()
     }
     ExtensionCenterScaffold(stringResource(page.title)) {
+        if (!state.trustAvailable) ExtensionTrustUnavailableNotice()
         if (page == ExtensionCenterPage.STATISTICS || page == ExtensionCenterPage.DIAGNOSTICS) {
             TextButton(onClick = model::refreshDiagnostics, modifier = Modifier.testTag("extension-details-refresh")) {
                 Text(stringResource(R.string.extension_details_refresh))
@@ -145,10 +184,18 @@ fun ExtensionProviderDisplay(state: ExtensionSourcesUiState, event: ExtensionSou
                 keys.removeAt(index); keys.add((index + offset).coerceIn(0, keys.size), key)
                 event.setProviderOrder(keys)
             }
+            val moveUp = stringResource(R.string.extension_provider_move_up, extension.displayName)
+            val moveDown = stringResource(R.string.extension_provider_move_down, extension.displayName)
             TextButton(onClick = { move(-1) }, enabled = index > 0 && canEdit,
-                modifier = Modifier.testTag("provider-up-" + key.testTagPart())) { Text("↑") }
+                modifier = Modifier.testTag("provider-up-" + key.testTagPart())
+                    .semantics { contentDescription = moveUp }) {
+                Text("↑", modifier = Modifier.clearAndSetSemantics { })
+            }
             TextButton(onClick = { move(1) }, enabled = index < entries.lastIndex && canEdit,
-                modifier = Modifier.testTag("provider-down-" + key.testTagPart())) { Text("↓") }
+                modifier = Modifier.testTag("provider-down-" + key.testTagPart())
+                    .semantics { contentDescription = moveDown }) {
+                Text("↓", modifier = Modifier.clearAndSetSemantics { })
+            }
         }
         HorizontalDivider()
     }
@@ -192,9 +239,10 @@ fun ExtensionStatistics(state: ExtensionSourcesUiState) {
             ?: extension.lastUpdateTechnicalCode?.takeIf(::isSafeTechnicalCode))
     DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_last_successful_update), values["Last Successful Update"])
     DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_last_metadata_success), values["Last metadata success"])
+    // Update check, successful update, release sequence and rollback availability already have localized rows above.
+    // The raw revocation digest list and the other update facts stay in Diagnostics and its copy export.
     listOf("Last successful sync", "Freshness", "Release count", "Tracks", "Role health", "Last sync outcome", "Sync duration",
-        "Runtime", "Last parse status", "Last navigation status", "Last Update Check", "Last Successful Update",
-        "Release Sequence", "Rollback Available", "Revocation").forEach {
+        "Runtime", "Last parse status", "Last navigation status").forEach {
         DiagnosticRow(it, values[it])
     }
 }

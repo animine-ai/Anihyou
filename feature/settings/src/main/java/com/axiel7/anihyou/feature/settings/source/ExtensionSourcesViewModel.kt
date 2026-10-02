@@ -23,6 +23,8 @@ data class ExtensionSourcesUiState(
     val sources: List<ExtensionSource> = emptyList(),
     val productPolicy: ExtensionProductPolicy = ExtensionProductPolicy(),
     val canEditProductPolicy: Boolean = false,
+    /** False when this build cannot authenticate any source; mutating repository actions are then not offered. */
+    val trustAvailable: Boolean = true,
     val url: String = "",
     val isAdding: Boolean = false,
     val addResult: AddExtensionSourceResult? = null,
@@ -55,7 +57,7 @@ class ExtensionSourcesViewModel(
 ) : ViewModel(), ExtensionSourcesEvent {
 
     private val _uiState = MutableStateFlow(
-        ExtensionSourcesUiState(canEditProductPolicy = productPolicyRepository != null),
+        ExtensionSourcesUiState(canEditProductPolicy = productPolicyRepository != null, trustAvailable = repository.trustAvailable),
     )
     val uiState = _uiState.asStateFlow()
     private val sourceActionLock = Any()

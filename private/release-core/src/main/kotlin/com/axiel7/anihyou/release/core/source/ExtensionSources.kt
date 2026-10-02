@@ -66,6 +66,11 @@ sealed interface AddExtensionSourceResult {
 interface ExtensionSourceRepository {
     val sources: StateFlow<List<ExtensionSource>>
     val productPolicy: ExtensionProductPolicyRepository? get() = null
+    /**
+     * False only when this build has no independently authenticated source identity at all. Adding, installing,
+     * updating and rolling back cannot succeed then, so the UI must not offer them.
+     */
+    val trustAvailable: Boolean get() = true
     suspend fun add(url: String): AddExtensionSourceResult
     suspend fun setEnabled(sourceId: String, enabled: Boolean)
     suspend fun remove(sourceId: String)

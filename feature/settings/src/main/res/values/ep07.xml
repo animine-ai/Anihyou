@@ -95,4 +95,8 @@
     <string name="extension_manage_diagnostic_stale">Stale or unavailable</string>
     <string name="extension_manage_diagnostic_yes">Yes</string>
     <string name="extension_manage_diagnostic_no">No</string>
+    <string name="extension_center_unavailable_title">Not available in this build</string>
+    <string name="extension_center_unavailable_message">This build has no verified source identity configured, so extensions cannot be added, installed or updated. Existing local data stays unchanged and can still be removed.</string>
+    <string name="extension_provider_move_up">Move %1$s up</string>
+    <string name="extension_provider_move_down">Move %1$s down</string>
 </resources>

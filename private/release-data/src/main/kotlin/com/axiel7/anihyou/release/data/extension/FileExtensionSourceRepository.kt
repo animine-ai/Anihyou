@@ -15,9 +15,13 @@ import kotlinx.coroutines.sync.withLock
 internal data class AuthenticatedExtensionSourceAnchor(val pin: AppTrustPin, val allowedHosts: Set<String>)
 internal fun interface ExtensionSourceTrustBootstrap {
     suspend fun authenticate(source: NormalizedExtensionSource): AuthenticatedExtensionSourceAnchor?
+
+    /** False only for a bootstrap that cannot authenticate any source, so the UI can say so up front. */
+    val provisioned: Boolean get() = true
 }
 internal object UnavailableExtensionSourceTrustBootstrap : ExtensionSourceTrustBootstrap {
     override suspend fun authenticate(source: NormalizedExtensionSource): AuthenticatedExtensionSourceAnchor? = null
+    override val provisioned: Boolean = false
 }
 internal fun interface ExtensionSourceStoreFactory {
     fun create(directory: File, anchor: AuthenticatedExtensionSourceAnchor): ExtensionInstallStore
@@ -50,6 +54,7 @@ internal class FileExtensionSourceRepository(
     private var lifecycleToken = 0L
     private val mutableSources = MutableStateFlow<List<ExtensionSource>>(emptyList())
     override val sources: StateFlow<List<ExtensionSource>> = mutableSources.asStateFlow()
+    override val trustAvailable: Boolean get() = bootstrap.provisioned
     private fun eligible(key: ExtensionSelectionKey): Boolean =
         sources.value.usableExtension(key) != null && registry.find(key.sourceId)?.let { it.enabled && !it.removed } == true &&
             synchronized(monitor) { key.sourceId !in lifecycleIntents }

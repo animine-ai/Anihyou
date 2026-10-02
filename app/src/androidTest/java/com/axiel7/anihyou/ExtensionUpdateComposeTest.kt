@@ -21,10 +21,13 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -39,6 +42,7 @@ import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesEvent
 import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesSettingsSection
 import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesUiState
 import com.axiel7.anihyou.feature.settings.source.ExtensionStatistics
+import com.axiel7.anihyou.feature.settings.source.ExtensionTrustUnavailableNotice
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicy
 import com.axiel7.anihyou.release.core.source.ExtensionRollbackTarget
@@ -251,6 +255,81 @@ class ExtensionUpdateComposeTest {
     }
 
     @Test
+    fun statisticsShowEachUpdateFactOnceWithoutRawDuplicates() {
+        val key = key("statistics-once")
+        val extension = current(key).copy(packageGeneration = 27, installedReleaseSequence = 7)
+        val state = ExtensionSourcesUiState(
+            sources = listOf(source(key.sourceId, extension)),
+            productPolicy = ExtensionProductPolicy(activeReleaseSource = key),
+            diagnostics = mapOf(key to mapOf(
+                "Last Update Check" to "2026-10-01T10:00:00Z",
+                "Last Successful Update" to "2026-10-01T09:00:00Z",
+                "Release Sequence" to "7",
+                "Rollback Available" to "true",
+                "Revocation" to "",
+                "Last successful sync" to "2026-10-01T09:30:00Z",
+                "Role health" to "CALENDAR: HEALTHY/SUCCESS",
+            )),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    ExtensionStatistics(state)
+                }
+            }
+        }
+        // The localized row carries each fact exactly once.
+        composeRule.onAllNodesWithText("Last update check: 2026-10-01T10:00:00Z").assertCountEquals(1)
+        composeRule.onAllNodesWithText("Last successful update: 2026-10-01T09:00:00Z").assertCountEquals(1)
+        composeRule.onAllNodesWithText("Installed release sequence: 7").assertCountEquals(1)
+        composeRule.onAllNodesWithText("Active package generation: 27").assertCountEquals(1)
+        // The raw English twins of those facts are gone from the statistics page.
+        for (rawLabel in listOf("Last Update Check:", "Last Successful Update:", "Release Sequence:", "Rollback Available:", "Revocation:")) {
+            composeRule.onAllNodesWithText(rawLabel, substring = true).assertCountEquals(0)
+        }
+        // Facts that exist only as raw values stay visible.
+        composeRule.onNodeWithText("Last successful sync: 2026-10-01T09:30:00Z").performScrollTo().assertIsDisplayedCompat()
+        composeRule.onNodeWithText("Role health: CALENDAR: HEALTHY/SUCCESS").performScrollTo().assertIsDisplayedCompat()
+    }
+
+    @Test
+    fun unavailableTrustOffersNoAddFlowButKeepsLocalCleanup() {
+        val key = key("unavailable")
+        val state = mutableStateOf(ExtensionSourcesUiState(
+            sources = listOf(source(key.sourceId, notInstalled(key), ExtensionSourceStatus.TRUST_UNAVAILABLE)
+                .copy(extensions = emptyList())),
+            trustAvailable = false,
+        ))
+        val event = RecordingEvent()
+        composeManage(state, event)
+
+        composeRule.onNodeWithTag("extension-source-url").assertDoesNotExist()
+        composeRule.onNodeWithTag("extension-source-add").assertDoesNotExist()
+        composeRule.onNodeWithTag("extension-source-refresh").performScrollTo().assertIsNotEnabled()
+        // Removing local data must stay possible so nothing becomes unreachable.
+        composeRule.onNodeWithTag("extension-source-remove").performScrollTo().assertIsEnabled()
+    }
+
+    @Test
+    fun availableTrustKeepsAddAndRefreshFlow() {
+        val key = key("available")
+        val state = mutableStateOf(ExtensionSourcesUiState(sources = listOf(source(key.sourceId, current(key)))))
+        composeManage(state, RecordingEvent())
+
+        composeRule.onNodeWithTag("extension-source-url").assertIsDisplayedCompat()
+        composeRule.onNodeWithTag("extension-source-add").assertIsDisplayedCompat()
+        composeRule.onNodeWithTag("extension-source-refresh").performScrollTo().assertIsEnabled()
+    }
+
+    @Test
+    fun unavailableNoticeStatesTheLimitInPlainLanguage() {
+        composeRule.setContent { MaterialTheme { ExtensionTrustUnavailableNotice() } }
+        composeRule.onNodeWithTag("extension-trust-unavailable").assertIsDisplayedCompat()
+        composeRule.onNodeWithText("Not available in this build").assertIsDisplayedCompat()
+        composeRule.onNodeWithText("cannot be added, installed or updated", substring = true).assertIsDisplayedCompat()
+    }
+
+    @Test
     fun diagnosticCopyRemovesCredentialsAndKeepsSafeTechnicalCode() {
         val key = key("diagnostics")
         val state = ExtensionSourcesUiState(
@@ -403,6 +482,35 @@ class ExtensionUpdateComposeTest {
         composeRule.onNodeWithTag(moveUpTag).assertIsEnabled()
     }
 
+    @Test
+    fun providerReorderButtonsNameTheirProviderAndDisableAtTheEdges() {
+        val keyA = key("provider-a")
+        val keyB = key("provider-b")
+        val state = ExtensionSourcesUiState(
+            sources = listOf(source(keyA.sourceId, current(keyA)), source(keyB.sourceId, current(keyB))),
+            canEditProductPolicy = true,
+        )
+        val event = RecordingEvent()
+        composeRule.setContent {
+            MaterialTheme {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    ExtensionProviderDisplay(state, event)
+                }
+            }
+        }
+
+        // Provider A is first, B second. The spoken name carries the provider, not just an arrow glyph.
+        composeRule.onNodeWithContentDescription("Move Signed: provider-a up").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithContentDescription("Move Signed: provider-a down").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithContentDescription("Move Signed: provider-b up").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithContentDescription("Move Signed: provider-b down").performScrollTo().assertIsNotEnabled()
+        // The visible arrow text is not announced a second time.
+        composeRule.onAllNodesWithText("↑").assertCountEquals(0)
+
+        composeRule.onNodeWithContentDescription("Move Signed: provider-b up").performClick()
+        assertEquals(listOf(listOf(keyB, keyA)), event.providerOrders)
+    }
+
     private fun composeManage(
         state: androidx.compose.runtime.State<ExtensionSourcesUiState>,
         event: RecordingEvent,
@@ -511,6 +619,7 @@ class ExtensionUpdateComposeTest {
         val removedSources = mutableListOf<String>()
         val rollbacks = mutableListOf<Rollback>()
         val selectedActiveSources = mutableListOf<ExtensionSelectionKey?>()
+        val providerOrders = mutableListOf<List<ExtensionSelectionKey>>()
 
         override fun onUrlChanged(value: String) = Unit
         override fun addSource() = Unit
@@ -530,6 +639,7 @@ class ExtensionUpdateComposeTest {
         override fun rollback(sourceId: String, extensionId: String, expectedGeneration: Long, targetDigest: String) {
             rollbacks += Rollback(sourceId, extensionId, expectedGeneration, targetDigest)
         }
+        override fun setProviderOrder(keys: List<ExtensionSelectionKey>) { providerOrders += keys }
         override fun clearActionFailure() = Unit
 
         data class Rollback(

@@ -2,20 +2,13 @@ package com.axiel7.anihyou
 
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertIsOff
-import androidx.compose.ui.test.assertIsOn
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performTextClearance
-import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.axiel7.anihyou.core.resources.R as CoreR
@@ -31,60 +24,28 @@ class ExtensionSourcesUserFlowTest {
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun cleanInstall_addDuplicateRejectInvalid_refreshFailClosed_andRemove() {
+    fun cleanInstall_withoutTrustRoot_showsHonestUnavailableStateAndNoFlowThatCanOnlyFail() {
         composeRule.onNodeWithTag("HomeTab").performClick()
         composeRule.onNodeWithTag("ProfileTab").assertDoesNotExist()
         composeRule.onNodeWithTag("home-settings").performClick()
         composeRule.onNodeWithText(text(SettingsR.string.extension_center_title)).performScrollTo().performClick()
+
+        // The area stays visible and explains the limit before any step is taken.
+        awaitTag("extension-trust-unavailable")
+        composeRule.onNodeWithText(text(SettingsR.string.extension_center_unavailable_title), substring = true)
+            .assertIsDisplayed()
         composeRule.onNodeWithTag("extension-center-manage").performClick()
 
+        awaitTag("extension-trust-unavailable")
         composeRule.onNodeWithText(text(SettingsR.string.extension_sources_title))
             .performScrollTo()
             .assertIsDisplayed()
         composeRule.onNodeWithText(text(SettingsR.string.extension_sources_empty))
             .performScrollTo()
             .assertIsDisplayed()
-        composeRule.onNodeWithTag("extension-source-add").assertIsNotEnabled()
-
-        composeRule.onNodeWithTag("extension-source-url")
-            .performTextInput("http://example.org/repository")
-        composeRule.onNodeWithTag("extension-source-url").performImeAction()
-        awaitText(text(SettingsR.string.extension_sources_invalid_url))
-            .assertIsDisplayed()
-        awaitText(text(SettingsR.string.extension_sources_empty))
-            .assertIsDisplayed()
-        awaitNoSourceCards()
-
-        val sourceUrl = "https://example.org/repository"
-        composeRule.onNodeWithTag("extension-source-url").performTextClearance()
-        composeRule.onNodeWithTag("extension-source-url").performTextInput(sourceUrl)
-        composeRule.onNodeWithTag("extension-source-url").performImeAction()
-        awaitText(text(SettingsR.string.extension_sources_added)).assertIsDisplayed()
-        awaitTag("extension-source-card")
-        composeRule.onNodeWithTag("extension-source-card").performScrollTo().assertIsDisplayed()
-        // Adding schedules a background refresh, so Added is only a transient status.
-        // No production trust is provisioned in this clean-install test.
-        val trustUnavailable = text(
-            SettingsR.string.extension_sources_status,
-            text(SettingsR.string.extension_sources_status_trust_unavailable),
-        )
-        awaitText(trustUnavailable)
-        composeRule.onNodeWithTag("extension-source-status")
-            .assertTextEquals(trustUnavailable)
-
-        composeRule.onNodeWithTag("extension-source-url").performTextInput(sourceUrl)
-        composeRule.onNodeWithTag("extension-source-url").performImeAction()
-        awaitText(text(SettingsR.string.extension_sources_duplicate)).assertIsDisplayed()
-
-        composeRule.onNodeWithTag("extension-source-refresh").performScrollTo().performClick()
-        awaitText(trustUnavailable)
-
-        composeRule.onNodeWithTag("extension-source-enabled").assertDoesNotExist()
-        composeRule.onNodeWithTag("extension-source-remove").performScrollTo().performClick()
-        // The confirmation is an AlertDialog window: it has no scrollable parent to scroll within.
-        awaitText("Remove repository?", scroll = false).assertIsDisplayed()
-        composeRule.onNodeWithTag("extension-source-remove-confirm").performClick()
-        awaitText(text(SettingsR.string.extension_sources_empty)).assertIsDisplayed()
+        // No production trust is provisioned in this build: adding a repository would only fail later.
+        composeRule.onNodeWithTag("extension-source-url").assertDoesNotExist()
+        composeRule.onNodeWithTag("extension-source-add").assertDoesNotExist()
         awaitNoSourceCards()
     }
 

@@ -64,6 +64,42 @@ fun ExtensionSourcesSettingsSection(
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
     ) {
+        if (uiState.trustAvailable) AddExtensionSourceForm(uiState, event)
+        if (uiState.actionFailed) {
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = event::clearActionFailure) {
+                Text(stringResource(R.string.extension_sources_action_failed))
+            }
+        }
+
+        if (uiState.sources.isEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.extension_sources_empty),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        } else {
+            Spacer(Modifier.height(16.dp))
+            uiState.sources.forEach { source ->
+                ExtensionSourceCard(
+                    source = source,
+                    diagnostics = uiState.diagnostics,
+                    busySourceIds = uiState.busySourceIds,
+                    trustAvailable = uiState.trustAvailable,
+                    event = event,
+                    modifier = Modifier.padding(vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddExtensionSourceForm(
+    uiState: ExtensionSourcesUiState,
+    event: ExtensionSourcesEvent,
+) {
+    Column {
         Text(
             text = stringResource(R.string.extension_sources_auth_explanation),
             style = MaterialTheme.typography.bodyMedium,
@@ -105,31 +141,6 @@ fun ExtensionSourcesSettingsSection(
                 color = MaterialTheme.colorScheme.secondary,
             )
         }
-        if (uiState.actionFailed) {
-            Spacer(Modifier.height(8.dp))
-            TextButton(onClick = event::clearActionFailure) {
-                Text(stringResource(R.string.extension_sources_action_failed))
-            }
-        }
-
-        if (uiState.sources.isEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = stringResource(R.string.extension_sources_empty),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        } else {
-            Spacer(Modifier.height(16.dp))
-            uiState.sources.forEach { source ->
-                ExtensionSourceCard(
-                    source = source,
-                    diagnostics = uiState.diagnostics,
-                    busySourceIds = uiState.busySourceIds,
-                    event = event,
-                    modifier = Modifier.padding(vertical = 6.dp),
-                )
-            }
-        }
     }
 }
 
@@ -138,6 +149,7 @@ private fun ExtensionSourceCard(
     source: ExtensionSource,
     diagnostics: Map<ExtensionSelectionKey, Map<String, String>>,
     busySourceIds: Set<String>,
+    trustAvailable: Boolean,
     event: ExtensionSourcesEvent,
     modifier: Modifier = Modifier,
 ) {
@@ -185,7 +197,7 @@ private fun ExtensionSourceCard(
                 TextButton(
                     onClick = { event.refreshSource(source.id) },
                     modifier = Modifier.testTag("extension-source-refresh"),
-                    enabled = !sourceBusy,
+                    enabled = !sourceBusy && trustAvailable,
                 ) {
                     Text(refreshLabel, modifier = refreshModifier)
                 }

@@ -95,4 +95,8 @@
     <string name="extension_manage_diagnostic_stale">Veraltet oder nicht verfügbar</string>
     <string name="extension_manage_diagnostic_yes">Ja</string>
     <string name="extension_manage_diagnostic_no">Nein</string>
+    <string name="extension_center_unavailable_title">Nicht verfügbar in diesem Build</string>
+    <string name="extension_center_unavailable_message">In diesem Build ist keine geprüfte Quellenidentität eingerichtet. Extensions können deshalb nicht hinzugefügt, installiert oder aktualisiert werden. Vorhandene lokale Daten bleiben unverändert und können weiterhin entfernt werden.</string>
+    <string name="extension_provider_move_up">%1$s nach oben verschieben</string>
+    <string name="extension_provider_move_down">%1$s nach unten verschieben</string>
 </resources>

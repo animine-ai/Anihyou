@@ -91,6 +91,26 @@ class FileExtensionSourceRepositoryTest {
     }
 
     @Test
+    fun `trust availability follows the actual bootstrap not a build name or an empty field`() = runBlocking {
+        val rig = SourceRig()
+        // A bootstrap that can authenticate sources is available even before any source exists.
+        assertTrue(rig.repository(temporaryFolder.newFolder("provisioned")).trustAvailable)
+        // The production bootstrap authenticates nothing, so the product must say so up front.
+        val production = FileExtensionSourceRepository(
+            directory = temporaryFolder.newFolder("unprovisioned"),
+            bootstrap = UnavailableExtensionSourceTrustBootstrap,
+            transport = rig.transport,
+            storeFactory = ExtensionSourceStoreFactory { _, _ -> error("no store without trust") },
+            scheduler = rig.scheduler,
+            clock = FIXED_CLOCK,
+            runtimeSupported = true,
+        )
+        assertFalse(production.trustAvailable)
+        assertTrue(rig.transport.urls.isEmpty())
+        assertEquals(0, rig.stores.size)
+    }
+
+    @Test
     fun `unavailable independent authentication persists without any HTTP or store construction`() = runBlocking {
         val directory = temporaryFolder.newFolder("auth-unavailable")
         val rig = SourceRig(anchor = null)
