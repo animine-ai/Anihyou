@@ -15,6 +15,12 @@ adb logcat -c
 instrumentation_status=0
 timeout 600 adb shell am instrument -w -r com.axiel7.anihyou.debug.test/androidx.test.runner.AndroidJUnitRunner | tee "$out/instrumentation.txt" || instrumentation_status=$?
 adb logcat -d > "$out/logcat.txt"
+if [ "$instrumentation_status" -ne 0 ]; then
+  echo "== PRODUCT UI DIAG: instrumentation exit $instrumentation_status =="
+  grep -nE "FATAL EXCEPTION|system_server|Watchdog|WATCHDOG|am_crash|am_anr|lowmemorykiller|lmkd|Out of memory|OutOfMemory|has died|Fatal signal|SIGSEGV|ANR in|Zygote|UiAutomation" "$out/logcat.txt" | tail -60 || true
+  adb shell "cat /proc/meminfo | head -6; getprop ro.build.version.sdk" || true
+  echo "== PRODUCT UI DIAG end =="
+fi
 adb pull /sdcard/Android/data/com.axiel7.anihyou.debug/files/ep07-ui/. "$out/screenshots/" || true
 adb pull /sdcard/Android/data/com.axiel7.anihyou.debug/files/ep07/. "$out/update-screenshots/" || true
 sha256sum "${product_apks[0]}" "${test_apks[0]}" > "$out/apk.sha256"

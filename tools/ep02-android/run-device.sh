@@ -2,7 +2,7 @@
 set -euo pipefail
 # Name the failing command and its status in the job log. A SIGKILL (137) of the shell itself cannot be reported by
 # the shell, but a child that returns 137 is named here. No secrets are printed: only command text and numbers.
-trap 'rc=$?; printf "EP02 DIAG %s failing command rc=%s line=%s: %s\n" "$(date -u +%T.%N)" "$rc" "$LINENO" "$BASH_COMMAND" >&2' ERR
+trap 'rc=$?; printf "EP02 DIAG %s failing command rc=%s line=%s: %s\n" "$(date -u +%T.%N)" "$rc" "$LINENO" "$BASH_COMMAND" >&2; { adb get-state; timeout 10 adb shell "head -4 /proc/meminfo; getprop ro.kernel.qemu.avd_name"; timeout 15 adb logcat -d -t 400 | grep -E "FATAL|system_server|lowmemorykiller|lmkd|am_crash|am_kill|Zygote|has died|SIGKILL" | tail -25; } >&2 2>&1 || true' ERR
 variant=${1:?debug or release required}
 expected_api=${2:?expected API required}
 case "$variant" in debug|release);; *) exit 2;; esac

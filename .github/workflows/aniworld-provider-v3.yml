@@ -421,6 +421,8 @@ jobs:
           profile: pixel_2
           emulator-boot-timeout: 900
           disable-animations: false
+          ram-size: ${{ matrix.api == 24 && '3072M' || '' }}
+          heap-size: ${{ matrix.api == 24 && '512M' || '' }}
           script: bash .github/scripts/run-ep07-product-ui.sh ${{ matrix.api }}
       - name: Upload device assertions and screenshots
         if: always()

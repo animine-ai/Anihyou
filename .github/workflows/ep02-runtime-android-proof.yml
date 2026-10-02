@@ -202,6 +202,8 @@ jobs:
           profile: pixel_2
           emulator-boot-timeout: 900
           disable-animations: true
+          ram-size: ${{ matrix.api == 24 && '3072M' || '' }}
+          heap-size: ${{ matrix.api == 24 && '512M' || '' }}
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save -camera-back none -dns-server 127.0.0.1
           script: bash tools/ep02-android/run-device.sh ${{ matrix.variant }} ${{ matrix.api }}
       - name: Runner kill evidence on failure

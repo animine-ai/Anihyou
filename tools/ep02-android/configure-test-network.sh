@@ -2,7 +2,7 @@
 set -euo pipefail
 # Name the failing command and its status in the job log. A SIGKILL (137) of the shell itself cannot be reported by
 # the shell, but a child that returns 137 is named here. No secrets are printed: only command text and numbers.
-trap 'rc=$?; printf "EP02 DIAG %s failing command rc=%s line=%s: %s\n" "$(date -u +%T.%N)" "$rc" "$LINENO" "$BASH_COMMAND" >&2' ERR
+trap 'rc=$?; printf "EP02 DIAG %s failing command rc=%s line=%s: %s\n" "$(date -u +%T.%N)" "$rc" "$LINENO" "$BASH_COMMAND" >&2; { adb get-state; timeout 10 adb shell "head -4 /proc/meminfo; getprop ro.kernel.qemu.avd_name"; timeout 15 adb logcat -d -t 400 | grep -E "FATAL|system_server|lowmemorykiller|lmkd|am_crash|am_kill|Zygote|has died|SIGKILL" | tail -25; } >&2 2>&1 || true' ERR
 
 # The emulator uses the runner's test-only DNS. Its ordinary app UID resolves
 # a public test address and connects through the production DNS/socket/TLS path.
@@ -32,11 +32,17 @@ if [[ -s "$out/proxy.pid" ]] && sudo kill -0 "$(cat "$out/proxy.pid")"; then
   if [[ "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" -ge 29 ]]; then
     adb shell device_config put connectivity captive_portal_use_https 0
   fi
+  # A cellular default network (API 29+ images carry one) outranks nothing but can stay the app's default network
+  # while Wi-Fi is still re-associating. Switch mobile data off so the hermetic Wi-Fi network is the only candidate
+  # and require that very network, not any network, to be Android-validated.
+  if [[ "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" -ge 29 ]]; then
+    adb shell svc data disable
+  fi
   adb shell svc wifi disable
   adb shell svc wifi enable
   for attempt in $(seq 1 45); do
     adb shell dumpsys connectivity > "$out/network-validation.txt"
-    if grep -E 'NetworkAgentInfo.*VALIDATED|Capabilities:.*VALIDATED' "$out/network-validation.txt" >/dev/null; then
+    if grep -E 'Transports: WIFI Capabilities:[^]]*VALIDATED' "$out/network-validation.txt" >/dev/null; then
       echo 'EP02 hermetic DNS, HTTPS relay and Android-validated network ready.'
       exit 0
     fi
