@@ -1,5 +1,7 @@
 package com.axiel7.anihyou.release.core.api
 
+import com.axiel7.anihyou.release.core.extension.ProviderObservationV1
+import com.axiel7.anihyou.release.core.extension.SourceRole
 import com.axiel7.anihyou.release.core.model.CompletedObservationCycle
 import com.axiel7.anihyou.release.core.model.CycleResult
 import com.axiel7.anihyou.release.core.model.ReleaseSourceType
@@ -134,7 +136,12 @@ data class ShadowRunMetrics(
 }
 
 sealed interface ShadowRefreshOutcome {
-    data class Committed(val generationId: String, val cycle: CompletedObservationCycle) : ShadowRefreshOutcome
+    data class Committed(
+        val generationId: String,
+        val cycle: CompletedObservationCycle,
+        val presentationObservations: List<ProviderObservationV1> = emptyList(),
+        val successfulPresentationRoles: Set<SourceRole> = emptySet(),
+    ) : ShadowRefreshOutcome
     data class Skipped(val reason: String) : ShadowRefreshOutcome
     data class Failed(val reason: String, val retryable: Boolean) : ShadowRefreshOutcome
 }
