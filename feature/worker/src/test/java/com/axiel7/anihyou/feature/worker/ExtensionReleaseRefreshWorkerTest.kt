@@ -18,13 +18,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ExtensionReleaseRefreshWorkerTest {
-    @Test fun `due and manual work deduplicate separately and require connected network`() {
+    @Test fun `source changes append a due check while manual taps deduplicate and network is constrained`() {
         val manager = mockk<WorkManager>(relaxed = true)
         val due = slot<OneTimeWorkRequest>()
         val manual = slot<OneTimeWorkRequest>()
         val periodic = slot<PeriodicWorkRequest>()
         every { manager.enqueueUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.NOW,
-            ExistingWorkPolicy.KEEP, capture(due)) } returns mockk(relaxed = true)
+            ExistingWorkPolicy.APPEND_OR_REPLACE, capture(due)) } returns mockk(relaxed = true)
         every { manager.enqueueUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.MANUAL,
             ExistingWorkPolicy.KEEP, capture(manual)) } returns mockk(relaxed = true)
         every { manager.enqueueUniquePeriodicWork(WorkManagerExtensionReleaseRefreshScheduler.PERIODIC,

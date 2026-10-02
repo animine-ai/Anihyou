@@ -64,6 +64,30 @@ class SingleSourceShadowRefreshCoordinatorTest {
     }
 
     @Test
+    fun `selection change during fresh package lookup retries rather than skipping the new source`() = runBlocking {
+        val pkg = extensionPackage(SOURCE_A_KEY)
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to pkg))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        rig.navigationStore.record(SOURCE_A_KEY, rig.policy.policy.value.releaseGeneration, pkg.packageDigest,
+            emptyList(), mapOf("Last successful sync" to NOW.toString()), packageGeneration = pkg.packageGeneration)
+        var switched = false
+        val changing = object : InstalledExtensionAccess by access {
+            override suspend fun loadInstalled(key: ExtensionSelectionKey): VerifiedExtensionPackage? {
+                val result = access.loadInstalled(key)
+                if (!switched) {
+                    switched = true
+                    rig.policy.selectActiveSource(SOURCE_B_KEY)
+                }
+                return result
+            }
+        }
+        assertEquals(ShadowRefreshOutcome.Failed("stale-generation-token", retryable = true),
+            product(rig, changing).refresh("fresh-during-switch", false))
+        assertTrue(rig.runtime.exports.isEmpty())
+        assertEquals(SOURCE_B_KEY, rig.policy.policy.value.activeReleaseSource)
+    }
+
+    @Test
     fun `failed durable postponement write preserves LKG and cannot claim successful freshness`() = runBlocking {
         val directory = temporaryFolder.newFolder()
         val presentation = FileExtensionPostponementStore(directory, database)

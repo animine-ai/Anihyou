@@ -21,18 +21,20 @@ class WorkManagerExtensionReleaseRefreshScheduler(private val manager: WorkManag
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
             .addTag(TAG).build()
         manager.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, periodic)
-        enqueue(NOW, force = false)
+        // A selection/generation change while due work is RUNNING must leave a follow-up check.
+        // Each check resolves the current source and skips fresh data; no duplicate network refresh.
+        enqueue(NOW, force = false, policy = ExistingWorkPolicy.APPEND_OR_REPLACE)
     }
 
     override fun scheduleNow() = enqueue(MANUAL, force = true)
 
-    private fun enqueue(name: String, force: Boolean) {
+    private fun enqueue(name: String, force: Boolean, policy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP) {
         val request = OneTimeWorkRequestBuilder<ExtensionReleaseRefreshWorker>()
             .setConstraints(constraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
             .setInputData(workDataOf(ExtensionReleaseRefreshWorker.INPUT_FORCE to force))
             .addTag(TAG).build()
-        manager.enqueueUniqueWork(name, ExistingWorkPolicy.KEEP, request)
+        manager.enqueueUniqueWork(name, policy, request)
     }
 
     override fun cancel() { manager.cancelAllWorkByTag(TAG) }

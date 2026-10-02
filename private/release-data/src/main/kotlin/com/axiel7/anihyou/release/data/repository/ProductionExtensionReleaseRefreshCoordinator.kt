@@ -44,7 +44,11 @@ class ProductionExtensionReleaseRefreshCoordinator(
             if (!force && old.source == key && old.releaseGeneration == selection.releaseGeneration &&
                 old.packageDigest == current.packageDigest && old.packageGeneration == current.packageGeneration &&
                 success != null && !success.isAfter(now) && now.isBefore(success.plus(freshFor))) {
-                return ShadowRefreshOutcome.Skipped("extension-data-fresh")
+                val stillCurrent = policy.withCurrentSelection(selection) {
+                    installed.withCurrentGeneration(key, current.packageDigest, current.packageGeneration) { true }
+                }
+                return if (stillCurrent == true) ShadowRefreshOutcome.Skipped("extension-data-fresh")
+                else ShadowRefreshOutcome.Failed("stale-generation-token", retryable = true)
             }
             val result = delegate.refreshForWork(workId)
             // A concurrent switch/update is retried against the new selection, never committed as old data.

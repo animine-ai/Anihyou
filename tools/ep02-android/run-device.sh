@@ -58,7 +58,8 @@ for key in [
     'releasePlanParse','navigationOverview','navigationEpisode',
     'productionHttpsSocketProof','productionNavigationDispatch',
     'productionTransportFactoryBoundary','productionNavigationDispatcherGate',
-    'moduleCacheEvictionRecovery','ep07UpdateRollback','cancellation','deadline','fuel',
+    'moduleCacheEvictionRecovery','ep07UpdateRollback','ep04AniWorld',
+    'ep05Canary','ep06SingleSourceWorker','cancellation','deadline','fuel',
     'serviceKill','lateResultRejected','rebind','fixtureOnlyNoFallback'
 ]:
     assert key in f, (key,report)

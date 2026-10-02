@@ -243,7 +243,8 @@ private object RuntimeProof {
                 .put("oldGeneration", identityBeforeKill.serviceGeneration)
                 .put("newGeneration", recoveredIdentity.serviceGeneration)
                 .put("planBytes", recovery.size))
-            runCatching { asset(context, "aniworld.wasm", 8 * 1024 * 1024) }.getOrNull()?.let { aniWorldModule ->
+            // Required proof assets: missing or unreadable data must fail the functional gate.
+            asset(context, "aniworld.wasm", 8 * 1024 * 1024).let { aniWorldModule ->
                 functional.put("ep04AniWorld", runAniWorldProof(context, runtime, aniWorldModule))
                 val ep05Canary = Ep05CanaryProof.run(context, runtime, verified, httpsFixture)
                 functional.put("ep05Canary", ep05Canary)
