@@ -179,6 +179,7 @@ private object RuntimeProof {
             functional.put("productionTransportFactoryBoundary", proveProductionTransportFactoryBoundary(context, verified))
             functional.put("productionNavigationDispatcherGate", proveProductionNavigationDispatcherGate(runtime, verified))
             functional.put("moduleCacheEvictionRecovery", proveModuleCacheEvictionRecovery(runtime, verified, module))
+            functional.put("ep07UpdateRollback", Ep07UpdateRollbackProof.run(context, runtime, module))
 
             val identityBeforeKill = requireNotNull(runtime.lastDiagnostics)
             check(identityBeforeKill.servicePid != Process.myPid())

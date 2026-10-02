@@ -27,6 +27,7 @@ timeout 15 adb logcat -d > "$out/logcat.txt" 2>&1 || true
 python3 - "$out" "$expected_api" "$variant" <<'PY'
 from pathlib import Path
 import json,sys
+import re
 
 root=Path(sys.argv[1])
 text=(root/'instrumentation.txt').read_text()
@@ -57,7 +58,7 @@ for key in [
     'releasePlanParse','navigationOverview','navigationEpisode',
     'productionHttpsSocketProof','productionNavigationDispatch',
     'productionTransportFactoryBoundary','productionNavigationDispatcherGate',
-    'moduleCacheEvictionRecovery','cancellation','deadline','fuel',
+    'moduleCacheEvictionRecovery','ep07UpdateRollback','cancellation','deadline','fuel',
     'serviceKill','lateResultRejected','rebind','fixtureOnlyNoFallback'
 ]:
     assert key in f, (key,report)
@@ -85,6 +86,107 @@ dispatch=f['productionNavigationDispatcherGate']
 assert dispatch['unprovenTransportRejected'] is True and dispatch['planExecutedBeforeGate'] is True, dispatch
 assert dispatch['transportExecuteCalls']==0 and dispatch['networkAttempted'] is False, dispatch
 assert dispatch['productionTransportReached'] is False, dispatch
+ep07=f['ep07UpdateRollback']
+assert ep07['testTrustOnly'] is True and ep07['productionPublication'] is False, ep07
+assert ep07['extensionId']=='fixture.release' and ep07['providerId']=='fixture', ep07
+repo=ep07['repository']
+assert repo['testTrustOnly'] is True and repo['repositoryId']=='ep07.test.repository', repo
+assert repo['indexSequences']==[1,2,3,4,5], repo
+catalog=ep07['catalogRefresh']
+assert catalog['refreshCount']==2, catalog
+assert catalog['metadataRefreshReportedUpdateAvailable'] is True, catalog
+assert catalog['updateStateFirst']==catalog['updateStateRepeated']=='UPDATE_AVAILABLE', catalog
+assert catalog['installedVersionFirst']==catalog['installedVersionRepeated']=='1.0.0-test.1', catalog
+assert catalog['latestAvailableVersionFirst']==catalog['latestAvailableVersionRepeated']=='2.0.0-test.3', catalog
+assert catalog['installedV1Retained'] is True and catalog['latestAvailableV2'] is True, catalog
+assert catalog['noArchiveFetchDuringMetadataRefresh'] is True, catalog
+assert catalog['repeatedUnchangedRefreshFetchedNoArchive'] is True, catalog
+assert catalog['archiveFetchCountBefore']==catalog['archiveFetchCountAfterFirstRefresh']==catalog['archiveFetchCountAfterRepeatedRefresh'], catalog
+for name in ['v1','failedV2','v2','v3']:
+    package=repo[name]
+    assert re.fullmatch(r'[0-9a-f]{64}',package['packageDigest']), package
+    assert re.fullmatch(r'[0-9a-f]{64}',package['manifestDigest']), package
+    assert re.fullmatch(r'[0-9a-f]{64}',package['moduleDigest']), package
+    assert package['packageBytes']>0 and package['moduleBytes']>0, package
+assert len({repo[name]['packageDigest'] for name in ['v1','failedV2','v2','v3']})==4, repo
+assert len({repo[name]['moduleDigest'] for name in ['v1','failedV2','v2','v3']})==4, repo
+signed=ep07['signedPackages']
+assert all(signed[key] is True for key in [
+    'v1VerifiedInstalled','failedV2SignedCatalogRecognized',
+    'v2CatalogVerifiedAndInstalled','v3CatalogVerifiedAndInstalled','sameExtensionIdentity'
+]), signed
+assert signed['testPublisherIdentity']=='fixture.publisher', signed
+v1=ep07['v1Installed']
+assert v1['packageDigest']==repo['v1']['packageDigest'] and v1['moduleDigest']==repo['v1']['moduleDigest'], v1
+assert v1['packageGeneration']==1 and v1['knownGood']==v1['packageDigest'], v1
+failed=ep07['controlledV2Failure']
+assert failed['quarantined'] is True and failed['failure']=='SMOKE', failed
+assert failed['packageDigest']==repo['failedV2']['packageDigest'], failed
+assert failed['activeV1Preserved'] is True and failed['knownGoodV1Preserved'] is True, failed
+assert failed['generationUnchanged'] is True, failed
+failed_smokes=[run for run in ep07['smokeGuestRuns'] if run.get('releaseSequence')==2]
+assert len(failed_smokes)==1, ep07['smokeGuestRuns']
+assert failed_smokes[0]['packageDigest']==repo['failedV2']['packageDigest'], failed_smokes
+assert failed_smokes[0]['moduleDigest']==repo['failedV2']['moduleDigest'], failed_smokes
+assert failed_smokes[0]['planRequests'] is True and failed_smokes[0]['navigation'] is True, failed_smokes
+updated=ep07['v2Update']
+assert updated['version']=='2.0.0-test.3' and updated['releaseSequence']==3, updated
+assert updated['packageDigest']==repo['v2']['packageDigest'] and updated['moduleDigest']==repo['v2']['moduleDigest'], updated
+assert updated['packageGeneration']==2 and updated['previousGoodV1Available'] is True, updated
+assert updated['archiveFetchCountAfterInstall']==catalog['archiveFetchCountAfterRepeatedRefresh']+1, updated
+guest=updated['guest']
+assert guest['planRequests'] is True and guest['calendarRequestCount']==1, guest
+assert guest['calendarUrl']=='https://example.org/calendar', guest
+assert guest['navigation'] is True and guest['navigationTargetKind']=='EPISODE', guest
+assert guest['navigationPlanUrl']=='https://example.org/nav-source', guest
+assert guest['navigationUrl']=='https://example.org/series/1/episode/15', guest
+assert guest['navigationRequestId']=='nav-1' and re.fullmatch(r'[0-9a-f]{64}',guest['navigationSourceHash']), guest
+assert guest['moduleDigest']==updated['moduleDigest'] and guest['packageDigest']==updated['packageDigest'], guest
+preferences=ep07['retainedPreferences']
+assert all(preferences[key] is True for key in [
+    'sameIdentity','activeSourcePreserved','preferencesPreserved','releaseGenerationUnchangedByUpdate',
+    'preferredNavigationProviderPreserved','visibleInProviderFieldPreserved'
+]), preferences
+assert preferences['enabledTracks']==['DE_SUB'] and preferences['preferredTrackOrder']==['DE_SUB'], preferences
+assert preferences['languageOrder']==['de'], preferences
+navigation_pref=ep07['v2NavigationPreferenceProof']
+assert all(navigation_pref[key] is True for key in [
+    'gatewayListedCurrentV2Provider','realV2DispatchReturnedTarget','coordinatorResolvedValidTarget',
+    'preferredNavigationProviderPreserved','visibleInProviderFieldPreserved'
+]), navigation_pref
+assert navigation_pref['targetUrl']=='https://example.org/series/1/episode/15', navigation_pref
+assert navigation_pref['packageDigest']==updated['packageDigest'] and navigation_pref['packageGeneration']==updated['packageGeneration'], navigation_pref
+assert all(ep07['staleV1FencedAfterUpdate'][key] is True for key in [
+    'generationTokenRejected','navigationProviderRejected','navigationDispatchRejected'
+]), ep07['staleV1FencedAfterUpdate']
+rollback=ep07['explicitRollback']
+assert rollback['targetDigest']==repo['v1']['packageDigest'] and rollback['targetVersion']=='1.0.0-test.1', rollback
+assert rollback['expectedGeneration']==2 and rollback['activeV1Restored'] is True, rollback
+assert rollback['releaseHighUnchanged'] is True and rollback['packageGeneration']==3, rollback
+assert rollback['packageGenerationAdvanced'] is True, rollback
+assert all(rollback[key] is True for key in [
+    'navigationProviderRetained','preferredNavigationProviderPreserved','visibilityPreferencePreserved'
+]), rollback
+rolled_guest=rollback['realV1Guest']
+assert rolled_guest['planRequests'] is True and rolled_guest['navigation'] is True, rolled_guest
+assert rolled_guest['packageDigest']==repo['v1']['packageDigest'] and rolled_guest['moduleDigest']==repo['v1']['moduleDigest'], rolled_guest
+assert all(ep07['staleV1FencedAfterRollback'][key] is True for key in [
+    'sameDigestDifferentGenerationRejected','consumedNavigationProviderRejected','consumedNavigationTokenRejected'
+]), ep07['staleV1FencedAfterRollback']
+assert ep07['packageGenerationHistory']==[1,2,3,4], ep07
+operations=ep07['operations']
+assert all(operations[key] is True for key in [
+    'updateFinished','failedUpdateFinished','rollbackFinished','interruptedOperationRecovered','quarantinePersistsAcrossRestart'
+]), operations
+assert operations['interruptedFailure']=='INTERRUPTED', operations
+revoked=ep07['revokedPreviousTarget']
+assert revoked['indexSequence']==5 and revoked['indexRevocationWasSignedByTestKey'] is True, revoked
+assert re.fullmatch(r'[0-9a-f]{64}',revoked['indexSignerKeyId']), revoked
+assert all(revoked[key] is True for key in [
+    'v1DigestRecordedRevoked','safePreviousGoodUnavailable','rollbackAttemptDenied',
+    'activeV3Preserved','packageGenerationUnchanged','operationFailedClosed'
+]), revoked
+assert ep07['repositoryTransportUsed'] is True and ep07['productionTransportUsed'] is False, ep07
 p=report['performance']
 raw_attempts=p.get('attempts',[])
 (root/'performance-raw.json').write_text(json.dumps(raw_attempts,indent=2)+'\n')
