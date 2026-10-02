@@ -234,9 +234,10 @@ internal class ExtensionInstallStore(
         return fallback
     }
 
-    /** Read-only availability uses exactly the same eligibility rule as recovery. */
-    fun safePreviousGood(extensionId: String): InstallReceipt? = serialized {
-        previousGood(extensionId)?.takeIf { verifiedReceipt(it) != null }
+    /** Explicit rollback is a new activation. It requires fresh authority even when an
+     * already-published LKG remains executable under the historical offline-read policy. */
+    fun safePreviousGood(extensionId: String, now: Instant = Instant.now()): InstallReceipt? = serialized {
+        previousGood(extensionId)?.takeIf { freshRollbackPackage(it, now) != null }
     }
 
     private fun previousGood(extensionId: String): InstallReceipt? {
@@ -259,12 +260,25 @@ internal class ExtensionInstallStore(
             hostRoles, hostHosts, policyVersion, runtimeVersion, receipt.acceptedAt)
     }.getOrNull()
 
+    private fun freshRollbackPackage(receipt: InstallReceipt, now: Instant): VerifiedExtensionPackage? = runCatching {
+        if (!eligible(receipt)) return@runCatching null
+        val effective = effectiveTime(now)
+        val root = roots(state).lastOrNull() ?: return@runCatching null
+        val index = latestIndex(state) ?: return@runCatching null
+        if (effective >= root.expiresAt || effective >= index.expiresAt ||
+            index.rootVersion != root.version || index.sequence != state.indexHigh) return@runCatching null
+        val entry = indexAt(state, receipt.indexSequence)?.packages
+            ?.singleOrNull { it.binding.archiveSha256 == receipt.digest } ?: return@runCatching null
+        verifier.verify(archive(receipt.digest), entry.binding, trust.publisher(root, entry, effective),
+            hostRoles, hostHosts, policyVersion, runtimeVersion, effective)
+    }.getOrNull()
+
     /** Explicit rollback consumes Previous Good; it never resets release high-water or quarantines healthy current. */
     fun rollback(extensionId: String, expectedGeneration: Long, targetDigest: String, now: Instant,
         beforeActivation: () -> Unit = {}): InstallReceipt = serialized {
         require((state.revisions[extensionId] ?: 0) == expectedGeneration) { "stale rollback confirmation" }
         val target = previousGood(extensionId)?.takeIf { it.digest == targetDigest } ?: error("no safe previous good")
-        val verified = verifiedReceipt(target) ?: error("previous good verification failed")
+        val verified = freshRollbackPackage(target, now) ?: error("previous good current trust verification failed")
         try { smoke(verified) } catch (error: Exception) {
             if (error is java.util.concurrent.CancellationException) throw error
             commit(state.copy(quarantine = state.quarantine + target.digest, clock = effectiveTime(now)))

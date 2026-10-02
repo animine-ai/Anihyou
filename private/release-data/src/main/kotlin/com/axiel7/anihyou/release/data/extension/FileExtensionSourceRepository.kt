@@ -190,7 +190,7 @@ internal class FileExtensionSourceRepository(
                 put("Last Update Failure", projection?.lastUpdateFailure?.name.orEmpty())
                 put("Last Update Failure Code", projection?.lastUpdateTechnicalCode.orEmpty())
                 put("Last Successful Update", generation?.knownGood?.acceptedAt?.toString().orEmpty())
-                put("Rollback Available", (store.safePreviousGood(key.extensionId) != null).toString())
+                put("Rollback Available", (store.safePreviousGood(key.extensionId, clock.instant()) != null).toString())
                 put("Revocation", snapshot.revokedDigests.sorted().joinToString())
                 put("Repository metadata freshness", if (projection?.metadataFresh == true) "FRESH" else "STALE_OR_UNAVAILABLE")
                 put("Last metadata success", source.lastSuccessAt?.toString().orEmpty())
@@ -506,7 +506,7 @@ internal class FileExtensionSourceRepository(
                     else -> InstalledPackageStatus.UNUSABLE
                 }
                 val update = displayed != null && allowed && candidate!!.releaseSequence > (snapshot?.releaseHigh?.get(extensionId) ?: 0)
-                val previous = store?.safePreviousGood(extensionId)
+                val previous = store?.safePreviousGood(extensionId, clock.instant())
                 val operation = snapshot?.operations?.get(extensionId)
                 val phase = synchronized(monitor) { phases[source.id] }
                 val updateState = phase ?: when {
