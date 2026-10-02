@@ -54,6 +54,29 @@ class ExtensionEvidenceAuthorityAdapterTest {
             claimKind = ObservationClaimKind.FORECAST))).isEmpty())
     }
 
+    @Test fun calendarGuestDateAndTimeRemainAnApproximateForecastAfterHostNormalization() {
+        val calendarAdapter = ExtensionEvidenceAuthorityAdapter(setOf(approved.copy(roles = setOf(SourceRole.CALENDAR))))
+        val calendar = observation().copy(sourceRole = SourceRole.CALENDAR, claimKind = ObservationClaimKind.FORECAST,
+            parsedTimestamp = null, sourceDateText = "30.09.2026", sourceTimeText = "12:00", approximate = false)
+        val item = calendarAdapter.project(completed(observation = calendar)).single()
+        assertEquals(Instant.parse("2026-09-30T10:00:00Z"), item.sourceReportedAt)
+        assertEquals(ReleaseEvidenceType.FORECAST, item.evidenceType)
+        assertTrue(item.approximateTime)
+        assertTrue(ExtensionEvidenceAuthorityAdapter(emptySet()).project(completed(observation = calendar)).isEmpty())
+    }
+
+    @Test fun malformedOrAmbiguousGuestCalendarTimesDoNotInventAnInstant() {
+        val calendarAdapter = ExtensionEvidenceAuthorityAdapter(setOf(approved.copy(roles = setOf(SourceRole.CALENDAR))))
+        for ((date, time) in listOf("31.02.2026" to "12:00", "30.09.2026" to "24:00",
+            "29.03.2026" to "02:30", "25.10.2026" to "02:30", "Wed, 30.09.2026" to "12:00")) {
+            val calendar = observation().copy(sourceRole = SourceRole.CALENDAR, claimKind = ObservationClaimKind.FORECAST,
+                parsedTimestamp = null, sourceDateText = date, sourceTimeText = time, approximate = true)
+            val item = calendarAdapter.project(completed(observation = calendar)).single()
+            assertEquals(null, item.sourceReportedAt)
+            assertTrue(item.approximateTime)
+        }
+    }
+
     private fun completed(
         receipt: ExtensionExecutionReceipt = receipt(),
         observation: ProviderObservationV1 = observation(),

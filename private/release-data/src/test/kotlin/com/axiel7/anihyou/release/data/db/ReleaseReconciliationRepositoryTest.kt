@@ -200,4 +200,46 @@ class ReleaseReconciliationRepositoryTest {
             })
         } finally { db.close() }
     }
+
+    @Test fun completedCyclesAddReviseAndRetainRowsWithoutDeleteAllOrRemapping() = runBlocking {
+        val db = open()
+        try {
+            val repository = RoomReleaseReconciliationRepository(db)
+            repository.importBaseline()
+            val original = evidence("initial-forecast", ReleaseSourceType.ANIWORLD_CALENDAR, ReleaseEvidenceType.FORECAST)
+            val absent = evidence("retained-release", ReleaseSourceType.ANIWORLD_RECENT, ReleaseEvidenceType.CONFIRMATION)
+                .copy(installment = Installment.Episode(9)).let { it.copy(id = ReleaseEvidenceFingerprintV2.evidenceId(it)) }
+            repository.persistCompletedCycle(cycle("seed-forecast", time, original))
+            repository.persistCompletedCycle(cycle("seed-retained", time.plusSeconds(1), absent))
+            val retainedKey = requireNotNull(CanonicalReleaseIdentity.from(absent)).key
+            val retainedBefore = requireNotNull(db.reconciliationDao().projection(retainedKey))
+            val originalKey = requireNotNull(CanonicalReleaseIdentity.from(original)).key
+            val originalRevision = requireNotNull(repository.get(originalKey)).revision
+            val subject = AniWorldMappingSubject.Season(AniWorldSiteIdentifier("v12-test"), 4)
+            val mapping = ExternalMapping(subject, ExternalProvider.ANILIST, "42", MappingSource.MANUAL,
+                MappingConfidence.EXACT, time, time, MappingStatus.ACTIVE).toEntity()
+            db.releaseDao().upsertExternalMapping(mapping)
+            // Any blanket deletion/repopulation would hit the retained released row and abort.
+            db.openHelper.writableDatabase.execSQL("CREATE TRIGGER forbid_retained_projection_delete " +
+                "BEFORE DELETE ON v3_canonical_release_projection WHEN OLD.projectionKey = '" +
+                retainedKey.replace("'", "''") + "' BEGIN SELECT RAISE(ABORT, 'accepted row deleted'); END")
+            val changed = evidence("changed-forecast", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST, forecastAt = time.plusSeconds(3600))
+            repository.persistCompletedCycle(cycle("revise-one", time.plusSeconds(60), changed))
+            assertEquals(changed.sourceReportedAt, repository.get(originalKey)?.forecastAt)
+            assertTrue(requireNotNull(repository.get(originalKey)).revision > originalRevision)
+            val added = evidence("added-forecast", ReleaseSourceType.ANIWORLD_CALENDAR, ReleaseEvidenceType.FORECAST)
+                .copy(installment = Installment.Episode(2)).let { it.copy(id = ReleaseEvidenceFingerprintV2.evidenceId(it)) }
+            repository.persistCompletedCycle(cycle("add-one", time.plusSeconds(120), added))
+            assertNotNull(repository.get(requireNotNull(CanonicalReleaseIdentity.from(added)).key))
+            val afterChange = requireNotNull(repository.get(originalKey))
+            // A complete listing that omits both previous installments does not delete their evidence.
+            assertEquals(ReleasePhase.RELEASED, repository.get(retainedKey)?.underlyingPhase)
+            assertEquals(retainedBefore.revision, db.reconciliationDao().projection(retainedKey)?.revision)
+            assertEquals(changed.sourceReportedAt, repository.get(originalKey)?.forecastAt)
+            assertEquals(afterChange.revision, repository.get(originalKey)?.revision)
+            assertEquals(mapping, db.releaseDao().getExternalMapping(subject.stableKey, "anilist"))
+            assertEquals(3, db.reconciliationDao().projectionPage(20, 0).size)
+        } finally { db.close() }
+    }
 }

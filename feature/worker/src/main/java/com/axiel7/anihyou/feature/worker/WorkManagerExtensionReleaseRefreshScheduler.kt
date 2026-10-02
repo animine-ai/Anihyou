@@ -17,6 +17,7 @@ class WorkManagerExtensionReleaseRefreshScheduler(private val manager: WorkManag
 
     override fun scheduleDue() {
         val periodic = PeriodicWorkRequestBuilder<ExtensionReleaseRefreshWorker>(1, TimeUnit.HOURS)
+            .setInitialDelay(1, TimeUnit.HOURS)
             .setConstraints(constraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
             .addTag(TAG).build()

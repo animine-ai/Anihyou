@@ -24,6 +24,7 @@ internal class LocalHttpsFixtureServer(context: Context) : Closeable {
     private val fixtureContext = context
     private val closed = AtomicBoolean(false)
     private val paths = CopyOnWriteArrayList<String>()
+    @Volatile var retentionCalendarChanged: Boolean = false
     private val handshakeFailures = AtomicInteger()
     private val largeBodyStarted = CountDownLatch(1)
     private val largeBodyAborted = CountDownLatch(1)
@@ -97,8 +98,16 @@ internal class LocalHttpsFixtureServer(context: Context) : Closeable {
                         val vector = if (name == "overview") "overview-parse" else "$name-release-parse"
                         val input = fixtureContext.assets.open("aniworld-inputs/$vector-input.json")
                             .bufferedReader(Charsets.UTF_8).use { it.readText() }
-                        val body = org.json.JSONObject(input).getJSONArray("responses")
-                            .getJSONObject(0).getString("bodyUtf8").toByteArray(Charsets.UTF_8)
+                        var bodyText = org.json.JSONObject(input).getJSONArray("responses")
+                            .getJSONObject(0).getString("bodyUtf8")
+                        if (name == "calendar" && retentionCalendarChanged) {
+                            val entry = Regex("<div class=\"col-md-15 col-sm-3 col-xs-6\">[\\s\\S]*?</div>")
+                                .find(bodyText)?.value ?: error("missing calendar TEST fixture row")
+                            val added = entry.replace("S01E01", "S01E02").replace("Episode 1", "Episode 2")
+                                .replace("~ 12:00 Uhr", "~ 14:00 Uhr")
+                            bodyText = bodyText.replace(entry, entry + added).replace("~ 12:00 Uhr", "~ 13:00 Uhr")
+                        }
+                        val body = bodyText.toByteArray(Charsets.UTF_8)
                         respond(connection, 200, "OK", body)
                     }
                     "/calendar", "/redirect-final" -> respond(

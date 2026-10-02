@@ -17,6 +17,7 @@ import com.axiel7.anihyou.release.core.model.ReleaseEvidence
 import com.axiel7.anihyou.release.core.model.ReleaseEvidenceType
 import com.axiel7.anihyou.release.core.model.ReleaseSourceType
 import com.axiel7.anihyou.release.core.model.ScheduleCondition
+import com.axiel7.anihyou.release.core.sync.ReleaseSourceTimePolicy
 import com.axiel7.anihyou.release.data.ReleaseEvidenceFingerprintV2
 import java.math.BigDecimal
 import java.time.Instant
@@ -112,14 +113,21 @@ class ExtensionEvidenceAuthorityAdapter(
         if (installment is Installment.Episode && observation.sourceSeason == null) return null
         if (installment is Installment.Film && observation.sourceSeason != null) return null
         val reportedAt = observation.parsedTimestamp?.let { runCatching { Instant.parse(it) }.getOrNull() }
+            ?: if (sourceType == ReleaseSourceType.ANIWORLD_CALENDAR) ExtensionCalendarTimePolicy.normalize(
+                observation.sourceDateText, observation.sourceTimeText, ReleaseSourceTimePolicy.ANI_WORLD_ZONE,
+            ) else null
+        // Host normalization of the guest's calendar fields remains an estimate. It cannot
+        // become precise publication evidence or establish precise negative-coverage expectations.
+        val approximate = observation.approximate ||
+            (sourceType == ReleaseSourceType.ANIWORLD_CALENDAR && observation.parsedTimestamp == null)
         val identityKey = listOf(site.stableKey,
             observation.sourceSeason?.toString() ?: "source-season:unknown",
             observation.navigationSeason?.toString() ?: "navigation-season:unknown",
             installment.stableKey, track.name).joinToString("/")
         val id = ReleaseEvidenceFingerprintV2.evidenceId(sourceType, observation.sourceHash,
-            identityKey, evidenceType, reportedAt, observation.approximate, ScheduleCondition.UNKNOWN)
+            identityKey, evidenceType, reportedAt, approximate, ScheduleCondition.UNKNOWN)
         return ReleaseEvidence(id, sourceType, observation.sourceUrl, observation.sourceHash,
-            PARSER_VERSION, observedAt, reportedAt, observation.approximate, site,
+            PARSER_VERSION, observedAt, reportedAt, approximate, site,
             observation.sourceSeason, observation.navigationSeason, installment, track,
             evidenceType, ScheduleCondition.UNKNOWN,
             ConfidenceVector(1.0, 1.0, 1.0, 1.0, if (reportedAt != null) 1.0 else 0.75))

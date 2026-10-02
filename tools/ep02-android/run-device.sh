@@ -197,8 +197,11 @@ assert all(data[key] is True for key in [
     'staleRefreshUsesRealSignedGuestAndProductionTransport','manualExactMappingRetained',
     'acceptedProjectionKeysRetained','refreshedDataSkipsAgain'
 ]), data
-# This harness proves reopened durable state; process-kill and WorkManager device proof are separate gates.
-assert data['productionWorkManagerDeviceProof'] is False and data['processKillProof'] is False, data
+# The first phase runs the actual product Worker, then leaves state for an external force-stop.
+assert data['productionWorkManagerDeviceProof'] is True and data['processKillProof'] is False, data
+assert data['twoStartupChecksSkipWithoutFullRefresh'] is True and data['rowsVisibleDuringWorkManagerRefresh'] is True, data
+assert data['newCalendarRowAdded'] is True and data['changedCalendarRowRevisionApplied'] is True, data
+assert data['persistedDatesReachProductCalendar'] is True and data['calendarEventKeysRetainedAcrossCommit'] is True, data
 p=report['performance']
 raw_attempts=p.get('attempts',[])
 (root/'performance-raw.json').write_text(json.dumps(raw_attempts,indent=2)+'\n')
@@ -245,4 +248,34 @@ else:
         'parse':p['steadyState']['parse']
     },separators=(',',':')))
     raise SystemExit(4)
+PY
+
+# Kill the host after its accepted data and WorkManager state are durable. A second
+# instrumentation process must read them before starting any provider work.
+seed_pid=$(adb shell pidof de.kiyori.ep02 | tr -d '\r')
+test -n "$seed_pid"
+adb shell am force-stop de.kiyori.ep02
+test -z "$(adb shell pidof de.kiyori.ep02 | tr -d '\r')"
+timeout 90 adb shell am instrument -w -r de.kiyori.ep02/.Ep07RestartInstrumentation | tee "$out/restart-instrumentation.txt"
+python3 - "$out" <<'PY'
+from pathlib import Path
+import json,sys
+root=Path(sys.argv[1])
+text=(root/'restart-instrumentation.txt').read_text()
+line=next((line for line in text.splitlines() if line.startswith('INSTRUMENTATION_RESULT: ep07Restart=')),None)
+assert line is not None, text
+restart=json.loads(line.split('=',1)[1])
+assert restart['status']=='PASS' and restart['testTrustOnly'] is True, restart
+assert restart['seedPid']!=restart['restartPid'] and restart['acceptedRows']>0, restart
+assert all(restart[key] is True for key in [
+    'persistedRowsReadBeforeScheduling','mappingAvailableBeforeRefresh','signedPackageReverified',
+    'actualProductWorkManagerWorker','freshSkipsNetworkAndRuntime','processKillProof',
+    'productCalendarDatesAvailableBeforeRefresh'
+]), restart
+assert 'EP07_RESTART_PASS' in text and 'INSTRUMENTATION_CODE: -1' in text, text
+(root/'restart-report.json').write_text(json.dumps(restart,indent=2)+'\n')
+report=json.loads((root/'report.json').read_text())
+report['ep07ProcessRestart']=restart
+(root/'report.json').write_text(json.dumps(report,indent=2)+'\n')
+print('EP07 PROCESS RESTART VERIFIED',json.dumps(restart,separators=(',',':')))
 PY

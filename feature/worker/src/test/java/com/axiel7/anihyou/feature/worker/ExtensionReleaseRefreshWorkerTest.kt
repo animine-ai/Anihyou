@@ -35,6 +35,7 @@ class ExtensionReleaseRefreshWorkerTest {
         assertEquals(NetworkType.CONNECTED, due.captured.workSpec.constraints.requiredNetworkType)
         assertEquals(60_000L, due.captured.workSpec.backoffDelayDuration)
         assertEquals(3_600_000L, periodic.captured.workSpec.intervalDuration)
+        assertEquals(3_600_000L, periodic.captured.workSpec.initialDelay)
         assertFalse(due.captured.workSpec.input.getBoolean(ExtensionReleaseRefreshWorker.INPUT_FORCE, true))
         assertTrue(manual.captured.workSpec.input.getBoolean(ExtensionReleaseRefreshWorker.INPUT_FORCE, false))
         scheduler.cancel()

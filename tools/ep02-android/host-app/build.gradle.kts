@@ -35,6 +35,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":feature:worker"))
+    implementation(libs.androidx.work.runtime)
     implementation(project(":private:release-core"))
     implementation(project(":private:release-data"))
     implementation(libs.kotlinx.coroutines.core)

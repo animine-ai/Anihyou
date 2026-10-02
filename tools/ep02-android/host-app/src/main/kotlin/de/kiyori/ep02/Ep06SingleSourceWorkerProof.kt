@@ -1,6 +1,7 @@
 package de.kiyori.ep02
 
 import android.content.Context
+import android.os.Process
 import androidx.room.Room
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
 import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
@@ -343,7 +344,7 @@ internal object Ep06SingleSourceWorkerProof {
             ))
         } finally {
             if (!databaseClosed) database.close()
-            context.deleteDatabase(databaseName)
+            // Retained for the external force-stop/restart phase; the next seed run deletes it.
         }
     }
 
@@ -371,6 +372,12 @@ internal object Ep06SingleSourceWorkerProof {
             check(receipt.state.value.source == source && receipt.state.value.installments.isNotEmpty())
             val before = reopened.reconciliationDao().projectionPage(256, 0)
             check(before.isNotEmpty()) { "reopened Room lost accepted release projections" }
+            val calendarRepository = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(reopened), reopened, policy)
+            val calendarRange = java.time.LocalDate.of(2026, 9, 18)..java.time.LocalDate.of(2026, 10, 16)
+            val calendarBefore = calendarRepository.currentCalendar(null, calendarRange)
+            check(calendarBefore.isNotEmpty() && calendarBefore.any { it.sourceDate == java.time.LocalDate.of(2026, 9, 30) }) {
+                "durable signed-guest calendar dates did not reach product presentation"
+            }
             val target = targets.targets().first().target
             val subject = AniWorldMappingSubject.Season(
                 AniWorldSiteIdentifier(target.providerSeriesKey), requireNotNull(target.navigationSeason),
@@ -391,7 +398,7 @@ internal object Ep06SingleSourceWorkerProof {
                 }
             }
             val coordinator = ProductionExtensionReleaseRefreshCoordinator(sources, policy, installed, receipt, controlled, clock)
-            val fresh = coordinator.refresh("ep07-product-reopened-fresh", false)
+            val fresh = Ep07WorkManagerProof.due(context, coordinator, twice = true)
             check(fresh == ShadowRefreshOutcome.Skipped("extension-data-fresh")) { "fresh receipt did not skip: $fresh" }
             check(delegateCalls == 0 && sourcePaths.associateWith(fixture::pathCount) == countsBefore)
             val receiptBeforeFailure = receipt.state.value
@@ -402,6 +409,7 @@ internal object Ep06SingleSourceWorkerProof {
             check(receipt.state.value == receiptBeforeFailure)
 
             // Expiry changes scheduling eligibility, not the underlying accepted rows/mappings.
+            fixture.retentionCalendarChanged = true
             val staleClock = Clock.offset(clock, Duration.ofHours(2))
             val reconciliation = RoomReleaseReconciliationRepository(reopened)
             val network = File(context.cacheDir, "ep07-product-stale-refresh-network")
@@ -418,12 +426,27 @@ internal object Ep06SingleSourceWorkerProof {
                 },
             )
             val realDelegate = object : WorkScopedShadowRefreshCoordinator {
-                override suspend fun refresh() = worker.refreshForProductWork("ep07-product-stale")
-                override suspend fun refreshForWork(workId: String) = worker.refreshForProductWork(workId)
+                val reached = CompletableDeferred<Unit>()
+                val release = CompletableDeferred<Unit>()
+                override suspend fun refresh() = refreshForWork("ep07-product-stale")
+                override suspend fun refreshForWork(workId: String): ShadowRefreshOutcome {
+                    reached.complete(Unit)
+                    withTimeout(20_000) { release.await() }
+                    return worker.refreshForProductWork(workId)
+                }
             }
             val staleCoordinator = ProductionExtensionReleaseRefreshCoordinator(sources, policy, installed,
                 receipt, realDelegate, staleClock)
-            val refreshed = staleCoordinator.refresh("ep07-product-stale", false)
+            val refreshed = coroutineScope {
+                val background = async(Dispatchers.Default) { Ep07WorkManagerProof.due(context, staleCoordinator) }
+                withTimeout(20_000) { realDelegate.reached.await() }
+                // WorkManager waits in background while Room still serves the accepted projection.
+                check(reopened.reconciliationDao().projectionPage(256, 0) == before)
+                check(calendarRepository.currentCalendar(null, calendarRange) == calendarBefore)
+                check(reopened.releaseDao().getExternalMapping(subject.stableKey, "anilist") == persistedMapping)
+                realDelegate.release.complete(Unit)
+                background.await()
+            }
             check(refreshed is ShadowRefreshOutcome.Committed && refreshed.refreshSucceeded) {
                 "stale signed-TEST product refresh did not complete: $refreshed"
             }
@@ -431,16 +454,39 @@ internal object Ep06SingleSourceWorkerProof {
             check(reopened.releaseDao().getExternalMapping(subject.stableKey, "anilist") == persistedMapping)
             val after = reopened.reconciliationDao().projectionPage(256, 0)
             check(after.map { it.projectionKey }.containsAll(before.map { it.projectionKey }))
+            check(after.any { row -> before.none { it.projectionKey == row.projectionKey } }) {
+                "new signed-guest calendar row did not arrive"
+            }
+            check(after.any { row -> before.any { prior -> prior.projectionKey == row.projectionKey &&
+                row.revision > prior.revision && row.forecastAt != prior.forecastAt } }) {
+                "changed signed-guest calendar row did not receive a revision"
+            }
+            val calendarAfter = calendarRepository.currentCalendar(null, calendarRange)
+            check(calendarAfter.map { it.eventKey }.containsAll(calendarBefore.map { it.eventKey }))
+            check(calendarAfter.any { row -> calendarBefore.any { old -> row.eventKey == old.eventKey &&
+                row.forecastAt != old.forecastAt && row.revision > old.revision } })
             check(receipt.state.value.packageDigest == packageInfo.packageDigest &&
                 receipt.state.value.packageGeneration == packageInfo.packageGeneration)
             check(staleCoordinator.refresh("ep07-product-fresh-again", false) == ShadowRefreshOutcome.Skipped("extension-data-fresh"))
+            val restartMarker = JSONObject().put("seedPid", Process.myPid())
+                .put("databaseName", databaseName).put("navigationDirectory", navigationDirectory.name)
+                .put("policyDirectory", policyDirectory.name).put("mappingKey", subject.stableKey)
+                .put("mappingId", MEDIA_ID.toString()).put("proofNow", staleClock.instant().toString())
+                .put("projectionCount", after.size).put("projectionHash", sha256(after.toString()))
+            File(context.filesDir, "ep07-restart-marker.json").outputStream().use { output ->
+                output.write(restartMarker.toString().toByteArray(Charsets.UTF_8))
+                (output as java.io.FileOutputStream).fd.sync()
+            }
             return JSONObject().put("status", "PASS").put("testTrustOnly", true)
                 .put("roomConnectionReopened", true).put("acceptedRowsAfterReopen", before.size)
                 .put("policyAndReceiptReopened", true).put("freshSkipsRuntimeAndNetwork", true)
                 .put("controlledRefreshFailureKeepsRowsMappingAndReceipt", true)
                 .put("staleRefreshUsesRealSignedGuestAndProductionTransport", true)
                 .put("manualExactMappingRetained", true).put("acceptedProjectionKeysRetained", true)
-                .put("refreshedDataSkipsAgain", true).put("productionWorkManagerDeviceProof", false)
+                .put("refreshedDataSkipsAgain", true).put("productionWorkManagerDeviceProof", true)
+                .put("twoStartupChecksSkipWithoutFullRefresh", true).put("rowsVisibleDuringWorkManagerRefresh", true)
+                .put("newCalendarRowAdded", true).put("changedCalendarRowRevisionApplied", true)
+                .put("persistedDatesReachProductCalendar", true).put("calendarEventKeysRetainedAcrossCommit", true)
                 .put("processKillProof", false)
         } finally { reopened.close() }
     }

@@ -62,10 +62,11 @@ class ExtensionCalendarComposeTest {
         composeRule.onNodeWithTag("calendar-day-$past").assertIsDisplayed()
         capture("calendar-$label-history")
         composeRule.runOnIdle {
-            state = state.copy(providerRowsByDate = state.providerRowsByDate +
+            state = state.copy(isLoading = true, providerRowsByDate = state.providerRowsByDate +
                 (past to rows.map { it.copy(revision = 2) }))
         }
         composeRule.onNodeWithTag("calendar-day-$past").assertIsDisplayed()
+        capture("calendar-$label-refresh-keeps-history")
         composeRule.onNodeWithContentDescription(composeRule.activity.getString(R.string.jump_to_today))
             .assertIsDisplayed().performClick()
         composeRule.waitForIdle()
@@ -78,6 +79,12 @@ class ExtensionCalendarComposeTest {
     @Test fun safePostponementOpensMappedDetailsAndUnassignedRowCannotNavigate() {
         val mapped = notice("Mapped provider title", "mapped-series", 7)
         val unassigned = notice("Unassigned provider title", "unassigned-series", null)
+        val cover = File(composeRule.activity.filesDir, "ep07-cover-fixture.png")
+        val coverColor = 0xffc6178e.toInt()
+        Bitmap.createBitmap(100, 150, Bitmap.Config.ARGB_8888).apply { eraseColor(coverColor) }.let { bitmap ->
+            cover.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            bitmap.recycle()
+        }
         lateinit var navigation: NavigationState
         lateinit var navigator: Navigator
         composeRule.setContent {
@@ -87,11 +94,18 @@ class ExtensionCalendarComposeTest {
                 MaterialTheme {
                     PostponementsViewContent(PostponementsUiState(
                         notices = listOf(mapped, unassigned),
-                        metadata = mapOf(7 to PostponementMediaMetadata("Verified anime title", null, false)),
+                        metadata = mapOf(7 to PostponementMediaMetadata("Verified anime title", cover.toURI().toString(), false)),
                     ))
                 }
             }
         }
+        composeRule.waitUntil(10_000) {
+            val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            pixels.count { it == coverColor } > 1000
+        }
+        composeRule.onAllNodesWithText("SUB", substring = true).assertCountEquals(2)
         composeRule.onNodeWithText("Verified anime title").assertIsDisplayed().performClick()
         composeRule.runOnIdle {
             assertEquals(Route.MediaDetails(id = 7), navigation.getCurrentRoute())

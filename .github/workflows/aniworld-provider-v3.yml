@@ -340,58 +340,15 @@ jobs:
       - name: Assemble Foss debug APK
         run: ./gradlew --console=plain --stacktrace :app:assembleFossDebug
 
-      - name: Enable KVM for the Android emulator
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+      - name: Assemble product instrumentation APK
+        run: ./gradlew --console=plain --stacktrace :app:assembleFossDebugAndroidTest
 
-      - name: Verify source onboarding in the Foss debug app
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
-        with:
-          api-level: 35
-          target: default
-          arch: x86_64
-          profile: pixel_2
-          emulator-boot-timeout: 900
-          disable-animations: false
-          disable-linux-hw-accel: false
-          script: |
-            adb shell svc wifi disable || true
-            adb shell svc data disable || true
-            test_status=0
-            ./gradlew --console=plain --stacktrace :app:connectedFossDebugAndroidTest || test_status=$?
-            mkdir -p tools/ep02-android/results/ep07-ui
-            adb pull /sdcard/Android/data/com.axiel7.anihyou.debug/files/ep07-ui/. tools/ep02-android/results/ep07-ui/ || true
-            exit "$test_status"
-
-      - name: Summarize Foss Android product assertions
-        if: always()
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import pathlib, xml.etree.ElementTree as ET
-          for path in pathlib.Path("app/build/outputs/androidTest-results").rglob("*.xml"):
-              root = ET.parse(path).getroot()
-              print("EP06_UI_SUITE", root.attrib)
-              for case in root.iter("testcase"):
-                  failures = list(case.findall("failure")) + list(case.findall("error"))
-                  print("EP06_UI_TEST", "FAIL" if failures else "PASS",
-                        case.attrib.get("classname"), case.attrib.get("name"))
-                  for failure in failures:
-                      print((failure.text or "")[:12000])
-          PY
-
-      - name: Upload Foss Android test reports
-        if: always()
+      - name: Upload product instrumentation APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: foss-debug-android-test-reports
-          path: |
-            app/build/reports/androidTests/connected/
-            app/build/outputs/androidTest-results/connected/
-            tools/ep02-android/results/ep07-ui/
-          if-no-files-found: warn
+          name: anihyou-foss-test-apk
+          path: app/build/outputs/apk/androidTest/foss/debug/*.apk
+          if-no-files-found: error
           retention-days: 14
 
       - name: Assemble Foss release with R8
@@ -428,6 +385,49 @@ jobs:
         with:
           name: anihyou-foss-debug-apk
           path: app/build/outputs/apk/foss/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  product-ui:
+    name: Foss product UI API ${{ matrix.api }}
+    needs: app-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [24, 35]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: anihyou-foss-debug-apk
+          path: .ci-product-apk
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: anihyou-foss-test-apk
+          path: .ci-test-apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run all product Compose and onboarding assertions
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.api }}
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 900
+          disable-animations: false
+          script: bash .github/scripts/run-ep07-product-ui.sh ${{ matrix.api }}
+      - name: Upload device assertions and screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: foss-product-ui-api-${{ matrix.api }}
+          path: tools/ep02-android/results/ep07-product-ui-${{ matrix.api }}/
           if-no-files-found: error
           retention-days: 14
 
