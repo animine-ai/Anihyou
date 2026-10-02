@@ -6,15 +6,6 @@ import kotlinx.coroutines.flow.StateFlow
 enum class ExtensionSourceStatus { ADDED, DISABLED, TRUST_UNAVAILABLE, CURRENT, UPDATE_AVAILABLE, ERROR, REVOKED }
 enum class ExtensionSourceFailure { AUTHENTICATION_UNAVAILABLE, NETWORK, INVALID_METADATA, INVALID_PACKAGE, UNSUPPORTED_RUNTIME, STORAGE }
 
-enum class ExtensionUpdateState {
-    NOT_INSTALLED, INSTALLED_CURRENT, UPDATE_AVAILABLE, CHECKING, DOWNLOADING, VERIFYING,
-    STAGING, ACTIVATING, UPDATED, UPDATE_FAILED, ROLLBACK_AVAILABLE, ROLLING_BACK, ROLLED_BACK,
-    REVOKED, QUARANTINED, UNUSABLE, TRUST_UNAVAILABLE,
-}
-enum class InstalledPackageStatus { NOT_INSTALLED, USABLE, REVOKED, QUARANTINED, UNUSABLE, TRUST_UNAVAILABLE }
-enum class ExtensionUpdateFailure { NETWORK, TRUST, METADATA, SIGNATURE_OR_BINDING, DIGEST, RUNTIME, SMOKE, ACTIVATION, STORAGE, CANCELLED, INTERRUPTED }
-data class ExtensionRollbackTarget(val version: String, val digest: String, val trustState: String = "TRUSTED")
-
 data class SourceExtension(
     val extensionId: String,
     val displayName: String,
@@ -44,6 +35,8 @@ data class SourceExtension(
     val lastUpdateAt: Instant? = null,
     val lastUpdateResult: String? = null,
     val lastUpdateFailure: ExtensionUpdateFailure? = null,
+    val lastUpdateTechnicalCode: String? = null,
+    val installedReleaseSequence: Long? = null,
 )
 
 data class ExtensionSource(

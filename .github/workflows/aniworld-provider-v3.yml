@@ -359,7 +359,11 @@ jobs:
           script: |
             adb shell svc wifi disable || true
             adb shell svc data disable || true
-            ./gradlew --console=plain --stacktrace :app:connectedFossDebugAndroidTest
+            test_status=0
+            ./gradlew --console=plain --stacktrace :app:connectedFossDebugAndroidTest || test_status=$?
+            mkdir -p tools/ep02-android/results/ep07-ui
+            adb pull /sdcard/Android/data/com.axiel7.anihyou.debug/files/ep07-ui/. tools/ep02-android/results/ep07-ui/ || true
+            exit "$test_status"
 
       - name: Summarize Foss Android product assertions
         if: always()
@@ -386,6 +390,7 @@ jobs:
           path: |
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
+            tools/ep02-android/results/ep07-ui/
           if-no-files-found: warn
           retention-days: 14
 
