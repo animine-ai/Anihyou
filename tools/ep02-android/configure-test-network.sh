@@ -2,7 +2,7 @@
 set -euo pipefail
 # Name the failing command and its status in the job log. A SIGKILL (137) of the shell itself cannot be reported by
 # the shell, but a child that returns 137 is named here. No secrets are printed: only command text and numbers.
-trap 'rc=$?; printf "EP02 DIAG %s failing command rc=%s line=%s: %s\n" "$(date -u +%T.%N)" "$rc" "$LINENO" "$BASH_COMMAND" >&2; { adb get-state; timeout 10 adb shell "head -4 /proc/meminfo; getprop ro.kernel.qemu.avd_name"; timeout 15 adb logcat -d -t 400 | grep -E "FATAL|system_server|lowmemorykiller|lmkd|am_crash|am_kill|Zygote|has died|SIGKILL" | tail -25; } >&2 2>&1 || true' ERR
+trap 'rc=$?; printf "EP02 DIAG %s failing command rc=%s line=%s: %s\n" "$(date -u +%T.%N)" "$rc" "$LINENO" "$BASH_COMMAND" >&2; { adb get-state; timeout 10 adb shell "head -4 /proc/meminfo; getprop ro.kernel.qemu.avd_name"; timeout 15 adb logcat -d -t 600 | grep -E -A 14 "FATAL EXCEPTION IN SYSTEM PROCESS" | cut -c1-220 | tail -40; } >&2 2>&1 || true' ERR
 
 # The emulator uses the runner's test-only DNS. Its ordinary app UID resolves
 # a public test address and connects through the production DNS/socket/TLS path.
@@ -24,25 +24,31 @@ for attempt in 1 2 3 4 5 6 7 8 9 10; do
   sleep 1
 done
 if [[ -s "$out/proxy.pid" ]] && sudo kill -0 "$(cat "$out/proxy.pid")"; then
-  # Let Android validate the hermetic network using an actual local HTTP 204 probe.
-  # Keep the product WorkManager CONNECTED constraint and OS callbacks intact.
-  adb shell settings put global captive_portal_http_url http://8.8.8.8/generate_204
-  adb shell settings put global captive_portal_fallback_url http://8.8.8.8/generate_204
-  adb shell settings put global captive_portal_use_https 0
-  if [[ "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" -ge 29 ]]; then
-    adb shell device_config put connectivity captive_portal_use_https 0
+  sdk="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+  if [[ "$sdk" -ge 28 ]]; then
+    # Let Android validate the hermetic network using an actual local HTTP 204 probe.
+    # Keep the product WorkManager CONNECTED constraint and OS callbacks intact.
+    adb shell settings put global captive_portal_http_url http://8.8.8.8/generate_204
+    adb shell settings put global captive_portal_fallback_url http://8.8.8.8/generate_204
+    adb shell settings put global captive_portal_use_https 0
+    if [[ "$sdk" -ge 29 ]]; then
+      adb shell device_config put connectivity captive_portal_use_https 0
+      # A cellular default network can stay the app's default network while Wi-Fi re-associates. Switch mobile
+      # data off so the hermetic Wi-Fi network is the only candidate and require that very network to validate.
+      adb shell svc data disable
+    fi
+    adb shell svc wifi disable
+    adb shell svc wifi enable
+    validated_pattern='Transports: WIFI Capabilities:[^]]*VALIDATED'
+  else
+    # API 24 image: the captive-portal settings above do not exist before API 28, and cycling Wi-Fi through svc
+    # makes system_server die there ("FATAL EXCEPTION IN SYSTEM PROCESS" at the svc call, EP02 run 37058629871).
+    # The emulator validates against the runner's test DNS and public-address route on its own.
+    validated_pattern='NetworkAgentInfo.*VALIDATED|Capabilities:.*VALIDATED'
   fi
-  # A cellular default network (API 29+ images carry one) outranks nothing but can stay the app's default network
-  # while Wi-Fi is still re-associating. Switch mobile data off so the hermetic Wi-Fi network is the only candidate
-  # and require that very network, not any network, to be Android-validated.
-  if [[ "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" -ge 29 ]]; then
-    adb shell svc data disable
-  fi
-  adb shell svc wifi disable
-  adb shell svc wifi enable
   for attempt in $(seq 1 45); do
     adb shell dumpsys connectivity > "$out/network-validation.txt"
-    if grep -E 'Transports: WIFI Capabilities:[^]]*VALIDATED' "$out/network-validation.txt" >/dev/null; then
+    if grep -E "$validated_pattern" "$out/network-validation.txt" >/dev/null; then
       echo 'EP02 hermetic DNS, HTTPS relay and Android-validated network ready.'
       exit 0
     fi
