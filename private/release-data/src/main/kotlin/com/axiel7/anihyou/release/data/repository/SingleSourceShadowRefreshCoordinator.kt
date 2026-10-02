@@ -40,6 +40,7 @@ class SingleSourceShadowRefreshCoordinator(
         ProductionExtensionDispatches.create(repository, extensionRuntime, directory,
             observationPolicy, mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L)).release
     },
+    private val postponementStore: FileExtensionPostponementStore? = null,
 ) : WorkScopedShadowRefreshCoordinator {
     override suspend fun refresh() = refreshForWork(UUID.randomUUID().toString())
 
@@ -80,6 +81,20 @@ class SingleSourceShadowRefreshCoordinator(
         ).refreshForWork(scopedWorkId)
         if (outcome is ShadowRefreshOutcome.Committed) policy.withCurrentSelection(snapshot) {
             installed.withCurrentGeneration(selected, pinned.packageDigest, pinned.packageGeneration) {
+                if (SourceRole.POSTPONEMENT in outcome.successfulPresentationRoles) {
+                    runCatching {
+                        postponementStore?.record(
+                            source = selected,
+                            releaseGeneration = snapshot.releaseGeneration,
+                            packageDigest = pinned.packageDigest,
+                            packageGeneration = pinned.packageGeneration,
+                            observedAt = outcome.cycle.completedAt,
+                            observations = outcome.presentationObservations.filter {
+                                it.track == ObservationTrack.UNKNOWN || it.track.name in effectiveTracks
+                            },
+                        )
+                    }
+                }
                 val reducer = AniWorldReleaseAuthorityReducer()
                 val accepted = outcome.cycle.sources.flatMap { it.evidence }.mapNotNull { evidence ->
                     if (evidence.evidenceType.name !in setOf("CONFIRMATION", "VERIFICATION")) return@mapNotNull null
