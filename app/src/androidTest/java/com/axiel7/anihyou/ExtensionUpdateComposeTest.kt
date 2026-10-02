@@ -17,8 +17,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.assertDoesNotExist
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -26,7 +24,6 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.fetchSemanticsNode
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -37,6 +34,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.axiel7.anihyou.feature.settings.source.ExtensionDataSourcePreferences
 import com.axiel7.anihyou.feature.settings.source.ExtensionDiagnostics
+import com.axiel7.anihyou.feature.settings.source.ExtensionProviderDisplay
 import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesEvent
 import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesSettingsSection
 import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesUiState
@@ -150,7 +148,7 @@ class ExtensionUpdateComposeTest {
         composeRule.onNodeWithText("This restores the exact listed package.", substring = true).assertIsDisplayedCompat()
         captureScreenshot("rollback-confirmation")
         composeRule.onNodeWithTag("extension-rollback-confirm-${key.extensionId}").performClick()
-        assertEquals(listOf(Rollback(key.sourceId, key.extensionId, 17, target.digest)), event.rollbacks)
+        assertEquals(listOf(RecordingEvent.Rollback(key.sourceId, key.extensionId, 17, target.digest)), event.rollbacks)
     }
 
     @Test
@@ -362,6 +360,10 @@ class ExtensionUpdateComposeTest {
 
         val aTag = "extension-product-active-${keyA.testTagPart()}"
         val bTag = "extension-product-active-${keyB.testTagPart()}"
+        state.value = state.value.copy(busySourceIds = setOf(keyA.sourceId))
+        composeRule.onNodeWithTag(aTag).assertIsNotEnabled()
+        composeRule.onNodeWithTag("extension-preference-sub-${keyA.testTagPart()}").assertIsNotEnabled()
+        state.value = state.value.copy(busySourceIds = emptySet())
         composeRule.onNodeWithTag(aTag).assertIsSelected()
         composeRule.onNodeWithTag(bTag).assertIsNotSelected()
         composeRule.onNodeWithTag(aTag).assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
@@ -370,6 +372,36 @@ class ExtensionUpdateComposeTest {
         composeRule.onNodeWithTag(aTag).assertIsNotSelected()
         composeRule.onNodeWithTag(bTag).assertIsSelected()
         assertEquals(listOf(keyB), event.selectedActiveSources)
+    }
+
+    @Test
+    fun sourceOperationVisuallyDisablesProviderSelectionsAndOrdering() {
+        val keyA = key("provider-a")
+        val keyB = key("provider-b")
+        val state = mutableStateOf(ExtensionSourcesUiState(
+            sources = listOf(source(keyA.sourceId, current(keyA)), source(keyB.sourceId, current(keyB))),
+            canEditProductPolicy = true,
+            busySourceIds = setOf(keyA.sourceId),
+        ))
+        val event = RecordingEvent()
+        composeRule.setContent {
+            MaterialTheme {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    ExtensionProviderDisplay(state.value, event)
+                }
+            }
+        }
+
+        val providerTag = "extension-product-navigation-${keyB.testTagPart()}"
+        val visibleTag = "extension-preference-provider-visible-${keyB.testTagPart()}"
+        val moveUpTag = "provider-up-${keyB.testTagPart()}"
+        composeRule.onNodeWithTag(providerTag).assertIsNotEnabled()
+        composeRule.onNodeWithTag(visibleTag).assertIsNotEnabled()
+        composeRule.onNodeWithTag(moveUpTag).assertIsNotEnabled()
+        state.value = state.value.copy(busySourceIds = emptySet())
+        composeRule.onNodeWithTag(providerTag).assertIsEnabled()
+        composeRule.onNodeWithTag(visibleTag).assertIsEnabled()
+        composeRule.onNodeWithTag(moveUpTag).assertIsEnabled()
     }
 
     private fun composeManage(

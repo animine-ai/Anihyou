@@ -326,7 +326,7 @@ internal class ExtensionInstallStore(
     }
 
     override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? = serialized {
-        val matching = state.generations.filterValues { it.knownGood?.provider == providerId.value }
+        val matching = state.generations.filterValues { it.active != null && it.knownGood?.provider == providerId.value }
         if (matching.size != 1) return@serialized null
         loadPublishedExtension(matching.keys.single())?.takeIf { it.providerId == providerId }
     }
@@ -357,6 +357,9 @@ internal class ExtensionInstallStore(
     /** Activation only stages an active candidate; execution follows the promoted receipt. */
     private fun loadPublishedExtension(extensionId: String): VerifiedExtensionPackage? {
         var generation = state.generations[extensionId] ?: return null
+        // Legacy/corrupt journals can retain a known-good receipt after active was cleared.
+        // Such a receipt is diagnostic history, not an installed activation intent.
+        if (generation.active == null) return null
         val published = generation.knownGood ?: return null
         if (generation.active?.digest == published.digest && !eligible(published)) {
             rollbackBad(extensionId, Instant.now())
@@ -374,7 +377,7 @@ internal class ExtensionInstallStore(
     }
     fun inspectInstalled(extensionId: String): VerifiedExtensionPackage? = serialized {
         state.generations[extensionId]?.let { generation ->
-            generation.knownGood?.let(::verifiedReceipt)?.also {
+            generation.knownGood?.takeIf { generation.active != null }?.let(::verifiedReceipt)?.also {
                 it.packageGeneration = generation.knownGoodGeneration
             }
         }

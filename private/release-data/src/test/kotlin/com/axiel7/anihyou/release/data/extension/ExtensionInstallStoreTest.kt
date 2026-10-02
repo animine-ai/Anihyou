@@ -179,7 +179,8 @@ class ExtensionInstallStoreTest {
                 issuedAt = NOW.minusSeconds(60 - sequence)).envelope, NOW)
         }
         val persisted = stateJson(directory)
-        assertEquals(4, (persisted["indexes"] as JsonArray).size)
+        // Only the latest catalog plus signed receipt bindings needed for LKG and Previous Good remain.
+        assertEquals(3, (persisted["indexes"] as JsonArray).size)
         val restarted = fixture.store()
         assertEquals(25L, restarted.snapshot().index!!.sequence)
         assertEquals(third.binding.archiveSha256, load(restarted)!!.packageDigest)
@@ -188,7 +189,7 @@ class ExtensionInstallStoreTest {
         assertEquals(second.binding.archiveSha256,
             restarted.quarantineAndRollback(EXTENSION, NOW)!!.digest)
         assertEquals(second.binding.archiveSha256, load(fixture.store())!!.packageDigest)
-        assertEquals(2, (stateJson(directory)["indexes"] as JsonArray).size)
+        assertEquals(3, (stateJson(directory)["indexes"] as JsonArray).size)
         assertEquals(25L, fixture.store().snapshot().index!!.sequence)
     }
 
@@ -818,9 +819,12 @@ class ExtensionInstallStoreTest {
         restarted.acceptIndex(latest.envelope, NOW.plusSeconds(30))
         val migrated = stateJson(directory)
         assertEquals(4, (migrated["schemaVersion"] as JsonPrimitive).content.toInt())
-        for (field in listOf("roots", "indexes", "indexHigh", "indexDigest", "releaseHigh", "revoked", "quarantine", "clock")) {
+        for (field in listOf("roots", "indexHigh", "indexDigest", "releaseHigh", "revoked", "quarantine", "clock")) {
             assertEquals("preserved $field", legacy[field], migrated[field])
         }
+        // The migration may discard an unreferenced historical catalog but keeps both the
+        // installed receipt's binding and the latest authenticated catalog.
+        assertEquals(listOf(1L, 3L), (migrated["indexes"] as JsonArray).map(::indexSequence))
         assertEquals(first.binding.archiveSha256, load(fixture.store())!!.packageDigest)
     }
 
@@ -1033,6 +1037,12 @@ class ExtensionInstallStoreTest {
 
     private fun stateJson(directory: File) =
         ExtensionWireCodec.parseStrictJson(File(directory, "state.json").readBytes(), 8 * 1048576) as JsonObject
+
+    private fun indexSequence(record: JsonElement): Long {
+        val bytes = Base64.getDecoder().decode(((record as JsonObject).getValue("bytes") as JsonPrimitive).content)
+        val envelope = ExtensionWireCodec.parseStrictJson(bytes, 262144) as JsonObject
+        return ((envelope.getValue("signed") as JsonObject).getValue("sequence") as JsonPrimitive).long
+    }
 
     private fun legacyState(directory: File, activeExtension: String = EXTENSION,
         knownGoodExtension: String = activeExtension, rollbackUsed: Boolean? = null): JsonObject {
