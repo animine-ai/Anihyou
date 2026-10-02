@@ -42,10 +42,12 @@ if [[ -s "$out/proxy.pid" ]] && sudo kill -0 "$(cat "$out/proxy.pid")"; then
     adb shell svc wifi enable
     validated_pattern='Transports: WIFI Capabilities:[^]]*VALIDATED'
   else
-    # API 24 image: the captive-portal settings above do not exist before API 28, and cycling Wi-Fi through svc
-    # makes system_server die there ("FATAL EXCEPTION IN SYSTEM PROCESS" at the svc call, EP02 run 37058629871).
-    # The emulator validates against the runner's test DNS and public-address route on its own.
-    validated_pattern='NetworkAgentInfo.*VALIDATED|Capabilities:.*VALIDATED'
+    # API 24 image: cycling Wi-Fi through svc makes system_server die there ("FATAL EXCEPTION IN SYSTEM PROCESS" at the
+    # svc call, EP02 run 37058629871) and the captive-portal settings do not exist before API 28. The app proof itself
+    # only waits for a validated network from API 26 (Ep07WorkManagerProof), so below that the shell does not require
+    # validation either. The route, DNS and HTTPS relay checks above still have to pass.
+    echo 'EP02 hermetic DNS and HTTPS relay ready; Android network validation is not required below API 26.'
+    exit 0
   fi
   for attempt in $(seq 1 120); do
     adb shell dumpsys connectivity > "$out/network-validation.txt"
