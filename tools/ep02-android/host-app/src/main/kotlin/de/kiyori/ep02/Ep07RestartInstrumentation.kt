@@ -54,13 +54,31 @@ class Ep07RestartInstrumentation : Instrumentation() {
         val installed = object : InstalledExtensionAccess {
             override suspend fun loadInstalled(key: ExtensionSelectionKey) = verified.takeIf { key == source }
         }
+        val sources = object : ExtensionSourceRepository {
+            override val sources = MutableStateFlow(listOf(ExtensionSource(
+                id = source.sourceId, url = "https://fixture.example/index.json", origin = "ep07-signed-test",
+                enabled = true, status = ExtensionSourceStatus.CURRENT,
+                extensions = listOf(SourceExtension(
+                    extensionId = source.extensionId, displayName = verified.displayName, version = "1.0.0-test.1",
+                    digest = verified.packageDigest, releaseSequence = verified.releaseSequence,
+                    capabilities = verified.grantedRoles.map { it.name }, installedDigest = verified.packageDigest,
+                    activationAllowed = true, providerId = source.providerId, publisherId = source.publisherId,
+                )),
+            )))
+            override suspend fun add(url: String) = AddExtensionSourceResult.InvalidUrl
+            override suspend fun setEnabled(sourceId: String, enabled: Boolean) = Unit
+            override suspend fun remove(sourceId: String) = Unit
+            override suspend fun refresh(sourceId: String) = Unit
+            override suspend fun refreshEnabled() = false
+            override suspend fun activate(sourceId: String, extensionId: String) = Unit
+        }
         val database = Room.databaseBuilder(context, ReleaseDatabase::class.java, marker.getString("databaseName")).build()
         try {
             // Read accepted data before any refresh is scheduled or network/runtime is available.
             val rows = database.reconciliationDao().projectionPage(256, 0)
             check(rows.size == marker.getInt("projectionCount") && rows.isNotEmpty())
             check(sha256(rows.toString()) == marker.getString("projectionHash"))
-            val calendar = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(database), database, policy)
+            val calendar = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(database), database, policy, sources)
                 .currentCalendar(null, java.time.LocalDate.of(2026, 9, 18)..java.time.LocalDate.of(2026, 10, 16))
             check(calendar.isNotEmpty() && calendar.any { it.sourceDate == java.time.LocalDate.of(2026, 9, 30) })
             val mapping = requireNotNull(database.releaseDao().getExternalMapping(marker.getString("mappingKey"), "anilist"))
@@ -73,15 +91,6 @@ class Ep07RestartInstrumentation : Instrumentation() {
                     delegateCalls++
                     error("fresh process restart must not invoke network or runtime")
                 }
-            }
-            val sources = object : ExtensionSourceRepository {
-                override val sources = MutableStateFlow<List<ExtensionSource>>(emptyList())
-                override suspend fun add(url: String) = AddExtensionSourceResult.InvalidUrl
-                override suspend fun setEnabled(sourceId: String, enabled: Boolean) = Unit
-                override suspend fun remove(sourceId: String) = Unit
-                override suspend fun refresh(sourceId: String) = Unit
-                override suspend fun refreshEnabled() = false
-                override suspend fun activate(sourceId: String, extensionId: String) = Unit
             }
             // The prior stale proof advanced its controlled clock by two hours; keep that clock domain.
             val clock = Clock.fixed(Instant.parse(marker.getString("proofNow")), ZoneOffset.UTC)

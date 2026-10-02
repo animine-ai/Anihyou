@@ -213,7 +213,7 @@ val animetrackerReleaseModule = module {
         )
     }
     single { RoomReleaseProjectionRepository(get(), get(), get()) }
-    single { RoomReleasePresentationRepository(get(), get(), get()) }
+    single { RoomReleasePresentationRepository(get(), get(), get(), get()) }
     single<ReleasePresentationRepository> { get<RoomReleasePresentationRepository>() }
     single { RoomReleaseMappingRepository(get(), get()) }
     single<ReleaseMappingRepository> { get<RoomReleaseMappingRepository>() }

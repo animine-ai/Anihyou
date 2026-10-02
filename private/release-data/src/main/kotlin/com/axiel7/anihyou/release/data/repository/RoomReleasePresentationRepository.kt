@@ -17,6 +17,8 @@ import com.axiel7.anihyou.release.core.model.ReleasePhase
 import com.axiel7.anihyou.release.core.model.ReleaseStreamKey
 import com.axiel7.anihyou.release.core.model.SourceSeriesKey
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
+import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
+import com.axiel7.anihyou.release.core.source.usableExtension
 import com.axiel7.anihyou.release.core.sync.ReleaseSourceTimePolicy
 import com.axiel7.anihyou.release.data.db.ExternalMappingEntity
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
@@ -31,6 +33,7 @@ class RoomReleasePresentationRepository(
     private val projections: RoomReleaseProjectionRepository,
     private val database: ReleaseDatabase? = null,
     private val productPolicy: ExtensionProductPolicyRepository? = null,
+    private val extensionSources: ExtensionSourceRepository? = null,
 ) : ReleasePresentationRepository {
     override fun observeForMedia(
         accountId: Long?,
@@ -56,9 +59,12 @@ class RoomReleasePresentationRepository(
             db.reconciliationDao().observeNavigationProjections(),
             db.releaseDao().observeActiveAniListMappings(),
             policy.policy,
-        ) { legacyRows, canonicalRows, mappings, product ->
+            extensionSources?.sources ?: kotlinx.coroutines.flow.flowOf(emptyList()),
+        ) { legacyRows, canonicalRows, mappings, product, catalog ->
             when (product.activeReleaseSource?.providerId) {
-                "aniworld" -> canonicalRows.toExtensionCalendarItems(mappings, range)
+                "aniworld" -> if (catalog.usableExtension(requireNotNull(product.activeReleaseSource)) != null) {
+                    canonicalRows.toExtensionCalendarItems(mappings, range)
+                } else emptyList()
                 null -> legacyRows
                 else -> emptyList()
             }

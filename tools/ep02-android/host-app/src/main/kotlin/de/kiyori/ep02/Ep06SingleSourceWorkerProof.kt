@@ -372,7 +372,7 @@ internal object Ep06SingleSourceWorkerProof {
             check(receipt.state.value.source == source && receipt.state.value.installments.isNotEmpty())
             val before = reopened.reconciliationDao().projectionPage(256, 0)
             check(before.isNotEmpty()) { "reopened Room lost accepted release projections" }
-            val calendarRepository = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(reopened), reopened, policy)
+            val calendarRepository = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(reopened), reopened, policy, sources)
             val calendarRange = java.time.LocalDate.of(2026, 9, 18)..java.time.LocalDate.of(2026, 10, 16)
             val calendarBefore = calendarRepository.currentCalendar(null, calendarRange)
             check(calendarBefore.isNotEmpty() && calendarBefore.any { it.sourceDate == java.time.LocalDate.of(2026, 9, 30) }) {
