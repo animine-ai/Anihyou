@@ -101,7 +101,7 @@ class ExtensionUpdateComposeTest {
                 update(updateKey).copy(updateState = ExtensionUpdateState.DOWNLOADING),
             )) else item
         })
-        composeRule.onNodeWithTag("extension-progress-${updateKey.extensionId}").assertIsDisplayedCompat()
+        composeRule.onNodeWithTag("extension-progress-${updateKey.extensionId}").performScrollTo().assertIsDisplayedCompat()
         val downloadingStatus = composeRule.onNodeWithTag("extension-update-state-${updateKey.extensionId}")
             .fetchSemanticsNode().config
         assertEquals(LiveRegionMode.Polite, downloadingStatus[SemanticsProperties.LiveRegion])
@@ -109,7 +109,7 @@ class ExtensionUpdateComposeTest {
 
         state.value = state.value.copy(busySourceIds = setOf(currentKey.sourceId))
         composeRule.onNodeWithTag("extension-action-${currentKey.extensionId}").assertDoesNotExist()
-        composeRule.onNodeWithTag("extension-progress-${currentKey.extensionId}").assertIsDisplayedCompat()
+        composeRule.onNodeWithTag("extension-progress-${currentKey.extensionId}").performScrollTo().assertIsDisplayedCompat()
         val currentStatus = composeRule.onNodeWithTag("extension-update-state-${currentKey.extensionId}")
             .fetchSemanticsNode().config
         assertEquals(LiveRegionMode.Polite, currentStatus[SemanticsProperties.LiveRegion])
