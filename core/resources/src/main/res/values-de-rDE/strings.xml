@@ -252,6 +252,7 @@
     <string name="format_distribution">Format-Verteilung</string>
     <string name="notes">Notizen</string>
     <string name="calendar">Kalender</string>
+    <string name="jump_to_today">Heute</string>
     <string name="monday">Montag</string>
     <string name="tuesday">Dienstag</string>
     <string name="wednesday">Mittwoch</string>
