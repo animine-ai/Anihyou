@@ -241,11 +241,12 @@ fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
             state.diagnostics[key].orEmpty()
         val safeValues = safeDiagnosticEntries(values).toMap()
         Text(extension.displayName)
-        listOf("Extension ID", "Provider ID", "Signed displayName", "Version", "Repository", "Publisher",
+        // Facts that have a localized row below (version, update state, package generation, Known/Previous
+        // Good, metadata freshness, yanked, update result) are shown there only, so each value appears once.
+        // The copy-to-clipboard export below still carries every raw entry.
+        listOf("Extension ID", "Provider ID", "Signed displayName", "Repository", "Publisher",
             "Key ID", "Trust status", "Package SHA", "WASM SHA", "Active selection generation",
-            "Latest authenticated version", "Installed package status", "Update state", "Package generation",
-            "Metadata fresh", "Candidate yanked", "Last update at", "Last update result", "Previous Good",
-            "Active package generation", "Known Good", "Capabilities", "Allowed Hosts", "Role health",
+            "Last update at", "Capabilities", "Allowed Hosts", "Role health",
             "Last sync outcome", "Runtime", "Last parse status", "Last navigation status", "Fuel limit",
             "Memory limit", "Deadline limit", "Cancellation").forEach { DiagnosticRow(it, safeValues[it]) }
         DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_installed_version),
