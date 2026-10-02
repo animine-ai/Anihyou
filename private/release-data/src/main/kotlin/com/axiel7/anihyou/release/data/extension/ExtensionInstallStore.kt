@@ -24,13 +24,15 @@ internal data class InstallReceipt(val digest: String, val manifest: String, val
 
 internal data class ExtensionInstallOperation(
     val state: ExtensionUpdateState, val candidateDigest: String, val attemptedAt: Instant,
-    val completedAt: Instant? = null, val failure: ExtensionUpdateFailure? = null,
+    val completedAt: Instant? = null, val failure: ExtensionUpdateFailure? = null, val technicalCode: String? = null,
 )
 internal class ExtensionSmokeException(cause: Exception) : Exception("isolated runtime smoke failed", cause)
 
 internal data class ExtensionGenerationSnapshot(
     val active: InstallReceipt?, val knownGood: InstallReceipt?,
     val previousGood: InstallReceipt?, val rollbackUsed: Boolean, val packageGeneration: Long = 0,
+    val lastRejected: InstallReceipt? = null,
+    val journalRevision: Long = packageGeneration,
 )
 
 internal data class ExtensionInstallSnapshot(
@@ -101,8 +103,8 @@ internal class ExtensionInstallStore(
 
     /** Callbacks fence source lifecycle/cancellation and must not re-enter this store. */
     fun install(source: File, extensionId: String, now: Instant,
-        reinstallRemoved: Boolean = false, beforeActivation: () -> Unit = {},
-        onProgress: (ExtensionUpdateState) -> Unit = {}): InstallReceipt = serialized {
+        reinstallRemoved: Boolean = false, onProgress: (ExtensionUpdateState) -> Unit = {},
+        beforeActivation: () -> Unit = {}): InstallReceipt = serialized {
         val root = roots(state).lastOrNull() ?: error("no trusted root")
         val current = latestIndex(state) ?: error("no signed index")
         val effective = effectiveTime(now)
@@ -184,7 +186,8 @@ internal class ExtensionInstallStore(
         require(eligible(active))
         failure.at(InstallBoundary.BEFORE_PROMOTION)
         val next = if (generation.knownGood?.digest == active.digest) generation else
-            generation.copy(knownGood = active, previousGood = generation.knownGood)
+            generation.copy(knownGood = active, previousGood = generation.knownGood,
+                knownGoodGeneration = state.revisions[extensionId] ?: 0)
         beforePromotion()
         val generations = state.generations + (extensionId to next)
         commit(state.copy(generations = generations,
@@ -211,12 +214,22 @@ internal class ExtensionInstallStore(
         val newlyQuarantined = state.quarantine + bad.digest
         val prior = if (generation.knownGood?.digest == bad.digest) generation.previousGood else generation.knownGood
         val fallback = prior?.takeIf { !generation.rollbackUsed && it.digest != bad.digest && eligible(it, newlyQuarantined) && verifiedReceipt(it) != null }
-        val updated = generation.copy(active = fallback, knownGood = fallback, previousGood = null, rollbackUsed = true)
+        val nextRevision = Math.addExact(state.revisions[extensionId] ?: 0, 1)
+        val updated = generation.copy(active = fallback, knownGood = fallback, previousGood = null,
+            rollbackUsed = true, lastRejected = bad, knownGoodGeneration = nextRevision)
         val generations = state.generations + (extensionId to updated)
+        val recoveredAt = effectiveTime(now)
+        val recovery = ExtensionInstallOperation(
+            if (fallback != null) ExtensionUpdateState.ROLLED_BACK else ExtensionUpdateState.UPDATE_FAILED,
+            bad.digest, recoveredAt, recoveredAt,
+            if (fallback == null) ExtensionUpdateFailure.TRUST else null,
+            if (fallback != null) "AUTOMATIC_SAFE_RECOVERY" else "ACTIVE_PACKAGE_REJECTED",
+        )
         commit(state.copy(generations = generations,
             indexes = retainReferencedIndexes(state.indexes, generations),
             quarantine = newlyQuarantined,
-            revisions = state.revisions + (extensionId to Math.addExact(state.revisions[extensionId] ?: 0, 1)), clock = effectiveTime(now)))
+            operations = state.operations + (extensionId to recovery),
+            revisions = state.revisions + (extensionId to nextRevision), clock = recoveredAt))
         failure.at(InstallBoundary.QUARANTINE)
         return fallback
     }
@@ -260,7 +273,7 @@ internal class ExtensionInstallStore(
         beforeActivation()
         val old = state.generations.getValue(extensionId)
         val generations = state.generations + (extensionId to old.copy(active = target, knownGood = target,
-            previousGood = null, rollbackUsed = true))
+            previousGood = null, rollbackUsed = true, knownGoodGeneration = Math.addExact(expectedGeneration, 1)))
         commit(state.copy(generations = generations, indexes = retainReferencedIndexes(state.indexes, generations),
             revisions = state.revisions + (extensionId to Math.addExact(expectedGeneration, 1)), clock = effectiveTime(now)))
         target
@@ -272,10 +285,11 @@ internal class ExtensionInstallStore(
         commit(state.copy(operations = state.operations + (extensionId to
             ExtensionInstallOperation(phase, candidateDigest, effectiveTime(now))), clock = effectiveTime(now)))
     }
-    fun finishOperation(extensionId: String, result: ExtensionUpdateState, failure: ExtensionUpdateFailure?, now: Instant) = serialized {
+    fun finishOperation(extensionId: String, result: ExtensionUpdateState, failure: ExtensionUpdateFailure?, now: Instant, technicalCode: String? = null) = serialized {
         val operation = state.operations[extensionId] ?: return@serialized
+        if (operation.technicalCode == "AUTOMATIC_SAFE_RECOVERY" || operation.technicalCode == "ACTIVE_PACKAGE_REJECTED") return@serialized
         commit(state.copy(operations = state.operations + (extensionId to operation.copy(state = result,
-            completedAt = effectiveTime(now), failure = failure)), clock = effectiveTime(now)))
+            completedAt = effectiveTime(now), failure = failure, technicalCode = technicalCode?.take(128))), clock = effectiveTime(now)))
     }
     /** No Compose state can promote a candidate after process death. */
     fun recoverInterrupted(now: Instant) = serialized {
@@ -283,24 +297,27 @@ internal class ExtensionInstallStore(
             val generation = state.generations[extensionId]
             val healthyCommit = generation?.active != null && generation.active.digest == operation.candidateDigest &&
                 generation.knownGood?.digest == generation.active.digest
-            if (!healthyCommit && generation?.active != null && generation.active.digest != generation.knownGood?.digest)
+            if (!healthyCommit && generation?.active != null && generation.active.digest != generation.knownGood?.digest) {
                 rollbackBad(extensionId, now)
+                return@forEach
+            }
             val recovered = operation.copy(state = if (healthyCommit) {
                 if (operation.state == ExtensionUpdateState.ROLLING_BACK) ExtensionUpdateState.ROLLED_BACK else ExtensionUpdateState.UPDATED
             } else ExtensionUpdateState.UPDATE_FAILED, completedAt = effectiveTime(now),
-                failure = if (healthyCommit) null else ExtensionUpdateFailure.INTERRUPTED)
+                failure = if (healthyCommit) null else ExtensionUpdateFailure.INTERRUPTED,
+                technicalCode = if (healthyCommit) null else "PROCESS_INTERRUPTED")
             commit(state.copy(operations = state.operations + (extensionId to recovered), clock = effectiveTime(now)))
         }
     }
 
     override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? = serialized {
-        val matching = state.generations.filterValues { it.active?.provider == providerId.value }
+        val matching = state.generations.filterValues { it.knownGood?.provider == providerId.value }
         if (matching.size != 1) return@serialized null
-        loadExtension(matching.keys.single())?.takeIf { it.providerId == providerId }
+        loadPublishedExtension(matching.keys.single())?.takeIf { it.providerId == providerId }
     }
 
     suspend fun loadUsableExtension(extensionId: String): VerifiedExtensionPackage? = serialized {
-        loadExtension(extensionId)
+        loadPublishedExtension(extensionId)
     }
 
     /** Uninstall all executable generations while retaining monotone trust/release high-water. */
