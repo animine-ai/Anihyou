@@ -5,7 +5,12 @@ import com.axiel7.anihyou.release.core.source.AddExtensionSourceResult
 import com.axiel7.anihyou.release.core.source.ExtensionSource
 import com.axiel7.anihyou.release.core.source.ExtensionSourceFailure
 import com.axiel7.anihyou.release.core.source.ExtensionSourceStatus
+import com.axiel7.anihyou.release.core.source.ExtensionPreferences
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
+import com.axiel7.anihyou.release.core.source.ExtensionUpdateFailure
+import com.axiel7.anihyou.release.core.source.ExtensionUpdateState
 import java.io.File
+import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.time.Clock
 import java.time.Instant
@@ -203,9 +208,123 @@ class FileExtensionSourceRepositoryTest {
         val generation = snapshot.generations.getValue(EXTENSION_ID)
         assertEquals(OLD_DIGEST, generation.active?.digest)
         assertEquals(OLD_DIGEST, generation.knownGood?.digest)
+        assertEquals(1L, generation.packageGeneration)
         assertEquals(1L, snapshot.releaseHigh[EXTENSION_ID])
         assertEquals(ExtensionSourceFailure.INVALID_PACKAGE, repository.source(id).lastFailure)
+        assertEquals(ExtensionUpdateFailure.SMOKE, repository.source(id).extensions.single().lastUpdateFailure)
+        assertEquals(OLD_DIGEST, repository.source(id).extensions.single().installedDigest)
+        assertTrue(repository.source(id).extensions.single().installedUsable)
         assertEquals(2, rig.transport.archiveRequests)
+    }
+
+    @Test
+    fun `corrupt update download is rejected before activation and preserves published LKG`() = runBlocking {
+        val rig = SourceRig()
+        val repository = rig.repository(temporaryFolder.newFolder("corrupt-update-download"))
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+        val corrupt = decodeArchive("fixture-v2.arex.b64").also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
+        rig.transport.archiveOverrides[NEW_PACKAGE_URL] = corrupt
+
+        repository.activate(id, EXTENSION_ID)
+
+        val visible = repository.source(id).extensions.single()
+        val generation = rig.stores.last().snapshot().generations.getValue(EXTENSION_ID)
+        assertEquals(OLD_DIGEST, generation.active?.digest)
+        assertEquals(OLD_DIGEST, generation.knownGood?.digest)
+        assertEquals(1L, generation.packageGeneration)
+        assertEquals(1L, rig.stores.last().snapshot().releaseHigh[EXTENSION_ID])
+        assertEquals(OLD_DIGEST, visible.installedDigest)
+        assertTrue(visible.installedUsable)
+        assertEquals(ExtensionUpdateFailure.DIGEST, visible.lastUpdateFailure)
+        assertEquals(ExtensionSourceFailure.INVALID_PACKAGE, repository.source(id).lastFailure)
+        assertTrue(rig.stores.last().snapshot().quarantinedDigests.isEmpty())
+        assertEquals(2, rig.transport.archiveRequests)
+    }
+
+    @Test
+    fun `explicit rollback preserves preferences and published generation across restart`() = runBlocking {
+        val directory = temporaryFolder.newFolder("rollback-restart-preferences")
+        val rig = SourceRig()
+        val repository = rig.repository(directory)
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val firstExtension = repository.source(id).extensions.single()
+        val key = ExtensionSelectionKey(id, firstExtension.extensionId, firstExtension.publisherId, firstExtension.providerId)
+        val preferences = ExtensionPreferences(setOf("DE_DUB"), listOf("DE_DUB"), listOf("de"))
+        repository.productPolicy.setPreferences(key, preferences)
+        repository.productPolicy.selectActiveSource(key)
+
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val offered = repository.source(id).extensions.single()
+        assertEquals(2L, offered.packageGeneration)
+        assertEquals(OLD_DIGEST, offered.rollbackTarget?.digest)
+        assertEquals("0.1.0", offered.rollbackTarget?.version)
+        repository.rollback(id, EXTENSION_ID, offered.packageGeneration, OLD_DIGEST)
+
+        val rolledBack = repository.source(id).extensions.single()
+        assertEquals(OLD_DIGEST, rolledBack.installedDigest)
+        assertTrue(rolledBack.installedUsable)
+        assertEquals(3L, rolledBack.packageGeneration)
+        assertEquals(ExtensionUpdateState.ROLLED_BACK, rolledBack.updateState)
+        assertNull(rolledBack.lastUpdateFailure)
+        assertEquals(2L, rig.stores.last().snapshot().releaseHigh[EXTENSION_ID])
+        assertTrue(rig.stores.last().snapshot().quarantinedDigests.isEmpty())
+        assertEquals(key, repository.productPolicy.policy.value.activeReleaseSource)
+        assertEquals(preferences, repository.productPolicy.policy.value.preferencesFor(key))
+        assertEquals(2, rig.transport.archiveRequests)
+
+        val restarted = rig.repository(directory)
+        restarted.restoreInstalled()
+        val restored = restarted.source(id).extensions.single()
+        assertEquals(OLD_DIGEST, restored.installedDigest)
+        assertEquals(3L, restored.packageGeneration)
+        assertEquals(ExtensionUpdateState.ROLLED_BACK, restored.updateState)
+        assertEquals(key, restarted.productPolicy.policy.value.activeReleaseSource)
+        assertEquals(preferences, restarted.productPolicy.policy.value.preferencesFor(key))
+        assertEquals(OLD_DIGEST, restarted.loadInstalled(key)?.packageDigest)
+        assertEquals(2, rig.transport.archiveRequests)
+    }
+
+    @Test
+    fun `offline refresh retains trusted installed selection and preferences`() = runBlocking {
+        val directory = temporaryFolder.newFolder("offline-known-good")
+        val rig = SourceRig()
+        val repository = rig.repository(directory)
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val extension = repository.source(id).extensions.single()
+        val key = ExtensionSelectionKey(id, extension.extensionId, extension.publisherId, extension.providerId)
+        val preferences = ExtensionPreferences(setOf("DE_SUB"), listOf("DE_SUB"), listOf("de"))
+        repository.productPolicy.setPreferences(key, preferences)
+        repository.productPolicy.selectActiveSource(key)
+        rig.transport.offline = true
+
+        repository.refresh(id)
+
+        val offline = repository.source(id)
+        assertEquals(ExtensionSourceStatus.ERROR, offline.status)
+        assertEquals(ExtensionSourceFailure.NETWORK, offline.lastFailure)
+        assertEquals(OLD_DIGEST, offline.extensions.single().installedDigest)
+        assertTrue(offline.extensions.single().installedUsable)
+        assertFalse(offline.extensions.single().activationAllowed)
+        assertEquals(key, repository.productPolicy.policy.value.activeReleaseSource)
+        assertEquals(preferences, repository.productPolicy.policy.value.preferencesFor(key))
+        assertEquals(OLD_DIGEST, repository.loadInstalled(key)?.packageDigest)
+
+        val restarted = rig.repository(directory)
+        restarted.restoreInstalled()
+        assertEquals(key, restarted.productPolicy.policy.value.activeReleaseSource)
+        assertEquals(preferences, restarted.productPolicy.policy.value.preferencesFor(key))
+        assertEquals(OLD_DIGEST, restarted.loadInstalled(key)?.packageDigest)
+        assertEquals(1, rig.transport.archiveRequests)
     }
 
     @Test
@@ -455,11 +574,14 @@ class FileExtensionSourceRepositoryTest {
         private val rootBytes = resource("root.json")
         @Volatile var indexBytes: ByteArray = resource("index.json")
         @Volatile var indexGate: IndexGate? = null
+        @Volatile var offline: Boolean = false
+        val archiveOverrides = ConcurrentHashMap<String, ByteArray>()
         val urls = CopyOnWriteArrayList<String>()
         val archiveRequests: Int get() = urls.count { it.endsWith(".arex") }
 
         override suspend fun fetch(url: String, allowedOrigins: Set<String>, maxBytes: Int): ByteArray {
             urls += url
+            if (offline) throw IOException("fixture transport offline")
             val content = when (url) {
                 "$SOURCE_URL/root.json" -> rootBytes
                 "$SOURCE_URL/index.json" -> {
@@ -470,8 +592,8 @@ class FileExtensionSourceRepositoryTest {
                     }
                     indexBytes
                 }
-                OLD_PACKAGE_URL -> decodeArchive("fixture.arex.b64")
-                NEW_PACKAGE_URL -> decodeArchive("fixture-v2.arex.b64")
+                OLD_PACKAGE_URL -> archiveOverrides[url] ?: decodeArchive("fixture.arex.b64")
+                NEW_PACKAGE_URL -> archiveOverrides[url] ?: decodeArchive("fixture-v2.arex.b64")
                 else -> throw AssertionError("unexpected repository fetch: $url")
             }
             assertTrue("response exceeds declared request cap", content.size <= maxBytes)

@@ -26,7 +26,8 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.fetchSemanticsNode
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -248,7 +249,7 @@ class ExtensionUpdateComposeTest {
         composeRule.onNodeWithText("Update state: Update failed").performScrollTo().assertIsDisplayedCompat()
         composeRule.onNodeWithText("Active package generation: 27").performScrollTo().assertIsDisplayedCompat()
         composeRule.onNodeWithText("Last update failure: Package health check failed").performScrollTo().assertIsDisplayedCompat()
-        composeRule.onNodeWithText("Previous Good version: 0.9.0 · TRUSTED · previous-go")
+        composeRule.onNodeWithText("Previous Good version: 0.9.0 · TRUSTED · previous-goo")
             .performScrollTo().assertIsDisplayedCompat()
     }
 
