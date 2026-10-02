@@ -64,10 +64,16 @@ internal class FileExtensionSourceRepository(
 
     override suspend fun loadInstalled(key: ExtensionSelectionKey): VerifiedExtensionPackage? = withContext(Dispatchers.IO) {
         if (sources.value.usableExtension(key) == null || synchronized(monitor) { key.sourceId in lifecycleIntents }) return@withContext null
+        val lifecycle = registry.find(key.sourceId)?.takeIf { it.enabled && !it.removed } ?: return@withContext null
         val store = synchronized(monitor) { stores[key.sourceId] } ?: return@withContext null
         val installed = store.loadUsableExtension(key.extensionId)?.takeIf {
             it.extensionId.value == key.extensionId && it.providerId.value == key.providerId && it.publisherId == key.publisherId
         }
+        // Verification can take time; a disable/removal intent or disable-reenable ABA
+        // during that read must not hand a package to a new dispatch.
+        if (synchronized(monitor) { key.sourceId in lifecycleIntents } ||
+            registry.find(key.sourceId)?.let { !it.enabled || it.removed || it.epoch != lifecycle.epoch } != false)
+            return@withContext null
         val shown = sources.value.usableExtension(key)
         if (shown?.installedDigest != installed?.packageDigest || shown?.packageGeneration != installed?.packageGeneration) publish()
         installed
