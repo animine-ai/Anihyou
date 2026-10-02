@@ -254,6 +254,15 @@
     <string name="notes">Notes</string>
     <string name="calendar">Calendar</string>
     <string name="jump_to_today">Today</string>
+    <string name="postponements">Schedule changes</string>
+    <string name="postponements_empty">No schedule changes from the active extension.</string>
+    <string name="postponements_last_updated">Last updated: %1$s</string>
+    <string name="postponements_season">S%1$d</string>
+    <string name="postponements_episode">E%1$s</string>
+    <string name="postponements_track_unknown">Track unknown</string>
+    <string name="postponements_postponed">Postponed</string>
+    <string name="postponements_rescheduled">Rescheduled</string>
+    <string name="postponements_cancelled">Cancelled</string>
     <string name="monday">Monday</string>
     <string name="tuesday">Tuesday</string>
     <string name="wednesday">Wednesday</string>
