@@ -246,6 +246,80 @@ class FileExtensionSourceRepositoryTest {
     }
 
     @Test
+    fun `runtime rejection is classified before package download`() = runBlocking {
+        val rig = SourceRig()
+        val directory = temporaryFolder.newFolder("unsupported-runtime")
+        var repository = rig.repository(directory)
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+        rig.runtimeSupported = false
+        repository = rig.repository(directory)
+        repository.restoreInstalled()
+
+        repository.activate(id, EXTENSION_ID)
+
+        assertEquals(1, rig.transport.archiveRequests)
+        assertEquals(ExtensionSourceFailure.UNSUPPORTED_RUNTIME, repository.source(id).lastFailure)
+        assertEquals(ExtensionUpdateFailure.RUNTIME, repository.source(id).extensions.single().lastUpdateFailure)
+        assertEquals(OLD_DIGEST, rig.stores.last().snapshot().generations.getValue(EXTENSION_ID).knownGood?.digest)
+        assertEquals(1L, rig.stores.last().snapshot().releaseHigh[EXTENSION_ID])
+        assertTrue(rig.stores.last().snapshot().quarantinedDigests.isEmpty())
+    }
+
+    @Test
+    fun `pre-activation failure is classified without replacing the installed package`() = runBlocking {
+        val rig = SourceRig()
+        val repository = rig.repository(temporaryFolder.newFolder("activation-failure"))
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+        rig.failBeforeActive = true
+        repository.activate(id, EXTENSION_ID)
+
+        val generation = rig.stores.last().snapshot().generations.getValue(EXTENSION_ID)
+        assertEquals(OLD_DIGEST, generation.active?.digest)
+        assertEquals(OLD_DIGEST, generation.knownGood?.digest)
+        assertEquals(1L, generation.packageGeneration)
+        assertEquals(1L, rig.stores.last().snapshot().releaseHigh[EXTENSION_ID])
+        assertEquals(ExtensionSourceFailure.INVALID_PACKAGE, repository.source(id).lastFailure)
+        assertEquals(ExtensionUpdateFailure.ACTIVATION, repository.source(id).extensions.single().lastUpdateFailure)
+        assertTrue(generation.active?.digest != NEW_DIGEST)
+        assertTrue(rig.stores.last().snapshot().quarantinedDigests.isEmpty())
+    }
+
+    @Test
+    fun `second update tap while first update is in smoke is dropped without an implicit retry`() = runBlocking {
+        val rig = SourceRig()
+        val repository = rig.repository(temporaryFolder.newFolder("deduplicate-update"))
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+        val gate = BlockingSmokeGate(sequence = 2L)
+        rig.blockingSmokeGate = gate
+
+        val first = async(Dispatchers.IO) { repository.activate(id, EXTENSION_ID) }
+        assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+        val duplicate = async(Dispatchers.IO) { repository.activate(id, EXTENSION_ID) }
+        withTimeout(5_000) { duplicate.await() }
+        assertEquals(2, rig.transport.archiveRequests)
+
+        gate.open()
+        first.await()
+        val generation = rig.stores.last().snapshot().generations.getValue(EXTENSION_ID)
+        assertEquals(NEW_DIGEST, generation.knownGood?.digest)
+        assertEquals(2L, generation.packageGeneration)
+        assertEquals(ExtensionUpdateState.UPDATED, rig.stores.last().snapshot().operations.getValue(EXTENSION_ID).state)
+        assertEquals(2, rig.transport.archiveRequests)
+    }
+
+    @Test
     fun `explicit rollback preserves preferences and published generation across restart`() = runBlocking {
         val directory = temporaryFolder.newFolder("rollback-restart-preferences")
         val rig = SourceRig()
@@ -293,6 +367,53 @@ class FileExtensionSourceRepositoryTest {
     }
 
     @Test
+    fun `restore recovers interrupted candidate to published LKG without downloading`() = runBlocking {
+        val directory = temporaryFolder.newFolder("restore-interrupted-update")
+        val rig = SourceRig()
+        val repository = rig.repository(directory)
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val extension = repository.source(id).extensions.single()
+        val key = ExtensionSelectionKey(id, EXTENSION_ID, extension.publisherId, extension.providerId)
+        val preferences = ExtensionPreferences(setOf("DE_SUB"), listOf("DE_SUB"), listOf("de"))
+        repository.productPolicy.setPreferences(key, preferences)
+        repository.productPolicy.selectActiveSource(key)
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+
+        val store = rig.stores.last()
+        store.beginOperation(EXTENSION_ID, ExtensionUpdateState.CHECKING, NEW_DIGEST, FIXED_NOW)
+        val candidate = File(directory, "interrupted-v2.arex").apply {
+            writeBytes(decodeArchive("fixture-v2.arex.b64"))
+        }
+        store.install(candidate, EXTENSION_ID, FIXED_NOW)
+        candidate.delete()
+        val pending = store.snapshot().generations.getValue(EXTENSION_ID)
+        assertEquals(NEW_DIGEST, pending.active?.digest)
+        assertEquals(OLD_DIGEST, pending.knownGood?.digest)
+        assertEquals(1L, pending.packageGeneration)
+        assertEquals(2L, pending.journalRevision)
+        assertEquals(OLD_DIGEST, repository.loadInstalled(key)?.packageDigest)
+
+        val restarted = rig.repository(directory)
+        restarted.restoreInstalled()
+        val recovered = rig.stores.last().snapshot()
+        val generation = recovered.generations.getValue(EXTENSION_ID)
+        assertEquals(OLD_DIGEST, generation.active?.digest)
+        assertEquals(OLD_DIGEST, generation.knownGood?.digest)
+        assertEquals(3L, generation.packageGeneration)
+        assertEquals(3L, generation.journalRevision)
+        assertEquals(2L, recovered.releaseHigh[EXTENSION_ID])
+        assertTrue(NEW_DIGEST in recovered.quarantinedDigests)
+        assertEquals(ExtensionUpdateState.ROLLED_BACK, recovered.operations.getValue(EXTENSION_ID).state)
+        assertEquals("AUTOMATIC_SAFE_RECOVERY", recovered.operations.getValue(EXTENSION_ID).technicalCode)
+        assertEquals(OLD_DIGEST, restarted.loadInstalled(key)?.packageDigest)
+        assertEquals(preferences, restarted.productPolicy.policy.value.preferencesFor(key))
+        assertEquals(1, rig.transport.archiveRequests)
+    }
+
+    @Test
     fun `offline refresh retains trusted installed selection and preferences`() = runBlocking {
         val directory = temporaryFolder.newFolder("offline-known-good")
         val rig = SourceRig()
@@ -325,6 +446,220 @@ class FileExtensionSourceRepositoryTest {
         assertEquals(preferences, restarted.productPolicy.policy.value.preferencesFor(key))
         assertEquals(OLD_DIGEST, restarted.loadInstalled(key)?.packageDigest)
         assertEquals(1, rig.transport.archiveRequests)
+    }
+
+    @Test
+    fun `package removal fences an update blocked at verified smoke`() = runBlocking {
+        val directory = temporaryFolder.newFolder("package-remove-during-update")
+        val rig = SourceRig()
+        val repository = rig.repository(directory)
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val extension = repository.source(id).extensions.single()
+        val key = ExtensionSelectionKey(id, extension.extensionId, extension.publisherId, extension.providerId)
+        val preferences = ExtensionPreferences(setOf("DE_SUB"), listOf("DE_SUB"), listOf("de"))
+        repository.productPolicy.setPreferences(key, preferences)
+        repository.productPolicy.selectActiveSource(key)
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+        val gate = SmokeCancellationGate(sequence = 2L)
+        rig.smokeGate = gate
+
+        val update = async(Dispatchers.IO) { repository.activate(id, EXTENSION_ID) }
+        assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+        val removal = async(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
+            repository.removeExtension(id, EXTENSION_ID)
+        }
+        try {
+            update.await()
+            throw AssertionError("the package-removal intent must cancel the pending activation")
+        } catch (_: CancellationException) { }
+        removal.await()
+
+        val snapshot = rig.stores.last().snapshot()
+        assertFalse(EXTENSION_ID in snapshot.generations)
+        assertEquals(1L, snapshot.releaseHigh[EXTENSION_ID])
+        assertTrue(snapshot.quarantinedDigests.isEmpty())
+        assertNull(repository.loadInstalled(key))
+        assertNull(repository.productPolicy.policy.value.activeReleaseSource)
+        assertEquals(preferences, repository.productPolicy.policy.value.preferencesFor(key))
+        assertNull(repository.source(id).extensions.single().installedDigest)
+        assertEquals(2, rig.transport.archiveRequests)
+    }
+
+    @Test
+    fun `source removal fences a racing update while retaining the prior installed journal`() = runBlocking {
+        val directory = temporaryFolder.newFolder("source-remove-during-update")
+        val rig = SourceRig()
+        val repository = rig.repository(directory)
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+        val gate = SmokeCancellationGate(sequence = 2L)
+        rig.smokeGate = gate
+
+        val update = async(Dispatchers.IO) { repository.activate(id, EXTENSION_ID) }
+        assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+        val removal = async(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) { repository.remove(id) }
+        try {
+            update.await()
+            throw AssertionError("the source-removal intent must cancel the pending activation")
+        } catch (_: CancellationException) { }
+        removal.await()
+
+        val snapshot = rig.stores.last().snapshot()
+        val generation = snapshot.generations.getValue(EXTENSION_ID)
+        assertEquals(OLD_DIGEST, generation.active?.digest)
+        assertEquals(OLD_DIGEST, generation.knownGood?.digest)
+        assertEquals(1L, generation.packageGeneration)
+        assertEquals(1L, snapshot.releaseHigh[EXTENSION_ID])
+        assertTrue(repository.sources.value.none { it.id == id })
+        assertEquals(2, rig.transport.archiveRequests)
+    }
+
+    @Test
+    fun `rollback cancellation during smoke preserves current generation without quarantining target`() = runBlocking {
+        val rig = SourceRig()
+        val repository = rig.repository(temporaryFolder.newFolder("cancel-repo-rollback"))
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val current = repository.source(id).extensions.single()
+        assertEquals(NEW_DIGEST, current.installedDigest)
+        val generationBefore = current.packageGeneration
+        val gate = SmokeCancellationGate(sequence = 1L)
+        rig.smokeGate = gate
+
+        val rollback = launch(Dispatchers.IO) {
+            repository.rollback(id, EXTENSION_ID, generationBefore, OLD_DIGEST)
+        }
+        assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+        rollback.cancel()
+        rollback.join()
+
+        val snapshot = rig.stores.last().snapshot()
+        val generation = snapshot.generations.getValue(EXTENSION_ID)
+        assertEquals(NEW_DIGEST, generation.active?.digest)
+        assertEquals(NEW_DIGEST, generation.knownGood?.digest)
+        assertEquals(generationBefore, generation.packageGeneration)
+        assertEquals(2L, snapshot.releaseHigh[EXTENSION_ID])
+        assertTrue(OLD_DIGEST !in snapshot.quarantinedDigests)
+        assertEquals(ExtensionUpdateState.UPDATE_FAILED, snapshot.operations.getValue(EXTENSION_ID).state)
+        assertEquals(ExtensionUpdateFailure.CANCELLED, snapshot.operations.getValue(EXTENSION_ID).failure)
+        assertEquals(NEW_DIGEST, repository.loadInstalled(ExtensionSelectionKey(id, EXTENSION_ID,
+            "fixture.publisher", "fixture"))?.packageDigest)
+    }
+
+    @Test
+    fun `switching selected release source during update preserves identity and current selection`() = runBlocking {
+        val rig = SourceRig()
+        val repository = rig.repository(temporaryFolder.newFolder("switch-during-update"))
+        val firstId = repository.addSource()
+        repository.refresh(firstId)
+        repository.activate(firstId, EXTENSION_ID)
+        val firstExtension = repository.source(firstId).extensions.single()
+        val firstKey = ExtensionSelectionKey(firstId, EXTENSION_ID,
+            firstExtension.publisherId, firstExtension.providerId)
+
+        val secondId = (repository.add(SECOND_SOURCE_URL) as AddExtensionSourceResult.Added).sourceId
+        repository.refresh(secondId)
+        repository.activate(secondId, EXTENSION_ID)
+        val secondExtension = repository.source(secondId).extensions.single()
+        val secondKey = ExtensionSelectionKey(secondId, EXTENSION_ID,
+            secondExtension.publisherId, secondExtension.providerId)
+        repository.productPolicy.setPreferences(firstKey,
+            ExtensionPreferences(setOf("DE_DUB"), listOf("DE_DUB"), listOf("de")))
+        repository.productPolicy.selectActiveSource(firstKey)
+
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(firstId)
+        val gate = BlockingSmokeGate(sequence = 2L)
+        rig.blockingSmokeGate = gate
+        val update = async(Dispatchers.IO) { repository.activate(firstId, EXTENSION_ID) }
+        assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+
+        repository.productPolicy.selectActiveSource(secondKey)
+        assertEquals(3, rig.transport.archiveRequests)
+
+        gate.open()
+        update.await()
+
+        assertEquals(secondKey, repository.productPolicy.policy.value.activeReleaseSource)
+        assertEquals(NEW_DIGEST, repository.source(firstId).extensions.single().installedDigest)
+        assertEquals(OLD_DIGEST, repository.source(secondId).extensions.single().installedDigest)
+        assertEquals(ExtensionUpdateState.UPDATED, rig.stores.first().snapshot().operations.getValue(EXTENSION_ID).state)
+        assertNull(rig.stores.first().snapshot().operations.getValue(EXTENSION_ID).failure)
+        assertEquals(3, rig.transport.archiveRequests)
+    }
+
+    @Test
+    fun `rollback tap during update is rejected as busy and never retries after promotion`() = runBlocking {
+        val rig = SourceRig()
+        val repository = rig.repository(temporaryFolder.newFolder("rollback-tap-during-update"))
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+        val gate = BlockingSmokeGate(sequence = 2L)
+        rig.blockingSmokeGate = gate
+
+        val update = async(Dispatchers.IO) { repository.activate(id, EXTENSION_ID) }
+        assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+        val rollback = async(Dispatchers.IO) {
+            // The later generation is the one an overlapping confirmation would name.
+            repository.rollback(id, EXTENSION_ID, expectedGeneration = 2L, targetDigest = OLD_DIGEST)
+        }
+        try {
+            withTimeout(5_000) { rollback.await() }
+        } finally {
+            gate.open()
+        }
+        update.await()
+
+        val generation = rig.stores.last().snapshot().generations.getValue(EXTENSION_ID)
+        assertEquals(NEW_DIGEST, generation.active?.digest)
+        assertEquals(NEW_DIGEST, generation.knownGood?.digest)
+        assertEquals(2L, generation.packageGeneration)
+        assertEquals(ExtensionUpdateState.UPDATED, rig.stores.last().snapshot().operations.getValue(EXTENSION_ID).state)
+        assertEquals(2, rig.transport.archiveRequests)
+    }
+
+    @Test
+    fun `package lifecycle intent fences load that finishes verification after removal starts`() = runBlocking {
+        val directory = temporaryFolder.newFolder("load-fenced-by-package-removal")
+        val rig = SourceRig()
+        val repository = rig.repository(directory)
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val extension = repository.source(id).extensions.single()
+        val key = ExtensionSelectionKey(id, EXTENSION_ID, extension.publisherId, extension.providerId)
+        repository.productPolicy.selectActiveSource(key)
+        val gate = VerificationGate()
+        rig.verificationGate = gate
+
+        val loading = async(Dispatchers.IO) { repository.loadInstalled(key) }
+        assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+        val removal = async(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
+            repository.removeExtension(id, EXTENSION_ID)
+        }
+        withTimeout(5_000) {
+            while (repository.productPolicy.policy.value.activeReleaseSource != null) yield()
+        }
+        gate.open()
+
+        assertNull(loading.await())
+        removal.await()
+        assertNull(repository.productPolicy.policy.value.activeReleaseSource)
+        assertFalse(EXTENSION_ID in rig.stores.last().snapshot().generations)
+        assertEquals(1L, rig.stores.last().snapshot().releaseHigh[EXTENSION_ID])
     }
 
     @Test
@@ -517,7 +852,10 @@ class FileExtensionSourceRepositoryTest {
     private fun FileExtensionSourceRepository.source(id: String): ExtensionSource =
         sources.value.single { it.id == id }
 
-    private class SourceRig(anchor: AuthenticatedExtensionSourceAnchor? = TEST_ANCHOR) {
+    private class SourceRig(
+        anchor: AuthenticatedExtensionSourceAnchor? = TEST_ANCHOR,
+        initialRuntimeSupported: Boolean = true,
+    ) {
         val transport = FixtureTransport()
         val bootstrap = CountingBootstrap(anchor)
         val scheduler = CountingScheduler()
@@ -525,6 +863,10 @@ class FileExtensionSourceRepositoryTest {
         val smokeCalls = AtomicInteger()
         val failedSmokeSequences = ConcurrentHashMap.newKeySet<Long>()
         @Volatile var smokeGate: SmokeCancellationGate? = null
+        @Volatile var blockingSmokeGate: BlockingSmokeGate? = null
+        @Volatile var verificationGate: VerificationGate? = null
+        @Volatile var failBeforeActive = false
+        @Volatile var runtimeSupported = initialRuntimeSupported
 
         fun repository(directory: File): FileExtensionSourceRepository = FileExtensionSourceRepository(
             directory = directory,
@@ -534,14 +876,23 @@ class FileExtensionSourceRepositoryTest {
                 val store = ExtensionInstallStore(
                     directory = storeDirectory,
                     pin = authenticated.pin,
-                    verifier = ExtensionPackageVerifier(StrictWasmModuleProfileVerifier()),
+                    verifier = ExtensionPackageVerifier(WasmCoreModuleProfileVerifier { module, navigation ->
+                        verificationGate?.await()
+                        StrictWasmModuleProfileVerifier().verify(module, navigation)
+                    }),
                     hostRoles = setOf(SourceRole.CALENDAR),
                     hostHosts = authenticated.allowedHosts,
                     policyVersion = 1,
                     runtimeVersion = "test-wasmtime-profile",
+                    failure = InstallFailureHook { boundary ->
+                        if (failBeforeActive && boundary == InstallBoundary.BEFORE_ACTIVE) {
+                            error("injected activation boundary failure")
+                        }
+                    },
                     smoke = { extension ->
                         smokeCalls.incrementAndGet()
                         smokeGate?.takeIf { it.sequence == extension.releaseSequence }?.awaitCancellation()
+                        blockingSmokeGate?.takeIf { it.sequence == extension.releaseSequence }?.await()
                         if (extension.releaseSequence in failedSmokeSequences) {
                             error("injected smoke failure for release ${extension.releaseSequence}")
                         }
@@ -552,7 +903,7 @@ class FileExtensionSourceRepositoryTest {
             },
             scheduler = scheduler,
             clock = FIXED_CLOCK,
-            runtimeSupported = true,
+            runtimeSupported = runtimeSupported,
         )
     }
 
@@ -582,9 +933,9 @@ class FileExtensionSourceRepositoryTest {
         override suspend fun fetch(url: String, allowedOrigins: Set<String>, maxBytes: Int): ByteArray {
             urls += url
             if (offline) throw IOException("fixture transport offline")
-            val content = when (url) {
-                "$SOURCE_URL/root.json" -> rootBytes
-                "$SOURCE_URL/index.json" -> {
+            val content = when {
+                url.endsWith("/root.json") -> rootBytes
+                url.endsWith("/index.json") -> {
                     val gate = indexGate
                     if (gate != null) {
                         indexGate = null
@@ -592,8 +943,8 @@ class FileExtensionSourceRepositoryTest {
                     }
                     indexBytes
                 }
-                OLD_PACKAGE_URL -> archiveOverrides[url] ?: decodeArchive("fixture.arex.b64")
-                NEW_PACKAGE_URL -> archiveOverrides[url] ?: decodeArchive("fixture-v2.arex.b64")
+                url == OLD_PACKAGE_URL -> archiveOverrides[url] ?: decodeArchive("fixture.arex.b64")
+                url == NEW_PACKAGE_URL -> archiveOverrides[url] ?: decodeArchive("fixture-v2.arex.b64")
                 else -> throw AssertionError("unexpected repository fetch: $url")
             }
             assertTrue("response exceeds declared request cap", content.size <= maxBytes)
@@ -628,8 +979,33 @@ class FileExtensionSourceRepositoryTest {
         }
     }
 
+    private class BlockingSmokeGate(val sequence: Long) {
+        val entered = CountDownLatch(1)
+        private val release = CountDownLatch(1)
+
+        fun await() {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS)) { "test did not release blocked smoke" }
+        }
+
+        fun open() { release.countDown() }
+    }
+
+    private class VerificationGate {
+        val entered = CountDownLatch(1)
+        private val release = CountDownLatch(1)
+
+        fun await() {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS)) { "test did not release package verification" }
+        }
+
+        fun open() { release.countDown() }
+    }
+
     private companion object {
         const val SOURCE_URL = "https://packages.example.org/repository"
+        const val SECOND_SOURCE_URL = "https://packages.example.org/repository-alt"
         const val EXTENSION_ID = "fixture.release"
         const val OLD_DIGEST = "86a42b6f6445e3c00240b3d0ede218d25746565c2b04403ff28dc3f783c21afa"
         const val NEW_DIGEST = "8484aeb49082742ff6d9aaf32dcdcbc856dd8d311308400902afea2d357813bf"
