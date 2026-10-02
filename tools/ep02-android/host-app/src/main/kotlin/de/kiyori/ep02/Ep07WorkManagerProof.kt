@@ -46,7 +46,8 @@ internal object Ep07WorkManagerProof {
         manager = WorkManager.getInstance(context)
     }
 
-    suspend fun due(context: Context, actual: ExtensionReleaseRefreshCoordinator, twice: Boolean = false): ShadowRefreshOutcome {
+    suspend fun due(context: Context, actual: ExtensionReleaseRefreshCoordinator, twice: Boolean = false,
+        leavePeriodicForRestart: Boolean = false): ShadowRefreshOutcome {
         if (Build.VERSION.SDK_INT >= 26) {
             val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
@@ -54,11 +55,11 @@ internal object Ep07WorkManagerProof {
                 "hermetic network must be Android-validated before product WorkManager scheduling: $capabilities"
             }
         }
+        coordinator = actual
         initialize(context)
         withContext(Dispatchers.IO) {
             manager.cancelAllWorkByTag(WorkManagerExtensionReleaseRefreshScheduler.TAG).result.get(10, TimeUnit.SECONDS)
         }
-        coordinator = actual
         lastOutcome = null
         val before = completions.get()
         val scheduler = WorkManagerExtensionReleaseRefreshScheduler(manager)
@@ -72,10 +73,29 @@ internal object Ep07WorkManagerProof {
                     .get(10, TimeUnit.SECONDS).any { !it.state.isFinished }
             }) delay(100)
         }
-        scheduler.cancel()
-        withContext(Dispatchers.IO) {
-            manager.cancelAllWorkByTag(WorkManagerExtensionReleaseRefreshScheduler.TAG).result.get(10, TimeUnit.SECONDS)
+        if (!leavePeriodicForRestart) {
+            scheduler.cancel()
+            withContext(Dispatchers.IO) {
+                manager.cancelAllWorkByTag(WorkManagerExtensionReleaseRefreshScheduler.TAG).result.get(10, TimeUnit.SECONDS)
+            }
         }
         return requireNotNull(lastOutcome)
+    }
+
+    suspend fun retainedPeriodicId(): String = withContext(Dispatchers.IO) {
+        manager.getWorkInfosForUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.PERIODIC)
+            .get(10, TimeUnit.SECONDS).single { !it.state.isFinished }.id.toString()
+    }
+
+    suspend fun verifyRetainedPeriodic(context: Context, actual: ExtensionReleaseRefreshCoordinator, id: String) {
+        coordinator = actual
+        initialize(context)
+        val retained = withContext(Dispatchers.IO) {
+            manager.getWorkInfoById(java.util.UUID.fromString(id)).get(10, TimeUnit.SECONDS)
+        }
+        check(retained != null && !retained.state.isFinished &&
+            WorkManagerExtensionReleaseRefreshScheduler.TAG in retained.tags) {
+            "scheduled product periodic work did not survive the external process kill: $retained"
+        }
     }
 }

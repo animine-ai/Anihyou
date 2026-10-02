@@ -467,8 +467,10 @@ internal object Ep06SingleSourceWorkerProof {
                 row.forecastAt != old.forecastAt && row.revision > old.revision } })
             check(receipt.state.value.packageDigest == packageInfo.packageDigest &&
                 receipt.state.value.packageGeneration == packageInfo.packageGeneration)
-            check(staleCoordinator.refresh("ep07-product-fresh-again", false) == ShadowRefreshOutcome.Skipped("extension-data-fresh"))
+            check(Ep07WorkManagerProof.due(context, staleCoordinator, leavePeriodicForRestart = true) ==
+                ShadowRefreshOutcome.Skipped("extension-data-fresh"))
             val restartMarker = JSONObject().put("seedPid", Process.myPid())
+                .put("periodicWorkId", Ep07WorkManagerProof.retainedPeriodicId())
                 .put("databaseName", databaseName).put("navigationDirectory", navigationDirectory.name)
                 .put("policyDirectory", policyDirectory.name).put("mappingKey", subject.stableKey)
                 .put("mappingId", MEDIA_ID.toString()).put("proofNow", staleClock.instant().toString())
@@ -487,6 +489,7 @@ internal object Ep06SingleSourceWorkerProof {
                 .put("twoStartupChecksSkipWithoutFullRefresh", true).put("rowsVisibleDuringWorkManagerRefresh", true)
                 .put("newCalendarRowAdded", true).put("changedCalendarRowRevisionApplied", true)
                 .put("persistedDatesReachProductCalendar", true).put("calendarEventKeysRetainedAcrossCommit", true)
+                .put("periodicWorkDurableBeforeKill", true)
                 .put("processKillProof", false)
         } finally { reopened.close() }
     }

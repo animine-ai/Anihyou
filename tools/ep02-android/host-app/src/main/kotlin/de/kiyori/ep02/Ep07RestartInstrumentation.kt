@@ -86,6 +86,7 @@ class Ep07RestartInstrumentation : Instrumentation() {
             // The prior stale proof advanced its controlled clock by two hours; keep that clock domain.
             val clock = Clock.fixed(Instant.parse(marker.getString("proofNow")), ZoneOffset.UTC)
             val coordinator = ProductionExtensionReleaseRefreshCoordinator(sources, policy, installed, receipt, delegate, clock)
+            Ep07WorkManagerProof.verifyRetainedPeriodic(context, coordinator, marker.getString("periodicWorkId"))
             val outcome = Ep07WorkManagerProof.due(context, coordinator, twice = true)
             check(outcome == ShadowRefreshOutcome.Skipped("extension-data-fresh") && delegateCalls == 0)
             check(database.reconciliationDao().projectionPage(256, 0) == rows)
@@ -95,6 +96,7 @@ class Ep07RestartInstrumentation : Instrumentation() {
                 .put("mappingAvailableBeforeRefresh", true).put("signedPackageReverified", true)
                 .put("productCalendarDatesAvailableBeforeRefresh", true)
                 .put("actualProductWorkManagerWorker", true).put("freshSkipsNetworkAndRuntime", true)
+                .put("periodicWorkSurvivedProcessKill", true).put("retainedPeriodicWorkId", marker.getString("periodicWorkId"))
                 .put("processKillProof", true)
         } finally { database.close() }
     }

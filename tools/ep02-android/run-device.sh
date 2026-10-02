@@ -210,6 +210,7 @@ assert data['productionWorkManagerDeviceProof'] is True and data['processKillPro
 assert data['twoStartupChecksSkipWithoutFullRefresh'] is True and data['rowsVisibleDuringWorkManagerRefresh'] is True, data
 assert data['newCalendarRowAdded'] is True and data['changedCalendarRowRevisionApplied'] is True, data
 assert data['persistedDatesReachProductCalendar'] is True and data['calendarEventKeysRetainedAcrossCommit'] is True, data
+assert data['periodicWorkDurableBeforeKill'] is True, data
 p=report['performance']
 raw_attempts=p.get('attempts',[])
 (root/'performance-raw.json').write_text(json.dumps(raw_attempts,indent=2)+'\n')
@@ -281,7 +282,7 @@ assert str(restart['seedPid']) == (root/'force-stopped-seed-pid.txt').read_text(
 assert all(restart[key] is True for key in [
     'persistedRowsReadBeforeScheduling','mappingAvailableBeforeRefresh','signedPackageReverified',
     'actualProductWorkManagerWorker','freshSkipsNetworkAndRuntime','processKillProof',
-    'productCalendarDatesAvailableBeforeRefresh'
+    'productCalendarDatesAvailableBeforeRefresh','periodicWorkSurvivedProcessKill'
 ]), restart
 assert 'EP07_RESTART_PASS' in text and 'INSTRUMENTATION_CODE: -1' in text, text
 (root/'restart-report.json').write_text(json.dumps(restart,indent=2)+'\n')
