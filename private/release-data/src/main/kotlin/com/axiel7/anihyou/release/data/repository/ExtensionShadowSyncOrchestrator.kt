@@ -141,7 +141,24 @@ class ExtensionShadowSyncOrchestrator(
                         generations.abort(lease, "stale-active-source", clock.instant())
                         ShadowRefreshOutcome.Failed("stale-generation-token", retryable = false)
                     } else {
-                        ShadowRefreshOutcome.Committed(lease.cycleId, cycle)
+                        val successfulPresentationRoles = setOf(SourceRole.POSTPONEMENT).filterTo(mutableSetOf()) { role ->
+                            val requestIds = result.requestRoles.filterValues { it == role }.keys
+                            requestIds.isNotEmpty() && requestIds.all { requestId ->
+                                result.responseProvenance.any {
+                                    it.requestId == requestId && it.httpStatus in 200..299
+                                } && result.reports.singleOrNull {
+                                    it.requestId == requestId
+                                }?.outcome == ExtensionReportOutcome.SUCCESS
+                            }
+                        }
+                        ShadowRefreshOutcome.Committed(
+                            generationId = lease.cycleId,
+                            cycle = cycle,
+                            presentationObservations = result.observations.filter {
+                                it.sourceRole in successfulPresentationRoles
+                            },
+                            successfulPresentationRoles = successfulPresentationRoles,
+                        )
                     }
                 }
             }
