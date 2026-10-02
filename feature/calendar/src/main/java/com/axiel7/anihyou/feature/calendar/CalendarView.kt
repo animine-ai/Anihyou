@@ -39,11 +39,9 @@ import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,7 +67,6 @@ import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.core.ui.composables.common.ErrorDialogHandler
 import com.axiel7.anihyou.core.ui.composables.common.IconButtonWithMenu
 import com.axiel7.anihyou.core.ui.composables.list.OnBottomReached
-import com.axiel7.anihyou.core.ui.composables.list.rememberIsScrollingUp
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_SMALL_WIDTH
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemVertical
 import com.axiel7.anihyou.core.ui.composables.media.ReleaseCalendarScheduleText
@@ -126,8 +123,6 @@ private fun CalendarViewContent(
 
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
-    val isScrollingUp by rememberIsScrollingUp(listState, gridState)
-    var firstItemIndex by rememberSaveable { mutableIntStateOf(0) }
 
     fun showEditSheetAction() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -153,10 +148,6 @@ private fun CalendarViewContent(
         )
     }
 
-    LaunchedEffect(uiState.todayFirstItemIndex) {
-        if (uiState.todayFirstItemIndex > 0) firstItemIndex = uiState.todayFirstItemIndex
-    }
-
     DefaultScaffoldWithSmallTopAppBar(
         title = stringResource(R.string.calendar),
         modifier = modifier,
@@ -170,24 +161,28 @@ private fun CalendarViewContent(
         snackbarHost = snackbarManager::SnackbarHost,
         scrollBehavior = topAppBarScrollBehavior,
         floatingActionButton = {
+            val isAwayFromToday = uiState.todayAnchorReady && when (uiState.listStyle) {
+                ListStyle.GRID -> gridState.firstVisibleItemIndex != uiState.todayFirstItemIndex
+                else -> listState.firstVisibleItemIndex != uiState.todayFirstItemIndex
+            }
             FloatingActionButton(
                 onClick = {
                     scope.launch {
                         if (uiState.listStyle == ListStyle.GRID) {
-                            gridState.animateScrollToItem(firstItemIndex, 500)
+                            gridState.animateScrollToItem(uiState.todayFirstItemIndex, 500)
                         } else {
-                            listState.animateScrollToItem(firstItemIndex, 500)
+                            listState.animateScrollToItem(uiState.todayFirstItemIndex, 500)
                         }
                     }
                 },
                 modifier = Modifier.animateFloatingActionButton(
-                    visible = isScrollingUp,
+                    visible = isAwayFromToday,
                     alignment = Alignment.BottomEnd
                 )
             ) {
                 Icon(
-                    painter = painterResource(R.drawable.arrow_upward_24),
-                    contentDescription = stringResource(R.string.move_to_top)
+                    painter = painterResource(R.drawable.calendar_today_24),
+                    contentDescription = stringResource(R.string.jump_to_today)
                 )
             }
         }
@@ -342,6 +337,17 @@ private data class CalendarRow(
     val releasePresentations: List<ReleaseUiCalendarItem>,
 )
 
+private fun CalendarRow.providerFallbackTitle(): String? =
+    releasePresentations.firstOrNull()?.stream?.stableSeriesKey?.value
+        ?.removePrefix("/anime/stream/")
+        ?.takeIf { it.isNotBlank() }
+        ?.replace('-', ' ')
+        ?.replace('_', ' ')
+        ?.split(' ')
+        ?.joinToString(" ") { part ->
+            part.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase() else char.toString() }
+        }
+
 private data class CalendarDay(
     val date: LocalDate,
     val rows: List<CalendarRow>,
@@ -413,8 +419,8 @@ private fun ListView(
     listState.OnBottomReached(buffer = 1, debounceDuration = 500.milliseconds) {
         event?.onLoadMore()
     }
-    LaunchedEffect(uiState.todayFirstItemIndex) {
-        if (uiState.todayFirstItemIndex > 0) {
+    LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex) {
+        if (uiState.todayAnchorReady && uiState.autoScrollToToday) {
             listState.animateScrollToItem(uiState.todayFirstItemIndex, 500)
             event?.onAutoScrolled()
         }
@@ -441,6 +447,7 @@ private fun ListView(
                 val item = row.media
                 CalendarAiringHorizontalItem(
                     title = item?.basicMediaDetails?.title?.userPreferred.orEmpty()
+                        .ifBlank { row.providerFallbackTitle().orEmpty() }
                         .ifBlank { stringResource(R.string.release_provider_only) },
                     subtitle = calendarSubtitle(row),
                     releasePresentations = row.releasePresentations,
@@ -462,7 +469,7 @@ private fun ListView(
                 )
             }
         }
-        if (uiState.isLoading) {
+        if (uiState.isLoading && uiState.presentationDays().isEmpty()) {
             item {
                 CalendarBannerPlaceholder(modifier = Modifier.padding(bottom = 8.dp))
             }
@@ -488,8 +495,8 @@ private fun GridView(
     gridState.OnBottomReached(buffer = 1, debounceDuration = 500.milliseconds) {
         event?.onLoadMore()
     }
-    LaunchedEffect(uiState.todayFirstItemIndex) {
-        if (uiState.todayFirstItemIndex > 0) {
+    LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex) {
+        if (uiState.todayAnchorReady && uiState.autoScrollToToday) {
             gridState.animateScrollToItem(uiState.todayFirstItemIndex, 500)
             event?.onAutoScrolled()
         }
@@ -519,6 +526,7 @@ private fun GridView(
                 val item = row.media
                 MediaItemVertical(
                     title = item?.basicMediaDetails?.title?.userPreferred.orEmpty()
+                        .ifBlank { row.providerFallbackTitle().orEmpty() }
                         .ifBlank { stringResource(R.string.release_provider_only) },
                     imageUrl = item?.coverImage?.large,
                     blurImage = blurAdult && item?.basicMediaDetails?.isAdult == true,
@@ -552,7 +560,7 @@ private fun GridView(
                 )
             }
         }
-        if (uiState.isLoading) {
+        if (uiState.isLoading && uiState.presentationDays().isEmpty()) {
             item {
                 CalendarBannerPlaceholder(modifier = Modifier.padding(bottom = 8.dp))
             }
