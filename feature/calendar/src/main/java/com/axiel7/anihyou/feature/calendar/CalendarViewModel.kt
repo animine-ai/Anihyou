@@ -125,6 +125,8 @@ class CalendarViewModel(
                 hasNextPage = true,
                 isLoading = true,
                 todayFirstItemIndex = 0,
+                todayAnchorReady = false,
+                autoScrollToToday = false,
             )
         }
     }
@@ -191,19 +193,21 @@ class CalendarViewModel(
     }
 
     override fun onAutoScrolled() {
-        //fix so the list doesn't get scrolled on recompositions
-        mutableUiState.update { it.copy(todayFirstItemIndex = -1) }
+        // Initial focus is one-shot; the Today index remains available for the FAB.
+        mutableUiState.update { it.copy(autoScrollToToday = false) }
     }
 
     init {
         mutableUiState
-            .map { it.day.toLocalDate() }
+            .map { state ->
+                maxOf(today.plusDays(14), state.day.toLocalDate().plusDays(14))
+            }
             .distinctUntilChanged()
-            .flatMapLatest { date ->
+            .flatMapLatest { endDate ->
                 myUserId.flatMapLatest { accountId ->
                     releasePresentationRepository.observeCalendar(
                         accountId = accountId.toLong(),
-                        range = date..date.plusDays(14),
+                        range = today.minusDays(14)..endDate,
                     )
                 }
             }
@@ -251,6 +255,8 @@ class CalendarViewModel(
                         weeklyAnime = mutableMapOf(),
                         day = nowLocalDateTime().minusDays(1),
                         todayFirstItemIndex = 0,
+                        todayAnchorReady = false,
+                        autoScrollToToday = true,
                         page = 1,
                         hasNextPage = true,
                         isLoading = true,
@@ -326,7 +332,7 @@ class CalendarViewModel(
     }
 
     private fun CalendarUiState.withTodayFirstItemIndex(): CalendarUiState {
-        if (todayFirstItemIndex == -1 || day.toLocalDate() < today) return this
+        if (day.toLocalDate() < today) return this
         val index = (weeklyAnime.keys + providerRowsByDate.keys + providerOnlyByDate.keys)
             .filter { it < today }
             .sumOf { date ->
@@ -338,7 +344,7 @@ class CalendarViewModel(
                 }
                 if (rowCount == 0) 0 else rowCount + 1 // the date header
             }
-        return copy(todayFirstItemIndex = index)
+        return copy(todayFirstItemIndex = index, todayAnchorReady = true)
     }
 
     private fun List<ReleaseUiCalendarItem>.providerRowsByDate(
