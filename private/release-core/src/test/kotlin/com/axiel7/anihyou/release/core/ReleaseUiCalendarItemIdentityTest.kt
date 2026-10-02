@@ -42,6 +42,19 @@ class ReleaseUiCalendarItemIdentityTest {
     }
 
     @Test
+    fun forecastConfirmationKeepsStableEventIdentity() {
+        val stream = ReleaseStreamKey(
+            providerId = ProviderId("aniworld"),
+            stableSeriesKey = SourceSeriesKey("/anime/stream/stable-series"),
+            releaseKind = ReleaseKind.EPISODE,
+            sourceSeason = 1,
+            languageTrack = LanguageTrack.DE_SUB,
+        )
+        val forecast = item(stream, Installment.Episode(4), mediaId = 7)
+        assertEquals(forecast.eventKey, forecast.copy(confirmed = true, revision = 9L).eventKey)
+    }
+
+    @Test
     fun BerlinSourceZoneHandlesUtcBoundaryAndDstCalendar() {
         val boundary = Instant.parse("2026-09-30T22:30:00Z")
         assertEquals(
