@@ -124,6 +124,19 @@ abstract class ReleaseDao {
         externalProvider: String,
     ): ExternalMappingEntity?
 
+    @Query(
+        """
+        SELECT * FROM v3_external_mapping
+        WHERE externalProvider = 'anilist'
+          AND mappingStatus = 'ACTIVE'
+          AND staleAt IS NULL
+          AND externalId IS NOT NULL
+          AND confidence IN ('EXACT', 'HIGH')
+        ORDER BY seriesStableKey, mappingSubjectKey
+        """,
+    )
+    abstract fun observeActiveAniListMappings(): Flow<List<ExternalMappingEntity>>
+
     @Query("DELETE FROM v3_external_mapping WHERE mappingSubjectKey = :mappingSubjectKey AND externalProvider = :externalProvider")
     abstract suspend fun deleteExternalMapping(
         mappingSubjectKey: String,
