@@ -2,6 +2,8 @@ package com.axiel7.anihyou.release.data.extension
 
 import com.axiel7.anihyou.release.core.extension.ProviderId
 import com.axiel7.anihyou.release.core.extension.SourceRole
+import com.axiel7.anihyou.release.core.source.ExtensionUpdateFailure
+import com.axiel7.anihyou.release.core.source.ExtensionUpdateState
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -23,6 +25,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -61,6 +64,7 @@ class ExtensionInstallStoreTest {
 
             val receipt = restarted.install(release.archive, EXTENSION, NOW)
             assertEquals(1L, receipt.sequence)
+            restarted.promoteHealthy(EXTENSION, NOW)
             assertNotNull(load(restarted))
             if (boundary == InstallBoundary.CONTENT_PLACED) {
                 assertTrue(File(directory, "content/${receipt.digest}.arex").isFile)
@@ -82,7 +86,10 @@ class ExtensionInstallStoreTest {
         assertCrash(InstallBoundary.AFTER_ACTIVE) { interrupted.install(release.archive, EXTENSION, NOW) }
 
         val restarted = fixture.store()
-        assertEquals(release.binding.archiveSha256, load(restarted)!!.packageDigest)
+        assertNull(load(restarted))
+        assertEquals(release.binding.archiveSha256,
+            restarted.snapshot().generations.getValue(EXTENSION).active?.digest)
+        assertEquals(1L, restarted.snapshot().releaseHigh.getValue(EXTENSION))
         assertRejected { restarted.install(release.archive, EXTENSION, NOW) }
     }
 
@@ -107,6 +114,7 @@ class ExtensionInstallStoreTest {
         // The failed candidates did not move the persisted high-water mark or poison the accepted index.
         val receipt = restarted.install(release.archive, EXTENSION, NOW)
         assertEquals(7L, receipt.indexSequence)
+        restarted.promoteHealthy(EXTENSION, NOW)
         assertEquals(release.binding.archiveSha256, load(fixture.store())!!.packageDigest)
     }
 
@@ -126,6 +134,7 @@ class ExtensionInstallStoreTest {
         store.promoteHealthy(EXTENSION, NOW)
         store.acceptIndex(fixture.index(3, listOf(third)).envelope, NOW)
         store.install(third.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
         for (sequence in 4L..25L) {
             store.acceptIndex(fixture.index(sequence, listOf(third),
                 issuedAt = NOW.minusSeconds(60 - sequence)).envelope, NOW)
@@ -156,6 +165,7 @@ class ExtensionInstallStoreTest {
         store.promoteHealthy(EXTENSION, NOW)
         store.acceptIndex(fixture.index(2, listOf(second)).envelope, NOW)
         store.install(second.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
         for (sequence in 3L..20L) store.acceptIndex(fixture.index(sequence, listOf(second),
             issuedAt = NOW.minusSeconds(60 - sequence)).envelope, NOW)
         store.acceptIndex(fixture.index(21, listOf(first.copy(revoked = true), second)).envelope, NOW)
@@ -217,6 +227,10 @@ class ExtensionInstallStoreTest {
         assertNull(store.quarantineAndRollback(NOW))
         assertNull(load(store))
         assertNull(load(fixture.store()))
+        val operation = fixture.store().snapshot().operations.getValue(EXTENSION)
+        assertEquals(ExtensionUpdateState.UPDATE_FAILED, operation.state)
+        assertEquals(ExtensionUpdateFailure.TRUST, operation.failure)
+        assertEquals("ACTIVE_PACKAGE_REJECTED", operation.technicalCode)
     }
 
     @Test
@@ -237,6 +251,12 @@ class ExtensionInstallStoreTest {
 
         assertEquals(release1.binding.archiveSha256, load(fixture.store())!!.packageDigest)
         assertEquals(release1.binding.archiveSha256, load(fixture.store())!!.packageDigest)
+        val recovered = fixture.store().snapshot()
+        assertEquals(ExtensionUpdateState.ROLLED_BACK, recovered.operations.getValue(EXTENSION).state)
+        assertNull(recovered.operations.getValue(EXTENSION).failure)
+        assertEquals("AUTOMATIC_SAFE_RECOVERY", recovered.operations.getValue(EXTENSION).technicalCode)
+        assertEquals(3L, recovered.generations.getValue(EXTENSION).packageGeneration)
+        assertEquals(3L, recovered.generations.getValue(EXTENSION).journalRevision)
         assertRejected { fixture.store().install(release2.archive, EXTENSION, NOW) }
     }
 
@@ -280,6 +300,9 @@ class ExtensionInstallStoreTest {
         fixture.initialize(store, fixture.index(1, listOf(first, other)))
         store.install(first.archive, EXTENSION, NOW)
         store.install(other.archive, OTHER_EXTENSION, NOW)
+
+        store.promoteHealthy(EXTENSION, NOW)
+        store.promoteHealthy(OTHER_EXTENSION, NOW)
 
         assertNull(load(fixture.store()))
         assertEquals(first.binding.archiveSha256, loadExtension(fixture.store(), EXTENSION)!!.packageDigest)
@@ -340,6 +363,260 @@ class ExtensionInstallStoreTest {
         assertEquals(mapOf(EXTENSION to 2L, OTHER_EXTENSION to 1L), snapshot.releaseHigh)
         assertTrue(update.binding.archiveSha256 in snapshot.quarantinedDigests)
         assertRejected { fixture.store().install(update.archive, EXTENSION, NOW) }
+    }
+
+    @Test
+    fun `explicit rollback uses verified previous good and keeps release high water monotonic`() {
+        val directory = temporaryFolder.newFolder("explicit-safe-rollback")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+        store.install(second.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+
+        val before = store.snapshot().generations.getValue(EXTENSION)
+        val target = store.safePreviousGood(EXTENSION, NOW)
+        assertEquals(first.binding.archiveSha256, target?.digest)
+        assertEquals(2L, before.packageGeneration)
+        assertEquals(2L, before.journalRevision)
+        assertRollbackRejected {
+            store.rollback(EXTENSION, before.packageGeneration - 1, first.binding.archiveSha256, NOW)
+        }
+        assertEquals(second.binding.archiveSha256, load(store)!!.packageDigest)
+
+        store.rollback(EXTENSION, before.packageGeneration, requireNotNull(target).digest, NOW)
+
+        val after = fixture.store().snapshot()
+        val generation = after.generations.getValue(EXTENSION)
+        assertEquals(first.binding.archiveSha256, generation.active?.digest)
+        assertEquals(first.binding.archiveSha256, generation.knownGood?.digest)
+        assertNull(generation.previousGood)
+        assertTrue(generation.rollbackUsed)
+        assertEquals(3L, generation.packageGeneration)
+        assertEquals(3L, generation.journalRevision)
+        assertEquals(2L, after.releaseHigh.getValue(EXTENSION))
+        assertTrue(after.quarantinedDigests.isEmpty())
+        assertNull(fixture.store().safePreviousGood(EXTENSION, NOW))
+        assertEquals(first.binding.archiveSha256, load(fixture.store())!!.packageDigest)
+        assertRollbackRejected {
+            fixture.store().rollback(EXTENSION, generation.packageGeneration, second.binding.archiveSha256, NOW)
+        }
+        assertRejected { fixture.store().install(second.archive, EXTENSION, NOW) }
+    }
+
+    @Test
+    fun `explicit rollback rejects revoked and yanked previous-good bindings`() {
+        for (unsafe in listOf("revoked", "yanked")) {
+            val directory = temporaryFolder.newFolder("unsafe-rollback-$unsafe")
+            val fixture = StoreFixture(directory)
+            val first = fixture.release(1)
+            val second = fixture.release(2)
+            val store = fixture.store()
+            fixture.initialize(store, fixture.index(1, listOf(first)))
+            store.install(first.archive, EXTENSION, NOW)
+            store.promoteHealthy(EXTENSION, NOW)
+            store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+            store.install(second.archive, EXTENSION, NOW)
+            store.promoteHealthy(EXTENSION, NOW)
+            val generation = store.snapshot().generations.getValue(EXTENSION)
+            val excluded = if (unsafe == "revoked") first.copy(revoked = true)
+                else first.copy(binding = first.binding.copy(yanked = true))
+            store.acceptIndex(fixture.index(3, listOf(excluded, second)).envelope, NOW)
+
+            assertNull(store.safePreviousGood(EXTENSION, NOW))
+            assertRollbackRejected {
+                store.rollback(EXTENSION, generation.packageGeneration, first.binding.archiveSha256, NOW)
+            }
+            val after = fixture.store().snapshot()
+            assertEquals(second.binding.archiveSha256, after.generations.getValue(EXTENSION).active?.digest)
+            assertEquals(generation.packageGeneration, after.generations.getValue(EXTENSION).packageGeneration)
+            assertEquals(2L, after.releaseHigh.getValue(EXTENSION))
+            assertEquals(second.binding.archiveSha256, load(fixture.store())!!.packageDigest)
+        }
+    }
+
+    @Test
+    fun `explicit rollback refuses previous good from another publisher`() {
+        val directory = temporaryFolder.newFolder("rollback-publisher-binding")
+        val fixture = StoreFixture(directory, alternatePublisherIdentity = EXTENSION to PROVIDER)
+        val first = fixture.release(1)
+        val second = fixture.release(2, publisherId = OTHER_PUBLISHER)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+        store.install(second.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        val generation = store.snapshot().generations.getValue(EXTENSION)
+
+        assertEquals(second.binding.archiveSha256, generation.active?.digest)
+        assertNull(store.safePreviousGood(EXTENSION, NOW))
+        assertRollbackRejected {
+            store.rollback(EXTENSION, generation.packageGeneration, first.binding.archiveSha256, NOW)
+        }
+        assertEquals(second.binding.archiveSha256,
+            fixture.store().snapshot().generations.getValue(EXTENSION).active?.digest)
+        assertEquals(2L, fixture.store().snapshot().releaseHigh.getValue(EXTENSION))
+    }
+
+    @Test
+    fun `failed rollback smoke quarantines only its target and keeps current package usable`() {
+        val directory = temporaryFolder.newFolder("rollback-smoke-quarantine")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+        store.install(second.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        val current = store.snapshot().generations.getValue(EXTENSION)
+        val rejecting = fixture.store(smoke = { error("rollback smoke rejected LKG") })
+
+        try {
+            rejecting.rollback(EXTENSION, current.packageGeneration, first.binding.archiveSha256, NOW)
+            throw AssertionError("smoke-rejected rollback target was activated")
+        } catch (_: ExtensionSmokeException) { }
+
+        val after = fixture.store().snapshot()
+        val generation = after.generations.getValue(EXTENSION)
+        assertEquals(second.binding.archiveSha256, generation.active?.digest)
+        assertEquals(second.binding.archiveSha256, generation.knownGood?.digest)
+        assertEquals(first.binding.archiveSha256, generation.previousGood?.digest)
+        assertEquals(current.packageGeneration, generation.packageGeneration)
+        assertEquals(current.journalRevision, generation.journalRevision)
+        assertEquals(2L, after.releaseHigh.getValue(EXTENSION))
+        assertTrue(first.binding.archiveSha256 in after.quarantinedDigests)
+        assertEquals(second.binding.archiveSha256, load(fixture.store())!!.packageDigest)
+        assertNull(fixture.store().safePreviousGood(EXTENSION, NOW))
+    }
+
+    @Test
+    fun `verified candidate smoke failure quarantines candidate and preserves published LKG`() {
+        val directory = temporaryFolder.newFolder("smoke-quarantine")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+        val rejecting = fixture.store(smoke = { error("verified update rejected by smoke") })
+
+        try {
+            rejecting.install(second.archive, EXTENSION, NOW)
+            throw AssertionError("smoke-rejected candidate was activated")
+        } catch (_: ExtensionSmokeException) { }
+
+        val after = fixture.store().snapshot()
+        assertEquals(first.binding.archiveSha256, after.generations.getValue(EXTENSION).active?.digest)
+        assertEquals(first.binding.archiveSha256, after.generations.getValue(EXTENSION).knownGood?.digest)
+        assertEquals(1L, after.generations.getValue(EXTENSION).packageGeneration)
+        assertEquals(1L, after.releaseHigh.getValue(EXTENSION))
+        assertTrue(second.binding.archiveSha256 in after.quarantinedDigests)
+        assertFalse(File(directory, "content/${second.binding.archiveSha256}.arex").exists())
+        assertEquals(first.binding.archiveSha256, load(fixture.store())!!.packageDigest)
+        assertRejected { fixture.store().install(second.archive, EXTENSION, NOW) }
+    }
+
+    @Test
+    fun `interrupted activation returns to published LKG and records automatic recovery`() {
+        val directory = temporaryFolder.newFolder("interrupted-update")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        var store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+        store.beginOperation(EXTENSION, ExtensionUpdateState.CHECKING, second.binding.archiveSha256, NOW)
+        store.install(second.archive, EXTENSION, NOW)
+        assertEquals(first.binding.archiveSha256, load(store)!!.packageDigest)
+        assertEquals(1L, store.snapshot().generations.getValue(EXTENSION).packageGeneration)
+        assertEquals(2L, store.snapshot().generations.getValue(EXTENSION).journalRevision)
+
+        store = fixture.store()
+        store.recoverInterrupted(NOW.plusSeconds(1))
+
+        val recovered = fixture.store().snapshot()
+        val generation = recovered.generations.getValue(EXTENSION)
+        val operation = recovered.operations.getValue(EXTENSION)
+        assertEquals(first.binding.archiveSha256, generation.active?.digest)
+        assertEquals(first.binding.archiveSha256, generation.knownGood?.digest)
+        assertEquals(3L, generation.packageGeneration)
+        assertEquals(3L, generation.journalRevision)
+        assertEquals(2L, recovered.releaseHigh.getValue(EXTENSION))
+        assertTrue(second.binding.archiveSha256 in recovered.quarantinedDigests)
+        assertEquals(ExtensionUpdateState.ROLLED_BACK, operation.state)
+        assertNull(operation.failure)
+        assertEquals("AUTOMATIC_SAFE_RECOVERY", operation.technicalCode)
+        assertEquals(first.binding.archiveSha256, load(fixture.store())!!.packageDigest)
+    }
+
+    @Test
+    fun `public package generation advances when rollback returns to an earlier digest`() {
+        val directory = temporaryFolder.newFolder("package-generation-aba")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        val generationA = store.snapshot().generations.getValue(EXTENSION).packageGeneration
+        store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+        store.install(second.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        val generationB = store.snapshot().generations.getValue(EXTENSION).packageGeneration
+        assertEquals(2L, generationB)
+
+        store.rollback(EXTENSION, generationB, first.binding.archiveSha256, NOW)
+        val after = fixture.store().snapshot()
+        assertEquals(first.binding.archiveSha256, after.generations.getValue(EXTENSION).active?.digest)
+        assertTrue(after.generations.getValue(EXTENSION).packageGeneration > generationB)
+        assertNotEquals(generationA, after.generations.getValue(EXTENSION).packageGeneration)
+        assertEquals(2L, after.releaseHigh.getValue(EXTENSION))
+    }
+
+    @Test
+    fun `rollback cancellation before activation keeps current package and target unquarantined`() {
+        val directory = temporaryFolder.newFolder("cancel-explicit-rollback")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+        store.install(second.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        val generation = store.snapshot().generations.getValue(EXTENSION)
+        val before = File(directory, "state.json").readBytes()
+
+        try {
+            store.rollback(EXTENSION, generation.packageGeneration, first.binding.archiveSha256, NOW) {
+                throw CancellationException("cancel before rollback activation")
+            }
+            throw AssertionError("cancelled rollback committed")
+        } catch (_: CancellationException) { }
+
+        org.junit.Assert.assertArrayEquals(before, File(directory, "state.json").readBytes())
+        val after = fixture.store().snapshot()
+        assertEquals(second.binding.archiveSha256, after.generations.getValue(EXTENSION).active?.digest)
+        assertEquals(generation.packageGeneration, after.generations.getValue(EXTENSION).packageGeneration)
+        assertTrue(first.binding.archiveSha256 !in after.quarantinedDigests)
+        assertEquals(second.binding.archiveSha256, load(fixture.store())!!.packageDigest)
     }
 
     @Test
@@ -462,7 +739,7 @@ class ExtensionInstallStoreTest {
 
         restarted.acceptIndex(latest.envelope, NOW.plusSeconds(30))
         val migrated = stateJson(directory)
-        assertEquals(3, (migrated["schemaVersion"] as JsonPrimitive).content.toInt())
+        assertEquals(4, (migrated["schemaVersion"] as JsonPrimitive).content.toInt())
         for (field in listOf("roots", "indexes", "indexHigh", "indexDigest", "releaseHigh", "revoked", "quarantine", "clock")) {
             assertEquals("preserved $field", legacy[field], migrated[field])
         }
@@ -507,7 +784,7 @@ class ExtensionInstallStoreTest {
         assertEquals(other.binding.archiveSha256, snapshot.generations.getValue(OTHER_EXTENSION).active!!.digest)
         assertTrue(snapshot.generations.values.all { it.rollbackUsed })
         assertNull(loadExtension(restarted, EXTENSION))
-        assertEquals(other.binding.archiveSha256, loadExtension(restarted, OTHER_EXTENSION)!!.packageDigest)
+        assertNull(loadExtension(restarted, OTHER_EXTENSION))
         assertRejected { restarted.quarantineAndRollback(NOW) }
     }
 
@@ -561,6 +838,7 @@ class ExtensionInstallStoreTest {
         assertTrue(File(directory, "content/${first.binding.archiveSha256}.arex").isFile)
         // Cached verified bytes are harmless until a later authorized activation commits.
         store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
         assertEquals(first.binding.archiveSha256, load(fixture.store())!!.packageDigest)
     }
 
@@ -604,6 +882,8 @@ class ExtensionInstallStoreTest {
         assertRejected { restarted.install(first.archive, EXTENSION, NOW) }
         restarted.install(first.archive, EXTENSION, NOW, reinstallRemoved = true)
         assertEquals(1L, restarted.snapshot().releaseHigh.getValue(EXTENSION))
+        assertNull(loadExtension(restarted, EXTENSION))
+        restarted.promoteHealthy(EXTENSION, NOW)
         assertEquals(first.binding.archiveSha256, loadExtension(restarted, EXTENSION)!!.packageDigest)
         assertRejected { restarted.install(first.archive, EXTENSION, NOW, reinstallRemoved = true) }
         restarted.quarantineAndRollback(EXTENSION, NOW)
@@ -619,17 +899,58 @@ class ExtensionInstallStoreTest {
         val store = fixture.store()
         fixture.initialize(store, fixture.index(1, listOf(first)))
         store.install(first.archive, EXTENSION, NOW)
-        val v2 = JsonObject(stateJson(directory).filterKeys { it != "removed" }.toMutableMap().apply {
+        val current = stateJson(directory)
+        val generations = current.getValue("generations") as JsonObject
+        val v2Generations = JsonObject(generations.mapValues { (_, value) ->
+            JsonObject((value as JsonObject).filterKeys { it != "lastRejected" && it != "knownGoodGeneration" })
+        })
+        val v2 = JsonObject(current.filterKeys { it !in setOf("removed", "revisions", "operations") }.toMutableMap().apply {
             put("schemaVersion", JsonPrimitive(2))
+            put("generations", v2Generations)
         })
         File(directory, "state.json").writeText(v2.toString())
         val restarted = fixture.store()
-        assertEquals(first.binding.archiveSha256, loadExtension(restarted, EXTENSION)!!.packageDigest)
+        assertNull(loadExtension(restarted, EXTENSION))
         assertFalse(restarted.canReinstallRemoved(EXTENSION, first.binding.archiveSha256, 1))
         assertRejected { restarted.install(first.archive, EXTENSION, NOW, reinstallRemoved = true) }
         restarted.promoteHealthy(EXTENSION, NOW)
-        assertEquals(3, (stateJson(directory)["schemaVersion"] as JsonPrimitive).content.toInt())
+        assertEquals(first.binding.archiveSha256, loadExtension(restarted, EXTENSION)!!.packageDigest)
+        assertEquals(4, (stateJson(directory)["schemaVersion"] as JsonPrimitive).content.toInt())
         assertTrue((stateJson(directory)["removed"] as JsonObject).isEmpty())
+    }
+
+    @Test
+    fun `schema three migration preserves uninstall receipt and starts published generation on promotion`() {
+        val directory = temporaryFolder.newFolder("schema-three-migration")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+        store.install(first.archive, EXTENSION, NOW)
+        store.promoteHealthy(EXTENSION, NOW)
+        store.removeExtension(EXTENSION)
+
+        val current = stateJson(directory)
+        val generations = current.getValue("generations") as JsonObject
+        val v3 = JsonObject(current.filterKeys { it !in setOf("revisions", "operations") }.toMutableMap().apply {
+            put("schemaVersion", JsonPrimitive(3))
+            put("generations", JsonObject(generations.mapValues { (_, value) ->
+                JsonObject((value as JsonObject).filterKeys { it != "lastRejected" && it != "knownGoodGeneration" })
+            }))
+        })
+        File(directory, "state.json").writeText(v3.toString())
+
+        val migrated = fixture.store()
+        assertTrue(migrated.canReinstallRemoved(EXTENSION, first.binding.archiveSha256, 1))
+        assertNull(migrated.snapshot().generations[EXTENSION])
+        migrated.install(first.archive, EXTENSION, NOW, reinstallRemoved = true)
+        assertNull(loadExtension(migrated, EXTENSION))
+        assertEquals(1L, migrated.snapshot().generations.getValue(EXTENSION).journalRevision)
+        migrated.promoteHealthy(EXTENSION, NOW)
+        assertEquals(1L, migrated.snapshot().generations.getValue(EXTENSION).packageGeneration)
+        assertEquals(first.binding.archiveSha256, loadExtension(migrated, EXTENSION)!!.packageDigest)
+        assertEquals(4, (stateJson(directory)["schemaVersion"] as JsonPrimitive).content.toInt())
+        assertFalse(migrated.canReinstallRemoved(EXTENSION, first.binding.archiveSha256, 1))
     }
 
     private fun stateJson(directory: File) =
@@ -643,7 +964,7 @@ class ExtensionInstallStoreTest {
         val healthy = generations.getValue(knownGoodExtension) as JsonObject
         fun withoutVersion(value: JsonElement?) = if (value == null || value == JsonNull) JsonNull else
             JsonObject((value as JsonObject).filterKeys { it != "version" })
-        return JsonObject(current.filterKeys { it !in setOf("schemaVersion", "generations", "removed") } + mapOf(
+        return JsonObject(current.filterKeys { it !in setOf("schemaVersion", "generations", "removed", "revisions", "operations") } + mapOf(
             "active" to withoutVersion(active["active"]), "knownGood" to withoutVersion(healthy["knownGood"]),
             "previousGood" to withoutVersion(healthy["previousGood"]),
             "rollbackUsed" to (rollbackUsed?.let(::JsonPrimitive) ?: active.getValue("rollbackUsed")),
@@ -677,15 +998,28 @@ class ExtensionInstallStoreTest {
         throw AssertionError("expected install-store policy rejection")
     }
 
+    private fun assertRollbackRejected(block: () -> Unit) {
+        try {
+            block()
+        } catch (_: IllegalArgumentException) {
+            return
+        } catch (_: IllegalStateException) {
+            return
+        }
+        throw AssertionError("expected rollback safety or generation rejection")
+    }
+
     private class SimulatedCrash(val boundary: InstallBoundary) : RuntimeException("fault at $boundary")
 
     private class StoreFixture(
         private val directory: File,
         private val identities: List<Pair<String, String>> = listOf(EXTENSION to PROVIDER),
+        private val alternatePublisherIdentity: Pair<String, String>? = null,
     ) {
         private val rootKeys = listOf(key(1), key(2), key(3))
         private val indexKey = key(4)
         private val publisherKey = key(5)
+        private val alternatePublisherKey = key(6)
         private val rootDoc = rootDocument()
         private val pin = AppTrustPin(REPOSITORY, rootDoc.digest, setOf(CDN_ORIGIN))
 
@@ -708,24 +1042,34 @@ class ExtensionInstallStoreTest {
         }
 
         fun release(sequence: Long, revoked: Boolean = false,
-            extensionId: String = EXTENSION, providerId: String = PROVIDER): PackageDocument {
+            extensionId: String = EXTENSION, providerId: String = PROVIDER,
+            yanked: Boolean = false, publisherId: String = PUBLISHER): PackageDocument {
             val version = "1.0.$sequence"
             val displayName = "Demo $sequence"
-            val archive = packageArchive(sequence, version, displayName, extensionId, providerId)
-            val manifest = manifest(sequence, version, displayName, extensionId = extensionId, providerId = providerId)
+            val signingKey = when (publisherId) {
+                PUBLISHER -> publisherKey
+                OTHER_PUBLISHER -> {
+                    require(alternatePublisherIdentity == (extensionId to providerId))
+                    alternatePublisherKey
+                }
+                else -> error("no fixture signing key for $publisherId")
+            }
+            val archive = packageArchive(sequence, version, displayName, extensionId, providerId, publisherId, signingKey)
+            val manifest = manifest(sequence, version, displayName, extensionId = extensionId, providerId = providerId,
+                publisherId = publisherId, keyId = sha256(signingKey.public))
             val binding = VerifiedCatalogPackageBinding(
                 extensionId = extensionId,
                 providerId = providerId,
                 displayName = displayName,
                 navigationCapabilities = emptySet(),
-                publisherId = PUBLISHER,
-                keyId = sha256(publisherKey.public),
+                publisherId = publisherId,
+                keyId = sha256(signingKey.public),
                 version = version,
                 releaseSequence = sequence,
                 archiveSha256 = sha256(archive.readBytes()),
                 archiveBytes = archive.length(),
                 canonicalManifestSha256 = sha256(canonical(manifest)),
-                yanked = false,
+                yanked = yanked,
             )
             return PackageDocument(archive, binding, revoked)
         }
@@ -754,7 +1098,7 @@ class ExtensionInstallStoreTest {
                     "archiveSha256" to string(binding.archiveSha256),
                     "archiveBytes" to number(binding.archiveBytes),
                     "manifestSha256" to string(binding.canonicalManifestSha256),
-                    "yanked" to JsonPrimitive(false),
+                    "yanked" to JsonPrimitive(binding.yanked),
                     "revoked" to JsonPrimitive(pkg.revoked),
                 )
             }
@@ -781,7 +1125,8 @@ class ExtensionInstallStoreTest {
         }
 
         private fun rootDocument(): RootDocument {
-            val allKeys = rootKeys + indexKey + publisherKey
+            val allKeys = rootKeys + indexKey + publisherKey +
+                (if (alternatePublisherIdentity != null) listOf(alternatePublisherKey) else emptyList())
             val signed = jsonObject(
                 "schemaVersion" to number(1),
                 "repositoryId" to string(REPOSITORY),
@@ -794,36 +1139,39 @@ class ExtensionInstallStoreTest {
                     "root" to jsonObject("threshold" to number(2), "keyIds" to JsonArray(rootKeys.map { string(sha256(it.public)) })),
                     "index" to jsonObject("threshold" to number(1), "keyIds" to JsonArray(listOf(string(sha256(indexKey.public))))),
                 ),
-                "publishers" to JsonArray(identities.map { (extensionId, providerId) -> jsonObject(
-                    "publisherId" to string(PUBLISHER),
-                    "extensionId" to string(extensionId),
-                    "providerId" to string(providerId),
-                    "keyId" to string(sha256(publisherKey.public)),
-                    "roles" to JsonArray(listOf(string(SourceRole.CALENDAR.name))),
-                    "navigation" to JsonArray(emptyList()),
-                    "hosts" to JsonArray(listOf(string(HOST))),
-                    "notBefore" to string(NOW.minusSeconds(3600).toString()),
-                    "expiresAt" to string(NOW.plusSeconds(86400).toString()),
-                ) }),
+                "publishers" to JsonArray((identities.map { (extensionId, providerId) ->
+                    publisherScope(PUBLISHER, publisherKey, extensionId, providerId)
+                } + listOfNotNull(alternatePublisherIdentity?.let { (extensionId, providerId) ->
+                    publisherScope(OTHER_PUBLISHER, alternatePublisherKey, extensionId, providerId)
+                })).let(::JsonArray)),
                 "revokedKeys" to JsonArray(emptyList()),
                 "revokedDigests" to JsonArray(emptyList()),
             )
             return RootDocument(signed)
         }
 
+        private fun publisherScope(publisherId: String, signer: SigningKey, extensionId: String, providerId: String) = jsonObject(
+            "publisherId" to string(publisherId), "extensionId" to string(extensionId),
+            "providerId" to string(providerId), "keyId" to string(sha256(signer.public)),
+            "roles" to JsonArray(listOf(string(SourceRole.CALENDAR.name))), "navigation" to JsonArray(emptyList()),
+            "hosts" to JsonArray(listOf(string(HOST))), "notBefore" to string(NOW.minusSeconds(3600).toString()),
+            "expiresAt" to string(NOW.plusSeconds(86400).toString()),
+        )
+
         private fun packageArchive(sequence: Long, version: String, displayName: String,
-            extensionId: String, providerId: String): File {
+            extensionId: String, providerId: String, publisherId: String, signingKey: SigningKey): File {
             val module = WASM_MODULE
             val provenance = provenance(module)
             val notice = "SPDX-License-Identifier: MIT\n".toByteArray(StandardCharsets.UTF_8)
-            val manifest = manifest(sequence, version, displayName, module, provenance, notice, extensionId, providerId)
+            val manifest = manifest(sequence, version, displayName, module, provenance, notice,
+                extensionId, providerId, publisherId, sha256(signingKey.public))
             val canonicalManifest = canonical(manifest)
-            val signer = Ed25519Signer().apply { init(true, publisherKey.privateKey) }
+            val signer = Ed25519Signer().apply { init(true, signingKey.privateKey) }
             val message = PACKAGE_DOMAIN + canonicalManifest
             signer.update(message, 0, message.size)
             val signature = JsonObject(mapOf(
                 "algorithm" to string("Ed25519"),
-                "keyId" to string(sha256(publisherKey.public)),
+                "keyId" to string(sha256(signingKey.public)),
                 "signature" to string(Base64.getEncoder().encodeToString(signer.generateSignature())),
             )).toString().toByteArray(StandardCharsets.UTF_8)
             val entries = linkedMapOf(
@@ -855,7 +1203,8 @@ class ExtensionInstallStoreTest {
             provenance: ByteArray = provenance(module),
             notice: ByteArray = "SPDX-License-Identifier: MIT\n".toByteArray(StandardCharsets.UTF_8),
             extensionId: String = EXTENSION, providerId: String = PROVIDER,
-        ): String = """{"schemaVersion":1,"extensionId":"$extensionId","providerId":"$providerId","displayName":"$displayName","version":"$version","releaseSequence":$sequence,"hostApiMin":1,"hostApiMax":1,"capabilities":["CALENDAR"],"navigationCapabilities":[],"allowedHosts":["$HOST"],"digests":{"module":{"sha256":"${sha256(module)}","bytes":${module.size}},"provenance":{"sha256":"${sha256(provenance)}","bytes":${provenance.size}},"notice":{"sha256":"${sha256(notice)}","bytes":${notice.size}}},"publisherId":"$PUBLISHER","keyId":"${sha256(publisherKey.public)}","sourceRepository":"https://github.com/example/extension","sourceCommit":"${"a".repeat(40)}","build":{"toolchainVersion":"rustc-1.88.0","target":"wasm32-wasip1","lockfileDigest":"${"b".repeat(64)}","workflowIdentity":".github/workflows/extension-build.yml"}}"""
+            publisherId: String = PUBLISHER, keyId: String = sha256(publisherKey.public),
+        ): String = """{"schemaVersion":1,"extensionId":"$extensionId","providerId":"$providerId","displayName":"$displayName","version":"$version","releaseSequence":$sequence,"hostApiMin":1,"hostApiMax":1,"capabilities":["CALENDAR"],"navigationCapabilities":[],"allowedHosts":["$HOST"],"digests":{"module":{"sha256":"${sha256(module)}","bytes":${module.size}},"provenance":{"sha256":"${sha256(provenance)}","bytes":${provenance.size}},"notice":{"sha256":"${sha256(notice)}","bytes":${notice.size}}},"publisherId":"$publisherId","keyId":"$keyId","sourceRepository":"https://github.com/example/extension","sourceCommit":"${"a".repeat(40)}","build":{"toolchainVersion":"rustc-1.88.0","target":"wasm32-wasip1","lockfileDigest":"${"b".repeat(64)}","workflowIdentity":".github/workflows/extension-build.yml"}}"""
 
         private fun provenance(module: ByteArray): ByteArray =
             """{"schemaVersion":1,"sourceRepository":"https://github.com/example/extension","sourceCommit":"${"a".repeat(40)}","licenseSpdx":["MIT"],"components":[],"localModifications":[],"compilerVersion":"rustc-1.88.0","sdkVersion":"wasm32-wasip1","dependencyLockDigest":"${"b".repeat(64)}","reproducibleBuildCommand":"cargo build --locked --release --target wasm32-wasip1","workflowIdentity":".github/workflows/extension-build.yml","moduleDigest":"${sha256(module)}"}"""
@@ -885,6 +1234,7 @@ class ExtensionInstallStoreTest {
         private const val REPOSITORY = "install-store-test"
         private const val CDN_ORIGIN = "https://cdn.example"
         private const val PUBLISHER = "test-publisher"
+        private const val OTHER_PUBLISHER = "test-publisher-next"
         private const val EXTENSION = "demo.extension"
         private const val PROVIDER = "demo"
         private const val OTHER_EXTENSION = "demo.other"

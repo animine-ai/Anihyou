@@ -253,6 +253,15 @@
     <string name="notes">Notizen</string>
     <string name="calendar">Kalender</string>
     <string name="jump_to_today">Heute</string>
+    <string name="postponements">Verschiebungen</string>
+    <string name="postponements_empty">Keine Verschiebungen der aktiven Extension vorhanden.</string>
+    <string name="postponements_last_updated">Aktualisiert: %1$s</string>
+    <string name="postponements_season">S%1$d</string>
+    <string name="postponements_episode">E%1$s</string>
+    <string name="postponements_track_unknown">Track unbekannt</string>
+    <string name="postponements_postponed">Verschoben</string>
+    <string name="postponements_rescheduled">Neu terminiert</string>
+    <string name="postponements_cancelled">Abgesagt</string>
     <string name="monday">Montag</string>
     <string name="tuesday">Dienstag</string>
     <string name="wednesday">Mittwoch</string>

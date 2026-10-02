@@ -87,6 +87,13 @@ val animetrackerReleaseModule = module {
         com.axiel7.anihyou.release.data.extension.FileProviderNavigationStateStore(
             androidApplication().filesDir.resolve("extension-product"))
     }
+    single {
+        com.axiel7.anihyou.release.data.extension.FileExtensionPostponementStore(
+            androidApplication().filesDir.resolve("extension-product"), get())
+    }
+    single<com.axiel7.anihyou.release.core.api.ExtensionPostponementPresentationRepository> {
+        get<com.axiel7.anihyou.release.data.extension.FileExtensionPostponementStore>()
+    }
     single<com.axiel7.anihyou.release.core.source.ExtensionDiagnosticsRepository> {
         com.axiel7.anihyou.release.data.extension.ExtensionCenterDiagnosticsRepository(get(), get(), get())
     }
@@ -161,6 +168,7 @@ val animetrackerReleaseModule = module {
             targetSource = get(),
             clock = get(),
             navigationStore = get(),
+            postponementStore = get(),
         )
     }
     single { AniWorldClient(get()) }

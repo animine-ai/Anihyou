@@ -128,6 +128,10 @@ class NavActionManager(
         navigator.navigate(Route.Notifications(unread))
     }
 
+    fun toPostponements() {
+        navigator.navigate(Route.Postponements)
+    }
+
     fun toPublishNewActivity() {
         navigator.navigate(
             Route.PublishActivity(activityId = null, id = null, text = null)
