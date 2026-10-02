@@ -2,6 +2,10 @@ package com.axiel7.anihyou
 
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -14,7 +18,9 @@ import com.axiel7.anihyou.feature.calendar.*
 import com.axiel7.anihyou.release.core.api.*
 import com.axiel7.anihyou.release.core.extension.*
 import com.axiel7.anihyou.release.core.model.*
+import com.axiel7.anihyou.release.core.model.ProviderId
 import java.time.LocalDate
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -27,8 +33,10 @@ class ExtensionCalendarComposeTest {
 
     @Test fun listStartsAtEmptyTodayAndTodayButtonReturnsFromHistory() = todayAnchor(ListStyle.STANDARD, "calendar-list")
     @Test fun gridStartsAtEmptyTodayAndTodayButtonReturnsFromHistory() = todayAnchor(ListStyle.GRID, "calendar-grid")
+    @Test fun darkListRetainsHistoryAndReturnsToToday() = todayAnchor(ListStyle.STANDARD, "calendar-list", dark = true)
 
-    private fun todayAnchor(style: ListStyle, listTag: String) {
+    private fun todayAnchor(style: ListStyle, listTag: String, dark: Boolean = false) {
+        val label = "${style.name.lowercase()}-${if (dark) "dark" else "light"}"
         val past = today.minusDays(14)
         val rows = (1..12).map { number -> row(past, number) }
         var state by mutableStateOf(CalendarUiState(
@@ -40,15 +48,19 @@ class ExtensionCalendarComposeTest {
             val navigation = rememberNavigationState(Route.Calendar, MainNavigationResolver.allRoutes)
             val navigator = remember(navigation) { Navigator(navigation) }
             CompositionLocalProvider(LocalNavActionManager provides NavActionManager(navigator)) {
-                MaterialTheme { CalendarViewContent(isLoggedIn = false, uiState = state, event = null) }
+                MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+                    CalendarViewContent(isLoggedIn = false, uiState = state, event = null)
+                }
             }
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("calendar-day-$today").assertIsDisplayed()
+        capture("calendar-$label-initial-today")
         // A completed startup scroll is a one-time action. Later refreshes retain the user's position.
         composeRule.runOnIdle { state = state.copy(autoScrollToToday = false) }
         composeRule.onNodeWithTag(listTag).performScrollToIndex(0)
         composeRule.onNodeWithTag("calendar-day-$past").assertIsDisplayed()
+        capture("calendar-$label-history")
         composeRule.runOnIdle {
             state = state.copy(providerRowsByDate = state.providerRowsByDate +
                 (past to rows.map { it.copy(revision = 2) }))
@@ -58,6 +70,7 @@ class ExtensionCalendarComposeTest {
             .assertIsDisplayed().performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("calendar-day-$today").assertIsDisplayed()
+        capture("calendar-$label-returned-today")
         composeRule.onNodeWithTag(listTag).performScrollToIndex(rows.size + 2)
         composeRule.onNodeWithTag("calendar-day-${today.plusDays(1)}").assertIsDisplayed()
     }
@@ -87,6 +100,14 @@ class ExtensionCalendarComposeTest {
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.postponements_unassigned)).assertIsDisplayed()
         composeRule.onNodeWithText("Unassigned provider title").assertIsDisplayed().assertIsNotEnabled().performClick()
         composeRule.runOnIdle { assertEquals(Route.Home, navigation.getCurrentRoute()) }
+        capture("postponements-safe-and-unassigned")
+    }
+
+    private fun capture(name: String) {
+        val directory = File(composeRule.activity.getExternalFilesDir(null), "ep07-ui").apply { mkdirs() }
+        File(directory, "$name.png").outputStream().use { output ->
+            check(composeRule.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, output))
+        }
     }
 
     private fun row(date: LocalDate, number: Int) = ReleaseUiCalendarItem(

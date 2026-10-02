@@ -3,6 +3,7 @@ package de.kiyori.ep02
 import android.content.Context
 import androidx.room.Room
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
+import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.extension.*
 import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
 import com.axiel7.anihyou.release.core.model.Installment
@@ -10,12 +11,21 @@ import com.axiel7.anihyou.release.core.model.LanguageTrack
 import com.axiel7.anihyou.release.core.source.*
 import com.axiel7.anihyou.release.core.navigation.*
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
+import com.axiel7.anihyou.release.data.db.toEntity
+import com.axiel7.anihyou.release.core.model.AniWorldMappingSubject
+import com.axiel7.anihyou.release.core.model.AniWorldSiteIdentifier
+import com.axiel7.anihyou.release.core.model.ExternalMapping
+import com.axiel7.anihyou.release.core.model.ExternalProvider
+import com.axiel7.anihyou.release.core.model.MappingSource
+import com.axiel7.anihyou.release.core.model.MappingConfidence
+import com.axiel7.anihyou.release.core.model.MappingStatus
 import com.axiel7.anihyou.release.data.extension.*
 import com.axiel7.anihyou.release.data.repository.*
 import java.io.File
 import java.math.BigDecimal
 import java.security.MessageDigest
 import java.time.Clock
+import java.time.Duration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -88,6 +98,7 @@ internal object Ep06SingleSourceWorkerProof {
         val navigationDirectory = File(context.cacheDir, "ep06-single-source-worker-navigation")
         check(!navigationDirectory.exists() || navigationDirectory.deleteRecursively())
         val navigationStore = FileProviderNavigationStateStore(navigationDirectory)
+        var databaseClosed = false
         try {
             check(navigationStore.state.value.source == null)
             check(navigationStore.state.value.installments.isEmpty())
@@ -123,7 +134,7 @@ internal object Ep06SingleSourceWorkerProof {
 
             val staleWorkId = "ep06-stale-source-switch"
             val staleSnapshot = policy.policy.value
-            val staleScopedWorkId = sha256("$staleWorkId/${staleSnapshot.releaseGeneration}/${sourceAPackage.packageDigest}")
+            val staleScopedWorkId = sha256("$staleWorkId/${staleSnapshot.releaseGeneration}/${sourceAPackage.packageDigest}/${sourceAPackage.packageGeneration}")
             val staleCycleId = "aw-ext-shadow-v1:${sha256(staleScopedWorkId)}"
             val staleNetworkDirectory = File(context.cacheDir, "ep06-single-source-worker-stale-network")
             check(!staleNetworkDirectory.exists() || staleNetworkDirectory.deleteRecursively())
@@ -269,7 +280,15 @@ internal object Ep06SingleSourceWorkerProof {
                 RoomExtensionShadowGenerationStore.SCOPE_ID, committed.generationId,
             )?.manifestPayload == committedRow.manifestPayload)
 
-            return JSONObject()
+            val mappingTarget = targetSource.targets().first().target
+            val mappingSubject = AniWorldMappingSubject.Season(AniWorldSiteIdentifier(mappingTarget.providerSeriesKey),
+                requireNotNull(mappingTarget.navigationSeason))
+            val mappingAt = clock.instant()
+            database.releaseDao().upsertExternalMapping(ExternalMapping(
+                mappingSubject, ExternalProvider.ANILIST, MEDIA_ID.toString(), MappingSource.MANUAL,
+                MappingConfidence.EXACT, mappingAt, mappingAt, MappingStatus.ACTIVE,
+            ).toEntity())
+            val report = JSONObject()
                 .put("status", "PASS")
                 .put("releaseEvidenceTransport", "production-http-transport-test-fixture-responses")
                 .put("testSignedPackages", 2)
@@ -314,10 +333,116 @@ internal object Ep06SingleSourceWorkerProof {
                 .put("navigationUsesActualHostTls", true)
                 .put("productHostTlsRequestDelta", httpsFixture.pathCount("/nav-source") - pathCountBeforeProduct)
                 .put("navigationUsesRealSignedFixturePackage", true)
-        } finally {
+            // Close the original Room connection. The supplemental proof must read durable state.
             database.close()
+            databaseClosed = true
+            return report.put("ep07ExtensionData", proveRetainedProductRefresh(
+                context, databaseName, navigationDirectory, policyDirectory,
+                sourceRepository, installed, sourceA, providerB, sourceAPackage,
+                runtime, authority, targetSource, clock, httpsFixture,
+            ))
+        } finally {
+            if (!databaseClosed) database.close()
             context.deleteDatabase(databaseName)
         }
+    }
+
+    private suspend fun proveRetainedProductRefresh(
+        context: Context,
+        databaseName: String,
+        navigationDirectory: File,
+        policyDirectory: File,
+        sources: ExtensionSourceRepository,
+        installed: InstalledExtensionAccess,
+        source: ExtensionSelectionKey,
+        navigation: ExtensionSelectionKey,
+        packageInfo: VerifiedExtensionPackage,
+        runtime: ExtensionRuntime,
+        authority: ExtensionEvidenceAuthorityAdapter,
+        targets: ExtensionTargetSource,
+        clock: Clock,
+        fixture: LocalHttpsFixtureServer,
+    ): JSONObject {
+        val reopened = Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName).build()
+        try {
+            val policy = FileExtensionProductPolicyRepository(policyDirectory) { it == source || it == navigation }
+            val receipt = FileProviderNavigationStateStore(navigationDirectory)
+            check(policy.policy.value.activeReleaseSource == source)
+            check(receipt.state.value.source == source && receipt.state.value.installments.isNotEmpty())
+            val before = reopened.reconciliationDao().projectionPage(256, 0)
+            check(before.isNotEmpty()) { "reopened Room lost accepted release projections" }
+            val target = targets.targets().first().target
+            val subject = AniWorldMappingSubject.Season(
+                AniWorldSiteIdentifier(target.providerSeriesKey), requireNotNull(target.navigationSeason),
+            )
+            val persistedMapping = requireNotNull(reopened.releaseDao().getExternalMapping(subject.stableKey, "anilist"))
+            check(persistedMapping.mappingSource == "MANUAL" && persistedMapping.confidence == "EXACT" &&
+                persistedMapping.externalId == MEDIA_ID.toString() && persistedMapping.validatedAt != null)
+
+            val sourcePaths = listOf("/animekalender", "/neue-episoden", "/support/frage/anime-verschiebungen",
+                "/anime/stream/fixture-series/staffel-1/episode-1")
+            val countsBefore = sourcePaths.associateWith(fixture::pathCount)
+            var delegateCalls = 0
+            val controlled = object : WorkScopedShadowRefreshCoordinator {
+                override suspend fun refresh() = refreshForWork("ep07-controlled")
+                override suspend fun refreshForWork(workId: String): ShadowRefreshOutcome {
+                    delegateCalls++
+                    return ShadowRefreshOutcome.Failed("controlled-runtime-failure", true)
+                }
+            }
+            val coordinator = ProductionExtensionReleaseRefreshCoordinator(sources, policy, installed, receipt, controlled, clock)
+            val fresh = coordinator.refresh("ep07-product-reopened-fresh", false)
+            check(fresh == ShadowRefreshOutcome.Skipped("extension-data-fresh")) { "fresh receipt did not skip: $fresh" }
+            check(delegateCalls == 0 && sourcePaths.associateWith(fixture::pathCount) == countsBefore)
+            val receiptBeforeFailure = receipt.state.value
+            val failed = coordinator.refresh("ep07-product-controlled-failure", true)
+            check(failed is ShadowRefreshOutcome.Failed && failed.retryable && delegateCalls == 1)
+            check(reopened.reconciliationDao().projectionPage(256, 0) == before)
+            check(reopened.releaseDao().getExternalMapping(subject.stableKey, "anilist") == persistedMapping)
+            check(receipt.state.value == receiptBeforeFailure)
+
+            // Expiry changes scheduling eligibility, not the underlying accepted rows/mappings.
+            val staleClock = Clock.offset(clock, Duration.ofHours(2))
+            val reconciliation = RoomReleaseReconciliationRepository(reopened)
+            val network = File(context.cacheDir, "ep07-product-stale-refresh-network")
+            check(!network.exists() || network.deleteRecursively())
+            val worker = SingleSourceShadowRefreshCoordinator(
+                policy = policy, installed = installed, runtime = runtime, networkDirectory = network,
+                authority = authority, reconciliation = reconciliation,
+                generations = RoomExtensionShadowGenerationStore(reopened, reconciliation, staleClock, "ep07-reopened-process"),
+                targetSource = targets, clock = staleClock, navigationStore = receipt,
+                releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { repository, actualRuntime, directory, observationPolicy ->
+                    ExtensionHostCoordinator(repository, actualRuntime, ProductionExtensionTransportFactory.create(directory),
+                        observationPolicy, clock = staleClock, enabled = { true },
+                        parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L))
+                },
+            )
+            val realDelegate = object : WorkScopedShadowRefreshCoordinator {
+                override suspend fun refresh() = worker.refreshForProductWork("ep07-product-stale")
+                override suspend fun refreshForWork(workId: String) = worker.refreshForProductWork(workId)
+            }
+            val staleCoordinator = ProductionExtensionReleaseRefreshCoordinator(sources, policy, installed,
+                receipt, realDelegate, staleClock)
+            val refreshed = staleCoordinator.refresh("ep07-product-stale", false)
+            check(refreshed is ShadowRefreshOutcome.Committed && refreshed.refreshSucceeded) {
+                "stale signed-TEST product refresh did not complete: $refreshed"
+            }
+            check(sourcePaths.any { fixture.pathCount(it) > countsBefore.getValue(it) })
+            check(reopened.releaseDao().getExternalMapping(subject.stableKey, "anilist") == persistedMapping)
+            val after = reopened.reconciliationDao().projectionPage(256, 0)
+            check(after.map { it.projectionKey }.containsAll(before.map { it.projectionKey }))
+            check(receipt.state.value.packageDigest == packageInfo.packageDigest &&
+                receipt.state.value.packageGeneration == packageInfo.packageGeneration)
+            check(staleCoordinator.refresh("ep07-product-fresh-again", false) == ShadowRefreshOutcome.Skipped("extension-data-fresh"))
+            return JSONObject().put("status", "PASS").put("testTrustOnly", true)
+                .put("roomConnectionReopened", true).put("acceptedRowsAfterReopen", before.size)
+                .put("policyAndReceiptReopened", true).put("freshSkipsRuntimeAndNetwork", true)
+                .put("controlledRefreshFailureKeepsRowsMappingAndReceipt", true)
+                .put("staleRefreshUsesRealSignedGuestAndProductionTransport", true)
+                .put("manualExactMappingRetained", true).put("acceptedProjectionKeysRetained", true)
+                .put("refreshedDataSkipsAgain", true).put("productionWorkManagerDeviceProof", false)
+                .put("processKillProof", false)
+        } finally { reopened.close() }
     }
 
     private fun workerSourceRepository(

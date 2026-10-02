@@ -187,6 +187,17 @@ assert all(revoked[key] is True for key in [
     'activeV3Preserved','packageGenerationUnchanged','operationFailedClosed'
 ]), revoked
 assert ep07['repositoryTransportUsed'] is True and ep07['productionTransportUsed'] is False, ep07
+data=f['ep06SingleSourceWorker']['ep07ExtensionData']
+assert data['status']=='PASS' and data['testTrustOnly'] is True, data
+assert data['acceptedRowsAfterReopen'] > 0, data
+assert all(data[key] is True for key in [
+    'roomConnectionReopened','policyAndReceiptReopened','freshSkipsRuntimeAndNetwork',
+    'controlledRefreshFailureKeepsRowsMappingAndReceipt',
+    'staleRefreshUsesRealSignedGuestAndProductionTransport','manualExactMappingRetained',
+    'acceptedProjectionKeysRetained','refreshedDataSkipsAgain'
+]), data
+# This harness proves reopened durable state; process-kill and WorkManager device proof are separate gates.
+assert data['productionWorkManagerDeviceProof'] is False and data['processKillProof'] is False, data
 p=report['performance']
 raw_attempts=p.get('attempts',[])
 (root/'performance-raw.json').write_text(json.dumps(raw_attempts,indent=2)+'\n')
