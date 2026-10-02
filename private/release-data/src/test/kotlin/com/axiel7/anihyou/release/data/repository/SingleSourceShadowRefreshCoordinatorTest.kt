@@ -64,6 +64,29 @@ class SingleSourceShadowRefreshCoordinatorTest {
     }
 
     @Test
+    fun `failed durable postponement write preserves LKG and cannot claim successful freshness`() = runBlocking {
+        val directory = temporaryFolder.newFolder()
+        val presentation = FileExtensionPostponementStore(directory, database)
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime(), postponementStore = presentation)
+        assertTrue(product(rig, access).refresh("persist-success", false) is ShadowRefreshOutcome.Committed)
+        val original = rig.navigationStore.state.value
+        rig.navigationStore.record(SOURCE_A_KEY, original.releaseGeneration, original.packageDigest!!,
+            original.installments, original.syncStatistics + ("Last successful sync" to NOW.minusSeconds(3601).toString()),
+            original.packageGeneration)
+        val staleReceipt = rig.navigationStore.state.value
+        val lkg = presentation.snapshot.value
+        // Fail the next atomic file write while leaving the previous durable file intact.
+        assertTrue(File(directory, "postponements-v1.json.next").mkdir())
+        val failure = runCatching { product(rig, access).refresh("persist-failure", false) }.exceptionOrNull()
+        assertTrue("durable write failure must reach the worker retry boundary", failure is java.io.IOException)
+        assertEquals(staleReceipt, rig.navigationStore.state.value)
+        assertEquals(lkg, presentation.snapshot.value)
+        assertEquals(lkg, FileExtensionPostponementStore(directory, database).snapshot.value)
+        assertTrue(database.reconciliationDao().projectionPage(256, 0).isNotEmpty())
+    }
+
+    @Test
     fun `product refresh commits accepted data then skips fresh execution across receipt restart`() = runBlocking {
         val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
         val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
@@ -358,6 +381,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
         active: ExtensionSelectionKey?,
         navigation: ExtensionSelectionKey? = null,
         runtime: FixtureRuntime,
+        postponementStore: FileExtensionPostponementStore? = null,
     ): Rig {
         val root = temporaryFolder.newFolder()
         val policy = FileExtensionProductPolicyRepository(
@@ -386,6 +410,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
             targetSource = ExtensionTargetSource { listOf(ACQUISITION_TARGET) },
             clock = Clock.fixed(NOW, ZoneOffset.UTC),
             navigationStore = navigationStore,
+            postponementStore = postponementStore,
             releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { repository, hostRuntime, _, observationPolicy ->
                 ExtensionHostCoordinator(
                     repository, hostRuntime, hermeticProductionTransport(), observationPolicy,

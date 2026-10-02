@@ -87,18 +87,18 @@ class SingleSourceShadowRefreshCoordinator(
         if (outcome is ShadowRefreshOutcome.Committed) policy.withCurrentSelection(snapshot) {
             installed.withCurrentGeneration(selected, pinned.packageDigest, pinned.packageGeneration) {
                 if (SourceRole.POSTPONEMENT in outcome.successfulPresentationRoles) {
-                    runCatching {
-                        postponementStore?.record(
-                            source = selected,
-                            releaseGeneration = snapshot.releaseGeneration,
-                            packageDigest = pinned.packageDigest,
-                            packageGeneration = pinned.packageGeneration,
-                            observedAt = outcome.cycle.completedAt,
-                            observations = outcome.presentationObservations.filter {
-                                it.track == ObservationTrack.UNKNOWN || it.track.name in effectiveTracks
-                            },
-                        )
-                    }
+                    // A failed durable presentation write cannot grant a fresh-data receipt.
+                    // Cancellation also propagates to the bounded worker retry boundary.
+                    postponementStore?.record(
+                        source = selected,
+                        releaseGeneration = snapshot.releaseGeneration,
+                        packageDigest = pinned.packageDigest,
+                        packageGeneration = pinned.packageGeneration,
+                        observedAt = outcome.cycle.completedAt,
+                        observations = outcome.presentationObservations.filter {
+                            it.track == ObservationTrack.UNKNOWN || it.track.name in effectiveTracks
+                        },
+                    )
                 }
                 val reducer = AniWorldReleaseAuthorityReducer()
                 val accepted = outcome.cycle.sources.flatMap { it.evidence }.mapNotNull { evidence ->
