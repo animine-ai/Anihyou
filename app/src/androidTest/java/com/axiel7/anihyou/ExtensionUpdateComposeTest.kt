@@ -136,9 +136,9 @@ class ExtensionUpdateComposeTest {
         composeManage(state, event)
 
         composeRule.onNodeWithTag("extension-update-failure-${key.extensionId}")
-            .assertTextContains("Package health check failed")
+            .assertTextContains("Package health check failed", substring = true)
         composeRule.onNodeWithTag("extension-update-state-${key.extensionId}")
-            .assertTextContains("Update failed")
+            .assertTextContains("Update failed", substring = true)
         composeRule.onNodeWithTag("extension-action-${key.extensionId}").assertTextContains("Check")
         composeRule.onNodeWithTag("extension-rollback-${key.extensionId}").performScrollTo().performClick()
         composeRule.onNodeWithText("Installed version: 1.1.0", substring = true).assertIsDisplayedCompat()
@@ -302,12 +302,12 @@ class ExtensionUpdateComposeTest {
         composeManage(state, RecordingEvent())
 
         composeRule.onNodeWithTag("extension-update-state-${currentKey.extensionId}")
-            .assertTextContains("Installed and current")
+            .assertTextContains("Installed and current", substring = true)
         composeRule.onNodeWithTag("extension-update-state-${updateKey.extensionId}")
-            .assertTextContains("Update available")
+            .assertTextContains("Update available", substring = true)
         composeRule.onNodeWithTag("extension-progress-${updateKey.extensionId}").assertIsDisplayedCompat()
         composeRule.onNodeWithTag("extension-update-failure-${updateKey.extensionId}")
-            .assertTextContains("Network unavailable")
+            .assertTextContains("Network unavailable", substring = true)
         captureScreenshot("manage-overview")
     }
 
