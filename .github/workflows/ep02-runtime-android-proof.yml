@@ -171,6 +171,12 @@ jobs:
           if [[ "${{ matrix.variant }}" == release ]]; then
             test -f tools/ep02-android/host-app/build/outputs/mapping/release/mapping.txt
           fi
+      - name: Release build daemons before the emulator starts
+        # Build daemons stay resident after the APK build and compete with the emulator for runner memory.
+        # This is a hypothesis-driven mitigation. The diagnosis below stays in place to confirm or reject it.
+        run: |
+          ./gradlew --stop || true
+          free -m
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -198,6 +204,14 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save -camera-back none -dns-server 127.0.0.1
           script: bash tools/ep02-android/run-device.sh ${{ matrix.variant }} ${{ matrix.api }}
+      - name: Runner kill evidence on failure
+        if: failure()
+        run: |
+          echo "EP02 DIAG runner memory after failure"
+          free -m || true
+          ps -eo pid,rss,comm --sort=-rss | head -10 || true
+          echo "EP02 DIAG kernel kill messages"
+          sudo dmesg 2>/dev/null | grep -iE 'killed process|out of memory|oom-kill|oom_reaper' | tail -20 || true
       - name: Stop hermetic fixture DNS and remove runner route
         if: always()
         run: |

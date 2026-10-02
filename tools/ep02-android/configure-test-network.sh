@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Name the failing command and its status in the job log. A SIGKILL (137) of the shell itself cannot be reported by
+# the shell, but a child that returns 137 is named here. No secrets are printed: only command text and numbers.
+trap 'rc=$?; printf "EP02 DIAG %s failing command rc=%s line=%s: %s\n" "$(date -u +%T.%N)" "$rc" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 # The emulator uses the runner's test-only DNS. Its ordinary app UID resolves
 # a public test address and connects through the production DNS/socket/TLS path.

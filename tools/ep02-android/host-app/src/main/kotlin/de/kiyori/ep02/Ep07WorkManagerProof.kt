@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.os.SystemClock
 import androidx.work.Configuration
 import androidx.work.ListenableWorker
 import androidx.work.WorkManager
@@ -48,13 +49,7 @@ internal object Ep07WorkManagerProof {
 
     suspend fun due(context: Context, actual: ExtensionReleaseRefreshCoordinator, twice: Boolean = false,
         leavePeriodicForRestart: Boolean = false): ShadowRefreshOutcome {
-        if (Build.VERSION.SDK_INT >= 26) {
-            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
-            check(capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) {
-                "hermetic network must be Android-validated before product WorkManager scheduling: $capabilities"
-            }
-        }
+        if (Build.VERSION.SDK_INT >= 26) awaitValidatedNetwork(context)
         coordinator = actual
         initialize(context)
         withContext(Dispatchers.IO) {
@@ -80,6 +75,34 @@ internal object Ep07WorkManagerProof {
             }
         }
         return requireNotNull(lastOutcome)
+    }
+
+    /**
+     * The product worker keeps its CONNECTED constraint, so this proof needs a network the OS itself validated.
+     * The validation probe is asynchronous and can be re-evaluated, so a single snapshot is racy. Wait a bounded
+     * time for the real capability, hint once through the public reportNetworkConnectivity API that the network
+     * works (this only asks the OS to re-evaluate, it cannot set the capability), and fail with the observed
+     * state. Nothing here fakes or bypasses VALIDATED.
+     */
+    private suspend fun awaitValidatedNetwork(context: Context, timeoutMillis: Long = 30_000) {
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val deadline = SystemClock.elapsedRealtime() + timeoutMillis
+        var hinted = false
+        while (true) {
+            val network = connectivity.activeNetwork
+            val capabilities = network?.let(connectivity::getNetworkCapabilities)
+            if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return
+            if (!hinted && network != null) {
+                connectivity.reportNetworkConnectivity(network, true)
+                hinted = true
+            }
+            check(SystemClock.elapsedRealtime() < deadline) {
+                "hermetic network was not Android-validated within $timeoutMillis ms before product WorkManager " +
+                    "scheduling: network=$network capabilities=$capabilities"
+            }
+            delay(500)
+        }
     }
 
     suspend fun retainedPeriodicId(): String = withContext(Dispatchers.IO) {

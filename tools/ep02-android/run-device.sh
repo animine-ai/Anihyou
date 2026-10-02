@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Name the failing command and its status in the job log. A SIGKILL (137) of the shell itself cannot be reported by
+# the shell, but a child that returns 137 is named here. No secrets are printed: only command text and numbers.
+trap 'rc=$?; printf "EP02 DIAG %s failing command rc=%s line=%s: %s\n" "$(date -u +%T.%N)" "$rc" "$LINENO" "$BASH_COMMAND" >&2' ERR
 variant=${1:?debug or release required}
 expected_api=${2:?expected API required}
 case "$variant" in debug|release);; *) exit 2;; esac
@@ -19,7 +22,14 @@ cleanup_test_network() {
   adb forward --remove tcp:8443 2>/dev/null || true
 }
 trap cleanup_test_network EXIT
+diag_memory() {
+  printf 'EP02 DIAG %s phase=%s\n' "$(date -u +%T.%N)" "$1" >&2
+  free -m >&2 || true
+  ps -eo pid,rss,comm --sort=-rss 2>/dev/null | head -8 >&2 || true
+}
+diag_memory before-network-configuration
 bash "$root/configure-test-network.sh" "$out"
+diag_memory after-network-configuration
 adb install -r "$apk"
 adb logcat -c
 timeout 240 adb shell am instrument -w -r -e ep07HoldForKill true de.kiyori.ep02/.RuntimeProofInstrumentation > "$out/instrumentation.txt" 2>&1 &
