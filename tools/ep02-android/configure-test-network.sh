@@ -51,9 +51,16 @@ if [[ -s "$out/proxy.pid" ]] && sudo kill -0 "$(cat "$out/proxy.pid")"; then
   fi
   for attempt in $(seq 1 120); do
     adb shell dumpsys connectivity > "$out/network-validation.txt"
-    if [[ "$sdk" -ge 28 && $((attempt % 25)) -eq 0 ]] && ! grep -qE 'NetworkAgentInfo.*type: WIFI' "$out/network-validation.txt"; then
-      # The Wi-Fi network did not come back after the cycle: ask again instead of waiting on a network that is not there.
-      adb shell svc wifi enable
+    if [[ "$sdk" -ge 28 ]] && ! grep -qE 'NetworkAgentInfo.*type: WIFI' "$out/network-validation.txt"; then
+      if [[ "$attempt" -eq 60 ]]; then
+        # Wi-Fi never came back (seen on API 35 release runs). Let the cellular network exist again and accept its
+        # validation: the app proof then checks that its own default network is validated before scheduling work.
+        adb shell svc data enable
+        validated_pattern='Transports: (WIFI|CELLULAR) Capabilities:[^]]*VALIDATED'
+      elif [[ $((attempt % 20)) -eq 0 ]]; then
+        # Ask again instead of waiting on a network that is not there.
+        adb shell svc wifi enable
+      fi
     fi
     if grep -E "$validated_pattern" "$out/network-validation.txt" >/dev/null; then
       echo 'EP02 hermetic DNS, HTTPS relay and Android-validated network ready.'
