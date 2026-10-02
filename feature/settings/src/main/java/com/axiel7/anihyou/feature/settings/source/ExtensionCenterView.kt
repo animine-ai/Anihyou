@@ -289,7 +289,7 @@ fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
             stringResource(if (extension.candidateYanked) R.string.extension_manage_diagnostic_yes
                 else R.string.extension_manage_diagnostic_no))
         TextButton(onClick = { clipboard.setText(AnnotatedString(
-            safeDiagnosticEntries(values).joinToString("\n") { it.key + ": " + it.value })) },
+            safeDiagnosticEntries(values).joinToString("\n") { (name, value) -> "$name: $value" })) },
             modifier = Modifier.testTag("diagnostics-copy-" + key.testTagPart())) {
             Text(stringResource(R.string.extension_diagnostics_copy))
         }
@@ -318,7 +318,7 @@ private fun redactDiagnosticSecrets(value: String): String = value.replace(
 ) { "${it.groupValues[1]}[redacted]" }.replace(
     Regex("(?i)(https?://)[^/@\\s]+:[^/@\\s]+@"),
 ) { "${it.groupValues[1]}[redacted]@" }.replace(
-    Regex("(?i)((?:access[_ -]?token|refresh[_ -]?token|api[_ -]?key|secret|password|authorization|private[_ -]?key|cookie)\\s*[:=]\\s*)[^\\s,;]+"),
+    Regex("(?i)((?:access[_ -]?token|refresh[_ -]?token|api[_ -]?key|secret|password|authorization|private[_ -]?key|cookie)\\s*[:=]\\s*)[^\\n]+"),
 ) { "${it.groupValues[1]}[redacted]" }
 
 @Composable

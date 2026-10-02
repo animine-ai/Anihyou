@@ -249,6 +249,8 @@ private fun SourceExtensionInfo(
     val updateStatusText = stringResource(R.string.extension_manage_status, updateStateLabel)
     val installedStatusLabel = stringResource(installedPackageStatusLabel(extension))
     val latestVersion = extension.latestAvailableVersion
+    val unavailableLabel = stringResource(R.string.extension_manage_unavailable)
+    val lastUpdateFailure = extension.lastUpdateFailure
 
     Text(stringResource(R.string.extension_manage_signed_name, extension.displayName),
         style = MaterialTheme.typography.titleSmall)
@@ -260,11 +262,13 @@ private fun SourceExtensionInfo(
         text = stringResource(R.string.extension_manage_installed_version,
             extension.installedVersion ?: stringResource(R.string.extension_manage_not_installed)),
         style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.testTag("extension-installed-version-${extension.extensionId}"),
     )
     Text(
         text = stringResource(R.string.extension_manage_latest_authenticated_version,
             latestVersion ?: stringResource(R.string.extension_manage_unavailable)),
         style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.testTag("extension-latest-version-${extension.extensionId}"),
     )
     Text(
         text = stringResource(R.string.extension_manage_package_trust, installedStatusLabel),
@@ -286,10 +290,10 @@ private fun SourceExtensionInfo(
             style = MaterialTheme.typography.bodySmall,
         )
     }
-    if (extension.lastUpdateFailure != null) {
+    if (lastUpdateFailure != null) {
         Text(
             text = stringResource(R.string.extension_manage_update_failure,
-                stringResource(updateFailureLabel(extension.lastUpdateFailure))),
+                stringResource(updateFailureLabel(lastUpdateFailure))),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
             modifier = Modifier.testTag("extension-update-failure-${extension.extensionId}"),
@@ -377,7 +381,7 @@ private fun SourceExtensionInfo(
                     sourceId = source.id,
                     extensionId = extension.extensionId,
                     expectedGeneration = extension.packageGeneration,
-                    currentVersion = extension.installedVersion ?: stringResource(R.string.extension_manage_unavailable),
+                    currentVersion = extension.installedVersion ?: unavailableLabel,
                     target = target,
                     reason = extension.lastUpdateFailure?.let(::updateFailureLabel),
                 )

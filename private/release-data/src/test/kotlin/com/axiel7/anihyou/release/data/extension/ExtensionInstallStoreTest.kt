@@ -94,6 +94,45 @@ class ExtensionInstallStoreTest {
     }
 
     @Test
+    fun `only healthy publication changes the package visible to readers`() {
+        val directory = temporaryFolder.newFolder("published-lkg-fence")
+        val fixture = StoreFixture(directory)
+        val first = fixture.release(1)
+        val second = fixture.release(2)
+        val store = fixture.store()
+        fixture.initialize(store, fixture.index(1, listOf(first)))
+
+        store.install(first.archive, EXTENSION, NOW)
+        var generation = fixture.store().snapshot().generations.getValue(EXTENSION)
+        assertEquals(first.binding.archiveSha256, generation.active?.digest)
+        assertNull(generation.knownGood)
+        assertEquals(0L, generation.packageGeneration)
+        assertEquals(1L, generation.journalRevision)
+        assertNull(loadExtension(fixture.store(), EXTENSION))
+        assertNull(fixture.store().inspectInstalled(EXTENSION))
+
+        store.promoteHealthy(EXTENSION, NOW)
+        assertEquals(first.binding.archiveSha256, loadExtension(fixture.store(), EXTENSION)?.packageDigest)
+        assertEquals(1L, loadExtension(fixture.store(), EXTENSION)?.packageGeneration)
+
+        store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+        store.install(second.archive, EXTENSION, NOW)
+        generation = fixture.store().snapshot().generations.getValue(EXTENSION)
+        assertEquals(second.binding.archiveSha256, generation.active?.digest)
+        assertEquals(first.binding.archiveSha256, generation.knownGood?.digest)
+        assertEquals(1L, generation.packageGeneration)
+        assertEquals(2L, generation.journalRevision)
+        val visibleDuringCandidateHealthCheck = loadExtension(fixture.store(), EXTENSION)
+        assertEquals(first.binding.archiveSha256, visibleDuringCandidateHealthCheck?.packageDigest)
+        assertEquals(1L, visibleDuringCandidateHealthCheck?.packageGeneration)
+
+        store.promoteHealthy(EXTENSION, NOW)
+        val published = loadExtension(fixture.store(), EXTENSION)
+        assertEquals(second.binding.archiveSha256, published?.packageDigest)
+        assertEquals(2L, published?.packageGeneration)
+    }
+
+    @Test
     fun `same sequence different content and index downgrade remain rejected after restart`() {
         val directory = temporaryFolder.newFolder("index-high-water")
         val fixture = StoreFixture(directory)
@@ -463,6 +502,45 @@ class ExtensionInstallStoreTest {
         assertEquals(second.binding.archiveSha256,
             fixture.store().snapshot().generations.getValue(EXTENSION).active?.digest)
         assertEquals(2L, fixture.store().snapshot().releaseHigh.getValue(EXTENSION))
+    }
+
+    @Test
+    fun `explicit rollback requires fresh root index and publisher authority while passive LKG remains usable`() {
+        for (expired in listOf("publisher", "root", "index")) {
+            val directory = temporaryFolder.newFolder("rollback-expired-$expired")
+            val fixture = StoreFixture(directory)
+            val first = fixture.release(1)
+            val second = fixture.release(2)
+            val store = fixture.store()
+            fixture.initialize(store, fixture.index(1, listOf(first)))
+            store.install(first.archive, EXTENSION, NOW)
+            store.promoteHealthy(EXTENSION, NOW)
+            store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+            store.install(second.archive, EXTENSION, NOW)
+            store.promoteHealthy(EXTENSION, NOW)
+            val generation = store.snapshot().generations.getValue(EXTENSION)
+
+            val latestRootExpiry = if (expired == "root") NOW.plusSeconds(10) else NOW.plusSeconds(3600)
+            val publisherExpiry = if (expired == "publisher") NOW.plusSeconds(10) else NOW.plusSeconds(3600)
+            store.acceptRoot(fixture.rootEnvelope(version = 2, expiresAt = latestRootExpiry,
+                publisherExpiresAt = publisherExpiry), NOW)
+            val indexExpiry = if (expired == "index") NOW.plusSeconds(10) else NOW.plusSeconds(3600)
+            store.acceptIndex(fixture.index(3, listOf(first, second), rootVersion = 2,
+                expiresAt = indexExpiry).envelope, NOW)
+
+            val actionTime = NOW.plusSeconds(11)
+            assertNull("$expired authority must block explicit rollback",
+                store.safePreviousGood(EXTENSION, actionTime))
+            assertRollbackRejected {
+                store.rollback(EXTENSION, generation.packageGeneration, first.binding.archiveSha256, actionTime)
+            }
+            val passive = loadExtension(fixture.store(), EXTENSION)
+            assertEquals("$expired authority does not erase the published current LKG",
+                second.binding.archiveSha256, passive?.packageDigest)
+            assertEquals(generation.packageGeneration,
+                fixture.store().snapshot().generations.getValue(EXTENSION).packageGeneration)
+            assertEquals(2L, fixture.store().snapshot().releaseHigh.getValue(EXTENSION))
+        }
     }
 
     @Test
@@ -1079,6 +1157,7 @@ class ExtensionInstallStoreTest {
             packages: List<PackageDocument>,
             issuedAt: Instant = NOW.minusSeconds(60),
             rootVersion: Long = 1,
+            expiresAt: Instant = NOW.plusSeconds(3600),
         ): IndexDocument {
             val entries = packages.sortedWith(compareBy<PackageDocument> { it.binding.extensionId }
                 .thenBy { it.binding.releaseSequence }).map { pkg ->
@@ -1108,18 +1187,25 @@ class ExtensionInstallStoreTest {
                 "rootVersion" to number(rootVersion),
                 "sequence" to number(sequence),
                 "issuedAt" to string(issuedAt.toString()),
-                "expiresAt" to string(NOW.plusSeconds(3600).toString()),
+                "expiresAt" to string(expiresAt.toString()),
                 "entries" to JsonArray(entries),
             )
             return IndexDocument(signed, indexKey)
         }
 
         fun rootEnvelope(version: Long = 1, signerCount: Int = 2,
-            revokedDigests: Set<String> = emptySet(), expiresAt: Instant = NOW.plusSeconds(86400)): ByteArray {
+            revokedDigests: Set<String> = emptySet(), expiresAt: Instant = NOW.plusSeconds(86400),
+            publisherExpiresAt: Instant = NOW.plusSeconds(86400)): ByteArray {
             val signed = JsonObject(rootDoc.signed.toMutableMap().apply {
                 put("version", number(version))
                 put("expiresAt", string(expiresAt.toString()))
                 put("revokedDigests", JsonArray(revokedDigests.sorted().map(::string)))
+                val publishers = getValue("publishers") as JsonArray
+                put("publishers", JsonArray(publishers.map { value ->
+                    JsonObject((value as JsonObject).toMutableMap().apply {
+                        put("expiresAt", string(publisherExpiresAt.toString()))
+                    })
+                }))
             })
             return envelopeBytes("AREX-ROOT-V1\n", signed, rootKeys.take(signerCount))
         }

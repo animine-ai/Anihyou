@@ -4,11 +4,11 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.axiel7.anihyou.release.core.extension.NavigationCapability
+import com.axiel7.anihyou.release.core.extension.NavigationContextV1
 import com.axiel7.anihyou.release.core.extension.NavigationTargetKind
 import com.axiel7.anihyou.release.core.extension.ProviderId
 import com.axiel7.anihyou.release.core.extension.ProviderNavigationTargetV1
 import com.axiel7.anihyou.release.core.navigation.ExternalNavigationLauncher
-import com.axiel7.anihyou.release.core.navigation.NavigationContextV1
 import com.axiel7.anihyou.release.core.navigation.NavigationProvider
 import com.axiel7.anihyou.release.core.navigation.NavigationUnavailableReason
 import com.axiel7.anihyou.release.core.navigation.ProviderEpisodeSegment

@@ -207,6 +207,78 @@ class ExtensionSourcesViewModelTest {
         assertFalse(viewModel.uiState.value.actionFailed)
     }
 
+    @Test
+    fun sourceActionsClaimTheSourceSynchronouslyAndBlockSiblingActions() = runTest {
+        val key = usableKey()
+        val sources = repositoryWithUsableExtension(key)
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        sources.refreshGate = gate
+        val viewModel = ExtensionSourcesViewModel(sources)
+
+        viewModel.refreshSource(key.sourceId)
+        assertEquals(setOf(key.sourceId), viewModel.uiState.value.busySourceIds)
+        viewModel.removeExtension(key.sourceId, "sibling.extension")
+        viewModel.rollback(key.sourceId, "sibling.extension", 7, "previous-digest")
+
+        assertEquals(listOf(key.sourceId), sources.refreshedSourceIds)
+        assertTrue(sources.removedExtensions.isEmpty())
+        assertTrue(sources.rollbacks.isEmpty())
+        gate.complete(Unit)
+        assertTrue(viewModel.uiState.value.busySourceIds.isEmpty())
+    }
+
+    @Test
+    fun rollbackForwardsTheCapturedGenerationAndDigest() = runTest {
+        val key = usableKey()
+        val sources = repositoryWithUsableExtension(key)
+        val viewModel = ExtensionSourcesViewModel(sources)
+
+        viewModel.rollback(key.sourceId, key.extensionId, expectedGeneration = 17, targetDigest = "exact-good-digest")
+
+        assertEquals(listOf(FakeExtensionSourceRepository.RollbackCall(
+            key.sourceId, key.extensionId, 17, "exact-good-digest",
+        )), sources.rollbacks)
+    }
+
+    @Test
+    fun restoredOfflineInstalledPackageCanRemainSelectedForNavigation() = runTest {
+        val key = usableKey()
+        val offlineInstalled = SourceExtension(
+            extensionId = key.extensionId,
+            displayName = "Signed offline provider",
+            version = "1.0",
+            digest = "candidate-digest",
+            releaseSequence = 1,
+            capabilities = listOf("CALENDAR", "OVERVIEW_NAVIGATION", "EPISODE_NAVIGATION"),
+            installedVersion = "1.0",
+            installedDigest = "verified-local-package",
+            activationAllowed = false,
+            providerId = key.providerId,
+            publisherId = key.publisherId,
+            installedUsable = true,
+            installedStatus = com.axiel7.anihyou.release.core.source.InstalledPackageStatus.USABLE,
+        )
+        val sources = repositoryWithExtension(key, offlineInstalled, ExtensionSourceStatus.ERROR)
+        val policy = FakeExtensionProductPolicyRepository()
+        val viewModel = ExtensionSourcesViewModel(sources, policy)
+
+        viewModel.selectActiveSource(key)
+        viewModel.selectNavigationProvider(key)
+
+        assertEquals(key, policy.policy.value.activeReleaseSource)
+        assertEquals(key, policy.policy.value.preferredNavigationProvider)
+    }
+
+    @Test
+    fun initializationRestoresOnlyTheLocalInstalledJournal() = runTest {
+        val sources = FakeExtensionSourceRepository()
+
+        ExtensionSourcesViewModel(sources)
+
+        assertEquals(1, sources.restoreInstalledCalls)
+        assertTrue(sources.refreshedSourceIds.isEmpty())
+    }
+
     private fun usableKey(
         sourceId: String = "source-id",
         extensionId: String = "signed.extension",
@@ -244,6 +316,7 @@ class ExtensionSourcesViewModelTest {
     private fun repositoryWithExtension(
         key: ExtensionSelectionKey,
         extension: SourceExtension,
+        status: ExtensionSourceStatus = ExtensionSourceStatus.CURRENT,
     ) = FakeExtensionSourceRepository().apply {
         sources.value = listOf(
             ExtensionSource(
@@ -251,7 +324,7 @@ class ExtensionSourcesViewModelTest {
                 url = "https://${key.sourceId}.example.test/repository.json",
                 origin = "test",
                 enabled = true,
-                status = ExtensionSourceStatus.CURRENT,
+                status = status,
                 extensions = listOf(extension),
             ),
         )
@@ -261,6 +334,10 @@ class ExtensionSourcesViewModelTest {
         override val sources = MutableStateFlow<List<ExtensionSource>>(emptyList())
         val addedUrls = mutableListOf<String>()
         val refreshedSourceIds = mutableListOf<String>()
+        val removedExtensions = mutableListOf<Pair<String, String>>()
+        val rollbacks = mutableListOf<RollbackCall>()
+        var refreshGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+        var restoreInstalledCalls = 0
         var addResult: AddExtensionSourceResult = AddExtensionSourceResult.Added("source-id")
 
         override suspend fun add(url: String): AddExtensionSourceResult {
@@ -270,9 +347,26 @@ class ExtensionSourcesViewModelTest {
 
         override suspend fun setEnabled(sourceId: String, enabled: Boolean) = Unit
         override suspend fun remove(sourceId: String) = Unit
-        override suspend fun refresh(sourceId: String) { refreshedSourceIds += sourceId }
+        override suspend fun refresh(sourceId: String) {
+            refreshedSourceIds += sourceId
+            refreshGate?.await()
+        }
         override suspend fun refreshEnabled(): Boolean = false
         override suspend fun activate(sourceId: String, extensionId: String) = Unit
+        override suspend fun removeExtension(sourceId: String, extensionId: String) {
+            removedExtensions += sourceId to extensionId
+        }
+        override suspend fun rollback(sourceId: String, extensionId: String, expectedGeneration: Long, targetDigest: String) {
+            rollbacks += RollbackCall(sourceId, extensionId, expectedGeneration, targetDigest)
+        }
+        override suspend fun restoreInstalled() { restoreInstalledCalls++ }
+
+        data class RollbackCall(
+            val sourceId: String,
+            val extensionId: String,
+            val expectedGeneration: Long,
+            val targetDigest: String,
+        )
     }
 
     private class FakeExtensionProductPolicyRepository(
