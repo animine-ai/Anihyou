@@ -38,6 +38,7 @@ if [[ -s "$out/proxy.pid" ]] && sudo kill -0 "$(cat "$out/proxy.pid")"; then
       adb shell svc data disable
     fi
     adb shell svc wifi disable
+    sleep 3
     adb shell svc wifi enable
     validated_pattern='Transports: WIFI Capabilities:[^]]*VALIDATED'
   else
@@ -46,8 +47,12 @@ if [[ -s "$out/proxy.pid" ]] && sudo kill -0 "$(cat "$out/proxy.pid")"; then
     # The emulator validates against the runner's test DNS and public-address route on its own.
     validated_pattern='NetworkAgentInfo.*VALIDATED|Capabilities:.*VALIDATED'
   fi
-  for attempt in $(seq 1 45); do
+  for attempt in $(seq 1 120); do
     adb shell dumpsys connectivity > "$out/network-validation.txt"
+    if [[ "$sdk" -ge 28 && $((attempt % 25)) -eq 0 ]] && ! grep -qE 'NetworkAgentInfo.*type: WIFI' "$out/network-validation.txt"; then
+      # The Wi-Fi network did not come back after the cycle: ask again instead of waiting on a network that is not there.
+      adb shell svc wifi enable
+    fi
     if grep -E "$validated_pattern" "$out/network-validation.txt" >/dev/null; then
       echo 'EP02 hermetic DNS, HTTPS relay and Android-validated network ready.'
       exit 0

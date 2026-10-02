@@ -29,6 +29,12 @@ def reply(query):
         "aniworld.to": "8.8.8.8",  # TEST-ONLY real guest routes to the hermetic TLS fixture.
         "wrong.example.org": "8.8.8.8",
         "private.example.org": "127.0.0.1",
+        # Android's own connectivity probes (API 24 to 27 read the name from the platform, API 28+ from settings) end
+        # at the hermetic HTTP 204 handler on 8.8.8.8:80, so the emulated network validates without touching the Internet.
+        "connectivitycheck.gstatic.com": "8.8.8.8",
+        "connectivitycheck.android.com": "8.8.8.8",
+        "clients3.google.com": "8.8.8.8",
+        "www.google.com": "8.8.8.8",
     }
     address = addresses.get(name)
     answer = b""
