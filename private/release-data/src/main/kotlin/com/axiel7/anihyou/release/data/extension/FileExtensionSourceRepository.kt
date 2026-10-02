@@ -528,9 +528,8 @@ internal class FileExtensionSourceRepository(
                 store == null && source.attemptedAt == null -> ExtensionSourceStatus.ADDED
                 store == null -> ExtensionSourceStatus.TRUST_UNAVAILABLE
                 snapshot == null || !fresh -> ExtensionSourceStatus.ERROR
-                extensions.any { it.installedStatus == InstalledPackageStatus.REVOKED } || snapshot.generations.values.any {
-                    it.active?.digest in snapshot.revokedDigests || it.active?.key in snapshot.root?.revokedKeys.orEmpty()
-                } -> ExtensionSourceStatus.REVOKED
+                extensions.any { it.installedStatus == InstalledPackageStatus.REVOKED ||
+                    it.revoked && !it.installedUsable } -> ExtensionSourceStatus.REVOKED
                 extensions.any { it.updateAvailable } -> ExtensionSourceStatus.UPDATE_AVAILABLE
                 snapshot?.index != null -> ExtensionSourceStatus.CURRENT
                 else -> ExtensionSourceStatus.ADDED

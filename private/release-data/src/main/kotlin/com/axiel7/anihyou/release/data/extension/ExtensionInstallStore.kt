@@ -288,8 +288,9 @@ internal class ExtensionInstallStore(
     fun finishOperation(extensionId: String, result: ExtensionUpdateState, failure: ExtensionUpdateFailure?, now: Instant, technicalCode: String? = null) = serialized {
         val operation = state.operations[extensionId] ?: return@serialized
         if (operation.technicalCode == "AUTOMATIC_SAFE_RECOVERY" || operation.technicalCode == "ACTIVE_PACKAGE_REJECTED") return@serialized
+        val code = technicalCode?.replace(Regex("[^A-Za-z0-9_]"), "_")?.take(128)?.takeIf(String::isNotEmpty)
         commit(state.copy(operations = state.operations + (extensionId to operation.copy(state = result,
-            completedAt = effectiveTime(now), failure = failure, technicalCode = technicalCode?.take(128))), clock = effectiveTime(now)))
+            completedAt = effectiveTime(now), failure = failure, technicalCode = code)), clock = effectiveTime(now)))
     }
     /** No Compose state can promote a candidate after process death. */
     fun recoverInterrupted(now: Instant) = serialized {
