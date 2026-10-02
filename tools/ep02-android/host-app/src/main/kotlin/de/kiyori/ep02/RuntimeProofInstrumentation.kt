@@ -58,8 +58,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class RuntimeProofInstrumentation : Instrumentation() {
+    private var holdForExternalKill = false
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
+        holdForExternalKill = arguments?.getString("ep07HoldForKill") == "true"
         start()
     }
 
@@ -78,7 +80,14 @@ class RuntimeProofInstrumentation : Instrumentation() {
             // The full report is already in the structured `ep02` result. Keep it out of the
             // second Bundle field because raw sample evidence can be sizable.
             result.putString("stream", "$marker\n")
-            finish(if (passed) -1 else 0, result)
+            if (passed && holdForExternalKill) {
+                // finish() terminates instrumentation and may remove its process immediately.
+                // Publish the completed report while this exact seeded process remains alive.
+                sendStatus(-1, result)
+                java.util.concurrent.CountDownLatch(1).await()
+            } else {
+                finish(if (passed) -1 else 0, result)
+            }
         } catch (error: Throwable) {
             val report = JSONObject()
                 .put("passed", false)

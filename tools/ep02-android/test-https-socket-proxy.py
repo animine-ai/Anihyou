@@ -5,6 +5,17 @@ import select
 import socket
 import sys
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+class NetworkValidationHandler(BaseHTTPRequestHandler):
+    """Only the Android OS connectivity probe; provider HTTPS still uses the relay."""
+    def do_GET(self):
+        self.send_response(204 if self.path == "/generate_204" else 404)
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        print("EP07 network validation: " + format % args, flush=True)
 
 
 def relay(client):
@@ -25,6 +36,8 @@ def relay(client):
 
 
 with socket.create_server(("8.8.8.8", 443), backlog=16) as server:
+    validation = ThreadingHTTPServer(("8.8.8.8", 80), NetworkValidationHandler)
+    threading.Thread(target=validation.serve_forever, daemon=True).start()
     with open(sys.argv[1], "w", encoding="ascii") as pid_file:
         pid_file.write(str(os.getpid()) + "\n")
     while True:

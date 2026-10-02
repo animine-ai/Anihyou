@@ -1,6 +1,9 @@
 package de.kiyori.ep02
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import androidx.work.Configuration
 import androidx.work.ListenableWorker
 import androidx.work.WorkManager
@@ -44,6 +47,13 @@ internal object Ep07WorkManagerProof {
     }
 
     suspend fun due(context: Context, actual: ExtensionReleaseRefreshCoordinator, twice: Boolean = false): ShadowRefreshOutcome {
+        if (Build.VERSION.SDK_INT >= 26) {
+            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
+            check(capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) {
+                "hermetic network must be Android-validated before product WorkManager scheduling: $capabilities"
+            }
+        }
         initialize(context)
         withContext(Dispatchers.IO) {
             manager.cancelAllWorkByTag(WorkManagerExtensionReleaseRefreshScheduler.TAG).result.get(10, TimeUnit.SECONDS)

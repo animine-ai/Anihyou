@@ -22,7 +22,15 @@ trap cleanup_test_network EXIT
 bash "$root/configure-test-network.sh" "$out"
 adb install -r "$apk"
 adb logcat -c
-timeout 240 adb shell am instrument -w -r de.kiyori.ep02/.RuntimeProofInstrumentation | tee "$out/instrumentation.txt"
+timeout 240 adb shell am instrument -w -r -e ep07HoldForKill true de.kiyori.ep02/.RuntimeProofInstrumentation > "$out/instrumentation.txt" 2>&1 &
+instrumentation_pid=$!
+for attempt in $(seq 1 240); do
+  if grep -qE 'INSTRUMENTATION_STATUS_CODE: -1|INSTRUMENTATION_CODE:' "$out/instrumentation.txt"; then break; fi
+  if ! kill -0 "$instrumentation_pid" 2>/dev/null; then break; fi
+  sleep 1
+done
+# Print the report once. A successful first phase stays alive for the external kill below.
+cat "$out/instrumentation.txt"
 timeout 15 adb logcat -d > "$out/logcat.txt" 2>&1 || true
 python3 - "$out" "$expected_api" "$variant" <<'PY'
 from pathlib import Path
@@ -32,7 +40,7 @@ import re
 root=Path(sys.argv[1])
 text=(root/'instrumentation.txt').read_text()
 line=next(
-    (line for line in text.splitlines() if line.startswith('INSTRUMENTATION_RESULT: ep02=')),
+    (line for line in text.splitlines() if line.startswith(('INSTRUMENTATION_RESULT: ep02=', 'INSTRUMENTATION_STATUS: ep02='))),
     None,
 )
 assert line is not None, text
@@ -227,7 +235,7 @@ if report['passed']:
     assert functional['status'] == 'PASS', report
     assert p['status'] == 'PASS', report
     assert 'EP02_ANDROID_PASS' in text and 'EP02_ANDROID_FUNCTIONAL_FAIL' not in text, text
-    assert 'INSTRUMENTATION_CODE: -1' in text, text
+    assert 'INSTRUMENTATION_STATUS_CODE: -1' in text, text
     assert policy in ['PASS','SMALL_ABSOLUTE_DIFFERENCE'], p
     print('EP02 VERIFIED',json.dumps({
         'api':report['api'],'variant':sys.argv[3],'functionalStatus':functional['status'],
@@ -256,6 +264,8 @@ seed_pid=$(adb shell pidof de.kiyori.ep02 | tr -d '\r')
 test -n "$seed_pid"
 adb shell am force-stop de.kiyori.ep02
 test -z "$(adb shell pidof de.kiyori.ep02 | tr -d '\r')"
+wait "$instrumentation_pid" || true
+printf '%s\n' "$seed_pid" > "$out/force-stopped-seed-pid.txt"
 timeout 90 adb shell am instrument -w -r de.kiyori.ep02/.Ep07RestartInstrumentation | tee "$out/restart-instrumentation.txt"
 python3 - "$out" <<'PY'
 from pathlib import Path
@@ -267,6 +277,7 @@ assert line is not None, text
 restart=json.loads(line.split('=',1)[1])
 assert restart['status']=='PASS' and restart['testTrustOnly'] is True, restart
 assert restart['seedPid']!=restart['restartPid'] and restart['acceptedRows']>0, restart
+assert str(restart['seedPid']) == (root/'force-stopped-seed-pid.txt').read_text().strip(), restart
 assert all(restart[key] is True for key in [
     'persistedRowsReadBeforeScheduling','mappingAvailableBeforeRefresh','signedPackageReverified',
     'actualProductWorkManagerWorker','freshSkipsNetworkAndRuntime','processKillProof',
