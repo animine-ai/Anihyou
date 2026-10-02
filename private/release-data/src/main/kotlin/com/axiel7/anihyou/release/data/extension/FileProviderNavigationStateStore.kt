@@ -40,6 +40,9 @@ class FileProviderNavigationStateStore(private val directory: File) {
         statistics: Map<String, String> = emptyMap(), packageGeneration: Long = 0) = mutate { old ->
         require(packageDigest.matches(Regex("[0-9a-f]{64}")))
         require(releaseGeneration >= 0 && packageGeneration >= 0)
+        require(old.source != source || packageGeneration >= old.packageGeneration) {
+            "package generation cannot move backwards for the same extension lifecycle"
+        }
         val sameSelection = old.source == source && old.releaseGeneration == releaseGeneration &&
             old.packageDigest == packageDigest && old.packageGeneration == packageGeneration
         val retained = if (sameSelection)

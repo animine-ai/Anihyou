@@ -47,6 +47,7 @@ assert "val packageGeneration: Long = 0" in resolver
 state_store = (data / "extension/FileProviderNavigationStateStore.kt").read_text()
 assert "val packageGeneration: Long = 0" in state_store and 'put("packageGeneration"' in state_store
 assert "it.packageGeneration == packageGeneration" in state_store
+assert "packageGeneration >= old.packageGeneration" in state_store
 print(json.dumps({
     "staticProductCompositionPassed": True,
     "activeReleaseSourceIsScalarOptional": True,

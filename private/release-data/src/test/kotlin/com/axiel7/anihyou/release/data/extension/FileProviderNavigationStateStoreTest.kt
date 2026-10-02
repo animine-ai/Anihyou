@@ -57,6 +57,27 @@ class FileProviderNavigationStateStoreTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun `late ABA receipt from an earlier package generation cannot replace the newest token`() = runBlocking {
+        val directory = Files.createTempDirectory("ep07-navigation-late-aba").toFile()
+        try {
+            val store = FileProviderNavigationStateStore(directory)
+            val digestV1 = "a".repeat(64)
+            val digestV2 = "b".repeat(64)
+            store.record(a, 1, digestV1, emptyList(), packageGeneration = 4)
+            store.record(a, 2, digestV2, emptyList(), packageGeneration = 5)
+            store.record(a, 3, digestV1, emptyList(), packageGeneration = 6)
+            val newest = store.state.value
+
+            val staleWrite = runCatching {
+                store.record(a, 1, digestV1, emptyList(), packageGeneration = 4)
+            }
+
+            assertTrue(staleWrite.isFailure)
+            assertEquals(newest, store.state.value)
+            assertEquals(newest, FileProviderNavigationStateStore(directory).state.value)
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun `receipts never merge source generation or package while exact mappings survive restart`() = runBlocking {
         val directory = Files.createTempDirectory("ep06-navigation-store").toFile()
         try {
