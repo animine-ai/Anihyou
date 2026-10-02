@@ -105,7 +105,6 @@ data class ReleaseUiCalendarItem(
             stream.stableKey,
             track.name,
             installment.stableKey,
-            if (confirmed) "confirmed" else "forecast",
         ).joinToString("|")
 }
 
