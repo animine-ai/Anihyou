@@ -1,3 +1,7 @@
+// This standalone test APK inspects the private installer journal just as the
+// retained Java fixture bridges do. It is never included in the product APK.
+@file:Suppress("INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
+
 package de.kiyori.ep02
 
 import android.content.Context

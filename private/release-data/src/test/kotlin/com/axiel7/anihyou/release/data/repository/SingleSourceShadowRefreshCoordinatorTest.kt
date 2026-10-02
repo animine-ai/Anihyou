@@ -4,6 +4,10 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
+import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
+import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
+import com.axiel7.anihyou.release.core.source.ExtensionSource
+import com.axiel7.anihyou.release.core.source.AddExtensionSourceResult
 import com.axiel7.anihyou.release.core.extension.*
 import com.axiel7.anihyou.release.core.model.*
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
@@ -21,6 +25,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -56,6 +61,112 @@ class SingleSourceShadowRefreshCoordinatorTest {
     @After
     fun tearDown() {
         database.close()
+    }
+
+    @Test
+    fun `product refresh commits accepted data then skips fresh execution across receipt restart`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        val first = product(rig, access).refresh("product-first", false)
+        assertTrue(first is ShadowRefreshOutcome.Committed)
+        assertEquals(NOW.toString(), rig.navigationStore.state.value.syncStatistics["Last successful sync"])
+        val exports = rig.runtime.exports.toList()
+        assertEquals(ShadowRefreshOutcome.Skipped("extension-data-fresh"),
+            product(rig, access).refresh("product-restarted", false))
+        assertEquals(exports, rig.runtime.exports)
+        assertTrue(rig.navigationStore.state.value.installments.isNotEmpty())
+    }
+
+    @Test
+    fun `freshness never crosses a same-digest rollback generation`() = runBlocking {
+        val pkg = extensionPackage(SOURCE_A_KEY, packageGeneration = 6)
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to pkg))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        rig.navigationStore.record(SOURCE_A_KEY, rig.policy.policy.value.releaseGeneration,
+            pkg.packageDigest, emptyList(), mapOf("Last successful sync" to NOW.toString()), packageGeneration = 4)
+        assertTrue(product(rig, access).refresh("product-after-rollback", false) is ShadowRefreshOutcome.Committed)
+        assertTrue(rig.runtime.exports.isNotEmpty())
+        assertEquals(6L, rig.navigationStore.state.value.packageGeneration)
+    }
+
+    @Test
+    fun `stale receipt and explicit refresh execute while a fresh receipt skips`() = runBlocking {
+        for ((name, age, force) in listOf(Triple("stale", 3600L, false), Triple("manual", 0L, true))) {
+            val pkg = extensionPackage(SOURCE_A_KEY)
+            val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to pkg))
+            val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+            rig.navigationStore.record(SOURCE_A_KEY, rig.policy.policy.value.releaseGeneration,
+                pkg.packageDigest, emptyList(), mapOf("Last successful sync" to NOW.minusSeconds(age).toString()),
+                packageGeneration = pkg.packageGeneration)
+            assertTrue(product(rig, access).refresh("product-$name", force) is ShadowRefreshOutcome.Committed)
+            assertTrue(rig.runtime.exports.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `other identity and future timestamps cannot suppress a product refresh`() = runBlocking {
+        for ((name, key, time) in listOf(
+            Triple("other-source", SOURCE_B_KEY, NOW), Triple("future-time", SOURCE_A_KEY, NOW.plusSeconds(1)),
+        )) {
+            val pkg = extensionPackage(SOURCE_A_KEY)
+            val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to pkg))
+            val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+            rig.navigationStore.record(key, rig.policy.policy.value.releaseGeneration, pkg.packageDigest,
+                emptyList(), mapOf("Last successful sync" to time.toString()), packageGeneration = pkg.packageGeneration)
+            assertTrue(product(rig, access).refresh("product-$name", false) is ShadowRefreshOutcome.Committed)
+            assertTrue(rig.runtime.exports.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `two concurrent product triggers use one owner and do not duplicate runtime work`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime(blockParsing = true))
+        val production = product(rig, access)
+        withTimeout(30_000) {
+            val running = async { production.refresh("product-one-owner", false) }
+            rig.runtime.parseEntered.await()
+            assertEquals(ShadowRefreshOutcome.Failed("BUSY", true), production.refresh("product-duplicate", true))
+            rig.runtime.releaseParsing.complete(Unit)
+            assertTrue(running.await() is ShadowRefreshOutcome.Committed)
+            assertEquals(ShadowRefreshOutcome.Skipped("extension-data-fresh"), production.refresh("product-new-start", false))
+        }
+    }
+
+    @Test
+    fun `product failure preserves prior receipt and accepted Room evidence`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        assertTrue(product(rig, access).refresh("product-lkg", false) is ShadowRefreshOutcome.Committed)
+        val old = rig.navigationStore.state.value
+        val before = database.reconciliationDao().projectionPage(256, 0)
+        val failed = object : WorkScopedShadowRefreshCoordinator {
+            override suspend fun refresh() = refreshForWork("unused")
+            override suspend fun refreshForWork(workId: String) = ShadowRefreshOutcome.Failed("NETWORK", true)
+        }
+        assertEquals(ShadowRefreshOutcome.Failed("NETWORK", true),
+            product(rig, access, failed).refresh("product-transient-failure", true))
+        assertEquals(old, rig.navigationStore.state.value)
+        assertEquals(before, database.reconciliationDao().projectionPage(256, 0))
+    }
+
+    private fun product(rig: Rig, access: InstalledExtensionAccess,
+        delegate: WorkScopedShadowRefreshCoordinator? = null): ProductionExtensionReleaseRefreshCoordinator {
+        val sources = object : ExtensionSourceRepository {
+            override val sources = MutableStateFlow<List<ExtensionSource>>(emptyList())
+            override suspend fun add(url: String) = AddExtensionSourceResult.InvalidUrl
+            override suspend fun setEnabled(sourceId: String, enabled: Boolean) = Unit
+            override suspend fun remove(sourceId: String) = Unit
+            override suspend fun refresh(sourceId: String) = Unit
+            override suspend fun refreshEnabled() = false
+            override suspend fun activate(sourceId: String, extensionId: String) = Unit
+        }
+        val productDelegate = delegate ?: object : WorkScopedShadowRefreshCoordinator {
+            override suspend fun refresh() = rig.worker.refresh()
+            override suspend fun refreshForWork(workId: String) = rig.worker.refreshForProductWork(workId)
+        }
+        return ProductionExtensionReleaseRefreshCoordinator(sources, rig.policy, access,
+            rig.navigationStore, productDelegate, Clock.fixed(NOW, ZoneOffset.UTC))
     }
 
     @Test

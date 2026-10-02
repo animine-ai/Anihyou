@@ -141,6 +141,7 @@ sealed interface ShadowRefreshOutcome {
         val cycle: CompletedObservationCycle,
         val presentationObservations: List<ProviderObservationV1> = emptyList(),
         val successfulPresentationRoles: Set<SourceRole> = emptySet(),
+        val refreshSucceeded: Boolean = false,
     ) : ShadowRefreshOutcome
     data class Skipped(val reason: String) : ShadowRefreshOutcome
     data class Failed(val reason: String, val retryable: Boolean) : ShadowRefreshOutcome

@@ -38,6 +38,7 @@ class CalendarViewModel(
     private val listPreferencesRepository: ListPreferencesRepository,
     private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
     private val clock: Clock = Clock.systemUTC(),
+    private val extensionRefreshScheduler: com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler? = null,
 ) : PagedUiStateViewModel<CalendarUiState>(), CalendarEvent {
 
     override val initialState = CalendarUiState(day = nowLocalDateTime().minusDays(1))
@@ -116,6 +117,7 @@ class CalendarViewModel(
     }
 
     override fun refresh() {
+        extensionRefreshScheduler?.scheduleNow()
         mutableUiState.update {
             it.copy(
                 fetchFromNetwork = true,

@@ -31,6 +31,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
 import com.axiel7.anihyou.release.core.source.ExtensionSourceScheduler
+import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
+import com.axiel7.anihyou.release.core.source.usableExtension
+import com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 class App : Application(), SingletonImageLoader.Factory {
     private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -71,6 +77,21 @@ class App : Application(), SingletonImageLoader.Factory {
                 if (koinApplication.koin.get<ExtensionSourceRepository>().sources.value.any { it.enabled }) {
                     koinApplication.koin.get<ExtensionSourceScheduler>().scheduleRefresh()
                 }
+            }
+        }
+        startupScope.launch {
+            val sources = koinApplication.koin.get<ExtensionSourceRepository>()
+            sources.restoreInstalled()
+            val policy = koinApplication.koin.get<ExtensionProductPolicyRepository>()
+            val scheduler = koinApplication.koin.get<ExtensionReleaseRefreshScheduler>()
+            combine(policy.policy, sources.sources) { selection, catalog ->
+                selection.activeReleaseSource?.let { key ->
+                    catalog.usableExtension(key)?.let { entry ->
+                        listOf(key, selection.releaseGeneration, entry.installedDigest, entry.packageGeneration)
+                    }
+                }
+            }.distinctUntilChanged().collect { current ->
+                if (current == null) scheduler.cancel() else scheduler.scheduleDue()
             }
         }
     }

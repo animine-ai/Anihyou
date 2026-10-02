@@ -47,6 +47,7 @@ class ExtensionShadowSyncOrchestrator(
     private val enabledTracks: Set<String> = setOf("DE_SUB", "DE_DUB"),
     private val commitGuard: suspend (suspend () -> Boolean) -> Boolean = { it() },
     private val currentSelection: suspend () -> Boolean = { true },
+    private val requireCompleteRefresh: Boolean = false,
 ) : WorkScopedShadowRefreshCoordinator {
     private val mutex = Mutex()
 
@@ -90,6 +91,16 @@ class ExtensionShadowSyncOrchestrator(
                     val started = Instant.parse(result.receipt.startedAt)
                     val completed = Instant.parse(result.receipt.completedAt)
                     val health = sourceHealth(result, completed)
+                    if (requireCompleteRefresh && (health.isEmpty() ||
+                            health.any { it.status != SourceHealthStatus.HEALTHY })) {
+                        val recorded = commitGuard {
+                            generations.abort(lease, "extension-refresh-partial", completed,
+                                if (currentSelection()) health else emptyList())
+                            true
+                        }
+                        if (!recorded) generations.abort(lease, "stale-active-source", completed)
+                        return@withLock ShadowRefreshOutcome.Failed("extension-refresh-partial", retryable = true)
+                    }
                     val healthByType = health.associateBy { it.sourceType }
                     val sourceObservations = LIST_ROLES.sortedBy(SourceRole::ordinal).map { role ->
                         val type = ROLE_TYPES.getValue(role)
@@ -158,6 +169,8 @@ class ExtensionShadowSyncOrchestrator(
                                 it.sourceRole in successfulPresentationRoles
                             },
                             successfulPresentationRoles = successfulPresentationRoles,
+                            refreshSucceeded = result.requestRoles.isNotEmpty() &&
+                                health.isNotEmpty() && health.all { it.status == SourceHealthStatus.HEALTHY },
                         )
                     }
                 }

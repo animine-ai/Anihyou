@@ -44,7 +44,11 @@ class SingleSourceShadowRefreshCoordinator(
 ) : WorkScopedShadowRefreshCoordinator {
     override suspend fun refresh() = refreshForWork(UUID.randomUUID().toString())
 
-    override suspend fun refreshForWork(workId: String): ShadowRefreshOutcome {
+    override suspend fun refreshForWork(workId: String): ShadowRefreshOutcome = refresh(workId, false)
+
+    suspend fun refreshForProductWork(workId: String): ShadowRefreshOutcome = refresh(workId, true)
+
+    private suspend fun refresh(workId: String, requireCompleteRefresh: Boolean): ShadowRefreshOutcome {
         val snapshot = policy.policy.value
         val selected = snapshot.activeReleaseSource ?: return ShadowRefreshOutcome.Skipped("no-active-release-source")
         val pinned = installed.loadInstalled(selected) ?: return ShadowRefreshOutcome.Skipped("active-release-source-unavailable")
@@ -71,6 +75,7 @@ class SingleSourceShadowRefreshCoordinator(
             providerId = pinned.providerId,
             sourceRoles = pinned.grantedRoles,
             enabledTracks = effectiveTracks,
+            requireCompleteRefresh = requireCompleteRefresh,
             commitGuard = { commit -> policy.withCurrentSelection(snapshot) {
                 installed.withCurrentGeneration(selected, pinned.packageDigest, pinned.packageGeneration, commit) ?: false
             } ?: false },
@@ -117,7 +122,9 @@ class SingleSourceShadowRefreshCoordinator(
                         it.packageDigest == pinned.packageDigest && it.packageGeneration == pinned.packageGeneration
                 }?.syncStatistics.orEmpty()
                 val statistics = buildMap {
-                    val successful = outcome.cycle.sources.all { it.result == CycleResult.SUCCESS }
+                    // Sparse/empty successful listings remain partial Evidence for absence policy.
+                    // Freshness instead follows authenticated transport and complete parser reports.
+                    val successful = outcome.refreshSucceeded
                     put("Last successful sync", if (successful) outcome.cycle.completedAt.toString() else previous["Last successful sync"].orEmpty())
                     put("Role health", outcome.cycle.sources.groupBy { it.sourceType }.entries.joinToString("; ") {
                         it.key.name + ": " + it.value.map { row -> row.health.name + "/" + row.result.name }.distinct().joinToString()
