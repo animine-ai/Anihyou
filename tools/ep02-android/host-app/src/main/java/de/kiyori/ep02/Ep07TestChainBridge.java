@@ -185,7 +185,7 @@ public final class Ep07TestChainBridge {
             .getBytes(StandardCharsets.UTF_8);
     }
 
-    private static JSONObject digestRecord(byte[] bytes, String digest) {
+    private static JSONObject digestRecord(byte[] bytes, String digest) throws org.json.JSONException {
         return new JSONObject().put("sha256", digest).put("bytes", bytes.length);
     }
 
@@ -296,7 +296,7 @@ public final class Ep07TestChainBridge {
             this.moduleBytes = moduleBytes;
         }
 
-        JSONObject toJson() {
+        JSONObject toJson() throws org.json.JSONException {
             return new JSONObject().put("name", name).put("version", version).put("releaseSequence", sequence)
                 .put("packageDigest", archiveDigest).put("packageBytes", archiveBytes)
                 .put("manifestDigest", manifestDigest).put("moduleDigest", moduleDigest)

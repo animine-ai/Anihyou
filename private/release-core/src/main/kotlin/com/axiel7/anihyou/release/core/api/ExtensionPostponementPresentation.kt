@@ -2,6 +2,7 @@ package com.axiel7.anihyou.release.core.api
 
 import com.axiel7.anihyou.release.core.extension.ObservationScheduleMarker
 import com.axiel7.anihyou.release.core.extension.ObservationTrack
+import com.axiel7.anihyou.release.core.extension.ObservationInstallmentKind
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import java.time.Instant
 import kotlinx.coroutines.flow.StateFlow
@@ -25,16 +26,20 @@ data class ExtensionPostponementNotice(
     val rawText: String?,
     val providerSeriesKey: String?,
     val mediaId: Int?,
+    val installmentKind: ObservationInstallmentKind = ObservationInstallmentKind.UNKNOWN,
 ) {
     /** Provider coordinates keep a correction on the same row; incomplete identities stay separate. */
     val presentationKey: String
         get() {
             val coordinates = listOf(
-                providerSeriesKey.orEmpty(), navigationSeason?.toString().orEmpty(),
-                installmentNumber.orEmpty(), track.name,
+                providerSeriesKey.orEmpty(),
+                if (installmentKind == ObservationInstallmentKind.FILM) "" else navigationSeason?.toString().orEmpty(),
+                installmentNumber.orEmpty(), track.name, installmentKind.name,
             )
-            val parts = if (providerSeriesKey != null && navigationSeason != null &&
-                installmentNumber != null && track != ObservationTrack.UNKNOWN
+            val parts = if (providerSeriesKey != null &&
+                (installmentKind == ObservationInstallmentKind.FILM || navigationSeason != null) &&
+                installmentNumber != null && track != ObservationTrack.UNKNOWN &&
+                installmentKind != ObservationInstallmentKind.UNKNOWN
             ) coordinates else coordinates + listOf(title, sourceSeason?.toString().orEmpty(), marker.name, rawText.orEmpty())
             return parts.joinToString("") { "${it.length}:$it" }
         }

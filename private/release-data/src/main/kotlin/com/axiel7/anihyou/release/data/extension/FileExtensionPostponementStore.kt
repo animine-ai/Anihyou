@@ -6,6 +6,7 @@ import com.axiel7.anihyou.release.core.api.ExtensionPostponementSnapshot
 import com.axiel7.anihyou.release.core.extension.ObservationClaimKind
 import com.axiel7.anihyou.release.core.extension.ObservationScheduleMarker
 import com.axiel7.anihyou.release.core.extension.ObservationTrack
+import com.axiel7.anihyou.release.core.extension.ObservationInstallmentKind
 import com.axiel7.anihyou.release.core.extension.ProviderObservationV1
 import com.axiel7.anihyou.release.core.extension.SourceRole
 import com.axiel7.anihyou.release.core.model.AniWorldMappingSubject
@@ -92,6 +93,7 @@ class FileExtensionPostponementStore(
                     providerSeriesKey = observation.providerSeriesKey,
                     // Persist presentation coordinates, never durable catalogue authority.
                     mediaId = null,
+                    installmentKind = observation.installment.kind,
                 )
             }
             .distinctBy { it.presentationKey }
@@ -124,10 +126,14 @@ class FileExtensionPostponementStore(
     ): Int? {
         if (source?.providerId != "aniworld") return null
         val slug = notice.providerSeriesKey ?: return null
-        val navigationSeason = notice.navigationSeason ?: return null
         val site = runCatching { AniWorldSiteIdentifier(slug) }.getOrNull() ?: return null
-        val subject = runCatching { AniWorldMappingSubject.Season(site, navigationSeason) }.getOrNull()
-            ?: return null
+        val subject = runCatching {
+            when (notice.installmentKind) {
+                ObservationInstallmentKind.EPISODE -> AniWorldMappingSubject.Season(site, notice.navigationSeason ?: return null)
+                ObservationInstallmentKind.FILM -> AniWorldMappingSubject.Film(site, notice.installmentNumber?.toIntOrNull() ?: return null)
+                ObservationInstallmentKind.SPECIAL, ObservationInstallmentKind.UNKNOWN -> return null
+            }
+        }.getOrNull() ?: return null
         val row = mappings.singleOrNull {
             it.mappingSubjectKey == subject.stableKey && it.externalProvider == "anilist"
         } ?: return null
@@ -165,7 +171,7 @@ class FileExtensionPostponementStore(
 
     private fun encode(value: ExtensionPostponementSnapshot): JsonObject = JsonObject(
         linkedMapOf(
-            "schemaVersion" to JsonPrimitive(1),
+            "schemaVersion" to JsonPrimitive(2),
             "source" to encodeKey(value.source),
             "releaseGeneration" to JsonPrimitive(value.releaseGeneration),
             "packageDigest" to nullable(value.packageDigest),
@@ -177,6 +183,7 @@ class FileExtensionPostponementStore(
                     "sourceSeason" to (notice.sourceSeason?.let(::JsonPrimitive) ?: JsonNull),
                     "navigationSeason" to (notice.navigationSeason?.let(::JsonPrimitive) ?: JsonNull),
                     "installmentNumber" to nullable(notice.installmentNumber),
+                    "installmentKind" to JsonPrimitive(notice.installmentKind.name),
                     "track" to JsonPrimitive(notice.track.name),
                     "marker" to JsonPrimitive(notice.marker.name),
                     "rawText" to nullable(notice.rawText),
@@ -193,7 +200,8 @@ class FileExtensionPostponementStore(
             "schemaVersion", "source", "releaseGeneration", "packageDigest",
             "packageGeneration", "observedAt", "notices",
         ))
-        require(root.getValue("schemaVersion").jsonPrimitive.int == 1)
+        val schema = root.getValue("schemaVersion").jsonPrimitive.int
+        require(schema in 1..2)
         val notices = root.getValue("notices").jsonArray
         require(notices.size <= MAX_NOTICES)
         return ExtensionPostponementSnapshot(
@@ -208,10 +216,11 @@ class FileExtensionPostponementStore(
             observedAt = stringOrNull(root.getValue("observedAt"))?.let(Instant::parse),
             notices = notices.map { element ->
                 val item = element.jsonObject
-                require(item.keys == setOf(
+                val noticeKeys = setOf(
                     "title", "sourceSeason", "navigationSeason", "installmentNumber",
                     "track", "marker", "rawText", "providerSeriesKey", "mediaId",
-                ))
+                ) + (if (schema == 2) setOf("installmentKind") else emptySet())
+                require(item.keys == noticeKeys)
                 ExtensionPostponementNotice(
                     title = item.getValue("title").jsonPrimitive.content,
                     sourceSeason = intOrNull(item.getValue("sourceSeason")),
@@ -222,6 +231,10 @@ class FileExtensionPostponementStore(
                     rawText = stringOrNull(item.getValue("rawText")),
                     providerSeriesKey = stringOrNull(item.getValue("providerSeriesKey")),
                     mediaId = intOrNull(item.getValue("mediaId")),
+                    // Legacy cache preserves display text but cannot infer season/film authority.
+                    installmentKind = if (schema == 2) ObservationInstallmentKind.valueOf(
+                        item.getValue("installmentKind").jsonPrimitive.content,
+                    ) else ObservationInstallmentKind.UNKNOWN,
                 )
             },
         )

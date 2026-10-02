@@ -121,6 +121,6 @@ class ExtensionCalendarComposeTest {
 
     private fun notice(title: String, slug: String, id: Int?) = ExtensionPostponementNotice(
         title, 1, 1, "1", ObservationTrack.DE_SUB, ObservationScheduleMarker.POSTPONED,
-        "New schedule", slug, id,
+        "New schedule", slug, id, ObservationInstallmentKind.EPISODE,
     )
 }

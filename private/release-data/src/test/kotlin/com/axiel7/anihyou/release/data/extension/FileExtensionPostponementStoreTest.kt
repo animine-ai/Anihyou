@@ -13,6 +13,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.serialization.json.*
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.rules.TemporaryFolder
@@ -83,6 +84,43 @@ class FileExtensionPostponementStoreTest {
         assertEquals(ObservationScheduleMarker.RESCHEDULED, store.snapshot.value.notices.single().marker)
         store.record(key.copy(sourceId = "another"), 2, "b".repeat(64), 3, now.plusSeconds(180), emptyList())
         assertTrue(store.snapshot.value.notices.isEmpty())
+    }
+
+    @Test fun filmRequiresItsOwnMappingAndCannotBorrowASeasonBinding() = runBlocking {
+        val store = FileExtensionPostponementStore(temporary.newFolder(), database)
+        database.releaseDao().upsertExternalMapping(mapping())
+        val episode = observation()
+        val film = episode.copy(installment = InstallmentV1(ObservationInstallmentKind.FILM, "12"))
+        store.record(key, 1, "a".repeat(64), 1, now, listOf(episode, film))
+        val first = store.presentation.first().notices
+        assertEquals(2, first.map { it.presentationKey }.toSet().size)
+        assertEquals(7, first.single { it.installmentKind == ObservationInstallmentKind.EPISODE }.mediaId)
+        assertNull(first.single { it.installmentKind == ObservationInstallmentKind.FILM }.mediaId)
+        database.releaseDao().upsertExternalMapping(ExternalMapping(
+            AniWorldMappingSubject.Film(AniWorldSiteIdentifier("example-series"), 12),
+            ExternalProvider.ANILIST, "8", MappingSource.MANUAL, MappingConfidence.EXACT,
+            now, now, MappingStatus.ACTIVE,
+        ).toEntity())
+        assertEquals(8, store.presentation.first().notices.single {
+            it.installmentKind == ObservationInstallmentKind.FILM
+        }.mediaId)
+    }
+
+    @Test fun legacyNoticeRemainsVisibleButCannotInferAnInstallmentKindForMapping() = runBlocking {
+        val directory = temporary.newFolder()
+        val store = FileExtensionPostponementStore(directory, database)
+        database.releaseDao().upsertExternalMapping(mapping())
+        store.record(key, 1, "a".repeat(64), 1, now, listOf(observation()))
+        val file = java.io.File(directory, "postponements-v1.json")
+        val root = Json.parseToJsonElement(file.readText()).jsonObject
+        file.writeText(JsonObject(root + mapOf(
+            "schemaVersion" to JsonPrimitive(1),
+            "notices" to JsonArray(root.getValue("notices").jsonArray.map { JsonObject(it.jsonObject - "installmentKind") }),
+        )).toString())
+        val reopened = FileExtensionPostponementStore(directory, database)
+        assertEquals("Example", reopened.snapshot.value.notices.single().title)
+        assertEquals(ObservationInstallmentKind.UNKNOWN, reopened.snapshot.value.notices.single().installmentKind)
+        assertNull(reopened.presentation.first().notices.single().mediaId)
     }
 
     private fun mapping() = ExternalMapping(

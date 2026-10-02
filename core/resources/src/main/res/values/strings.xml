@@ -260,6 +260,8 @@
     <string name="postponements_last_updated">Last updated: %1$s</string>
     <string name="postponements_season">S%1$d</string>
     <string name="postponements_episode">E%1$s</string>
+    <string name="postponements_film">Film %1$s</string>
+    <string name="postponements_installment">Installment %1$s</string>
     <string name="postponements_track_unknown">Track unknown</string>
     <string name="postponements_postponed">Postponed</string>
     <string name="postponements_rescheduled">Rescheduled</string>

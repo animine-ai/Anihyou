@@ -27,6 +27,7 @@ import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.release.core.api.ExtensionPostponementNotice
 import com.axiel7.anihyou.release.core.extension.ObservationScheduleMarker
 import com.axiel7.anihyou.release.core.extension.ObservationTrack
+import com.axiel7.anihyou.release.core.extension.ObservationInstallmentKind
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import org.koin.compose.viewmodel.koinViewModel
@@ -153,7 +154,13 @@ private fun PostponementRow(
 private fun ExtensionPostponementNotice.detailsLabel(): String {
     val coordinates = buildList {
         sourceSeason?.let { add(stringResource(R.string.postponements_season, it)) }
-        installmentNumber?.let { add(stringResource(R.string.postponements_episode, it)) }
+        installmentNumber?.let {
+            add(stringResource(when (installmentKind) {
+                ObservationInstallmentKind.EPISODE -> R.string.postponements_episode
+                ObservationInstallmentKind.FILM -> R.string.postponements_film
+                ObservationInstallmentKind.SPECIAL, ObservationInstallmentKind.UNKNOWN -> R.string.postponements_installment
+            }, it))
+        }
         add(
             when (track) {
                 ObservationTrack.DE_SUB -> "SUB"
