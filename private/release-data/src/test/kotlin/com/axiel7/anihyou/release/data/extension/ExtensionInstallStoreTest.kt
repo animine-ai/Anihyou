@@ -1041,7 +1041,7 @@ class ExtensionInstallStoreTest {
     private fun indexSequence(record: JsonElement): Long {
         val bytes = Base64.getDecoder().decode(((record as JsonObject).getValue("bytes") as JsonPrimitive).content)
         val envelope = ExtensionWireCodec.parseStrictJson(bytes, 262144) as JsonObject
-        return ((envelope.getValue("signed") as JsonObject).getValue("sequence") as JsonPrimitive).long
+        return ((envelope.getValue("signed") as JsonObject).getValue("sequence") as JsonPrimitive).content.toLong()
     }
 
     private fun legacyState(directory: File, activeExtension: String = EXTENSION,
