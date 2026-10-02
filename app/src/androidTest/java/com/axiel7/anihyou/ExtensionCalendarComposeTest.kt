@@ -5,7 +5,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import android.graphics.Bitmap
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -100,7 +99,7 @@ class ExtensionCalendarComposeTest {
             }
         }
         composeRule.waitUntil(10_000) {
-            val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
+            val bitmap = composeRule.captureRootBitmap()
             val pixels = IntArray(bitmap.width * bitmap.height)
             bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
             pixels.count { it == coverColor } > 1000
@@ -120,7 +119,7 @@ class ExtensionCalendarComposeTest {
     private fun capture(name: String) {
         val directory = File(composeRule.activity.getExternalFilesDir(null), "ep07-ui").apply { mkdirs() }
         File(directory, "$name.png").outputStream().use { output ->
-            check(composeRule.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, output))
+            check(composeRule.captureRootBitmap().compress(Bitmap.CompressFormat.PNG, 100, output))
         }
     }
 

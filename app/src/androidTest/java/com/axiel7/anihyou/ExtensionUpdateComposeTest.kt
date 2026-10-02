@@ -11,7 +11,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -24,13 +23,11 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -541,7 +538,7 @@ class ExtensionUpdateComposeTest {
         }
         val directory = File(externalFiles, "ep07-ui")
         check(directory.mkdirs() || directory.isDirectory) { "Could not create EP07 screenshot directory" }
-        val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
+        val bitmap = composeRule.captureRootBitmap()
         File(directory, "$name.png").outputStream().buffered().use { output ->
             check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
                 "Could not encode EP07 screenshot $name"
