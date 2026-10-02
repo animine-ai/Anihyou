@@ -377,14 +377,24 @@ internal class FileExtensionSourceRepository(
             return null // Authentication precedes DNS, HTTP and even construction of a trust store.
         }
         require(source.address.origin in anchor.pin.distributionOrigins)
-        val store = synchronized(monitor) {
+        val existing = synchronized(monitor) {
+            val previous = anchors[source.id]
+            require(previous == null || previous == anchor) { "authenticated anchor changed" }
+            stores[source.id]
+        }
+        // The per-source operation mutex excludes another creator for this source. Do not
+        // hold monitor while recovery enters the global install journal: another source's
+        // installer may need monitor for its cancellation fence or progress callback.
+        val store = existing ?: try {
+            storeFactory.create(File(directory, source.id), anchor).also { it.recoverInterrupted(clock.instant()) }
+        } catch (invalid: Exception) {
+            throw SourceOperationFailure(ExtensionSourceFailure.STORAGE, invalid)
+        }
+        synchronized(monitor) {
             val previous = anchors[source.id]
             require(previous == null || previous == anchor) { "authenticated anchor changed" }
             anchors[source.id] = anchor
-            stores.getOrPut(source.id) {
-                try { storeFactory.create(File(directory, source.id), anchor).also { it.recoverInterrupted(clock.instant()) } }
-                catch (invalid: Exception) { throw SourceOperationFailure(ExtensionSourceFailure.STORAGE, invalid) }
-            }
+            stores[source.id] = store
         }
         val root = transport.fetch(source.address.url + "/root.json", anchor.pin.distributionOrigins, 65536)
         currentCoroutineContext().ensureActive()
