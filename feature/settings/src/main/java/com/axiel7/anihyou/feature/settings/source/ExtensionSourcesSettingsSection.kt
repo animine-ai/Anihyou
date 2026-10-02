@@ -243,7 +243,10 @@ private fun SourceExtensionInfo(
     event: ExtensionSourcesEvent,
 ) {
     var dialog by remember(source.id, extension.extensionId) { mutableStateOf<ExtensionManageDialog?>(null) }
-    var rollbackRequest by remember(source.id, extension.extensionId) { mutableStateOf<RollbackRequest?>(null) }
+    // A confirmation belongs to this exact lifecycle snapshot. Any replacement or trust
+    // change dismisses it instead of leaving an obsolete action on screen.
+    var rollbackRequest by remember(source.id, extension.extensionId, extension.packageGeneration,
+        extension.installedDigest, extension.rollbackTarget) { mutableStateOf<RollbackRequest?>(null) }
     val actionBusy = sourceBusy || extension.updateState.isInFlight()
     val updateStateLabel = stringResource(extensionUpdateStateLabel(extension.updateState))
     val updateStatusText = stringResource(R.string.extension_manage_status, updateStateLabel)
@@ -381,6 +384,7 @@ private fun SourceExtensionInfo(
                     sourceId = source.id,
                     extensionId = extension.extensionId,
                     expectedGeneration = extension.packageGeneration,
+                    currentDigest = extension.installedDigest,
                     currentVersion = extension.installedVersion ?: unavailableLabel,
                     target = target,
                     reason = extension.lastUpdateFailure?.let(::updateFailureLabel),
@@ -417,6 +421,7 @@ private fun SourceExtensionInfo(
     }
     rollbackRequest?.let { request ->
         val rollbackTargetStillCurrent = extension.packageGeneration == request.expectedGeneration &&
+            extension.installedDigest == request.currentDigest &&
             extension.rollbackTarget?.digest == request.target.digest &&
             extension.rollbackTarget?.trustState == request.target.trustState &&
             request.target.trustState == "TRUSTED"
@@ -476,6 +481,7 @@ private data class RollbackRequest(
     val sourceId: String,
     val extensionId: String,
     val expectedGeneration: Long,
+    val currentDigest: String?,
     val currentVersion: String,
     val target: com.axiel7.anihyou.release.core.source.ExtensionRollbackTarget,
     val reason: Int?,

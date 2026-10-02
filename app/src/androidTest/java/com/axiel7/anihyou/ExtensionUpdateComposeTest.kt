@@ -152,7 +152,7 @@ class ExtensionUpdateComposeTest {
     }
 
     @Test
-    fun rollbackConfirmationIsDisabledWhenGenerationOrTargetTrustChanges() {
+    fun rollbackConfirmationClosesWhenGenerationActiveDigestOrTargetTrustChanges() {
         val key = key("changed-target")
         val target = ExtensionRollbackTarget("1.0.0", "previous-good-digest", "TRUSTED")
         val failing = current(key).copy(
@@ -167,20 +167,19 @@ class ExtensionUpdateComposeTest {
         ))))
         val event = RecordingEvent()
         composeManage(state, event)
-        composeRule.onNodeWithTag("extension-rollback-${key.extensionId}").performScrollTo().performClick()
-        composeRule.onNodeWithTag("extension-rollback-confirm-${key.extensionId}").assertIsEnabled()
-
-        state.value = state.value.copy(sources = listOf(source(key.sourceId, failing.copy(
-            packageGeneration = 18,
-            rollbackTarget = null,
-            updateState = ExtensionUpdateState.UPDATE_FAILED,
-        ), ExtensionSourceStatus.ERROR, ExtensionSourceFailure.NETWORK)))
-
-        composeRule.onNodeWithText("The installed generation or Previous Good trust changed.", substring = true)
-            .assertIsDisplayedCompat()
-        composeRule.onNodeWithTag("extension-rollback-confirm-${key.extensionId}").assertIsNotEnabled()
-        composeRule.onNodeWithTag("extension-rollback-confirm-${key.extensionId}").performClick()
-        assertTrue(event.rollbacks.isEmpty())
+        for (changed in listOf(
+            failing.copy(packageGeneration = 18),
+            failing.copy(installedDigest = "replaced-active-package"),
+            failing.copy(rollbackTarget = target.copy(trustState = "REVOKED")),
+            failing.copy(rollbackTarget = null, updateState = ExtensionUpdateState.UPDATE_FAILED),
+        )) {
+            state.value = state.value.copy(sources = listOf(source(key.sourceId, failing)))
+            composeRule.onNodeWithTag("extension-rollback-${key.extensionId}").performScrollTo().performClick()
+            composeRule.onNodeWithTag("extension-rollback-confirm-${key.extensionId}").assertIsEnabled()
+            state.value = state.value.copy(sources = listOf(source(key.sourceId, changed)))
+            composeRule.onNodeWithTag("extension-rollback-confirm-${key.extensionId}").assertDoesNotExist()
+            assertTrue(event.rollbacks.isEmpty())
+        }
     }
 
     @Test
