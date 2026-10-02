@@ -81,18 +81,19 @@ class ExtensionSourcesUserFlowTest {
 
         composeRule.onNodeWithTag("extension-source-enabled").assertDoesNotExist()
         composeRule.onNodeWithTag("extension-source-remove").performScrollTo().performClick()
-        awaitText("Remove repository?").assertIsDisplayed()
+        // The confirmation is an AlertDialog window: it has no scrollable parent to scroll within.
+        awaitText("Remove repository?", scroll = false).assertIsDisplayed()
         composeRule.onNodeWithTag("extension-source-remove-confirm").performClick()
         awaitText(text(SettingsR.string.extension_sources_empty)).assertIsDisplayed()
         awaitNoSourceCards()
     }
 
     // Repository IO completion is outside Compose idleness; await its published result.
-    private fun awaitText(expected: String) = composeRule.run {
+    private fun awaitText(expected: String, scroll: Boolean = true) = composeRule.run {
         waitUntil(timeoutMillis = 10_000) {
             onAllNodesWithText(expected).fetchSemanticsNodes().isNotEmpty()
         }
-        onNodeWithText(expected).performScrollTo()
+        onNodeWithText(expected).let { node -> if (scroll) node.performScrollTo() else node }
     }
 
     private fun awaitTag(tag: String) {
