@@ -61,6 +61,10 @@ sealed interface Route : NavKey {
 
     @Serializable
     @Immutable
+    object Postponements: Route
+
+    @Serializable
+    @Immutable
     data class MediaDetails(
         val id: Int,
         val isLoggedIn: Boolean = false,
