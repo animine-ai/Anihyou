@@ -49,6 +49,9 @@ internal class LocalHttpsFixtureServer(context: Context) : Closeable {
 
     fun totalRequests(): Int = paths.size
 
+    /** Diagnostics only: the request paths in arrival order. */
+    fun pathsSnapshot(): List<String> = paths.toList()
+
     fun awaitLargeBodyAbort(timeoutMillis: Long = 5_000): Boolean =
         largeBodyAborted.await(timeoutMillis, TimeUnit.MILLISECONDS)
 

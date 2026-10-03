@@ -223,7 +223,10 @@ internal object Ep06ProductPolicyProof {
         }
         check(invalidTarget == ProviderNavigationResult.Unavailable(NavigationUnavailableReason.INVALID_TARGET))
         check(launchCalls == 0)
-        check(httpsFixture.pathCount("/nav-source") == fixtureRequestsBefore + 3)
+        check(httpsFixture.pathCount("/nav-source") == fixtureRequestsBefore + 3) {
+            "navigation fixture requests: before=$fixtureRequestsBefore now=${httpsFixture.pathCount("/nav-source")} " +
+                "launchCalls=$launchCalls invalidTarget=$invalidTarget paths=${httpsFixture.pathsSnapshot().takeLast(24)}"
+        }
 
         return JSONObject()
             .put("status", "PASS")
