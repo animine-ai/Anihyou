@@ -46,6 +46,12 @@ data class MappingRematchProgress(val completed: Int, val total: Int,
 /** Only real supported matcher options. Never expose trust, authority, TTL or policy thresholds. */
 data class MatcherOption(val key: String, val label: String, val choices: List<String>, val value: String)
 
+/** Metadata already loaded by Anime Details. Reuse it instead of issuing another AniList detail query. */
+data class DetailMappingRequest(val mediaId: Int, val titles: Set<String>,
+    val format: String? = null, val startYear: Int? = null) {
+    init { require(mediaId > 0 && titles.size <= 64 && titles.all { it.isNotBlank() && it.length <= 512 }) }
+}
+
 interface MatchingManagementRepository {
     /** Bounded persistent query; no network metadata hydration and no automatic matching. */
     fun observePage(query: MappingQuery): Flow<MappingPage>
@@ -59,6 +65,8 @@ interface MatchingManagementRepository {
     fun rematch(token: MappingActionToken): Flow<MappingRematchProgress>
     /** Detail entry only. Persisted lookup first; coalesce missing exact identities across callers. */
     suspend fun ensureDetailMapping(mediaId: Int)
+    /** Override when first resolution needs titles; the ID-only path can use existing local metadata. */
+    suspend fun ensureDetailMapping(request: DetailMappingRequest) = ensureDetailMapping(request.mediaId)
     fun observeMatcherOptions(): Flow<List<MatcherOption>>
     suspend fun setMatcherOption(key: String, value: String)
     /** Configuration only, never mappings, account, source selection or track/language preferences. */

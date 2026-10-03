@@ -164,10 +164,11 @@ private fun MappingIdentity(entry: ManagedMapping) {
     Text(stringResource(if (entry.manual) R.string.matching_manual else R.string.matching_automatic), style = MaterialTheme.typography.bodySmall)
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ScopeActions(label: String, enabled: Boolean, scope: MappingScope, event: MatchingManagementEvent, tag: String) {
     Text(label, style = MaterialTheme.typography.labelLarge)
-    Row {
+    FlowRow {
         TextButton(onClick = { event.prepare(MappingAction.REMATCH, scope) }, enabled = enabled,
             modifier = Modifier.testTag("matching-rematch-$tag")) { Text(stringResource(R.string.matching_rematch)) }
         TextButton(onClick = { event.prepare(MappingAction.RESET, scope) }, enabled = enabled,
