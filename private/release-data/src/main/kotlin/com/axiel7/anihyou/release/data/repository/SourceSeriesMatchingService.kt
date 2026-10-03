@@ -81,9 +81,10 @@ class SourceSeriesMatchingService(
             else { flight = CompletableDeferred(); inFlight[key] = flight; owner = true }
         }
         if (owner) scope.launch {
-            try { resolve(active, request); flight.complete(Unit) }
-            catch (failure: Throwable) { flight.completeExceptionally(failure) }
-            finally { flightMutex.withLock { inFlight.remove(key) } }
+            val failure = try { resolve(active, request); null } catch (failed: Throwable) { failed }
+            // Leave the map first: a caller that resumes right after completion must start a fresh run, not find this one.
+            flightMutex.withLock { inFlight.remove(key) }
+            if (failure == null) flight.complete(Unit) else flight.completeExceptionally(failure)
         }
         flight.await()
     }
@@ -135,7 +136,7 @@ class SourceSeriesMatchingService(
      * The explicit rematch of one captured entry. The accepted binding stays until a valid replacement exists; a
      * replacement is written only if no reset or correction happened since [startedAt].
      */
-    suspend fun rematch(ref: MappingEntryRef, currentMediaId: Int, startedAt: Instant): MappingRematchOutcome {
+    internal suspend fun rematch(ref: MappingEntryRef, currentMediaId: Int, startedAt: Instant): MappingRematchOutcome {
         val (slug, season, source) = when (ref) {
             is MappingEntryRef.V3Source -> {
                 val (subject, provider) = splitEntryKey(ref.entryKey)
