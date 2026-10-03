@@ -374,8 +374,7 @@ internal object Ep06SingleSourceWorkerProof {
             val before = reopened.reconciliationDao().projectionPage(256, 0)
             check(before.isNotEmpty()) { "reopened Room lost accepted release projections" }
             // The product wiring: rows are presented only for the source whose refresh committed them.
-            val calendarRepository = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(reopened), reopened, policy, sources,
-                committedSource = receipt.state.map { it.rowsSource })
+            val calendarRepository = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(reopened), reopened, policy, sources)
             val calendarRange = java.time.LocalDate.of(2026, 9, 18)..java.time.LocalDate.of(2026, 10, 16)
             val calendarBefore = calendarRepository.currentCalendar(null, calendarRange)
             check(calendarBefore.isNotEmpty() && calendarBefore.any { it.sourceDate == java.time.LocalDate.of(2026, 9, 30) }) {

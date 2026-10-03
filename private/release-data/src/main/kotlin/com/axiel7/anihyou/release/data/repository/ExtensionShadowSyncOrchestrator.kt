@@ -14,6 +14,7 @@ import com.axiel7.anihyou.release.core.model.LanguageTrack
 import com.axiel7.anihyou.release.core.model.ReleaseSourceType
 import com.axiel7.anihyou.release.core.model.SourceHealth
 import com.axiel7.anihyou.release.core.model.SourceHealthStatus
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.data.extension.ExtensionEvidenceAuthorityAdapter
 import com.axiel7.anihyou.release.data.extension.ExtensionHostCoordinator
 import com.axiel7.anihyou.release.data.extension.ExtensionHostFailureCode
@@ -48,6 +49,8 @@ class ExtensionShadowSyncOrchestrator(
     private val commitGuard: suspend (suspend () -> Boolean) -> Boolean = { it() },
     private val currentSelection: suspend () -> Boolean = { true },
     private val requireCompleteRefresh: Boolean = false,
+    /** The exact release source this run belongs to; its cycles are folded into that source's own rows (R04). */
+    private val selection: ExtensionSelectionKey? = null,
 ) : WorkScopedShadowRefreshCoordinator {
     private val mutex = Mutex()
 
@@ -148,7 +151,7 @@ class ExtensionShadowSyncOrchestrator(
                             ExpectedSourceInstance(it.instanceId, it.sourceType, it.targetKey, it.track, false)
                         },
                     )
-                    if (!commitGuard { generations.commit(lease, cycle, result.receipt, health, targets) }) {
+                    if (!commitGuard { generations.commit(lease, cycle, result.receipt, health, targets, selection) }) {
                         generations.abort(lease, "stale-active-source", clock.instant())
                         ShadowRefreshOutcome.Failed("stale-generation-token", retryable = false)
                     } else {

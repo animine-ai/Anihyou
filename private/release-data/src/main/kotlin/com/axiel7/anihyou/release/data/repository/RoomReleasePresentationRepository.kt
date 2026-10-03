@@ -17,7 +17,6 @@ import com.axiel7.anihyou.release.core.model.ReleasePhase
 import com.axiel7.anihyou.release.core.model.ReleaseStreamKey
 import com.axiel7.anihyou.release.core.model.SourceSeriesKey
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
-import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
 import com.axiel7.anihyou.release.core.source.usableExtension
 import com.axiel7.anihyou.release.core.sync.ReleaseSourceTimePolicy
@@ -28,6 +27,8 @@ import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 
 class RoomReleasePresentationRepository(
@@ -35,15 +36,6 @@ class RoomReleasePresentationRepository(
     private val database: ReleaseDatabase? = null,
     private val productPolicy: ExtensionProductPolicyRepository? = null,
     private val extensionSources: ExtensionSourceRepository? = null,
-    /**
-     * The source whose refresh last committed the accepted extension rows (`rowsSource` of the source-bound receipt; a failed refresh never moves it). Canonical rows
-     * are keyed by provider identity and carry no source attribution, so two sources that offer the same provider
-     * would otherwise share them: a trusted source B must not present the rows that source A accepted, in particular
-     * after A lost trust. When this flow is supplied, rows are presented only while the receipt names exactly the
-     * active release source (source, extension, publisher and provider). A package update of the same source keeps
-     * the receipt, so last-known-good rows survive updates and rollbacks. When it is not supplied nothing is gated.
-     */
-    private val committedSource: Flow<ExtensionSelectionKey?>? = null,
 ) : ReleasePresentationRepository {
     override fun observeForMedia(
         accountId: Long?,
@@ -64,21 +56,28 @@ class RoomReleasePresentationRepository(
         }
         val db = database ?: return legacy
         val policy = productPolicy ?: return legacy
-        val selection = combine(policy.policy, committedSource ?: kotlinx.coroutines.flow.flowOf(null)) { product, committed ->
-            product to committed
+        // R04: extension rows are folded per exact source, so only the active source's own rows are
+        // ever read; another source's accepted rows can never be presented as this source's.
+        val activeRows = policy.policy.map { it.activeReleaseSource }.distinctUntilChanged().flatMapLatest { active ->
+            if (active == null) kotlinx.coroutines.flow.flowOf(emptyList<com.axiel7.anihyou.release.data.db.SourceReleaseProjectionEntity>()) else
+                db.reconciliationDao().observeSourceProjections(
+                    active.sourceId, active.extensionId, active.publisherId, active.providerId)
         }
         return combine(
             legacy,
-            db.reconciliationDao().observeNavigationProjections(),
+            activeRows,
             db.releaseDao().observeActiveAniListMappings(),
-            selection,
+            policy.policy,
             extensionSources?.sources ?: kotlinx.coroutines.flow.flowOf(emptyList()),
-        ) { legacyRows, canonicalRows, mappings, (product, committed), catalog ->
+        ) { legacyRows, sourceRows, mappings, product, catalog ->
             when (product.activeReleaseSource?.providerId) {
                 "aniworld" -> {
                     val active = requireNotNull(product.activeReleaseSource)
-                    if (catalog.usableExtension(active) != null && (committedSource == null || committed == active)) {
-                        canonicalRows.toExtensionCalendarItems(mappings, range)
+                    if (catalog.usableExtension(active) != null) {
+                        sourceRows.filter {
+                            it.sourceId == active.sourceId && it.extensionId == active.extensionId &&
+                                it.publisherId == active.publisherId && it.providerId == active.providerId
+                        }.map { it.asCanonical() }.toExtensionCalendarItems(mappings, range)
                     } else emptyList()
                 }
                 null -> legacyRows

@@ -1,6 +1,5 @@
 package com.axiel7.anihyou
 
-import kotlinx.coroutines.flow.map
 import androidx.room.Room
 import com.axiel7.anihyou.release.core.api.IdentityCandidateSource
 import com.axiel7.anihyou.release.core.api.AniWorldShadowPollStore
@@ -42,6 +41,7 @@ import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_9_10
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_10_11
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_11_12
 import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_12_13
+import com.axiel7.anihyou.release.data.db.RELEASE_MIGRATION_13_14
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
 import com.axiel7.anihyou.release.data.preferences.ReleasePreferencesStore
@@ -127,6 +127,7 @@ val animetrackerReleaseModule = module {
             RELEASE_MIGRATION_10_11,
             RELEASE_MIGRATION_11_12,
             RELEASE_MIGRATION_12_13,
+            RELEASE_MIGRATION_13_14,
         ).build()
     }
     single<AniWorldHttpTransport> { JdkAniWorldHttpTransport() }
@@ -214,14 +215,8 @@ val animetrackerReleaseModule = module {
         )
     }
     single { RoomReleaseProjectionRepository(get(), get(), get()) }
-    single {
-        RoomReleasePresentationRepository(
-            get(), get(), get(), get(),
-            // Rows are shown only for the source whose refresh committed them (no source attribution in the rows).
-            committedSource = get<com.axiel7.anihyou.release.data.extension.FileProviderNavigationStateStore>().state
-                .map { it.rowsSource },
-        )
-    }
+    // Extension rows are folded per exact release source (Room v14), so no receipt gate is needed here.
+    single { RoomReleasePresentationRepository(get(), get(), get(), get()) }
     single<ReleasePresentationRepository> { get<RoomReleasePresentationRepository>() }
     single { RoomReleaseMappingRepository(get(), get()) }
     single<ReleaseMappingRepository> { get<RoomReleaseMappingRepository>() }

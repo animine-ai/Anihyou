@@ -2,6 +2,7 @@ package com.axiel7.anihyou.release.data.repository
 
 import androidx.room.withTransaction
 import com.axiel7.anihyou.release.core.extension.ObservationInstallmentKind
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.core.sync.DirectTargetSelectionPolicy
 import com.axiel7.anihyou.release.data.extension.ExtensionAcquisitionTarget
 import com.axiel7.anihyou.release.core.extension.ExtensionExecutionReceipt
@@ -121,6 +122,7 @@ class RoomExtensionShadowGenerationStore(
         receipt: ExtensionExecutionReceipt,
         sourceHealth: List<SourceHealth>,
         targets: List<ExtensionAcquisitionTarget> = emptyList(),
+        selection: ExtensionSelectionKey? = null,
     ): Boolean = database.withTransaction {
         val row = poll.generation(token.executionGenerationId) ?: return@withTransaction false
         if (row.scopeId != SCOPE_ID || row.ownerToken != token.ownerToken ||
@@ -136,7 +138,8 @@ class RoomExtensionShadowGenerationStore(
                 receiptPayload, sha256(receiptPayload)) != 1) return@withTransaction false
 
         require(targets.size <= 8)
-        reconciliation.persistCompletedCycle(cycle)
+        // With a selection the cycle is also folded into that exact source's own rows (R04), in this transaction.
+        reconciliation.persistCompletedCycle(cycle, selection)
         // The caller supplies host-selected protocol coordinates. Persist logical attempt
         // history in the same fenced transaction, even when no requested track was found.
         // The transport ledger independently retains all physical URL cooldowns.

@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-const val RELEASE_DATABASE_VERSION = 13
+const val RELEASE_DATABASE_VERSION = 14
 
 @Database(
     entities = [
@@ -40,6 +40,8 @@ const val RELEASE_DATABASE_VERSION = 13
         HttpAttemptEntity::class,
         RequestStateEntity::class,
         ShadowMetricEntity::class,
+        CycleProvenanceEntity::class,
+        SourceReleaseProjectionEntity::class,
     ],
     version = RELEASE_DATABASE_VERSION,
     exportSchema = true,

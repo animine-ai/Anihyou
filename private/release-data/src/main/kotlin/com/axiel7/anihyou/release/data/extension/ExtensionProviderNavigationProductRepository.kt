@@ -97,13 +97,19 @@ class ExtensionProviderNavigationProductRepository(
     }
 
     override fun observe(mediaId: Int, watchedProgress: Int): Flow<ProviderNavigationProductState> =
-        combine(policy.policy, sources.sources, store.state, database.reconciliationDao().observeNavigationProjections()) { _, _, _, _ -> Unit }
+        combine(policy.policy, sources.sources, store.state, activeSourceRows()) { _, _, _, _ -> Unit }
             .mapLatest { buildState(mediaId, watchedProgress) }
             .onStart { emit(ProviderNavigationProductState(loading = true)) }
             .catch { error ->
                 if (error is CancellationException) throw error
                 emit(ProviderNavigationProductState(failure = NavigationUnavailableReason.PROVIDER_UNAVAILABLE))
             }.flowOn(Dispatchers.IO)
+
+    /** R04: invalidation follows only the rows folded for the exact active source. */
+    private fun activeSourceRows() = policy.policy.map { it.activeReleaseSource }.distinctUntilChanged().flatMapLatest { active ->
+        if (active == null) flowOf(emptyList<com.axiel7.anihyou.release.data.db.SourceReleaseProjectionEntity>()) else database.reconciliationDao().observeSourceProjections(
+            active.sourceId, active.extensionId, active.publisherId, active.providerId)
+    }
 
     private suspend fun overviewCoordinate(mediaId: Int, provider: NavigationProvider): ProviderCoordinate? {
         val explicit = store.state.value.segments.filter { it.key == provider.key && it.mediaId == mediaId }
@@ -140,7 +146,7 @@ class ExtensionProviderNavigationProductRepository(
             val candidates = segments.filter { it.key == active && it.mediaId == mediaId && it.seriesKey == fact.seriesKey &&
                 it.sourceSeason == fact.sourceSeason && it.canonicalEpisode(BigDecimal(fact.providerEpisode)) != null }
             val segment = candidates.singleOrNull() ?: continue
-            val state = reconciliation.get(fact.projectionKey) ?: continue
+            val state = reconciliation.getForSource(checkNotNull(active), fact.projectionKey) ?: continue
             if (state.underlyingPhase != ReleasePhase.RELEASED || state.authority == ReleaseAuthority.NONE) continue
             releases += ReleasedInstallment(mediaId, segment.canonicalEpisode(BigDecimal(fact.providerEpisode))!!, setOf(fact.track), true)
         }

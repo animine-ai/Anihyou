@@ -181,7 +181,6 @@ internal object Ep07IntegratedDataUpdateProof {
             }
             val calendarRepository = RoomReleasePresentationRepository(
                 RoomReleaseProjectionRepository(database), database, policy, repository,
-                committedSource = receipt.state.map { it.rowsSource },
             )
             val calendarRange = LocalDate.of(2026, 9, 18)..LocalDate.of(2027, 1, 31)
 

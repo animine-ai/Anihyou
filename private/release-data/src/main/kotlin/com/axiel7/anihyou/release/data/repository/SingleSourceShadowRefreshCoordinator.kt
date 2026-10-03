@@ -76,6 +76,7 @@ class SingleSourceShadowRefreshCoordinator(
             sourceRoles = pinned.grantedRoles,
             enabledTracks = effectiveTracks,
             requireCompleteRefresh = requireCompleteRefresh,
+            selection = selected,
             commitGuard = { commit -> policy.withCurrentSelection(snapshot) {
                 installed.withCurrentGeneration(selected, pinned.packageDigest, pinned.packageGeneration, commit) ?: false
             } ?: false },
@@ -107,7 +108,7 @@ class SingleSourceShadowRefreshCoordinator(
                     val currentEvidenceDecision = reducer.reduce(null, evidence)
                     if (currentEvidenceDecision.phase != ReleasePhase.RELEASED ||
                         currentEvidenceDecision.authority != ReleaseAuthority.ANIWORLD) return@mapNotNull null
-                    val state = reconciliation.get(identity.key) ?: return@mapNotNull null
+                    val state = reconciliation.getForSource(selected, identity.key) ?: return@mapNotNull null
                     // Receipt eligibility follows the persisted release fact. The effective
                     // presentation phase may include conflict policy and is not the authority source.
                     if (state.underlyingPhase != ReleasePhase.RELEASED ||

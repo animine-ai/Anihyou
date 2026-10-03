@@ -39,6 +39,52 @@ interface ReleaseReconciliationDao {
     @Query("DELETE FROM v3_canonical_release_projection")
     suspend fun clearProjections()
 
+    // R04 source-bound rows: always filtered by the exact (source, extension, publisher, provider) key.
+    @Query("SELECT * FROM v3_source_projection WHERE sourceId = :sourceId AND extensionId = :extensionId " +
+        "AND publisherId = :publisherId AND providerId = :providerId ORDER BY projectionKey LIMIT 10000")
+    fun observeSourceProjections(sourceId: String, extensionId: String, publisherId: String,
+                                 providerId: String): kotlinx.coroutines.flow.Flow<List<SourceReleaseProjectionEntity>>
+
+    @Query("SELECT * FROM v3_source_projection WHERE sourceId = :sourceId AND extensionId = :extensionId " +
+        "AND publisherId = :publisherId AND providerId = :providerId AND projectionKey = :key")
+    suspend fun sourceProjection(sourceId: String, extensionId: String, publisherId: String,
+                                 providerId: String, key: String): SourceReleaseProjectionEntity?
+
+    @Query("SELECT * FROM v3_source_projection WHERE sourceId = :sourceId AND extensionId = :extensionId " +
+        "AND publisherId = :publisherId AND providerId = :providerId AND bucketKey = :bucket " +
+        "ORDER BY projectionKey LIMIT :limit OFFSET :offset")
+    suspend fun sourceProjectionsForBucket(sourceId: String, extensionId: String, publisherId: String,
+                                           providerId: String, bucket: String, limit: Int,
+                                           offset: Int): List<SourceReleaseProjectionEntity>
+
+    @Query("SELECT * FROM v3_source_projection WHERE sourceId = :sourceId AND extensionId = :extensionId " +
+        "AND publisherId = :publisherId AND providerId = :providerId ORDER BY projectionKey " +
+        "LIMIT :limit OFFSET :offset")
+    suspend fun sourceProjectionPage(sourceId: String, extensionId: String, publisherId: String,
+                                     providerId: String, limit: Int, offset: Int): List<SourceReleaseProjectionEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSourceProjection(row: SourceReleaseProjectionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertProvenance(row: CycleProvenanceEntity)
+
+    @Query("SELECT * FROM v3_cycle_provenance WHERE cycleId = :id")
+    suspend fun provenance(id: String): CycleProvenanceEntity?
+
+    @Query("SELECT completedAt FROM v3_cycle_provenance WHERE sourceId = :sourceId AND extensionId = :extensionId " +
+        "AND publisherId = :publisherId AND providerId = :providerId ORDER BY commitSequence DESC LIMIT 1")
+    suspend fun latestSourceCompletion(sourceId: String, extensionId: String, publisherId: String,
+                                       providerId: String): String?
+
+    @Query("SELECT COUNT(*) FROM v3_cycle_provenance WHERE sourceId = :sourceId AND extensionId = :extensionId " +
+        "AND publisherId = :publisherId AND providerId = :providerId")
+    fun observeSourceCycleCount(sourceId: String, extensionId: String, publisherId: String,
+                                providerId: String): kotlinx.coroutines.flow.Flow<Int>
+
+    @Query("SELECT * FROM v3_cycle_provenance ORDER BY commitSequence LIMIT :limit OFFSET :offset")
+    suspend fun provenancePage(limit: Int, offset: Int): List<CycleProvenanceEntity>
+
     @Query("SELECT * FROM v3_observation_cycle WHERE cycleId = :id")
     suspend fun cycle(id: String): ObservationCycleEntity?
 

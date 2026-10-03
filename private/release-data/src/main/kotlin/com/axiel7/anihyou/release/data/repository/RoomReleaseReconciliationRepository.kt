@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.axiel7.anihyou.release.core.model.*
 import com.axiel7.anihyou.release.core.state.ReleaseConflictPolicy
 import com.axiel7.anihyou.release.core.state.ReleaseCycleReconciler
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.data.ReleaseEvidenceFingerprintV2
 import com.axiel7.anihyou.release.data.db.*
 import java.security.MessageDigest
@@ -179,7 +180,15 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
         states.size
     }
 
-    suspend fun persistCompletedCycle(cycle: CompletedObservationCycle): Map<String, CanonicalReleaseState> =
+    /**
+     * Commits one completed cycle. When [selection] is supplied (the extension route), the same transaction
+     * also records the cycle's provenance and folds it into that source's own projection rows (R04), so
+     * another source can never present, or build its state on, rows this source accepted.
+     */
+    suspend fun persistCompletedCycle(
+        cycle: CompletedObservationCycle,
+        selection: ExtensionSelectionKey? = null,
+    ): Map<String, CanonicalReleaseState> =
         database.withTransaction {
             check(dao.baselineMarker()?.let { it.schemaVersion == 12 && it.value == "v1" } == true) {
                 "canonical path requires complete baseline import"
@@ -280,6 +289,7 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                         item.id, projectionKey))
                 }
             }
+            if (selection != null) foldIntoSource(selection, normalized, affectedBuckets, sequence)
             plan.changes.forEachIndexed { ordinal, change ->
                 val bucket = bucketByKey[change.key]
                     ?: error("missing candidate bucket for changed projection")
@@ -295,6 +305,57 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 dao.upsertProjection(row)
             }
             plan.states
+        }
+
+    /**
+     * R04 source fold: the same reconciler, but previous state and result are this source's own rows.
+     * Evidence and the cycle itself are shared and content addressed; only the folded state is per source.
+     */
+    private suspend fun foldIntoSource(
+        selection: ExtensionSelectionKey,
+        cycle: CompletedObservationCycle,
+        affectedBuckets: Set<String>,
+        sequence: Long,
+    ) {
+        val (s, e, p, v) = listOf(selection.sourceId, selection.extensionId,
+            selection.publisherId, selection.providerId)
+        dao.insertProvenance(CycleProvenanceEntity(cycle.id, s, e, p, v, sequence, cycle.completedAt.toString()))
+        val previousRows = affectedBuckets.flatMap { bucket ->
+            pageAll { limit, offset -> dao.sourceProjectionsForBucket(s, e, p, v, bucket, limit, offset) }
+        }
+        val previous = previousRows.associate { row ->
+            row.projectionKey to verifySourceStateReferences(selection, row)
+        }
+        val storedPartials = previousRows.filter { it.projectionKey.startsWith("partial-v1:") }.map { row ->
+            dao.evidenceById(row.projectionKey.removePrefix("partial-v1:"))?.toDomainOrNull()
+                ?: error("source partial projection has no Evidence")
+        }
+        val newPartials = cycle.sources.flatMap { it.evidence }
+            .filter { it.identityCompleteness() == ReleaseIdentityCompleteness.PARTIAL }
+        val latest = dao.latestSourceCompletion(s, e, p, v)?.let(Instant::parse)
+        val late = latest != null && cycle.completedAt < latest
+        val plan = reconciler.reconcile(previous, cycle,
+            (storedPartials + newPartials).distinctBy { it.id }, true, late)
+        val bucketByKey = previousRows.associate { it.projectionKey to it.bucketKey } +
+            cycle.sources.flatMap { it.evidence }.mapNotNull { item ->
+                val key = CanonicalReleaseIdentity.from(item)?.key ?: if (
+                    item.identityCompleteness() == ReleaseIdentityCompleteness.PARTIAL)
+                    "partial-v1:${item.id}" else null
+                key?.let { it to bucketOf(item) }
+            }.toMap()
+        plan.changes.forEach { change ->
+            val bucket = bucketByKey[change.key] ?: error("missing source candidate bucket")
+            dao.upsertSourceProjection(ReleaseReconciliationMapper.projection(change.after, bucket, sequence)
+                .forSource(s, e, p, v))
+        }
+    }
+
+    /** The state this exact source folded for [key]; other sources' rows are never consulted. */
+    suspend fun getForSource(selection: ExtensionSelectionKey, key: String): CanonicalReleaseState? =
+        database.withTransaction {
+            check(dao.baselineMarker() != null)
+            dao.sourceProjection(selection.sourceId, selection.extensionId, selection.publisherId,
+                selection.providerId, key)?.let { verifySourceStateReferences(selection, it) }
         }
 
     suspend fun get(key: String): CanonicalReleaseState? = database.withTransaction {
@@ -381,7 +442,17 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
         return CanonicalReleaseIdentity.bucketOf(e) ?: error("candidate lacks canonical bucket")
     }
 
-    private suspend fun verifyStateReferences(row: CanonicalReleaseProjectionEntity): CanonicalReleaseState {
+    private suspend fun verifySourceStateReferences(
+        selection: ExtensionSelectionKey, row: SourceReleaseProjectionEntity,
+    ): CanonicalReleaseState = verifyStateReferences(row.asCanonical()) { key ->
+        dao.sourceProjection(selection.sourceId, selection.extensionId, selection.publisherId,
+            selection.providerId, key)?.asCanonical()
+    }
+
+    private suspend fun verifyStateReferences(
+        row: CanonicalReleaseProjectionEntity,
+        lookup: suspend (String) -> CanonicalReleaseProjectionEntity? = { dao.projection(it) },
+    ): CanonicalReleaseState {
         val state = ReleaseReconciliationMapper.state(row)
         if (state.key.startsWith("partial-v1:")) {
             val evidenceId = state.key.removePrefix("partial-v1:")
@@ -392,7 +463,7 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
             state.bindingKey?.let { bound ->
                 val target = CanonicalReleaseIdentity.decode(bound) ?: error("invalid bound identity")
                 check(com.axiel7.anihyou.release.core.state.ReleaseIdentityCompatibilityPolicy
-                    .compatible(partial, target) && dao.projection(bound) != null) {
+                    .compatible(partial, target) && lookup(bound) != null) {
                     "partial binding references a foreign or missing candidate"
                 }
             }
@@ -406,7 +477,7 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                     CanonicalReleaseIdentity.decode(state.key)?.let { key ->
                         forecast.identityCompleteness() == ReleaseIdentityCompleteness.PARTIAL &&
                             bucketOf(forecast) == key.bucketKey &&
-                            dao.projection("partial-v1:$id")?.bindingKey == state.key
+                            lookup("partial-v1:$id")?.bindingKey == state.key
                     } == true)) { "forecast reference belongs to another release" }
         }
         state.scheduleEvidenceId?.let { id ->
