@@ -104,4 +104,15 @@
     <string name="matching_no_options">This matcher has no configurable options. Source language and track preferences are managed on the previous settings page.</string>
     <string name="matching_reset_configuration">Reset matcher configuration</string>
     <string name="matching_configuration_reset_help">Reset supported matcher options to their defaults. Saved mappings, source selection and language preferences remain unchanged.</string>
+    <string name="extension_schedule_title">Update schedule</string>
+    <string name="extension_schedule_explanation">When the active source is refreshed completely in the background. Opening the app also refreshes the lists, at most once per hour, and a role that was refreshed recently is not requested again.</string>
+    <string name="extension_schedule_interval">Interval</string>
+    <string name="extension_schedule_start">Start time</string>
+    <string name="extension_schedule_next">Next planned run: %1$s</string>
+    <string name="extension_schedule_reset">Back to daily at 01:00</string>
+    <string name="extension_schedule_confirm">OK</string>
+    <string name="extension_schedule_cancel">Cancel</string>
+    <string name="extension_schedule_every_minutes">Every %1$d minutes</string>
+    <string name="extension_schedule_every_hours">Every %1$d hours</string>
+    <string name="extension_center_schedule">Update schedule</string>
 </resources>

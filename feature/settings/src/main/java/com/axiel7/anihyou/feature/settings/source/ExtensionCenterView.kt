@@ -98,6 +98,10 @@ fun ExtensionCenterPageView(pageId: String) {
         com.axiel7.anihyou.feature.settings.source.matching.MatchingManagementView()
         return
     }
+    if (pageId == "schedule") {
+        com.axiel7.anihyou.feature.settings.source.schedule.ExtensionRefreshScheduleView()
+        return
+    }
     val page = ExtensionCenterPage.entries.firstOrNull { it.id == pageId } ?: ExtensionCenterPage.MANAGE
     val model: ExtensionSourcesViewModel = koinViewModel()
     val state by model.uiState.collectAsStateWithLifecycle()
@@ -142,6 +146,8 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
     val nav = LocalNavActionManager.current
     PlainPreference(title = stringResource(R.string.matching_title), modifier = Modifier.testTag("extension-source-matching"),
         onClick = { nav.navigate(Route.ExtensionCenterPage("matching")) })
+    PlainPreference(title = stringResource(R.string.extension_center_schedule), modifier = Modifier.testTag("extension-source-schedule"),
+        onClick = { nav.navigate(Route.ExtensionCenterPage("schedule")) })
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     val entries = installedEntries(state)
     val canEdit = state.canEditProductPolicy && !state.hasSourceOperationInFlight()
