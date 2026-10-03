@@ -42,6 +42,10 @@ const val RELEASE_DATABASE_VERSION = 14
         ShadowMetricEntity::class,
         CycleProvenanceEntity::class,
         SourceReleaseProjectionEntity::class,
+        SourceSeriesLabelEntity::class,
+        SourceMappingEntity::class,
+        MappingFenceEntity::class,
+        MappingActionEntity::class,
     ],
     version = RELEASE_DATABASE_VERSION,
     exportSchema = true,
@@ -50,6 +54,7 @@ abstract class ReleaseDatabase : RoomDatabase() {
     abstract fun releaseDao(): ReleaseDao
     abstract fun reconciliationDao(): ReleaseReconciliationDao
     abstract fun aniworldPollDao(): AniWorldPollDao
+    abstract fun matchingDao(): ReleaseMatchingDao
 }
 
 val RELEASE_MIGRATION_1_2 = object : Migration(1, 2) {

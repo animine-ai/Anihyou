@@ -71,6 +71,17 @@ class FileProviderNavigationStateStore(private val directory: File) {
             it.copy(navigationStatus = status) else it
     }
 
+    /** Removes exactly these segments (a confirmed reset). Idempotent: absent segments are ignored. */
+    suspend fun removeSegments(remove: Set<ProviderEpisodeSegment>) = mutate {
+        if (remove.isEmpty()) it else it.copy(segments = it.segments.filterNot { segment -> segment in remove })
+    }
+
+    /** Replaces one segment by an explicitly corrected one; a no-op if [old] is no longer stored. */
+    suspend fun replaceSegment(old: ProviderEpisodeSegment, replacement: ProviderEpisodeSegment) = mutate { state ->
+        if (old !in state.segments) state
+        else state.copy(segments = state.segments.map { if (it == old) replacement else it }.distinct())
+    }
+
     /** Only host matching/manual binding calls this. Ambiguous overlapping segments remain non-actionable. */
     suspend fun replaceSegments(segments: List<ProviderEpisodeSegment>) = mutate {
         require(segments.size <= 1024 && segments.distinct() == segments)
