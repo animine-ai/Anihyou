@@ -255,11 +255,10 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime(), transportLedger = transportLedger,
             networkDirectory = ledgerDirectory)
         seedHealth()
-        // The host answered 429 with a two hour Retry-After for every list URL and the host key.
-        for (url in listOf("https://aniworld.to/animekalender", "https://aniworld.to/neu", "https://aniworld.to/verspaetungen")) {
-            val reservation = requireNotNull(transportLedger.reserve("aniworld", "digest", "seed-generation", "CALENDAR", url, url, NOW))
-            transportLedger.complete(reservation, "HTTP_429", 7200, NOW)
-        }
+        // One host-wide 429 blocks all three list URLs for this provider, with a two hour Retry-After.
+        val url = "https://aniworld.to/animekalender"
+        val reservation = requireNotNull(transportLedger.reserve("aniworld", "digest", "seed-generation", "CALENDAR", url, url, NOW))
+        transportLedger.complete(reservation, "HTTP_429", 7200, NOW)
         val cyclesBefore = database.reconciliationDao().lastSequence()
         val outcome = product(rig, access).refresh("denied", ExtensionRefreshTrigger.PROCESS_START)
         assertTrue("expected a typed deferral, got $outcome", outcome is ShadowRefreshOutcome.Skipped)
@@ -804,6 +803,12 @@ class SingleSourceShadowRefreshCoordinatorTest {
                     val input = ExtensionWireCodec.decodeParseInput(inputUtf8)
                     val response = input.responses.single()
                     val role = response.sourceRole
+                    if (response.status == com.axiel7.anihyou.release.core.extension.ExtensionResponseStatus.BUDGET_DENIED) {
+                        return ExtensionRuntimeResult.Success(
+                            """{"schemaVersion":1,"observations":[],"responseReports":[{"requestId":"${response.requestId}","outcome":"FAILURE","diagnostics":[]}]}"""
+                                .toByteArray(),
+                        )
+                    }
                     if (role in failRoles) return ExtensionRuntimeResult.Success(
                         """{"schemaVersion":1,"observations":[],"responseReports":[{"requestId":"${response.requestId}","outcome":"FAILURE","diagnostics":[]}] }""".toByteArray())
                     val target = if (role == SourceRole.DIRECT) input.context.targets.single() else null

@@ -141,7 +141,7 @@ class RoomMatchingManagementRepositoryTest {
         val policy = Policy(ExtensionProductPolicy(activeReleaseSource = keyA))
         val sources = Sources(listOf(source(keyA, "Source A"), source(keyB, "Source B")))
         val candidates = Candidates()
-        val fence = MappingWriterFence(database)
+        val fence = MappingWriterFence(database, clock)
         val service = SourceSeriesMatchingService(database, policy, navigation, candidates, fence, clock = clock)
         val repository = RoomMatchingManagementRepository(database, navigation, sources, service, fence, clock)
         val dao = database.matchingDao()

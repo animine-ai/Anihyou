@@ -63,7 +63,11 @@ class SingleSourceShadowRefreshCoordinator(
                                 trigger: ExtensionRefreshTrigger?): ShadowRefreshOutcome {
         val snapshot = policy.policy.value
         val selected = snapshot.activeReleaseSource ?: return ShadowRefreshOutcome.Skipped("no-active-release-source")
-        val pinned = installed.loadInstalled(selected) ?: return ShadowRefreshOutcome.Skipped("active-release-source-unavailable")
+        val pinned = installed.loadInstalled(selected)
+        // The selected source may change while its package is being loaded. Do not return a stale
+        // fresh-data skip (or start work) for that old selection; let the worker retry the new one.
+        if (!current(snapshot)) return ShadowRefreshOutcome.Failed("stale-generation-token", retryable = true)
+        if (pinned == null) return ShadowRefreshOutcome.Skipped("active-release-source-unavailable")
         val repository = object : VerifiedExtensionRepository {
             override suspend fun loadUsable(providerId: ProviderId): VerifiedExtensionPackage? {
                 if (providerId.value != selected.providerId || !current(snapshot)) return null

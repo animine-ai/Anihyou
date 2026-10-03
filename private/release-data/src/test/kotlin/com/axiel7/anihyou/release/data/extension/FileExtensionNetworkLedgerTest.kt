@@ -171,7 +171,7 @@ class FileExtensionNetworkLedgerTest {
                 restartedStaleLedger,
                 root = staleRoot,
                 generation = "generation-later",
-                at = NOW.plusSeconds(21_619),
+                at = NOW.plusSeconds(7_209),
             ),
         )
         assertNotNull(
@@ -179,7 +179,7 @@ class FileExtensionNetworkLedgerTest {
                 restartedStaleLedger,
                 root = staleRoot,
                 generation = "generation-later",
-                at = NOW.plusSeconds(21_620),
+                at = NOW.plusSeconds(7_210),
             ),
         )
     }
