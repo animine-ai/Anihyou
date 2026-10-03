@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import androidx.work.Configuration
 import androidx.work.ListenableWorker
 import androidx.work.WorkManager
@@ -86,24 +87,48 @@ internal object Ep07WorkManagerProof {
      */
     private suspend fun awaitValidatedNetwork(context: Context, timeoutMillis: Long = 30_000) {
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val deadline = SystemClock.elapsedRealtime() + timeoutMillis
+        val started = SystemClock.elapsedRealtime()
+        val deadline = started + timeoutMillis
         var hinted = false
         while (true) {
             val network = connectivity.activeNetwork
             val capabilities = network?.let(connectivity::getNetworkCapabilities)
             if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
-                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                // The app process's own view of the default network, for the stability evidence of the EP02 series.
+                Log.i("EP02NETWORK", "appDefaultNetwork ${describe(capabilities)} waitedMs=${SystemClock.elapsedRealtime() - started} " +
+                    "hinted=$hinted all=${describeAll(connectivity)}")
+                return
+            }
             if (!hinted && network != null) {
                 connectivity.reportNetworkConnectivity(network, true)
                 hinted = true
             }
             check(SystemClock.elapsedRealtime() < deadline) {
                 "hermetic network was not Android-validated within $timeoutMillis ms before product WorkManager " +
-                    "scheduling: network=$network capabilities=$capabilities"
+                    "scheduling: network=$network capabilities=$capabilities all=${describeAll(connectivity)}"
             }
             delay(500)
         }
     }
+
+    private fun describe(capabilities: NetworkCapabilities?): String {
+        if (capabilities == null) return "capabilities=none"
+        val transports = listOf(
+            NetworkCapabilities.TRANSPORT_WIFI to "WIFI", NetworkCapabilities.TRANSPORT_CELLULAR to "CELLULAR",
+            NetworkCapabilities.TRANSPORT_ETHERNET to "ETHERNET", NetworkCapabilities.TRANSPORT_VPN to "VPN",
+        ).filter { (transport, _) -> capabilities.hasTransport(transport) }.joinToString("|") { it.second }
+        return "transports=${transports.ifEmpty { "none" }} " +
+            "internet=${capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)} " +
+            "validated=${capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}"
+    }
+
+    @Suppress("DEPRECATION")
+    private fun describeAll(connectivity: ConnectivityManager): String = runCatching {
+        connectivity.allNetworks.joinToString(";", "[", "]") { network ->
+            "$network ${describe(connectivity.getNetworkCapabilities(network))}"
+        }
+    }.getOrDefault("[unavailable]")
 
     suspend fun retainedPeriodicId(): String = withContext(Dispatchers.IO) {
         manager.getWorkInfosForUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.PERIODIC)

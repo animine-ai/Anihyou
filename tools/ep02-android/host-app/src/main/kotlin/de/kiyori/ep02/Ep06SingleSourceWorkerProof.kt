@@ -34,6 +34,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
@@ -372,7 +373,9 @@ internal object Ep06SingleSourceWorkerProof {
             check(receipt.state.value.source == source && receipt.state.value.installments.isNotEmpty())
             val before = reopened.reconciliationDao().projectionPage(256, 0)
             check(before.isNotEmpty()) { "reopened Room lost accepted release projections" }
-            val calendarRepository = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(reopened), reopened, policy, sources)
+            // The product wiring: rows are presented only for the source whose refresh committed them.
+            val calendarRepository = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(reopened), reopened, policy, sources,
+                committedSource = receipt.state.map { it.source })
             val calendarRange = java.time.LocalDate.of(2026, 9, 18)..java.time.LocalDate.of(2026, 10, 16)
             val calendarBefore = calendarRepository.currentCalendar(null, calendarRange)
             check(calendarBefore.isNotEmpty() && calendarBefore.any { it.sourceDate == java.time.LocalDate.of(2026, 9, 30) }) {
@@ -407,6 +410,48 @@ internal object Ep06SingleSourceWorkerProof {
             check(reopened.reconciliationDao().projectionPage(256, 0) == before)
             check(reopened.releaseDao().getExternalMapping(subject.stableKey, "anilist") == persistedMapping)
             check(receipt.state.value == receiptBeforeFailure)
+
+            // A real transport failure through the production socket and TLS path, not the controlled delegate above:
+            // the fixture completes the TLS handshake and ends the connection before answering. This blocks the
+            // fixture transport path while the device network itself stays up. It is not whole-device offline.
+            val failureClock = Clock.offset(clock, Duration.ofHours(2))
+            val failureReconciliation = RoomReleaseReconciliationRepository(reopened)
+            val failureNetwork = File(context.cacheDir, "ep07-product-transport-failure-network")
+            check(!failureNetwork.exists() || failureNetwork.deleteRecursively())
+            val failureWorker = SingleSourceShadowRefreshCoordinator(
+                policy = policy, installed = installed, runtime = runtime, networkDirectory = failureNetwork,
+                authority = authority, reconciliation = failureReconciliation,
+                generations = RoomExtensionShadowGenerationStore(reopened, failureReconciliation, failureClock, "ep07-transport-failure-process"),
+                targetSource = targets, clock = failureClock, navigationStore = receipt,
+                releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { repository, actualRuntime, directory, observationPolicy ->
+                    ExtensionHostCoordinator(repository, actualRuntime, ProductionExtensionTransportFactory.create(directory),
+                        observationPolicy, clock = failureClock, enabled = { true },
+                        parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L))
+                },
+            )
+            val requestsBeforeTransportFailure = sourcePaths.sumOf(fixture::pathCount)
+            val installmentsBeforeTransportFailure = receipt.state.value.installments
+            val lastSuccessBeforeTransportFailure = receipt.state.value.syncStatistics["Last successful sync"]
+            fixture.failureMode = LocalHttpsFixtureServer.FailureMode.RESET_AFTER_HANDSHAKE
+            val transportFailed = try {
+                failureWorker.refreshForProductWork("ep07-product-transport-failure")
+            } finally { fixture.failureMode = LocalHttpsFixtureServer.FailureMode.NONE }
+            check(!(transportFailed is ShadowRefreshOutcome.Committed && transportFailed.refreshSucceeded)) {
+                "a reset connection must not count as a successful refresh: $transportFailed"
+            }
+            val requestsReachedFixture = sourcePaths.sumOf(fixture::pathCount) - requestsBeforeTransportFailure
+            check(requestsReachedFixture > 0) { "the failed attempt never reached the fixture over the production transport" }
+            check(reopened.reconciliationDao().projectionPage(256, 0) == before) { "transport failure changed accepted rows" }
+            check(reopened.releaseDao().getExternalMapping(subject.stableKey, "anilist") == persistedMapping)
+            check(calendarRepository.currentCalendar(null, calendarRange) == calendarBefore) { "calendar lost rows after a transport failure" }
+            check(receipt.state.value.source == source && receipt.state.value.packageDigest == packageInfo.packageDigest)
+            check(receipt.state.value.installments == installmentsBeforeTransportFailure)
+            check(receipt.state.value.syncStatistics["Last successful sync"] == lastSuccessBeforeTransportFailure) {
+                "a failed refresh must not move the last successful sync"
+            }
+            check(reopened.aniworldPollDao().activeGeneration(RoomExtensionShadowGenerationStore.SCOPE_ID) == null) {
+                "the failed attempt left a running generation behind"
+            }
 
             // Expiry changes scheduling eligibility, not the underlying accepted rows/mappings.
             fixture.retentionCalendarChanged = true
@@ -483,6 +528,10 @@ internal object Ep06SingleSourceWorkerProof {
                 .put("roomConnectionReopened", true).put("acceptedRowsAfterReopen", before.size)
                 .put("policyAndReceiptReopened", true).put("freshSkipsRuntimeAndNetwork", true)
                 .put("controlledRefreshFailureKeepsRowsMappingAndReceipt", true)
+                .put("realTransportFailureKeepsRowsMappingAndReceipt", true)
+                .put("transportFailureLayer", "production TLS socket path; fixture ends the connection after the handshake; device network unchanged; not whole-device offline")
+                .put("transportFailureRequestsReachedFixture", requestsReachedFixture)
+                .put("transportFailureOutcome", transportFailed.javaClass.simpleName)
                 .put("staleRefreshUsesRealSignedGuestAndProductionTransport", true)
                 .put("manualExactMappingRetained", true).put("acceptedProjectionKeysRetained", true)
                 .put("refreshedDataSkipsAgain", true).put("productionWorkManagerDeviceProof", true)

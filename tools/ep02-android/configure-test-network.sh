@@ -49,6 +49,7 @@ if [[ -s "$out/proxy.pid" ]] && sudo kill -0 "$(cat "$out/proxy.pid")"; then
     echo 'EP02 hermetic DNS and HTTPS relay ready; Android network validation is not required below API 26.'
     exit 0
   fi
+  fallback_used=false
   for attempt in $(seq 1 120); do
     adb shell dumpsys connectivity > "$out/network-validation.txt"
     if [[ "$sdk" -ge 28 ]] && ! grep -qE 'NetworkAgentInfo.*type: WIFI' "$out/network-validation.txt"; then
@@ -56,6 +57,8 @@ if [[ -s "$out/proxy.pid" ]] && sudo kill -0 "$(cat "$out/proxy.pid")"; then
         # Wi-Fi never came back (seen on API 35 release runs). Let the cellular network exist again and accept its
         # validation: the app proof then checks that its own default network is validated before scheduling work.
         adb shell svc data enable
+        fallback_used=true
+        printf 'EP02 NETWORK %s attempt=%s Wi-Fi did not return: cellular fallback enabled\n' "$(date -u +%T)" "$attempt"
         validated_pattern='Transports: (WIFI|CELLULAR) Capabilities:[^]]*VALIDATED'
       elif [[ $((attempt % 20)) -eq 0 ]]; then
         # Ask again instead of waiting on a network that is not there.
@@ -63,6 +66,9 @@ if [[ -s "$out/proxy.pid" ]] && sudo kill -0 "$(cat "$out/proxy.pid")"; then
       fi
     fi
     if grep -E "$validated_pattern" "$out/network-validation.txt" >/dev/null; then
+      printf 'EP02 NETWORK sdk=%s attempts=%s cellular_fallback_used=%s validated: %s\n' "$sdk" "$attempt" "$fallback_used" \
+        "$(grep -E "$validated_pattern" "$out/network-validation.txt" | head -1 | cut -c1-260)"
+      grep -E 'NetworkAgentInfo\{|Active default network' "$out/network-validation.txt" | cut -c1-260 | head -8 | sed 's/^/EP02 NETWORK agent: /' || true
       echo 'EP02 hermetic DNS, HTTPS relay and Android-validated network ready.'
       exit 0
     fi

@@ -25,6 +25,10 @@ internal class LocalHttpsFixtureServer(context: Context) : Closeable {
     private val closed = AtomicBoolean(false)
     private val paths = CopyOnWriteArrayList<String>()
     @Volatile var retentionCalendarChanged: Boolean = false
+
+    /** Transport-level failure injection through the real production socket and TLS path. */
+    enum class FailureMode { NONE, RESET_AFTER_HANDSHAKE }
+    @Volatile var failureMode: FailureMode = FailureMode.NONE
     private val handshakeFailures = AtomicInteger()
     private val largeBodyStarted = CountDownLatch(1)
     private val largeBodyAborted = CountDownLatch(1)
@@ -85,6 +89,8 @@ internal class LocalHttpsFixtureServer(context: Context) : Closeable {
                     if (header.isEmpty()) break
                 }
                 paths += requestPath
+                // The request reached the fixture (and is counted); the connection ends without any answer.
+                if (failureMode == FailureMode.RESET_AFTER_HANDSHAKE) return
                 when (requestPath) {
                     "/animekalender", "/neue-episoden", "/support/frage/anime-verschiebungen",
                     "/anime/stream/fixture-series", "/anime/stream/fixture-series/staffel-1/episode-1" -> {

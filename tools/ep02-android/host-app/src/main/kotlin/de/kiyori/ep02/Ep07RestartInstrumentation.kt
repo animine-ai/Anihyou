@@ -21,6 +21,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 
@@ -78,7 +79,8 @@ class Ep07RestartInstrumentation : Instrumentation() {
             val rows = database.reconciliationDao().projectionPage(256, 0)
             check(rows.size == marker.getInt("projectionCount") && rows.isNotEmpty())
             check(sha256(rows.toString()) == marker.getString("projectionHash"))
-            val calendar = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(database), database, policy, sources)
+            val calendar = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(database), database, policy, sources,
+                committedSource = receipt.state.map { it.source })
                 .currentCalendar(null, java.time.LocalDate.of(2026, 9, 18)..java.time.LocalDate.of(2026, 10, 16))
             check(calendar.isNotEmpty() && calendar.any { it.sourceDate == java.time.LocalDate.of(2026, 9, 30) })
             val mapping = requireNotNull(database.releaseDao().getExternalMapping(marker.getString("mappingKey"), "anilist"))

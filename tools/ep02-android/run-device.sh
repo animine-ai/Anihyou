@@ -42,6 +42,8 @@ done
 # Print the report once. A successful first phase stays alive for the external kill below.
 cat "$out/instrumentation.txt"
 timeout 15 adb logcat -d > "$out/logcat.txt" 2>&1 || true
+# The app process's own view of its default network when it scheduled the product worker (API 26 and newer).
+grep -E 'EP02NETWORK' "$out/logcat.txt" | cut -c1-500 || true
 python3 - "$out" "$expected_api" "$variant" <<'PY'
 from pathlib import Path
 import json,sys
@@ -209,9 +211,11 @@ assert ep07['repositoryTransportUsed'] is True and ep07['productionTransportUsed
 data=f['ep06SingleSourceWorker']['ep07ExtensionData']
 assert data['status']=='PASS' and data['testTrustOnly'] is True, data
 assert data['acceptedRowsAfterReopen'] > 0, data
+assert data['transportFailureRequestsReachedFixture'] > 0 and 'not whole-device offline' in data['transportFailureLayer'], data
+print('EP07 TRANSPORT FAILURE PROOF',json.dumps({k:data[k] for k in ['transportFailureLayer','transportFailureRequestsReachedFixture','transportFailureOutcome']},separators=(',',':')))
 assert all(data[key] is True for key in [
     'roomConnectionReopened','policyAndReceiptReopened','freshSkipsRuntimeAndNetwork',
-    'controlledRefreshFailureKeepsRowsMappingAndReceipt',
+    'controlledRefreshFailureKeepsRowsMappingAndReceipt','realTransportFailureKeepsRowsMappingAndReceipt',
     'staleRefreshUsesRealSignedGuestAndProductionTransport','manualExactMappingRetained',
     'acceptedProjectionKeysRetained','refreshedDataSkipsAgain'
 ]), data

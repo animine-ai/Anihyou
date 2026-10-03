@@ -15,6 +15,13 @@ on:
       - "private/release-data/**"
       - ".github/workflows/ep02-runtime-android-proof.yml"
   workflow_dispatch:
+    inputs:
+      series:
+        description: "full: the four EP02 variants. api35-release-x3: only API 35 release, three attempts in a row, each on a fresh runner and a fresh emulator."
+        required: false
+        default: full
+        type: choice
+        options: [full, api35-release-x3]
 permissions:
   contents: read
 concurrency:
@@ -22,6 +29,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: EP02 variant plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      parallel: ${{ steps.plan.outputs.parallel }}
+    steps:
+      - id: plan
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.series || 'full' }}" == api35-release-x3 ]]; then
+            # Consecutive attempts, never in parallel: each one is a separate runner with a freshly booted emulator.
+            echo 'matrix={"include":[{"api":35,"variant":"release","suffix":" series 1 of 3","artifact":"-series-1"},{"api":35,"variant":"release","suffix":" series 2 of 3","artifact":"-series-2"},{"api":35,"variant":"release","suffix":" series 3 of 3","artifact":"-series-3"}]}' >> "$GITHUB_OUTPUT"
+            echo 'parallel=1' >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix={"include":[{"api":24,"variant":"debug","suffix":"","artifact":""},{"api":24,"variant":"release","suffix":"","artifact":""},{"api":35,"variant":"debug","suffix":"","artifact":""},{"api":35,"variant":"release","suffix":"","artifact":""}]}' >> "$GITHUB_OUTPUT"
+            echo 'parallel=4' >> "$GITHUB_OUTPUT"
+          fi
+
   host-contract:
     name: EP02 Kotlin host contracts
     runs-on: ubuntu-latest
@@ -112,19 +139,14 @@ jobs:
           retention-days: 14
 
   android:
-    needs: [native, host-contract, guest]
-    name: EP02 Kotlin Host API ${{ matrix.api }} ${{ matrix.variant }}
+    needs: [plan, native, host-contract, guest]
+    name: EP02 Kotlin Host API ${{ matrix.api }} ${{ matrix.variant }}${{ matrix.suffix }}
     runs-on: ubuntu-latest
     timeout-minutes: 55
     strategy:
       fail-fast: false
-      max-parallel: 4
-      matrix:
-        include:
-          - {api: 24, variant: debug}
-          - {api: 24, variant: release}
-          - {api: 35, variant: debug}
-          - {api: 35, variant: release}
+      max-parallel: ${{ fromJSON(needs.plan.outputs.parallel) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
@@ -234,7 +256,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: ep02-kotlin-host-api-${{ matrix.api }}-${{ matrix.variant }}
+          name: ep02-kotlin-host-api-${{ matrix.api }}-${{ matrix.variant }}${{ matrix.artifact }}
           path: |
             tools/ep02-android/host-app/build/outputs/apk/
             tools/ep02-android/host-app/build/outputs/mapping/
