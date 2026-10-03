@@ -94,6 +94,10 @@ fun ExtensionCenterMenu(onPage: (ExtensionCenterPage) -> Unit) {
 
 @Composable
 fun ExtensionCenterPageView(pageId: String) {
+    if (pageId == "matching") {
+        com.axiel7.anihyou.feature.settings.source.matching.MatchingManagementView()
+        return
+    }
     val page = ExtensionCenterPage.entries.firstOrNull { it.id == pageId } ?: ExtensionCenterPage.MANAGE
     val model: ExtensionSourcesViewModel = koinViewModel()
     val state by model.uiState.collectAsStateWithLifecycle()
@@ -135,6 +139,10 @@ internal fun installedEntries(state: ExtensionSourcesUiState): List<Pair<Extensi
 
 @Composable
 fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: ExtensionSourcesEvent) {
+    val nav = LocalNavActionManager.current
+    PlainPreference(title = stringResource(R.string.matching_title), modifier = Modifier.testTag("extension-source-matching"),
+        onClick = { nav.navigate(Route.ExtensionCenterPage("matching")) })
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
     val entries = installedEntries(state)
     val canEdit = state.canEditProductPolicy && !state.hasSourceOperationInFlight()
     val releaseEntries = entries.filter { (_, e) -> e.capabilities.any { cap ->

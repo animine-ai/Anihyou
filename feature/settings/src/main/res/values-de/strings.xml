@@ -61,4 +61,47 @@
     <string name="extension_sources_failure_package">Ungültiges Paket</string>
     <string name="extension_sources_failure_runtime">Nicht unterstützte Laufzeitumgebung</string>
     <string name="extension_sources_failure_storage">Speicherfehler</string>
+
+    <!-- Settings-only persistent matching management. -->
+    <string name="matching_title">Matching verwalten</string>
+    <string name="matching_search">Quellentitel oder IDs suchen</string>
+    <string name="matching_all_sources">Alle Quellen</string>
+    <string name="matching_count">%1$d gespeicherte Zuordnungen · %2$d ausgewählt</string>
+    <string name="matching_empty">Keine gespeicherten Zuordnungen für diese Suche.</string>
+    <string name="matching_source_id">Quellen-ID: %1$s</string>
+    <string name="matching_unknown_source">Quellenherkunft unbekannt</string>
+    <string name="matching_manual">Manuelle Zuordnung</string>
+    <string name="matching_automatic">Akzeptierte automatische Zuordnung</string>
+    <string name="matching_edit">Vorhandene Zuordnung bearbeiten</string>
+    <string name="matching_target_search">Richtiges AniList-Anime suchen</string>
+    <string name="matching_find">AniList durchsuchen</string>
+    <string name="matching_save_target">Ausgewähltes Ziel speichern</string>
+    <string name="matching_scope_entry">Nur dieser Eintrag</string>
+    <string name="matching_scope_selected">Ausgewählte Einträge: %1$d</string>
+    <string name="matching_scope_source">Gesamte Quelle: %1$s (einschließlich nicht angezeigter Suchtreffer)</string>
+    <string name="matching_scope_all">Alle gespeicherten Zuordnungen aller Quellen (einschließlich ausgeblendeter Einträge)</string>
+    <string name="matching_clear_selection">Auswahl aufheben</string>
+    <string name="matching_reset">Zuordnungen entfernen</string>
+    <string name="matching_rematch">Erneut matchen</string>
+    <string name="matching_confirm_count">Betroffene gespeicherte Einträge: %1$d</string>
+    <string name="matching_reset_help">Nur diese Zuordnungen werden entfernt. Quellen- und AniList-Daten bleiben erhalten. Dies startet kein Matching.</string>
+    <string name="matching_rematch_help">Begrenzten Matchingauftrag für diese Einträge starten. Akzeptierte Zuordnungen bleiben bis zu einem gültigen Ersatz erhalten.</string>
+    <string name="matching_start">Bestätigen und starten</string>
+    <string name="matching_cancel">Abbrechen</string>
+    <string name="matching_close">Schließen</string>
+    <string name="matching_previous">Vorherige Seite</string>
+    <string name="matching_next">Nächste Seite</string>
+    <string name="matching_progress">%1$d von %2$d verarbeitet</string>
+    <string name="matching_results">Letzte Eintragsergebnisse</string>
+    <string name="matching_replaced">Ersatz gespeichert</string>
+    <string name="matching_retained">Bisherige Zuordnung behalten</string>
+    <string name="matching_applied">Gespeichert.</string>
+    <string name="matching_stale">Die gespeicherte Zuordnung hat sich geändert. Neu laden und aktuellen Umfang bestätigen.</string>
+    <string name="matching_failed">Die Aktion konnte nicht abgeschlossen werden. Eintragsergebnisse prüfen und erneut versuchen.</string>
+    <string name="matching_cancelled">Abgebrochen. Bereits abgeschlossene gültige Ersetzungen bleiben gespeichert.</string>
+    <string name="matching_finished">Matchingauftrag beendet. Einzelne Eintragsergebnisse prüfen.</string>
+    <string name="matching_configuration">Matcher-Konfiguration</string>
+    <string name="matching_no_options">Dieser Matcher hat keine konfigurierbaren Optionen. Quellen-, Sprach- und Trackpräferenzen werden auf der vorherigen Einstellungsseite verwaltet.</string>
+    <string name="matching_reset_configuration">Matcher-Konfiguration zurücksetzen</string>
+    <string name="matching_configuration_reset_help">Unterstützte Matcheroptionen auf Standardwerte setzen. Gespeicherte Zuordnungen, Quellenauswahl und Sprachpräferenzen bleiben erhalten.</string>
 </resources>
