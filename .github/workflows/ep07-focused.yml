@@ -38,7 +38,33 @@ jobs:
         run: android sdk install platforms/android-37.0
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
       - name: Run focused checks
-        run: ./gradlew --continue --console=plain --stacktrace ${{ matrix.tasks }}
+        shell: bash
+        run: ./gradlew --continue --console=plain ${{ matrix.tasks }} 2>&1 | tee gradle-focused.log
+      - name: Failure digest
+        if: failure()
+        shell: bash
+        run: |
+          echo "=== DIGEST BEGIN ==="
+          grep -E '^e: |> Task .* FAILED' gradle-focused.log | cut -c1-340 | sort -u | head -40 || true
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          failed = 0
+          for path in sorted(glob.glob('**/build/test-results/**/*.xml', recursive=True)):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception:
+                  continue
+              for case in root.iter('testcase'):
+                  for kind in ('failure', 'error'):
+                      for element in case.findall(kind):
+                          failed += 1
+                          if failed <= 25:
+                              name = case.get('classname', '').split('.')[-1] + '.' + case.get('name', '')
+                              print('TEST', name, '|', (element.get('message') or '').replace('\n', ' ')[:260])
+          print('failed tests:', failed)
+          PY
+          echo "=== DIGEST END ==="
       - name: Upload focused reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
