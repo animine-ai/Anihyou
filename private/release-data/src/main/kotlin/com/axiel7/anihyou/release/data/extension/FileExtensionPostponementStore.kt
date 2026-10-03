@@ -23,7 +23,9 @@ import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -55,10 +57,18 @@ class FileExtensionPostponementStore(
     private val file = File(directory, FILE_NAME)
     private val mutableSnapshot = MutableStateFlow(load())
     override val snapshot = mutableSnapshot.asStateFlow()
-    override val presentation = combine(snapshot, database.releaseDao().observeActiveAniListMappings()) { value, mappings ->
-        value.copy(notices = value.notices.map { notice ->
-            notice.copy(mediaId = mappedAniListId(value.source, notice, mappings))
-        })
+    // Only the bindings in force for the snapshot's own exact source, never another source's.
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    override val presentation = snapshot.flatMapLatest { value ->
+        val source = value.source
+        val effective = if (source == null) flowOf(emptyList()) else database.matchingDao().observeEffectiveAniListMappings(
+            source.sourceId, source.extensionId, source.publisherId, source.providerId,
+            com.axiel7.anihyou.release.data.repository.MappingEntryIds.sourceKey(source))
+        effective.map { mappings ->
+            value.copy(notices = value.notices.map { notice ->
+                notice.copy(mediaId = mappedAniListId(value.source, notice, mappings))
+            })
+        }
     }
 
     suspend fun record(

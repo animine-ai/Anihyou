@@ -36,10 +36,12 @@ import com.axiel7.anihyou.release.data.extension.FileProviderNavigationStateStor
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -153,14 +155,20 @@ class SourceSeriesMatchingService(
         val label = source?.let { dao.label(it.sourceId, it.extensionId, it.publisherId, it.providerId, slug) }
         val title = label?.title ?: slug.replace(Regex("[-_]+"), " ").trim().ifBlank { return MappingRematchOutcome.UNAVAILABLE }
         val identity = sourceIdentity(source?.providerId ?: "aniworld", slug, season)
-        val pool = (runCatching { candidates.localCandidates(setOf(identity)).candidates }.getOrDefault(emptyList()) +
-            runCatching {
+        val request = ReleaseMatchRequest(identity, title, aliases = label?.let { names(it).toSet() - it.title }.orEmpty(),
+            season = season.takeIf { it in 1..99 })
+        // The local pool first; only if it settles nothing, one bounded, cached AniList search for this one title.
+        val local = attempt { candidates.localCandidates(setOf(identity)).candidates }.orEmpty()
+        var decision = matcher.match(request, local)
+        val localHit = decision as? MatchDecision.Matched
+        if (localHit == null || localHit.tier !in AUTO_TIERS) {
+            val searched = attempt {
                 candidates.targetedSearch(TargetedIdentityQuery(identity, title, setOf("TV"),
                     signature = "settings-rematch|${identity.stableKey}|$title")).candidates
-            }.getOrDefault(emptyList())).distinctBy { it.mediaId }
-        val decision = matcher.match(
-            ReleaseMatchRequest(identity, title, aliases = label?.let { names(it).toSet() - it.title }.orEmpty(),
-                season = season.takeIf { it in 1..99 }), pool)
+            }.orEmpty()
+            delay(SEARCH_PACE_MS)
+            decision = matcher.match(request, (local + searched).distinctBy { it.mediaId })
+        }
         val matched = decision as? MatchDecision.Matched ?: return MappingRematchOutcome.RETAINED
         if (matched.tier !in AUTO_TIERS) return MappingRematchOutcome.RETAINED
         if (matched.mediaId == currentMediaId) return MappingRematchOutcome.RETAINED
@@ -218,12 +226,18 @@ class SourceSeriesMatchingService(
         val own = dao.sourceMapping(active.sourceId, active.extensionId, active.publisherId, active.providerId,
             subject.stableKey, ExternalProvider.ANILIST.value)
         if (own != null) return true
+        // After this source reset its own binding the old provider-wide row is hidden for it; resolve afresh.
         val fenced = dao.fence(MappingEntryRef.FENCE_V3_SOURCE,
             "${MappingEntryIds.sourceKey(active)}|${subject.stableKey}|${ExternalProvider.ANILIST.value}")
-        if (fenced != null) return true
+        if (fenced != null) return false
         return releaseDao.getExternalMapping(subject.stableKey, ExternalProvider.ANILIST.value)
             ?.toDomainOrNull()?.status == MappingStatus.ACTIVE
     }
+
+    /** A failed lookup is just no candidates; only cancellation must propagate. */
+    private suspend fun <T> attempt(block: suspend () -> T): T? = try { block() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
 
     private suspend fun cachedTitles(mediaId: Int): Set<String> =
         dao.cachedCandidates(listOf(mediaId)).firstNotNullOfOrNull { it.toDomainOrNull() }?.titles.orEmpty()
@@ -247,6 +261,8 @@ class SourceSeriesMatchingService(
     private companion object {
         const val PAGE = 500
         const val MAX_LABELS = 20_000
+        /** Spacing between two network searches of one explicit rematch run. */
+        const val SEARCH_PACE_MS = 700L
         /** A fuzzy hit is never accepted without the user. */
         val AUTO_TIERS = setOf(MatchTier.EXACT_NORMALIZED, MatchTier.EXACT_BASE_SEASON, MatchTier.ALIAS)
     }

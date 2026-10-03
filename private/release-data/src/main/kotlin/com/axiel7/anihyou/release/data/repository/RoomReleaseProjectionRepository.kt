@@ -29,6 +29,7 @@ class RoomReleaseProjectionRepository(
     private val clock: Clock = Clock.systemUTC(),
 ) : ReleaseProjectionRepository {
     private val dao = database.releaseDao()
+    private val mappingFence = MappingWriterFence(database)
 
     override fun observeForMedia(
         accountId: Long?,
@@ -141,7 +142,9 @@ class RoomReleaseProjectionRepository(
             snapshots.forEach { snapshot ->
                 val mapping = snapshot.mapping ?: return@forEach
                 val existing = dao.getMapping(snapshot.stream.stableKey)
-                if (existing?.origin != MappingOrigin.MANUAL.name) {
+                // A reset or correction of the settings after this job began observing must not be undone.
+                if (existing?.origin != MappingOrigin.MANUAL.name &&
+                    mappingFence.allows(MappingEntryRef.FENCE_R2, snapshot.stream.stableKey, effectiveObservedAt)) {
                     dao.upsertMappings(
                         listOf(mapping.toEntity(snapshot.stream.stableKey, effectiveObservedAt)),
                     )

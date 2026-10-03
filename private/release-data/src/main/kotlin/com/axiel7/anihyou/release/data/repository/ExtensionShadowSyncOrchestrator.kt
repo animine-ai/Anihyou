@@ -177,7 +177,8 @@ class ExtensionShadowSyncOrchestrator(
                             ExpectedSourceInstance(it.instanceId, it.sourceType, it.targetKey, it.track, false)
                         },
                     )
-                    if (!commitGuard { generations.commit(lease, cycle, result.receipt, health, targets, selection) }) {
+                    if (!commitGuard { generations.commit(lease, cycle, result.receipt, health, targets, selection,
+                        sourceLabels(result.observations.filter { it.sourceRole in includedRoles })) }) {
                         generations.abort(lease, "stale-active-source", clock.instant())
                         ShadowRefreshOutcome.Failed("stale-generation-token", retryable = false)
                     } else {
@@ -218,6 +219,18 @@ class ExtensionShadowSyncOrchestrator(
             ShadowRefreshOutcome.Failed(failure::class.simpleName ?: "extension-shadow-failure", false)
         }
     }
+
+    /** The titles each series was reported under in this run; the most frequent one is the label, others aliases. */
+    private fun sourceLabels(observations: List<com.axiel7.anihyou.release.core.extension.ProviderObservationV1>):
+        List<ObservedSourceLabel> = observations
+        .filter { !it.providerSeriesKey.isNullOrBlank() }
+        .groupBy { it.providerSeriesKey.orEmpty() }
+        .mapNotNull { (slug, rows) ->
+            val ranked = rows.map { it.rawTitle.trim() }.filter { it.isNotBlank() && it.length <= 512 }
+                .groupingBy { it }.eachCount().entries
+                .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            ranked.firstOrNull()?.let { ObservedSourceLabel(slug, it.key, ranked.drop(1).map { e -> e.key }.take(8).toSet()) }
+        }
 
     /** A role succeeded only if every one of its requests was a real 2xx response with a SUCCESS report. */
     private fun succeededRoles(result: ExtensionHostResult.Completed): Set<SourceRole> =

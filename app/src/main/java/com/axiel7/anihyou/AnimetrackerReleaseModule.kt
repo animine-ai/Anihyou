@@ -190,6 +190,28 @@ val animetrackerReleaseModule = module {
     single { AniWorldProvider(client = get(), clock = get()) }
     single { RoomIdentityCandidateStore(get(), get()) }
     single<IdentityCandidateSource> { AniListIdentityCandidateSource(get(), get(), get()) }
+    // Matching management (Settings): one real Room-backed repository, one shared targeted matching service.
+    single { com.axiel7.anihyou.release.data.repository.MappingWriterFence(get<ReleaseDatabase>()) }
+    single {
+        com.axiel7.anihyou.release.data.repository.SourceSeriesMatchingService(
+            database = get<ReleaseDatabase>(),
+            policy = get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>(),
+            navigation = get<com.axiel7.anihyou.release.data.extension.FileProviderNavigationStateStore>(),
+            candidates = get<IdentityCandidateSource>(),
+            fence = get(),
+            clock = get<Clock>(),
+        )
+    }
+    single<com.axiel7.anihyou.release.core.api.MatchingManagementRepository> {
+        com.axiel7.anihyou.release.data.repository.RoomMatchingManagementRepository(
+            database = get<ReleaseDatabase>(),
+            navigation = get<com.axiel7.anihyou.release.data.extension.FileProviderNavigationStateStore>(),
+            sources = get<com.axiel7.anihyou.release.core.source.ExtensionSourceRepository>(),
+            service = get(),
+            fence = get(),
+            clock = get<Clock>(),
+        )
+    }
     single { ReleaseIdentityMatcher(candidateSource = get(), clock = get()) }
     single<ReleaseAccountContextProvider> {
         AniListReleaseAccountContextProvider(

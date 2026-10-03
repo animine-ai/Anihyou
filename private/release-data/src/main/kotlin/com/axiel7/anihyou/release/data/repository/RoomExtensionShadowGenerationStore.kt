@@ -2,6 +2,7 @@ package com.axiel7.anihyou.release.data.repository
 
 import androidx.room.withTransaction
 import com.axiel7.anihyou.release.core.extension.ObservationInstallmentKind
+import com.axiel7.anihyou.release.core.matching.SearchTitleFolding
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.core.sync.DirectTargetSelectionPolicy
 import com.axiel7.anihyou.release.data.extension.ExtensionAcquisitionTarget
@@ -11,6 +12,7 @@ import com.axiel7.anihyou.release.core.model.SourceHealth
 import com.axiel7.anihyou.release.data.db.PollGenerationEntity
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.data.db.RequestStateEntity
+import com.axiel7.anihyou.release.data.db.SourceSeriesLabelEntity
 import com.axiel7.anihyou.release.data.db.toDomainOrNull
 import com.axiel7.anihyou.release.data.db.toEntity
 import java.security.MessageDigest
@@ -18,6 +20,9 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
+
+/** A source series title with the other titles the same source used for it in one cycle. */
+data class ObservedSourceLabel(val providerSeriesKey: String, val title: String, val aliases: Set<String> = emptySet())
 
 sealed interface ExtensionShadowGenerationClaim {
     data class Acquired(val token: ExtensionShadowGenerationToken) : ExtensionShadowGenerationClaim
@@ -123,6 +128,7 @@ class RoomExtensionShadowGenerationStore(
         sourceHealth: List<SourceHealth>,
         targets: List<ExtensionAcquisitionTarget> = emptyList(),
         selection: ExtensionSelectionKey? = null,
+        labels: List<ObservedSourceLabel> = emptyList(),
     ): Boolean = database.withTransaction {
         val row = poll.generation(token.executionGenerationId) ?: return@withTransaction false
         if (row.scopeId != SCOPE_ID || row.ownerToken != token.ownerToken ||
@@ -140,6 +146,8 @@ class RoomExtensionShadowGenerationStore(
         require(targets.size <= 8)
         // With a selection the cycle is also folded into that exact source's own rows (R04), in this transaction.
         reconciliation.persistCompletedCycle(cycle, selection)
+        // The titles the source itself reported, for the matching management. Same transaction, same exact source.
+        if (selection != null && labels.isNotEmpty()) writeLabels(selection, labels, cycle.completedAt)
         // The caller supplies host-selected protocol coordinates. Persist logical attempt
         // history in the same fenced transaction, even when no requested track was found.
         // The transport ledger independently retains all physical URL cooldowns.
@@ -182,6 +190,24 @@ class RoomExtensionShadowGenerationStore(
             ))
         }
         true
+    }
+
+    /** Writes only what changed, so a quiet cycle causes no write and no invalidation of the management list. */
+    private suspend fun writeLabels(selection: ExtensionSelectionKey, labels: List<ObservedSourceLabel>, at: Instant) {
+        val matching = database.matchingDao()
+        labels.take(MAX_LABELS_PER_CYCLE).forEach { observed ->
+            val existing = matching.label(selection.sourceId, selection.extensionId, selection.publisherId,
+                selection.providerId, observed.providerSeriesKey)
+            val folded = SearchTitleFolding.fold(observed.title)
+            val known = existing?.aliasesPayload?.lines().orEmpty() + listOfNotNull(
+                existing?.title?.takeIf { it != observed.title }?.let(SearchTitleFolding::fold))
+            val aliases = (known + observed.aliases.map(SearchTitleFolding::fold))
+                .filter { it.isNotBlank() && it != folded }.distinct().take(MAX_ALIASES).joinToString("\n")
+            if (existing != null && existing.title == observed.title && existing.aliasesPayload == aliases) return@forEach
+            matching.upsertLabel(SourceSeriesLabelEntity(selection.sourceId, selection.extensionId, selection.publisherId,
+                selection.providerId, observed.providerSeriesKey, observed.title, folded, aliases,
+                existing?.firstSeenAt ?: at.toString(), at.toString()))
+        }
     }
 
     suspend fun abort(
@@ -243,5 +269,7 @@ class RoomExtensionShadowGenerationStore(
         private val OWNER_PATTERN = Regex("[A-Za-z0-9_-]{1,128}")
         private val GENERATION_TIMEOUT: Duration = Duration.ofMinutes(30)
         private val PROCESS_EPOCH = UUID.randomUUID().toString()
+        private const val MAX_LABELS_PER_CYCLE = 2048
+        private const val MAX_ALIASES = 16
     }
 }

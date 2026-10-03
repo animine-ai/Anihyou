@@ -26,6 +26,7 @@ class RoomReleaseSyncStore(
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val dao = database.releaseDao()
+    private val mappingFence = MappingWriterFence(database)
 
     suspend fun currentGeneration(generationKey: String): Long {
         require(generationKey.isNotBlank()) { "generation key must not be blank" }
@@ -114,7 +115,9 @@ class RoomReleaseSyncStore(
                 snapshots.forEach { snapshot ->
                     val mapping = snapshot.mapping ?: return@forEach
                     val existing = dao.getMapping(snapshot.stream.stableKey)
-                    if (existing?.origin != MappingOrigin.MANUAL.name) {
+                    // A reset or correction of the settings after this job began observing must not be undone.
+                    if (existing?.origin != MappingOrigin.MANUAL.name &&
+                        mappingFence.allows(MappingEntryRef.FENCE_R2, snapshot.stream.stableKey, effectiveObservedAt)) {
                         dao.upsertMappings(
                             listOf(mapping.toEntity(snapshot.stream.stableKey, effectiveObservedAt)),
                         )

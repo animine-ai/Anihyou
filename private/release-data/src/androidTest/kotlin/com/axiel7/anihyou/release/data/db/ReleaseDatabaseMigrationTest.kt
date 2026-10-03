@@ -414,6 +414,10 @@ class ReleaseDatabaseMigrationTest {
             assertEquals("the origin of legacy rows is never invented", 0L,
                 scalarLong(migrated, "SELECT count(*) FROM v3_cycle_provenance"))
             assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_source_projection"))
+            listOf("v3_source_series_label", "v3_source_mapping", "v3_mapping_fence", "v3_mapping_action",
+                "v3_mapping_action_entry").forEach { table ->
+                assertEquals("$table starts empty", 0L, scalarLong(migrated, "SELECT count(*) FROM $table"))
+            }
             migrated.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
         } finally { migrated.close() }
 
@@ -459,6 +463,10 @@ class ReleaseDatabaseMigrationTest {
             assertEquals(14L, scalarLong(migrated, "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
             assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_cycle_provenance"))
             assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_source_projection"))
+            listOf("v3_source_series_label", "v3_source_mapping", "v3_mapping_fence", "v3_mapping_action",
+                "v3_mapping_action_entry").forEach { table ->
+                assertEquals("$table starts empty", 0L, scalarLong(migrated, "SELECT count(*) FROM $table"))
+            }
             migrated.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
         } finally { migrated.close() }
     }
@@ -481,7 +489,8 @@ class ReleaseDatabaseMigrationTest {
             assertEquals(13L, scalarLong(db, "PRAGMA user_version"))
             assertEquals(13L, scalarLong(db, "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
             assertEquals(0L, scalarLong(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
-                "('v3_cycle_provenance','v3_source_projection')"))
+                "('v3_cycle_provenance','v3_source_projection'," +
+                "'v3_source_series_label','v3_source_mapping','v3_mapping_fence','v3_mapping_action','v3_mapping_action_entry')"))
         } finally { db.close() }
     }
 
@@ -519,7 +528,8 @@ class ReleaseDatabaseMigrationTest {
             assertEquals(13L, reopened.rawQuery("PRAGMA user_version", null).use { assertTrue(it.moveToFirst()); it.getLong(0) })
             assertEquals(0L, reopened.rawQuery(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
-                    "('v3_cycle_provenance','v3_source_projection')", null).use { assertTrue(it.moveToFirst()); it.getLong(0) })
+                    "('v3_cycle_provenance','v3_source_projection'," +
+                "'v3_source_series_label','v3_source_mapping','v3_mapping_fence','v3_mapping_action','v3_mapping_action_entry')", null).use { assertTrue(it.moveToFirst()); it.getLong(0) })
         } finally { reopened.close() }
     }
 

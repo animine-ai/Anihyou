@@ -8,6 +8,7 @@ import com.axiel7.anihyou.release.core.model.ExternalMapping
 import com.axiel7.anihyou.release.core.model.ExternalMappingAttempt
 import com.axiel7.anihyou.release.core.model.ExternalMappingPrecedence
 import com.axiel7.anihyou.release.core.model.ExternalProvider
+import com.axiel7.anihyou.release.core.model.MappingSource
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.data.db.toDomainOrNull
 import com.axiel7.anihyou.release.data.db.toEntity
@@ -17,6 +18,7 @@ class RoomExternalMappingRepository(
     private val database: ReleaseDatabase,
 ) : ExternalMappingRepository, MappingAttemptRepository {
     private val dao = database.releaseDao()
+    private val mappingFence = MappingWriterFence(database)
 
     override suspend fun find(
         subject: AniWorldMappingSubject,
@@ -28,7 +30,10 @@ class RoomExternalMappingRepository(
             mapping.subject.stableKey,
             mapping.externalProvider.value,
         )?.toDomainOrNull()
-        if (!ExternalMappingPrecedence.canReplace(existing, mapping)) {
+        // A mapping that was resolved before the settings reset or corrected this entry must not bring it back.
+        val fencedOut = mapping.mappingSource != MappingSource.MANUAL && !mappingFence.allows(
+            MappingEntryRef.FENCE_V3_LEGACY, "${mapping.subject.stableKey}|${mapping.externalProvider.value}", mapping.createdAt)
+        if (fencedOut || !ExternalMappingPrecedence.canReplace(existing, mapping)) {
             false
         } else {
             dao.upsertExternalMapping(mapping.toEntity())

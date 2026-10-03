@@ -117,7 +117,9 @@ class ExtensionProviderNavigationProductRepository(
         if (explicit.isNotEmpty()) return explicit.singleOrNull()
         // Existing persisted subject binding can establish overview identity, never episode offset.
         if (provider.key.providerId != "aniworld") return null
-        val bindings = database.releaseDao().navigationOverviewMappings(mediaId.toString())
+        val bindings = database.matchingDao().effectiveOverviewMappings(provider.key.sourceId, provider.key.extensionId,
+            provider.key.publisherId, provider.key.providerId,
+            com.axiel7.anihyou.release.data.repository.MappingEntryIds.sourceKey(provider.key), mediaId.toString())
         return bindings.singleOrNull()?.let { ProviderCoordinate(provider.key, mediaId, null, it.siteSlug, it.navigationSeason, null) }
     }
 

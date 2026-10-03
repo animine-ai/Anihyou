@@ -46,6 +46,7 @@ const val RELEASE_DATABASE_VERSION = 14
         SourceMappingEntity::class,
         MappingFenceEntity::class,
         MappingActionEntity::class,
+        MappingActionEntryEntity::class,
     ],
     version = RELEASE_DATABASE_VERSION,
     exportSchema = true,

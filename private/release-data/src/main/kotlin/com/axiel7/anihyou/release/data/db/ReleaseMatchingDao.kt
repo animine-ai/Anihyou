@@ -281,6 +281,15 @@ interface ReleaseMatchingDao {
     @Query("UPDATE v3_mapping_action SET consumedAt=:at WHERE token=:token AND consumedAt IS NULL")
     suspend fun consumeAction(token: String, at: String): Int
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertActionEntries(rows: List<MappingActionEntryEntity>)
+
+    @Query("SELECT * FROM v3_mapping_action_entry WHERE token=:token AND ordinal >= :from ORDER BY ordinal LIMIT :limit")
+    suspend fun actionEntries(token: String, from: Int, limit: Int): List<MappingActionEntryEntity>
+
+    @Query("DELETE FROM v3_mapping_action_entry WHERE token IN (SELECT token FROM v3_mapping_action WHERE createdAt < :before)")
+    suspend fun pruneActionEntries(before: String): Int
+
     @Query("DELETE FROM v3_mapping_action WHERE createdAt < :before")
     suspend fun pruneActions(before: String): Int
 }

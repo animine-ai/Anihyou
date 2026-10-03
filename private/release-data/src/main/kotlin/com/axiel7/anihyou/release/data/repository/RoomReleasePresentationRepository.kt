@@ -66,7 +66,13 @@ class RoomReleasePresentationRepository(
         return combine(
             legacy,
             activeRows,
-            db.releaseDao().observeActiveAniListMappings(),
+            // The bindings in force for exactly this source: its own accepted rows plus the old provider-wide rows
+            // of unknown origin that it has not reset or corrected itself (R04 / matching management).
+            policy.policy.map { it.activeReleaseSource }.distinctUntilChanged().flatMapLatest { active ->
+                if (active == null) kotlinx.coroutines.flow.flowOf(emptyList()) else
+                    db.matchingDao().observeEffectiveAniListMappings(active.sourceId, active.extensionId,
+                        active.publisherId, active.providerId, MappingEntryIds.sourceKey(active))
+            },
             policy.policy,
             extensionSources?.sources ?: kotlinx.coroutines.flow.flowOf(emptyList()),
         ) { legacyRows, sourceRows, mappings, product, catalog ->

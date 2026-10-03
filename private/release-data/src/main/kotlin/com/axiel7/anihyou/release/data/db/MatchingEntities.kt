@@ -73,7 +73,10 @@ data class MappingFenceEntity(
     val changedAt: String,
 )
 
-/** A durable snapshot of a confirmed bulk scope: entry ids with their revisions, never re-expanded at execution. */
+/**
+ * A durable snapshot of a confirmed bulk scope. [payload] only describes the scope (the exact source for a source
+ * scope); the members with their revisions are the rows of [MappingActionEntryEntity].
+ */
 @Entity(tableName = "v3_mapping_action")
 data class MappingActionEntity(
     @androidx.room.PrimaryKey val token: String,
@@ -82,4 +85,13 @@ data class MappingActionEntity(
     val payload: String,
     val entryCount: Int,
     val consumedAt: String?,
+)
+
+/** One entry of a captured action scope: its id and the revision the user confirmed. Rows are never re-expanded. */
+@Entity(tableName = "v3_mapping_action_entry", primaryKeys = ["token", "ordinal"])
+data class MappingActionEntryEntity(
+    val token: String,
+    val ordinal: Int,
+    val entryId: String,
+    val revision: String,
 )

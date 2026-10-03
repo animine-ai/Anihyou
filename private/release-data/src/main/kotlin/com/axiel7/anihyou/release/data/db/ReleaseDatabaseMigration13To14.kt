@@ -22,7 +22,7 @@ internal fun migrateReleaseDatabase13To14(
         check(c.moveToFirst() && c.getInt(0) == 13 && !c.moveToNext()) { "expected exactly one v13 release_schema marker" }
     }
     listOf("v3_cycle_provenance", "v3_source_projection", "v3_source_series_label", "v3_source_mapping",
-        "v3_mapping_fence", "v3_mapping_action").forEach { name ->
+        "v3_mapping_fence", "v3_mapping_action", "v3_mapping_action_entry").forEach { name ->
         db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='$name'").use {
             check(!it.moveToNext()) { "unexpected v14 table $name" }
         }
@@ -63,6 +63,8 @@ internal fun migrateReleaseDatabase13To14(
     db.execSQL("CREATE TABLE v3_mapping_fence (entryKind TEXT NOT NULL, entryKey TEXT NOT NULL, epoch INTEGER NOT NULL, changedAt TEXT NOT NULL, PRIMARY KEY(entryKind,entryKey))")
     db.execSQL("""CREATE TABLE v3_mapping_action (token TEXT NOT NULL, createdAt TEXT NOT NULL, scopeKind TEXT NOT NULL,
         payload TEXT NOT NULL, entryCount INTEGER NOT NULL, consumedAt TEXT, PRIMARY KEY(token))""")
+    db.execSQL("""CREATE TABLE v3_mapping_action_entry (token TEXT NOT NULL, ordinal INTEGER NOT NULL, entryId TEXT NOT NULL,
+        revision TEXT NOT NULL, PRIMARY KEY(token,ordinal))""")
     db.execSQL("UPDATE schema_meta SET schemaVersion=14,value='r04-source-provenance',updatedAt=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE key='release_schema' AND schemaVersion=13")
     db.query("SELECT COUNT(*) FROM schema_meta WHERE key='release_schema' AND schemaVersion=14").use { c ->
         check(c.moveToFirst() && c.getInt(0) == 1) { "release_schema marker failed to advance to v14" }
