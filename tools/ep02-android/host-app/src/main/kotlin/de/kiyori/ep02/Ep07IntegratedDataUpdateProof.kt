@@ -194,8 +194,9 @@ internal object Ep07IntegratedDataUpdateProof {
                 receipt.state.value.packageGeneration == first.packageGeneration)
             val rowsFirst = database.reconciliationDao().projectionPage(256, 0)
             check(rowsFirst.isNotEmpty()) { "first release produced no accepted rows" }
-            val calendarFirst = calendarRepository.currentCalendar(null, calendarRange)
-            check(calendarFirst.isNotEmpty()) { "the committed rows did not reach the product calendar" }
+            check(calendarRepository.currentCalendar(null, calendarRange).isNotEmpty()) {
+                "the committed rows did not reach the product calendar"
+            }
             val target = targets.first()
             val subject = AniWorldMappingSubject.Season(
                 AniWorldSiteIdentifier(target.providerSeriesKey), requireNotNull(target.navigationSeason))
@@ -204,6 +205,10 @@ internal object Ep07IntegratedDataUpdateProof {
                 subject, ExternalProvider.ANILIST, MEDIA_ID.toString(), MappingSource.MANUAL,
                 MappingConfidence.EXACT, mappedAt, mappedAt, MappingStatus.ACTIVE).toEntity())
             val mapping = requireNotNull(database.releaseDao().getExternalMapping(subject.stableKey, "anilist"))
+            // The presented calendar is read after the mapping exists: the mapping adds the AniList id to its items,
+            // so the comparison across the update must start from the mapped view, not from the unmapped one.
+            val calendarFirst = calendarRepository.currentCalendar(null, calendarRange)
+            check(calendarFirst.isNotEmpty())
 
             // 2. A worker pinned to the first package generation is mid-run when the signed update lands.
             val gate = Ep06SingleSourceWorkerProof.DirectParseGateRuntime(runtime)
@@ -273,7 +278,7 @@ internal object Ep07IntegratedDataUpdateProof {
             repository.rollback(sourceId, EXTENSION_ID, generationBeforeRollback, first.packageDigest)
             val restored = requireNotNull(repository.loadInstalled(key))
             check(restored.packageDigest == first.packageDigest && restored.packageGeneration > updated.packageGeneration)
-            check(stores.single().snapshot().releaseHigh[EXTENSION_ID] == 2L) { "rollback must not lower the release high-water mark" }
+            check(stores.last().snapshot().releaseHigh[EXTENSION_ID] == 2L) { "rollback must not lower the release high-water mark" }
             check(database.reconciliationDao().projectionPage(256, 0) == rowsAfterUpdate)
             check(database.releaseDao().getExternalMapping(subject.stableKey, "anilist") == mapping)
             check(calendarRepository.currentCalendar(null, calendarRange).isNotEmpty())
@@ -295,6 +300,9 @@ internal object Ep07IntegratedDataUpdateProof {
                 .put("sameModuleDigest", updated.moduleDigest == first.moduleDigest)
                 .put("generations", org.json.JSONArray().put(first.packageGeneration).put(updated.packageGeneration)
                     .put(restored.packageGeneration))
+                .put("calendarItemsBeforeUpdate", calendarFirst.size)
+                .put("calendarItemsWithMappedMedia", calendarFirst.count { it.mediaId == MEDIA_ID })
+                .put("installStoreInstances", stores.size)
                 .put("acceptedRowsBeforeUpdate", rowsFirst.size).put("acceptedRowsAfterUpdate", rowsAfterUpdate.size)
                 .put("updateKeepsRowsMappingAndCalendar", true)
                 .put("staleFirstGenerationWorkerFencedByUpdate", true)
