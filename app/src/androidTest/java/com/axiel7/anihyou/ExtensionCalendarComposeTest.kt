@@ -54,23 +54,23 @@ class ExtensionCalendarComposeTest {
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("calendar-day-$today").assertIsDisplayed()
-        capture("calendar-$label-initial-today")
+        capture("calendar-$label-initial-today") { composeRule.onNodeWithTag("calendar-day-$today").assertIsDisplayed() }
         // A completed startup scroll is a one-time action. Later refreshes retain the user's position.
         composeRule.runOnIdle { state = state.copy(autoScrollToToday = false) }
         composeRule.onNodeWithTag(listTag).performScrollToIndex(0)
         composeRule.onNodeWithTag("calendar-day-$past").assertIsDisplayed()
-        capture("calendar-$label-history")
+        capture("calendar-$label-history") { composeRule.onNodeWithTag("calendar-day-$past").assertIsDisplayed() }
         composeRule.runOnIdle {
             state = state.copy(isLoading = true, providerRowsByDate = state.providerRowsByDate +
                 (past to rows.map { it.copy(revision = 2) }))
         }
         composeRule.onNodeWithTag("calendar-day-$past").assertIsDisplayed()
-        capture("calendar-$label-refresh-keeps-history")
+        capture("calendar-$label-refresh-keeps-history") { composeRule.onNodeWithTag("calendar-day-$past").assertIsDisplayed() }
         composeRule.onNodeWithContentDescription(composeRule.activity.getString(R.string.jump_to_today))
             .assertIsDisplayed().performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("calendar-day-$today").assertIsDisplayed()
-        capture("calendar-$label-returned-today")
+        capture("calendar-$label-returned-today") { composeRule.onNodeWithTag("calendar-day-$today").assertIsDisplayed() }
         composeRule.onNodeWithTag(listTag).performScrollToIndex(rows.size + 2)
         composeRule.onNodeWithTag("calendar-day-${today.plusDays(1)}").assertIsDisplayed()
     }
@@ -113,14 +113,16 @@ class ExtensionCalendarComposeTest {
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.postponements_unassigned)).assertIsDisplayed()
         composeRule.onNodeWithText("Unassigned provider title").assertIsDisplayed().assertIsNotEnabled().performClick()
         composeRule.runOnIdle { assertEquals(Route.Home, navigation.getCurrentRoute()) }
-        capture("postponements-safe-and-unassigned")
+        capture("postponements-safe-and-unassigned") {
+            composeRule.onNodeWithText("Verified anime title").assertIsDisplayed()
+            composeRule.onNodeWithText("Unassigned provider title").assertIsDisplayed()
+        }
     }
 
-    private fun capture(name: String) {
-        val directory = File(composeRule.activity.getExternalFilesDir(null), "ep07-ui").apply { mkdirs() }
-        File(directory, "$name.png").outputStream().use { output ->
-            check(composeRule.captureRootBitmap().compress(Bitmap.CompressFormat.PNG, 100, output))
-        }
+    private fun capture(name: String, assertTarget: () -> Unit) {
+        val directory = File(composeRule.activity.getExternalFilesDir(null), "ep07-ui")
+        // The capture refuses to store anything unless this app screen is the foreground and shows the target.
+        composeRule.storeVerifiedScreenshot(composeRule.activity, directory, name, assertTarget)
     }
 
     private fun row(date: LocalDate, number: Int) = ReleaseUiCalendarItem(

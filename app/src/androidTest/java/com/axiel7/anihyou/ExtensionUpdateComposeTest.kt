@@ -2,10 +2,16 @@ package com.axiel7.anihyou
 
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -148,7 +154,10 @@ class ExtensionUpdateComposeTest {
         composeRule.onNodeWithText("Previous Good trust: TRUSTED").assertIsDisplayedCompat()
         composeRule.onNodeWithText("Reason: Package health check failed").assertIsDisplayedCompat()
         composeRule.onNodeWithText("This restores the exact listed package.", substring = true).assertIsDisplayedCompat()
-        captureScreenshot("rollback-confirmation")
+        captureScreenshot("rollback-confirmation") {
+            composeRule.onNodeWithText("This restores the exact listed package.", substring = true).assertIsDisplayedCompat()
+            composeRule.onNodeWithTag("extension-rollback-confirm-${key.extensionId}").assertIsDisplayedCompat()
+        }
         composeRule.onNodeWithTag("extension-rollback-confirm-${key.extensionId}").performClick()
         assertEquals(listOf(RecordingEvent.Rollback(key.sourceId, key.extensionId, 17, target.digest)), event.rollbacks)
     }
@@ -306,6 +315,9 @@ class ExtensionUpdateComposeTest {
         composeRule.onNodeWithTag("extension-source-refresh").performScrollTo().assertIsNotEnabled()
         // Removing local data must stay possible so nothing becomes unreachable.
         composeRule.onNodeWithTag("extension-source-remove").performScrollTo().assertIsEnabled()
+        captureScreenshot("trust-unavailable-manage") {
+            composeRule.onNodeWithTag("extension-source-remove").assertIsDisplayedCompat()
+        }
     }
 
     @Test
@@ -325,6 +337,9 @@ class ExtensionUpdateComposeTest {
         composeRule.onNodeWithTag("extension-trust-unavailable").assertIsDisplayedCompat()
         composeRule.onNodeWithText("Not available in this build").assertIsDisplayedCompat()
         composeRule.onNodeWithText("cannot be added, installed or updated", substring = true).assertIsDisplayedCompat()
+        captureScreenshot("trust-unavailable-notice") {
+            composeRule.onNodeWithTag("extension-trust-unavailable").assertIsDisplayedCompat()
+        }
     }
 
     @Test
@@ -386,7 +401,44 @@ class ExtensionUpdateComposeTest {
             .performScrollTo().assertIsDisplayedCompat()
         composeRule.onNodeWithTag("extension-update-failure-${updateKey.extensionId}")
             .performScrollTo().assertTextContains("Network unavailable", substring = true)
-        captureScreenshot("manage-overview")
+        captureScreenshot("manage-overview") {
+            composeRule.onNodeWithTag("extension-update-failure-${updateKey.extensionId}").assertIsDisplayedCompat()
+        }
+    }
+
+    @Test
+    fun capturesManageOverviewInDarkThemeOnANarrowScreenWithLargeText() {
+        val sourceId = "source-overview-narrow"
+        val currentKey = key("overview-current").copy(sourceId = sourceId)
+        val updateKey = key("overview-update").copy(sourceId = sourceId)
+        val currentExtension = current(currentKey)
+        val availableExtension = update(updateKey).copy(lastUpdateFailure = ExtensionUpdateFailure.NETWORK)
+        val state = mutableStateOf(ExtensionSourcesUiState(
+            sources = listOf(source(sourceId, currentExtension).copy(
+                status = ExtensionSourceStatus.ERROR,
+                lastFailure = ExtensionSourceFailure.NETWORK,
+                extensions = listOf(currentExtension, availableExtension),
+            )),
+        ))
+        composeRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 1.3f)) {
+                MaterialTheme(colorScheme = darkColorScheme()) {
+                    Surface(Modifier.fillMaxSize()) {
+                        Column(Modifier.width(320.dp).verticalScroll(rememberScrollState())) {
+                            ExtensionSourcesSettingsSection(state.value, RecordingEvent())
+                        }
+                    }
+                }
+            }
+        }
+        composeRule.onNodeWithTag("extension-update-state-${updateKey.extensionId}")
+            .performScrollTo().assertTextContains("Update available", substring = true)
+        composeRule.onNodeWithTag("extension-update-failure-${updateKey.extensionId}")
+            .performScrollTo().assertTextContains("Network unavailable", substring = true)
+        captureScreenshot("manage-overview-dark-narrow-large-text") {
+            composeRule.onNodeWithTag("extension-update-failure-${updateKey.extensionId}").assertIsDisplayedCompat()
+        }
     }
 
     @Test
@@ -412,7 +464,43 @@ class ExtensionUpdateComposeTest {
         )
         composeDiagnostics(state)
         composeRule.onNodeWithText("Active package generation: 42").performScrollTo().assertIsDisplayedCompat()
-        captureScreenshot("diagnostics")
+        captureScreenshot("diagnostics") {
+            composeRule.onNodeWithText("Active package generation: 42").assertIsDisplayedCompat()
+        }
+    }
+
+    @Test
+    fun capturesDiagnosticsInDarkTheme() {
+        val key = key("ui-review-dark")
+        val extension = current(key).copy(
+            displayName = "Signed UI Review Extension",
+            latestAvailableVersion = "1.1.0",
+            installedReleaseSequence = 5,
+            packageGeneration = 43,
+            rollbackTarget = ExtensionRollbackTarget("0.9.0", "public-previous-good-digest", "TRUSTED"),
+        )
+        val state = ExtensionSourcesUiState(
+            sources = listOf(source(key.sourceId, extension)),
+            diagnostics = mapOf(key to mapOf(
+                "Repository" to "https://public.example.test/repository.json",
+                "Publisher" to "public-signed-publisher",
+                "Trust status" to "TRUSTED",
+                "Allowed Hosts" to "api.example.test",
+            )),
+        )
+        composeRule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Surface(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        ExtensionDiagnostics(state)
+                    }
+                }
+            }
+        }
+        composeRule.onNodeWithText("Active package generation: 43").performScrollTo().assertIsDisplayedCompat()
+        captureScreenshot("diagnostics-dark") {
+            composeRule.onNodeWithText("Active package generation: 43").assertIsDisplayedCompat()
+        }
     }
 
     @Test
@@ -533,20 +621,13 @@ class ExtensionUpdateComposeTest {
         }
     }
 
-    private fun captureScreenshot(name: String) {
+    private fun captureScreenshot(name: String, assertTarget: () -> Unit) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val externalFiles = requireNotNull(context.getExternalFilesDir(null)) {
             "App-specific external files directory is unavailable"
         }
-        val directory = File(externalFiles, "ep07-ui")
-        check(directory.mkdirs() || directory.isDirectory) { "Could not create EP07 screenshot directory" }
-        val bitmap = composeRule.captureRootBitmap()
-        File(directory, "$name.png").outputStream().buffered().use { output ->
-            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
-                "Could not encode EP07 screenshot $name"
-            }
-        }
-        bitmap.recycle()
+        // The capture refuses to store anything unless this app screen is the foreground and shows the target.
+        composeRule.storeVerifiedScreenshot(composeRule.activity, File(externalFiles, "ep07-ui"), name, assertTarget)
     }
 
     private fun key(name: String) = ExtensionSelectionKey(
