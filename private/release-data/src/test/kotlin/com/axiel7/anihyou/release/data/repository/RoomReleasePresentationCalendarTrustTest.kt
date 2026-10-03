@@ -63,25 +63,27 @@ class RoomReleasePresentationCalendarTrustTest {
     private fun open() = Room.databaseBuilder(context, ReleaseDatabase::class.java, name)
         .allowMainThreadQueries().build()
 
-    private fun forecast(): ReleaseEvidence {
+    private fun forecast(series: String = "trust-transition"): ReleaseEvidence {
         val item = ReleaseEvidence(
-            "trust-forecast", ReleaseSourceType.ANIWORLD_CALENDAR,
-            "https://aniworld.to/anime/stream/trust-transition", "hash-trust-forecast", "fixture",
-            observedAt, observedAt, false, AniWorldSiteIdentifier("trust-transition"), 2, 4,
+            "trust-forecast-$series", ReleaseSourceType.ANIWORLD_CALENDAR,
+            "https://aniworld.to/anime/stream/$series", "hash-trust-forecast-$series", "fixture",
+            observedAt, observedAt, false, AniWorldSiteIdentifier(series), 2, 4,
             Installment.Episode(1), LanguageTrack.DE_SUB, ReleaseEvidenceType.FORECAST,
             ScheduleCondition.UNKNOWN, ConfidenceVector(1.0, 1.0, 1.0, 1.0, 1.0),
         )
         return item.copy(id = ReleaseEvidenceFingerprintV2.evidenceId(item))
     }
 
-    private suspend fun seedAcceptedRow(db: ReleaseDatabase) {
-        val item = forecast()
+    private suspend fun seedAcceptedRow(
+        db: ReleaseDatabase, series: String = "trust-transition", cycle: String = "trust-cycle", baseline: Boolean = true,
+    ) {
+        val item = forecast(series)
         val reconciliation = RoomReleaseReconciliationRepository(db)
-        reconciliation.importBaseline()
+        if (baseline) reconciliation.importBaseline()
         reconciliation.persistCompletedCycle(CompletedObservationCycle(
-            "trust-cycle", "trust-transition", observedAt.minusSeconds(60), observedAt, AbsencePolicySnapshot(),
+            cycle, series, observedAt.minusSeconds(60), observedAt, AbsencePolicySnapshot(),
             listOf(CycleSourceObservation(
-                "trust-cycle:source", item.sourceType, CanonicalReleaseIdentity.from(item)?.key ?: "scope",
+                "$cycle:source", item.sourceType, CanonicalReleaseIdentity.from(item)?.key ?: "scope",
                 item.languageTrack, CycleResult.SUCCESS, SourceHealthStatus.HEALTHY,
                 observedAt = observedAt, evidence = listOf(item),
             )),
@@ -280,6 +282,56 @@ class RoomReleasePresentationCalendarTrustTest {
             sources.sources.value = listOf(source(keyA, status = ExtensionSourceStatus.ERROR,
                 failure = ExtensionSourceFailure.NETWORK))
             assertEquals(1, presented(repository).size)
+        } finally { db.close() }
+    }
+
+    /**
+     * R04 probe, current behavior. Source A accepted a row, then B becomes active and commits a different row. The
+     * canonical rows carry no source attribution, so the row only A listed is still presented under B once B's refresh
+     * has committed. This documents the residual limit named in the EP07 handoff. It is not an acceptance of it.
+     */
+    @Test fun `R04 characterization a row only source A listed is still presented under B after B committed another row`() = runBlocking {
+        val db = open()
+        try {
+            seedAcceptedRow(db)
+            val sources = Sources(listOf(source(keyA), source(keyB)))
+            val policy = Policy(ExtensionProductPolicy(activeReleaseSource = keyA))
+            val committed = MutableStateFlow<ExtensionSelectionKey?>(keyA)
+            val repository = gatedRepository(db, policy, sources, committed)
+            assertEquals(1, presented(repository).size)
+
+            policy.selectActiveSource(keyB)
+            assertTrue("before B commits, A's rows are hidden", presented(repository).isEmpty())
+
+            seedAcceptedRow(db, series = "b-only-series", cycle = "b-cycle", baseline = false)
+            committed.value = keyB
+            val underB = presented(repository)
+            assertEquals("both rows are presented under B today, including the one only A listed", 2, underB.size)
+            assertTrue(underB.any { it.sourceRoot?.endsWith("/trust-transition") == true })
+            assertTrue(underB.any { it.sourceRoot?.endsWith("/b-only-series") == true })
+        } finally { db.close() }
+    }
+
+    /**
+     * R04 target. The desired isolation: after B committed its own row only B's row is presented under B. It fails today
+     * because the rows carry no source, so it is expected to fail. When a provenance fix lands, this test starts to
+     * pass, the expectation below breaks, and both probe tests must be flipped together.
+     */
+    @Test(expected = AssertionError::class)
+    fun `R04 target only the row source B committed is presented under B (fails until row provenance exists)`() = runBlocking<Unit> {
+        val db = open()
+        try {
+            seedAcceptedRow(db)
+            val sources = Sources(listOf(source(keyA), source(keyB)))
+            val policy = Policy(ExtensionProductPolicy(activeReleaseSource = keyA))
+            val committed = MutableStateFlow<ExtensionSelectionKey?>(keyA)
+            val repository = gatedRepository(db, policy, sources, committed)
+            policy.selectActiveSource(keyB)
+            seedAcceptedRow(db, series = "b-only-series", cycle = "b-cycle", baseline = false)
+            committed.value = keyB
+            val underB = presented(repository)
+            assertEquals("only B's own row", 1, underB.size)
+            assertTrue(underB.single().sourceRoot?.endsWith("/b-only-series") == true)
         } finally { db.close() }
     }
 }

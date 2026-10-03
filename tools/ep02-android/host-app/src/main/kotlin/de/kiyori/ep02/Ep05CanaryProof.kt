@@ -123,6 +123,15 @@ internal object Ep05CanaryProof {
                 targets = targets,
                 canonicalKey = canonicalKey,
             )
+            val sharedLedger = Ep07SharedLedgerProof.run(
+                context = context,
+                runtime = runtime,
+                chain = chain,
+                authority = authority,
+                targets = targets,
+                canonicalKey = canonicalKey,
+                httpsFixture = httpsFixture,
+            )
             val singleSourceWorker = Ep06SingleSourceWorkerProof.run(
                 context = context,
                 runtime = runtime,
@@ -147,6 +156,7 @@ internal object Ep05CanaryProof {
                 .put("roomShadowCommitted", true).put("idempotentWorkRetry", true).put("sourceHealth", health)
                 .put("ep06SingleSourceWorker", singleSourceWorker)
                 .put("ep07IntegratedDataUpdate", integratedDataUpdate)
+                .put("ep07SharedLedger", sharedLedger)
                 .put("authorityDecision", JSONObject().put("canonicalKey", canonicalKey)
                     .put("phase", decision.phase).put("underlyingPhase", decision.underlyingPhase)
                     .put("authority", decision.authority))
