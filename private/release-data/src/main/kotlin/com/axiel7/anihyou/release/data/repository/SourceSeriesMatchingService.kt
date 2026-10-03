@@ -137,7 +137,8 @@ class SourceSeriesMatchingService(
      * The explicit rematch of one captured entry. The accepted binding stays until a valid replacement exists; a
      * replacement is written only if the entry was neither reset nor corrected since the epoch the work began with.
      */
-    internal suspend fun rematch(ref: MappingEntryRef, currentMediaId: Int, epochAtStart: Long): MappingRematchOutcome {
+    internal suspend fun rematch(ref: MappingEntryRef, currentMediaId: Int, epochAtStart: Long,
+                                 searches: SearchBudget = SearchBudget(Int.MAX_VALUE)): MappingRematchOutcome {
         val (slug, season, source) = when (ref) {
             is MappingEntryRef.V3Source -> {
                 val (subject, provider) = splitEntryKey(ref.entryKey)
@@ -164,6 +165,9 @@ class SourceSeriesMatchingService(
         var decision = matcher.match(request, local)
         val localHit = decision as? MatchDecision.Matched
         if (localHit == null || localHit.tier !in AUTO_TIERS) {
+            // The explicit run has a bounded number of AniList searches; an entry it cannot examine stays as it is.
+            if (searches.remaining <= 0) return MappingRematchOutcome.UNAVAILABLE
+            searches.remaining--
             val searched = attempt {
                 candidates.targetedSearch(TargetedIdentityQuery(identity, title, setOf("TV"),
                     signature = "settings-rematch|${identity.stableKey}|$title")).candidates
@@ -271,6 +275,9 @@ class SourceSeriesMatchingService(
         val AUTO_TIERS = setOf(MatchTier.EXACT_NORMALIZED, MatchTier.EXACT_BASE_SEASON, MatchTier.ALIAS)
     }
 }
+
+/** The AniList searches one explicit rematch run may still spend; local candidates never cost any. */
+internal class SearchBudget(var remaining: Int)
 
 /** An entry key is "<subject key>|<external provider>"; the subject key itself never contains the last bar. */
 internal fun splitEntryKey(entryKey: String): Pair<String, String> =

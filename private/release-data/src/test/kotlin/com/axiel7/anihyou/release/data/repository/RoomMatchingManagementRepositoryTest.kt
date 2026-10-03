@@ -515,6 +515,23 @@ class RoomMatchingManagementRepositoryTest {
         assertEquals(101, progress.last().total)
     }
 
+    @Test fun rematchSpendsOnlyItsSearchBudgetAndLeavesTheRestUnexamined() = runBlocking {
+        val rig = Rig()
+        listOf("a" to 1, "b" to 2, "c" to 3).forEach { (slug, media) ->
+            rig.dao.upsertSourceMapping(sourceRow(keyA, slug, 1, media))
+            rig.dao.upsertLabel(label(keyA, slug, "Series $slug"))
+        }
+        val limited = RoomMatchingManagementRepository(rig.database, rig.navigation, rig.sources, rig.service,
+            rig.fence, rig.clock, searchesPerRun = 1)
+        val token = limited.capture(MappingScope.All)
+        val outcomes = limited.rematch(token).toList().filter { it.entryId != null }.map { it.outcome }
+        assertEquals(3, outcomes.size)
+        assertEquals("one search was affordable", 1, rig.candidates.targetedCalls)
+        assertEquals(1, outcomes.count { it == MappingRematchOutcome.RETAINED })
+        assertEquals(2, outcomes.count { it == MappingRematchOutcome.UNAVAILABLE })
+        assertEquals("nothing was removed or changed", 3, rig.page().total)
+    }
+
     @Test fun rematchKeepsABindingWhenNothingBetterExistsOrItChangedSinceConfirmation() = runBlocking {
         val rig = Rig()
         rig.dao.upsertSourceMapping(sourceRow(keyA, "aot", 1, 7))

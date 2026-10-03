@@ -97,7 +97,7 @@ internal object Ep07WorkManagerProof {
                         .get(2, TimeUnit.SECONDS)
                         .joinToString(prefix = "[", postfix = "]") { "${it.id}:${it.state}:tags=${it.tags}" }
                 }.getOrElse { "unavailable:${it.javaClass.simpleName}" }
-                "auto=$auto slots=$slots schedule=${schedules.schedule.value}"
+                "auto=$auto slots=$slots schedule=${schedules.schedule.value} scheduling=${describeScheduling(context)}"
             }
             throw IllegalStateException(
                 "EP07 WorkManager proof timed out at '$waitStage'; completions=${completions.get()} " +
@@ -151,6 +151,33 @@ internal object Ep07WorkManagerProof {
             delay(500)
         }
     }
+
+    /**
+     * Why a work stays ENQUEUED: what the OS job scheduler holds for this package, what the OS thinks of the
+     * process and the network, and whether the main thread (which delivers constraint callbacks) is blocked.
+     * Observation only; nothing here changes scheduling.
+     */
+    @Suppress("DEPRECATION")
+    private fun describeScheduling(context: Context): String = runCatching {
+        val jobs = runCatching {
+            val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as android.app.job.JobScheduler
+            jobScheduler.allPendingJobs.joinToString(";", "[", "]") { job ->
+                "id=${job.id} net=${job.networkType} delayMs=${job.minLatencyMillis} idle=${job.isRequireDeviceIdle} " +
+                    "charging=${job.isRequireCharging} svc=${job.service.shortClassName}"
+            }
+        }.getOrElse { "unavailable:${it.javaClass.simpleName}" }
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val info = connectivity.activeNetworkInfo
+        val bucket = if (Build.VERSION.SDK_INT >= 28) runCatching {
+            (context.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager).appStandbyBucket
+        }.getOrNull() else null
+        val main = android.os.Looper.getMainLooper().thread
+        val workThreads = Thread.getAllStackTraces().keys.filter { it.name.contains("WM.") || it.name.contains("WorkManager") }
+            .joinToString(";", "[", "]") { "${it.name}:${it.state}" }
+        "pid=${android.os.Process.myPid()} jobs=$jobs netInfo=${info?.type}/${info?.isConnected}/${info?.state} " +
+            "standbyBucket=$bucket main=${main.state}@${main.stackTrace.take(4).joinToString("<") { it.methodName }} " +
+            "workThreads=$workThreads"
+    }.getOrElse { "unavailable:${it.javaClass.simpleName}" }
 
     private fun describe(capabilities: NetworkCapabilities?): String {
         if (capabilities == null) return "capabilities=none"

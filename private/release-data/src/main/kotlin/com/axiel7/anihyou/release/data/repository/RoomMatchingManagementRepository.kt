@@ -64,6 +64,8 @@ class RoomMatchingManagementRepository(
     private val service: SourceSeriesMatchingService,
     private val fence: MappingWriterFence = MappingWriterFence(database),
     private val clock: Clock = Clock.systemUTC(),
+    /** AniList searches one confirmed rematch run may spend; the rest of the scope is still examined locally. */
+    private val searchesPerRun: Int = MAX_SEARCHES_PER_RUN,
 ) : MatchingManagementRepository {
     private val dao = database.matchingDao()
     private val releaseDao = database.releaseDao()
@@ -407,6 +409,7 @@ class RoomMatchingManagementRepository(
         // Process the full confirmed scope so the UI cannot report a truncated batch as complete.
         val total = action.entryCount
         emit(MappingRematchProgress(0, total))
+        val searches = SearchBudget(searchesPerRun)
         var from = 0
         var done = 0
         while (done < total) {
@@ -414,7 +417,7 @@ class RoomMatchingManagementRepository(
             if (page.isEmpty()) break
             for (entry in page) {
                 currentCoroutineContext().ensureActive()
-                val outcome = rematchOne(entry)
+                val outcome = rematchOne(entry, searches)
                 done++
                 emit(MappingRematchProgress(done, total, entry.entryId, outcome))
             }
@@ -422,7 +425,7 @@ class RoomMatchingManagementRepository(
         }
     }.flowOn(Dispatchers.IO)
 
-    private suspend fun rematchOne(entry: MappingActionEntryEntity): MappingRematchOutcome {
+    private suspend fun rematchOne(entry: MappingActionEntryEntity, searches: SearchBudget): MappingRematchOutcome {
         val ref = MappingEntryIds.decode(entry.entryId) ?: return MappingRematchOutcome.UNAVAILABLE
         return try {
             // The epoch first, the revision second: a change in between fails one of the two checks.
@@ -430,7 +433,7 @@ class RoomMatchingManagementRepository(
             val current = current(ref) ?: return MappingRematchOutcome.STALE
             if (current.revision != entry.revision) return MappingRematchOutcome.STALE
             val media = current.mediaId ?: return MappingRematchOutcome.UNAVAILABLE
-            service.rematch(ref, media, epoch)
+            service.rematch(ref, media, epoch, searches)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -456,6 +459,7 @@ class RoomMatchingManagementRepository(
     private companion object {
         const val CHUNK = 500
         const val MAX_SCOPE_ENTRIES = 20_000
+        const val MAX_SEARCHES_PER_RUN = 100
         val TOKEN_TTL: Duration = Duration.ofHours(24)
         /** An accepted historical binding stays visible and manageable even after it went stale. */
         val MANAGED_STATUSES = setOf(MappingStatus.ACTIVE.name, MappingStatus.STALE.name)
