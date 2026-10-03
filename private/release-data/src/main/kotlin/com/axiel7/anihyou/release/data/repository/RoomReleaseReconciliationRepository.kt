@@ -357,6 +357,11 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
         }
     }
 
+    /** Whether this exact source ever committed a cycle; without one nothing it owns can be called fresh. */
+    suspend fun hasCommittedCycles(selection: ExtensionSelectionKey): Boolean =
+        dao.latestSourceCompletion(selection.sourceId, selection.extensionId, selection.publisherId,
+            selection.providerId) != null
+
     /** The state this exact source folded for [key]; other sources' rows are never consulted. */
     suspend fun getForSource(selection: ExtensionSelectionKey, key: String): CanonicalReleaseState? =
         database.withTransaction {

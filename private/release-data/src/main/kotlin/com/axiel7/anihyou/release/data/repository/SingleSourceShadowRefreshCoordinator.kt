@@ -7,6 +7,9 @@ import com.axiel7.anihyou.release.core.model.ReleasePhase
 import com.axiel7.anihyou.release.core.model.CycleResult
 import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
 import com.axiel7.anihyou.release.core.source.*
+import com.axiel7.anihyou.release.core.sync.ExtensionRefreshPlan
+import com.axiel7.anihyou.release.core.sync.ExtensionRefreshPlanner
+import com.axiel7.anihyou.release.core.sync.ExtensionSuccessLookup
 import com.axiel7.anihyou.release.data.extension.*
 import java.io.File
 import java.time.Clock
@@ -41,14 +44,23 @@ class SingleSourceShadowRefreshCoordinator(
             observationPolicy, mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L)).release
     },
     private val postponementStore: FileExtensionPostponementStore? = null,
-) : WorkScopedShadowRefreshCoordinator {
+    /** Shared durable ledger state: soft success freshness and denial times. Hard limits stay in the transport. */
+    private val freshness: ExtensionFreshnessLedger = FileExtensionNetworkLedger(networkDirectory),
+    private val freshnessPolicy: ExtensionFreshnessPolicy = ExtensionFreshnessPolicy(),
+) : WorkScopedShadowRefreshCoordinator, TriggeredShadowRefreshCoordinator {
     override suspend fun refresh() = refreshForWork(UUID.randomUUID().toString())
 
-    override suspend fun refreshForWork(workId: String): ShadowRefreshOutcome = refresh(workId, false)
+    override suspend fun refreshForWork(workId: String): ShadowRefreshOutcome = refresh(workId, false, null)
 
-    suspend fun refreshForProductWork(workId: String): ShadowRefreshOutcome = refresh(workId, true)
+    /** The product entry: trigger scope, soft freshness and typed deferral. */
+    override suspend fun refreshForTrigger(workId: String, trigger: ExtensionRefreshTrigger): ShadowRefreshOutcome =
+        refresh(workId, true, trigger)
 
-    private suspend fun refresh(workId: String, requireCompleteRefresh: Boolean): ShadowRefreshOutcome {
+    suspend fun refreshForProductWork(workId: String): ShadowRefreshOutcome =
+        refresh(workId, true, ExtensionRefreshTrigger.SCHEDULED_SLOT)
+
+    private suspend fun refresh(workId: String, requireCompleteRefresh: Boolean,
+                                trigger: ExtensionRefreshTrigger?): ShadowRefreshOutcome {
         val snapshot = policy.policy.value
         val selected = snapshot.activeReleaseSource ?: return ShadowRefreshOutcome.Skipped("no-active-release-source")
         val pinned = installed.loadInstalled(selected) ?: return ShadowRefreshOutcome.Skipped("active-release-source-unavailable")
@@ -68,15 +80,66 @@ class SingleSourceShadowRefreshCoordinator(
             if (selected.providerId == "aniworld") targetSource.targets().filter { it.target.track.name in effectiveTracks }
             else emptyList()
         }
+        // Trigger scope and soft freshness, decided before any request: only the due roles are asked, and
+        // roles that were not asked are neither refreshed nor judged absent.
+        val sourceKey = ExtensionFreshnessKeys.source(selected)
+        val provider = pinned.providerId.value
+        var runRoles: Set<SourceRole> = pinned.grantedRoles
+        var runTargets: ExtensionTargetSource = targets
+        var dueDirect: Set<String> = emptySet()
+        var markAutomaticAttempt = false
+        if (trigger != null) {
+            val now = clock.instant()
+            val candidates = if (SourceRole.DIRECT in pinned.grantedRoles && !trigger.automatic) targets.targets() else emptyList()
+            val directKeys = candidates.map { it.canonicalKey }.toSet()
+            val wanted = SourceRole.entries.filter { it != SourceRole.DIRECT }.map(ExtensionFreshnessKeys::role) +
+                directKeys.map(ExtensionFreshnessKeys::target) + ExtensionFreshnessKeys.AUTOMATIC_ATTEMPT
+            val seen = freshness.lastSuccesses(sourceKey, provider, wanted)
+            // The receipt names the source and selection generation whose rows it describes. If it does not
+            // describe this source (a switch, or a preference change that bumped the generation), nothing of it
+            // may be called fresh and the first fill runs; a package change of the same source keeps it.
+            val old = navigationStore.state.value
+            val receiptBound = old.source == selected && old.releaseGeneration == snapshot.releaseGeneration
+            when (val decision = ExtensionRefreshPlanner.plan(
+                trigger = trigger, granted = pinned.grantedRoles, directTargets = directKeys,
+                hasCommittedData = receiptBound && reconciliation.hasCommittedCycles(selected),
+                lastAutomaticAttempt = seen[ExtensionFreshnessKeys.AUTOMATIC_ATTEMPT],
+                lastSuccess = ExtensionSuccessLookup { seen[ExtensionFreshnessKeys.of(it)] },
+                now = now, policy = freshnessPolicy,
+            )) {
+                is ExtensionRefreshPlan.Skip -> {
+                    if (receiptBound && (old.packageDigest != pinned.packageDigest ||
+                            old.packageGeneration != pinned.packageGeneration)) {
+                        // An update or rollback of the same source does not reset freshness, so no request
+                        // follows. The receipt follows the newly verified package with the same accepted data and
+                        // statistics; nothing is recorded as fetched.
+                        policy.withCurrentSelection(snapshot) {
+                            installed.withCurrentGeneration(selected, pinned.packageDigest, pinned.packageGeneration) {
+                                navigationStore.record(selected, snapshot.releaseGeneration, pinned.packageDigest,
+                                    old.installments, old.syncStatistics, pinned.packageGeneration)
+                            }
+                        }
+                    }
+                    return ShadowRefreshOutcome.Skipped(decision.reason, decision.nextEligibleAt)
+                }
+                is ExtensionRefreshPlan.Run -> {
+                    runRoles = decision.roles
+                    dueDirect = decision.targetKeys
+                    runTargets = ExtensionTargetSource { candidates.filter { it.canonicalKey in decision.targetKeys } }
+                    markAutomaticAttempt = decision.countsAsAutomaticAttempt
+                }
+            }
+        }
         val scopedWorkId = MessageDigest.getInstance("SHA-256").digest(
             "$workId/${snapshot.releaseGeneration}/${pinned.packageDigest}/${pinned.packageGeneration}".toByteArray())
             .joinToString("") { "%02x".format(it) }
-        val outcome = ExtensionShadowSyncOrchestrator(dispatch, authority, reconciliation, generations, targets, clock,
+        val outcome = ExtensionShadowSyncOrchestrator(dispatch, authority, reconciliation, generations, runTargets, clock,
             providerId = pinned.providerId,
-            sourceRoles = pinned.grantedRoles,
+            sourceRoles = runRoles,
             enabledTracks = effectiveTracks,
             requireCompleteRefresh = requireCompleteRefresh,
             selection = selected,
+            deferralProbe = { generation -> freshness.deniedUntil(provider, generation) },
             commitGuard = { commit -> policy.withCurrentSelection(snapshot) {
                 installed.withCurrentGeneration(selected, pinned.packageDigest, pinned.packageGeneration, commit) ?: false
             } ?: false },
@@ -87,6 +150,12 @@ class SingleSourceShadowRefreshCoordinator(
         ).refreshForWork(scopedWorkId)
         if (outcome is ShadowRefreshOutcome.Committed) policy.withCurrentSelection(snapshot) {
             installed.withCurrentGeneration(selected, pinned.packageDigest, pinned.packageGeneration) {
+                if (trigger != null) {
+                    // Only a real network success of a whole role makes it fresh; cache, skip and error never do.
+                    val keys = outcome.successfulRoles.filter { it != SourceRole.DIRECT }.map(ExtensionFreshnessKeys::role) +
+                        (if (SourceRole.DIRECT in outcome.successfulRoles) dueDirect.map(ExtensionFreshnessKeys::target) else emptyList())
+                    freshness.markFresh(sourceKey, provider, keys, outcome.cycle.completedAt)
+                }
                 if (SourceRole.POSTPONEMENT in outcome.successfulPresentationRoles) {
                     // A failed durable presentation write cannot grant a fresh-data receipt.
                     // Cancellation also propagates to the bounded worker retry boundary.
@@ -156,6 +225,15 @@ class SingleSourceShadowRefreshCoordinator(
                         "Role health" to pinned.grantedRoles.sortedBy { it.name }.joinToString("; ") { it.name + ": ABORTED" }),
                     pinned.packageGeneration)
             }
+        }
+        // An automatic run that really asked the source counts for the hourly window; a deferral asked nothing.
+        if (markAutomaticAttempt && outcome !is ShadowRefreshOutcome.Skipped) {
+            freshness.markFresh(sourceKey, provider, listOf(ExtensionFreshnessKeys.AUTOMATIC_ATTEMPT), clock.instant())
+        }
+        // A selection or package change while the run was in flight is retried against the new selection,
+        // never reported as a failure of the source the user has already left.
+        if (trigger != null && outcome is ShadowRefreshOutcome.Failed && !current(snapshot)) {
+            return ShadowRefreshOutcome.Failed("stale-generation-token", retryable = true)
         }
         return outcome
     }

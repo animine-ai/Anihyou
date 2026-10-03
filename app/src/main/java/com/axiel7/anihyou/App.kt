@@ -94,6 +94,18 @@ class App : Application(), SingletonImageLoader.Factory {
                 if (current == null) scheduler.cancel() else scheduler.scheduleDue()
             }
         }
+        // A real foreground transition (not a rotation) asks the same unique work as process start, so the
+        // first start of the process is one automatic run, and the hourly window is kept by the ledger.
+        registerActivityLifecycleCallbacks(ForegroundTransitions {
+            startupScope.launch {
+                runCatching {
+                    val policy = koinApplication.koin.get<ExtensionProductPolicyRepository>()
+                    if (policy.policy.value.activeReleaseSource != null) {
+                        koinApplication.koin.get<ExtensionReleaseRefreshScheduler>().scheduleForeground()
+                    }
+                }
+            }
+        }.callbacks())
     }
 
     override fun newImageLoader(context: PlatformContext) =

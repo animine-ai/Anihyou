@@ -3,7 +3,9 @@ package com.axiel7.anihyou.release.data.repository
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.axiel7.anihyou.release.core.api.ExtensionRefreshTrigger
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
+import com.axiel7.anihyou.release.core.api.TriggeredShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
 import com.axiel7.anihyou.release.core.source.ExtensionSource
@@ -23,6 +25,7 @@ import java.security.MessageDigest
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,8 +71,6 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val pkg = extensionPackage(SOURCE_A_KEY)
         val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to pkg))
         val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
-        rig.navigationStore.record(SOURCE_A_KEY, rig.policy.policy.value.releaseGeneration, pkg.packageDigest,
-            emptyList(), mapOf("Last successful sync" to NOW.toString()), packageGeneration = pkg.packageGeneration)
         var switched = false
         val changing = object : InstalledExtensionAccess by access {
             override suspend fun loadInstalled(key: ExtensionSelectionKey): VerifiedExtensionPackage? {
@@ -82,7 +83,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
             }
         }
         assertEquals(ShadowRefreshOutcome.Failed("stale-generation-token", retryable = true),
-            product(rig, changing).refresh("fresh-during-switch", false))
+            product(rig, changing).refresh("fresh-during-switch", ExtensionRefreshTrigger.SCHEDULED_SLOT))
         assertTrue(rig.runtime.exports.isEmpty())
         assertEquals(SOURCE_B_KEY, rig.policy.policy.value.activeReleaseSource)
     }
@@ -93,16 +94,15 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val presentation = FileExtensionPostponementStore(directory, database)
         val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
         val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime(), postponementStore = presentation)
-        assertTrue(product(rig, access).refresh("persist-success", false) is ShadowRefreshOutcome.Committed)
+        assertTrue(product(rig, access).refresh("persist-success", ExtensionRefreshTrigger.SCHEDULED_SLOT) is ShadowRefreshOutcome.Committed)
         val original = rig.navigationStore.state.value
-        rig.navigationStore.record(SOURCE_A_KEY, original.releaseGeneration, original.packageDigest!!,
-            original.installments, original.syncStatistics + ("Last successful sync" to NOW.minusSeconds(3601).toString()),
-            original.packageGeneration)
+        // The next trigger is a slot one hour later, so every role is stale again.
+        rig.clock.now = NOW.plusSeconds(3601)
         val staleReceipt = rig.navigationStore.state.value
         val lkg = presentation.snapshot.value
         // Fail the next atomic file write while leaving the previous durable file intact.
         assertTrue(File(directory, "postponements-v1.json.next").mkdir())
-        val failure = runCatching { product(rig, access).refresh("persist-failure", false) }.exceptionOrNull()
+        val failure = runCatching { product(rig, access).refresh("persist-failure", ExtensionRefreshTrigger.SCHEDULED_SLOT) }.exceptionOrNull()
         assertTrue("durable write failure must reach the worker retry boundary", failure is java.io.IOException)
         assertEquals(staleReceipt, rig.navigationStore.state.value)
         assertEquals(lkg, presentation.snapshot.value)
@@ -111,59 +111,197 @@ class SingleSourceShadowRefreshCoordinatorTest {
     }
 
     @Test
-    fun `product refresh commits accepted data then skips fresh execution across receipt restart`() = runBlocking {
+    fun `product refresh commits accepted data then skips fresh execution across a restart`() = runBlocking {
         val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
         val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
-        val first = product(rig, access).refresh("product-first", false)
+        val first = product(rig, access).refresh("product-first", ExtensionRefreshTrigger.SCHEDULED_SLOT)
         assertTrue(first is ShadowRefreshOutcome.Committed)
         assertEquals(NOW.toString(), rig.navigationStore.state.value.syncStatistics["Last successful sync"])
         val exports = rig.runtime.exports.toList()
-        assertEquals(ShadowRefreshOutcome.Skipped("extension-data-fresh"),
-            product(rig.copy(navigationStore = FileProviderNavigationStateStore(rig.navigationDirectory)), access)
-                .refresh("product-restarted", false))
+        // A new store and a new coordinator over the same app directories see the durable freshness.
+        val skipped = product(rig.copy(navigationStore = FileProviderNavigationStateStore(rig.navigationDirectory)), access)
+            .refresh("product-restarted", ExtensionRefreshTrigger.PROCESS_START)
+        assertTrue(skipped is ShadowRefreshOutcome.Skipped)
+        skipped as ShadowRefreshOutcome.Skipped
+        assertEquals("extension-data-fresh", skipped.reason)
+        // The earliest due role is RECENT, whose window is 15 minutes.
+        assertEquals(NOW.plusSeconds(900), skipped.nextEligibleAt)
         assertEquals(exports, rig.runtime.exports)
         assertTrue(rig.navigationStore.state.value.installments.isNotEmpty())
     }
 
     @Test
-    fun `freshness never crosses a same-digest rollback generation`() = runBlocking {
-        val pkg = extensionPackage(SOURCE_A_KEY, packageGeneration = 6)
-        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to pkg))
+    fun `soft freshness survives an update and a rollback of the same source`() = runBlocking {
+        val first = extensionPackage(SOURCE_A_KEY, packageGeneration = 6)
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to first))
         val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
-        rig.navigationStore.record(SOURCE_A_KEY, rig.policy.policy.value.releaseGeneration,
-            pkg.packageDigest, emptyList(), mapOf("Last successful sync" to NOW.toString()), packageGeneration = 4)
-        assertTrue(product(rig, access).refresh("product-after-rollback", false) is ShadowRefreshOutcome.Committed)
+        assertTrue(product(rig, access).refresh("before-update", ExtensionRefreshTrigger.SCHEDULED_SLOT) is ShadowRefreshOutcome.Committed)
+        val requests = rig.runtime.plannedRoles.size
+        // Update to a new package digest and generation, then roll back to the original digest.
+        access.replace(SOURCE_A_KEY, extensionPackage(SOURCE_A_KEY, packageDigest = sha256("updated".toByteArray()), packageGeneration = 7))
+        access.replace(SOURCE_A_KEY, extensionPackage(SOURCE_A_KEY, packageGeneration = 8))
+        val receiptBefore = rig.navigationStore.state.value
+        val after = product(rig, access).refresh("after-rollback", ExtensionRefreshTrigger.SCHEDULED_SLOT)
+        assertTrue("an update or rollback must not reset freshness, got $after", after is ShadowRefreshOutcome.Skipped)
+        assertEquals("no request after update and rollback", requests, rig.runtime.plannedRoles.size)
+        // The receipt follows the verified package, with the same accepted data and no new network success.
+        val receiptAfter = rig.navigationStore.state.value
+        assertEquals(8L, receiptAfter.packageGeneration)
+        assertEquals(receiptBefore.installments, receiptAfter.installments)
+        assertEquals(receiptBefore.syncStatistics, receiptAfter.syncStatistics)
+        assertEquals(SOURCE_A_KEY, receiptAfter.source)
+    }
+
+    @Test
+    fun `an automatic trigger asks only the list roles and the slot asks every role`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        assertTrue(product(rig, access).refresh("auto-first", ExtensionRefreshTrigger.PROCESS_START) is ShadowRefreshOutcome.Committed)
+        assertEquals(listOf(setOf(SourceRole.CALENDAR, SourceRole.RECENT, SourceRole.POSTPONEMENT)), rig.runtime.plannedRoles)
+        // The list roles are now fresh; the slot asks for the one thing no automatic trigger asks: DIRECT.
+        val slot = product(rig, access).refresh("slot-direct", ExtensionRefreshTrigger.SCHEDULED_SLOT)
+        assertTrue(slot is ShadowRefreshOutcome.Committed)
+        assertEquals(setOf(SourceRole.DIRECT), rig.runtime.plannedRoles.last())
+    }
+
+    @Test
+    fun `only due roles are asked and roles that were not asked are never judged absent`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        assertTrue(product(rig, access).refresh("slot-1", ExtensionRefreshTrigger.SCHEDULED_SLOT) is ShadowRefreshOutcome.Committed)
+        // 20 minutes later RECENT and DIRECT (15 min windows) are due; CALENDAR and POSTPONEMENT (1 h) are not.
+        rig.clock.now = NOW.plusSeconds(20 * 60)
+        val second = product(rig, access).refresh("slot-2", ExtensionRefreshTrigger.SCHEDULED_SLOT)
+        assertTrue(second is ShadowRefreshOutcome.Committed)
+        second as ShadowRefreshOutcome.Committed
+        assertEquals(setOf(SourceRole.RECENT, SourceRole.DIRECT), rig.runtime.plannedRoles.last())
+        assertEquals(setOf(ReleaseSourceType.ANIWORLD_RECENT, ReleaseSourceType.ANIWORLD_DIRECT_PAGE),
+            second.cycle.sources.map { it.sourceType }.toSet())
+        assertEquals(setOf(SourceRole.RECENT, SourceRole.DIRECT), second.successfulRoles)
+    }
+
+    @Test
+    fun `a manual refresh bypasses soft freshness for every role`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        assertTrue(product(rig, access).refresh("slot", ExtensionRefreshTrigger.SCHEDULED_SLOT) is ShadowRefreshOutcome.Committed)
+        assertTrue(product(rig, access).refresh("manual", ExtensionRefreshTrigger.MANUAL) is ShadowRefreshOutcome.Committed)
+        assertEquals(SourceRole.entries.toSet(), rig.runtime.plannedRoles.last())
+    }
+
+    @Test
+    fun `soft freshness of one source never suppresses another source or a future timestamp`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        val ledger = FileExtensionNetworkLedger(rig.networkDirectory)
+        val roleKeys = SourceRole.entries.map(ExtensionFreshnessKeys::role)
+        // Another source of the same provider just succeeded everywhere; a timestamp from the future is untrusted.
+        ledger.markFresh(ExtensionFreshnessKeys.source(SOURCE_B_KEY), "aniworld", roleKeys, NOW)
+        ledger.markFresh(ExtensionFreshnessKeys.source(SOURCE_A_KEY), "aniworld", roleKeys, NOW.plusSeconds(1))
+        assertTrue(product(rig, access).refresh("not-suppressed", ExtensionRefreshTrigger.SCHEDULED_SLOT) is ShadowRefreshOutcome.Committed)
         assertTrue(rig.runtime.exports.isNotEmpty())
-        assertEquals(6L, rig.navigationStore.state.value.packageGeneration)
     }
 
     @Test
-    fun `stale receipt and explicit refresh execute while a fresh receipt skips`() = runBlocking {
-        for ((name, age, force) in listOf(Triple("stale", 3600L, false), Triple("manual", 0L, true))) {
-            val pkg = extensionPackage(SOURCE_A_KEY)
-            val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to pkg))
-            val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
-            rig.navigationStore.record(SOURCE_A_KEY, rig.policy.policy.value.releaseGeneration,
-                pkg.packageDigest, emptyList(), mapOf("Last successful sync" to NOW.minusSeconds(age).toString()),
-                packageGeneration = pkg.packageGeneration)
-            assertTrue(product(rig, access).refresh("product-$name", force) is ShadowRefreshOutcome.Committed)
-            assertTrue(rig.runtime.exports.isNotEmpty())
-        }
+    fun `the automatic window allows one automatic run per hour but never blocks the first fill`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        val ledger = FileExtensionNetworkLedger(rig.networkDirectory)
+        // A very recent automatic attempt marker without any committed data does not block the first fill.
+        ledger.markFresh(ExtensionFreshnessKeys.source(SOURCE_A_KEY), "aniworld",
+            listOf(ExtensionFreshnessKeys.AUTOMATIC_ATTEMPT), NOW)
+        assertTrue(product(rig, access).refresh("first-fill", ExtensionRefreshTrigger.FOREGROUND) is ShadowRefreshOutcome.Committed)
+        rig.clock.now = NOW.plusSeconds(10 * 60)
+        val soon = product(rig, access).refresh("too-soon", ExtensionRefreshTrigger.FOREGROUND)
+        assertTrue(soon is ShadowRefreshOutcome.Skipped)
+        soon as ShadowRefreshOutcome.Skipped
+        assertEquals("extension-auto-trigger-window", soon.reason)
+        assertEquals(NOW.plusSeconds(3600), soon.nextEligibleAt)
+        rig.clock.now = NOW.plusSeconds(3601)
+        assertTrue(product(rig, access).refresh("next-hour", ExtensionRefreshTrigger.FOREGROUND) is ShadowRefreshOutcome.Committed)
     }
 
     @Test
-    fun `other identity and future timestamps cannot suppress a product refresh`() = runBlocking {
-        for ((name, key, time) in listOf(
-            Triple("other-source", SOURCE_B_KEY, NOW), Triple("future-time", SOURCE_A_KEY, NOW.plusSeconds(1)),
-        )) {
-            val pkg = extensionPackage(SOURCE_A_KEY)
-            val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to pkg))
-            val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
-            rig.navigationStore.record(key, rig.policy.policy.value.releaseGeneration, pkg.packageDigest,
-                emptyList(), mapOf("Last successful sync" to time.toString()), packageGeneration = pkg.packageGeneration)
-            assertTrue(product(rig, access).refresh("product-$name", false) is ShadowRefreshOutcome.Committed)
-            assertTrue(rig.runtime.exports.isNotEmpty())
+    fun `a failed role does not block committing the roles that succeeded and is asked again by the next trigger`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val runtime = FixtureRuntime(failRoles = setOf(SourceRole.RECENT))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = runtime)
+        val first = product(rig, access).refresh("partial", ExtensionRefreshTrigger.PROCESS_START)
+        assertTrue(first is ShadowRefreshOutcome.Committed)
+        first as ShadowRefreshOutcome.Committed
+        assertEquals(setOf(SourceRole.CALENDAR, SourceRole.POSTPONEMENT), first.successfulRoles)
+        assertFalse(first.refreshSucceeded)
+        assertTrue("the failed role is absent from the cycle, not judged absent",
+            first.cycle.sources.none { it.sourceType == ReleaseSourceType.ANIWORLD_RECENT })
+        // The failure healed; the next trigger asks only for the role that is still not fresh.
+        runtime.failRoles = emptySet()
+        rig.clock.now = NOW.plusSeconds(3601)
+        assertTrue(product(rig, access).refresh("heal", ExtensionRefreshTrigger.FOREGROUND) is ShadowRefreshOutcome.Committed)
+        assertEquals(setOf(SourceRole.CALENDAR, SourceRole.RECENT, SourceRole.POSTPONEMENT), rig.runtime.plannedRoles.last())
+    }
+
+    @Test
+    fun `a cooldown that denies every request is a typed deferral with a time and changes nothing`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val ledgerDirectory = temporaryFolder.newFolder()
+        val transportLedger = FileExtensionNetworkLedger(ledgerDirectory)
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime(), transportLedger = transportLedger,
+            networkDirectory = ledgerDirectory)
+        seedHealth()
+        // The host answered 429 with a two hour Retry-After for every list URL and the host key.
+        for (url in listOf("https://aniworld.to/animekalender", "https://aniworld.to/neu", "https://aniworld.to/verspaetungen")) {
+            val reservation = requireNotNull(transportLedger.reserve("aniworld", "digest", "seed-generation", "CALENDAR", url, url, NOW))
+            transportLedger.complete(reservation, "HTTP_429", 7200, NOW)
         }
+        val cyclesBefore = database.reconciliationDao().lastSequence()
+        val outcome = product(rig, access).refresh("denied", ExtensionRefreshTrigger.PROCESS_START)
+        assertTrue("expected a typed deferral, got $outcome", outcome is ShadowRefreshOutcome.Skipped)
+        outcome as ShadowRefreshOutcome.Skipped
+        assertEquals("extension-budget-deferred", outcome.reason)
+        assertEquals(NOW.plusSeconds(7200), outcome.nextEligibleAt)
+        assertEquals("no cycle is committed", cyclesBefore, database.reconciliationDao().lastSequence())
+        assertHealthUnchanged()
+        assertNull(database.aniworldPollDao().activeGeneration(RoomExtensionShadowGenerationStore.SCOPE_ID))
+    }
+
+    @Test
+    fun `a role denied by its own cooldown is neither a failure nor damage to source health and the other roles commit`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val ledgerDirectory = temporaryFolder.newFolder()
+        val transportLedger = FileExtensionNetworkLedger(ledgerDirectory)
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime(), transportLedger = transportLedger,
+            networkDirectory = ledgerDirectory)
+        seedHealth()
+        // An earlier transport failure of the RECENT list URL only (no host-wide 429).
+        val url = "https://aniworld.to/neu"
+        val reservation = requireNotNull(transportLedger.reserve("aniworld", "digest", "seed-generation", "RECENT", url, url, NOW))
+        transportLedger.complete(reservation, "TRANSPORT_FAILURE", null, NOW)
+        val outcome = product(rig, access).refresh("one-role-denied", ExtensionRefreshTrigger.PROCESS_START)
+        assertTrue("expected a partial commit, got $outcome", outcome is ShadowRefreshOutcome.Committed)
+        outcome as ShadowRefreshOutcome.Committed
+        assertEquals(setOf(SourceRole.CALENDAR, SourceRole.POSTPONEMENT), outcome.successfulRoles)
+        assertTrue("the denied role is absent from the cycle", outcome.cycle.sources.none { it.sourceType == ReleaseSourceType.ANIWORLD_RECENT })
+        val recent = requireNotNull(database.aniworldPollDao().health(ReleaseSourceType.ANIWORLD_RECENT.name)?.toDomainOrNull())
+        assertEquals("a host denial must not mark the source unavailable", SourceHealthStatus.HEALTHY, recent.status)
+        assertEquals(NOW.minusSeconds(60), recent.lastAttemptAt)
+        // The denied role stays due: the next automatic trigger asks for it again once the cooldown has lapsed.
+        rig.clock.now = NOW.plusSeconds(3601)
+        assertTrue(product(rig, access).refresh("after-cooldown", ExtensionRefreshTrigger.FOREGROUND) is ShadowRefreshOutcome.Committed)
+        assertTrue(SourceRole.RECENT in rig.runtime.plannedRoles.last())
+    }
+
+    @Test
+    fun `product failure preserves prior receipt and accepted Room evidence`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        assertTrue(product(rig, access).refresh("product-lkg", ExtensionRefreshTrigger.SCHEDULED_SLOT) is ShadowRefreshOutcome.Committed)
+        val old = rig.navigationStore.state.value
+        val before = database.reconciliationDao().projectionPage(256, 0)
+        val failed = TriggeredShadowRefreshCoordinator { _, _ -> ShadowRefreshOutcome.Failed("NETWORK", true) }
+        assertEquals(ShadowRefreshOutcome.Failed("NETWORK", true),
+            product(rig, access, failed).refresh("product-transient-failure", ExtensionRefreshTrigger.MANUAL))
+        assertEquals(old, rig.navigationStore.state.value)
+        assertEquals(before, database.reconciliationDao().projectionPage(256, 0))
     }
 
     @Test
@@ -172,34 +310,19 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime(blockParsing = true))
         val production = product(rig, access)
         withTimeout(30_000) {
-            val running = async { production.refresh("product-one-owner", false) }
+            val running = async { production.refresh("product-one-owner", ExtensionRefreshTrigger.SCHEDULED_SLOT) }
             rig.runtime.parseEntered.await()
-            assertEquals(ShadowRefreshOutcome.Failed("BUSY", true), production.refresh("product-duplicate", true))
+            assertEquals(ShadowRefreshOutcome.Failed("BUSY", true),
+                production.refresh("product-duplicate", ExtensionRefreshTrigger.MANUAL))
             rig.runtime.releaseParsing.complete(Unit)
             assertTrue(running.await() is ShadowRefreshOutcome.Committed)
-            assertEquals(ShadowRefreshOutcome.Skipped("extension-data-fresh"), production.refresh("product-new-start", false))
+            val again = production.refresh("product-new-start", ExtensionRefreshTrigger.PROCESS_START)
+            assertTrue(again is ShadowRefreshOutcome.Skipped && again.reason == "extension-data-fresh")
         }
-    }
-
-    @Test
-    fun `product failure preserves prior receipt and accepted Room evidence`() = runBlocking {
-        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
-        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
-        assertTrue(product(rig, access).refresh("product-lkg", false) is ShadowRefreshOutcome.Committed)
-        val old = rig.navigationStore.state.value
-        val before = database.reconciliationDao().projectionPage(256, 0)
-        val failed = object : WorkScopedShadowRefreshCoordinator {
-            override suspend fun refresh() = refreshForWork("unused")
-            override suspend fun refreshForWork(workId: String) = ShadowRefreshOutcome.Failed("NETWORK", true)
-        }
-        assertEquals(ShadowRefreshOutcome.Failed("NETWORK", true),
-            product(rig, access, failed).refresh("product-transient-failure", true))
-        assertEquals(old, rig.navigationStore.state.value)
-        assertEquals(before, database.reconciliationDao().projectionPage(256, 0))
     }
 
     private fun product(rig: Rig, access: InstalledExtensionAccess,
-        delegate: WorkScopedShadowRefreshCoordinator? = null): ProductionExtensionReleaseRefreshCoordinator {
+        delegate: TriggeredShadowRefreshCoordinator? = null): ProductionExtensionReleaseRefreshCoordinator {
         val sources = object : ExtensionSourceRepository {
             override val sources = MutableStateFlow<List<ExtensionSource>>(emptyList())
             override suspend fun add(url: String) = AddExtensionSourceResult.InvalidUrl
@@ -209,12 +332,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
             override suspend fun refreshEnabled() = false
             override suspend fun activate(sourceId: String, extensionId: String) = Unit
         }
-        val productDelegate = delegate ?: object : WorkScopedShadowRefreshCoordinator {
-            override suspend fun refresh() = rig.worker.refresh()
-            override suspend fun refreshForWork(workId: String) = rig.worker.refreshForProductWork(workId)
-        }
-        return ProductionExtensionReleaseRefreshCoordinator(sources, rig.policy, access,
-            rig.navigationStore, productDelegate, Clock.fixed(NOW, ZoneOffset.UTC))
+        return ProductionExtensionReleaseRefreshCoordinator(sources, delegate ?: rig.worker)
     }
 
     @Test
@@ -465,8 +583,12 @@ class SingleSourceShadowRefreshCoordinatorTest {
         navigation: ExtensionSelectionKey? = null,
         runtime: FixtureRuntime,
         postponementStore: FileExtensionPostponementStore? = null,
+        transportLedger: ExtensionNetworkLedger = HermeticExtensionNetworkLedger(),
+        networkDirectory: File? = null,
     ): Rig {
         val root = temporaryFolder.newFolder()
+        val network = networkDirectory ?: File(root, "network")
+        val clock = MutableClock(NOW)
         val policy = FileExtensionProductPolicyRepository(
             File(root, "policy"), eligible = { true }, releaseEligible = { true }, navigationEligible = { true },
         )
@@ -484,25 +606,25 @@ class SingleSourceShadowRefreshCoordinatorTest {
             policy = policy,
             installed = installed,
             runtime = runtime,
-            networkDirectory = File(root, "network"),
+            networkDirectory = network,
             authority = authority,
             reconciliation = reconciliation,
             generations = RoomExtensionShadowGenerationStore(
-                database, reconciliation, Clock.fixed(NOW, ZoneOffset.UTC), processEpoch = "worker-test",
+                database, reconciliation, clock, processEpoch = "worker-test",
             ),
             targetSource = ExtensionTargetSource { listOf(ACQUISITION_TARGET) },
-            clock = Clock.fixed(NOW, ZoneOffset.UTC),
+            clock = clock,
             navigationStore = navigationStore,
             postponementStore = postponementStore,
             releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { repository, hostRuntime, _, observationPolicy ->
                 ExtensionHostCoordinator(
-                    repository, hostRuntime, hermeticProductionTransport(), observationPolicy,
-                    clock = Clock.fixed(NOW, ZoneOffset.UTC), enabled = { true },
+                    repository, hostRuntime, hermeticProductionTransport(transportLedger, clock), observationPolicy,
+                    clock = clock, enabled = { true },
                     parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L),
                 )
             },
         )
-        return Rig(worker, policy, navigationStore, runtime, reconciliation, File(root, "navigation"))
+        return Rig(worker, policy, navigationStore, runtime, reconciliation, File(root, "navigation"), clock, network)
     }
 
     private suspend fun assertCurrentEvidenceProducedReceipt(outcome: ShadowRefreshOutcome, rig: Rig) {
@@ -575,7 +697,16 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val runtime: FixtureRuntime,
         val reconciliation: RoomReleaseReconciliationRepository,
         val navigationDirectory: File,
+        val clock: MutableClock,
+        val networkDirectory: File,
     )
+
+    /** A clock the test moves; the host, the generation store and the coordinator all read the same one. */
+    private class MutableClock(@Volatile var now: Instant) : Clock() {
+        override fun getZone(): ZoneId = ZoneOffset.UTC
+        override fun withZone(zone: ZoneId?): Clock = this
+        override fun instant(): Instant = now
+    }
 
     private class AtomicInstalledAccess(packages: Map<ExtensionSelectionKey, VerifiedExtensionPackage>) : InstalledExtensionAccess {
         private val mutex = Mutex()
@@ -619,8 +750,11 @@ class SingleSourceShadowRefreshCoordinatorTest {
     private class FixtureRuntime(
         private val blockParsing: Boolean = false,
         @Volatile var failPlan: Boolean = false,
+        @Volatile var failRoles: Set<SourceRole> = emptySet(),
     ) : ExtensionRuntime {
         val exports = mutableListOf<String>()
+        /** The roles the host asked the guest to plan, one entry per plan call. */
+        val plannedRoles = mutableListOf<Set<SourceRole>>()
         val parseEntered = CompletableDeferred<Unit>()
         val releaseParsing = CompletableDeferred<Unit>()
         private var hasBlocked = false
@@ -639,6 +773,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
                 "plan_requests" -> {
                     if (failPlan) return ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
                     val input = ExtensionWireCodec.decodePlanInput(inputUtf8)
+                    plannedRoles += input.context.sourceRoles
                     val requests = input.context.sourceRoles.map { role ->
                         val token = if (role == SourceRole.DIRECT) input.context.targets.single().targetToken else null
                         val url = when (role) {
@@ -662,6 +797,8 @@ class SingleSourceShadowRefreshCoordinatorTest {
                     val input = ExtensionWireCodec.decodeParseInput(inputUtf8)
                     val response = input.responses.single()
                     val role = response.sourceRole
+                    if (role in failRoles) return ExtensionRuntimeResult.Success(
+                        """{"schemaVersion":1,"observations":[],"responseReports":[{"requestId":"${response.requestId}","outcome":"FAILURE","diagnostics":[]}] }""".toByteArray())
                     val target = if (role == SourceRole.DIRECT) input.context.targets.single() else null
                     val kind = when (role) {
                         SourceRole.CALENDAR -> "FORECAST"
@@ -685,8 +822,8 @@ class SingleSourceShadowRefreshCoordinatorTest {
         }
     }
 
-    private fun hermeticProductionTransport() = ProductionExtensionHttpTransport(
-        ledger = HermeticExtensionNetworkLedger(),
+    private fun hermeticProductionTransport(ledger: ExtensionNetworkLedger, clock: Clock) = ProductionExtensionHttpTransport(
+        ledger = ledger,
         resolver = ExtensionAddressResolver { host ->
             assertEquals("aniworld.to", host)
             listOf(PUBLIC_ADDRESS)
@@ -697,7 +834,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
             assertTrue(PUBLIC_ADDRESS in addresses)
             BoundHopResponse(200, emptyMap(), NETWORK_BODY.toByteArray(), PUBLIC_ADDRESS)
         },
-        clock = Clock.fixed(NOW, ZoneOffset.UTC),
+        clock = clock,
     )
 
     private class HermeticExtensionNetworkLedger : ExtensionNetworkLedger {

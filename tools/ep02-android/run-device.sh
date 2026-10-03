@@ -213,7 +213,7 @@ assert integrated['status']=='PASS' and integrated['testTrustOnly'] is True and 
 assert all(integrated[key] is True for key in [
     'updateKeepsRowsMappingAndCalendar','staleFirstGenerationWorkerFencedByUpdate','fencedWorkerLeftReceiptUntouched',
     'nextDueRunUsesNewActivePackage','freshSkipAfterUpdateExecutesNothing','rollbackKeepsRowsAndMapping',
-    'freshnessNotCrossingRollbackGeneration','releaseHighWaterKeptAcrossRollback','stalePreRollbackGenerationFenced',
+    'refreshAfterRollbackUsesRestoredPackage','releaseHighWaterKeptAcrossRollback','stalePreRollbackGenerationFenced',
     'sameModuleDigest'
 ]), integrated
 assert integrated['firstPackageDigest']!=integrated['secondPackageDigest'] and len(integrated['generations'])==3, integrated
@@ -222,14 +222,19 @@ assert integrated['acceptedRowsBeforeUpdate']>0 and integrated['acceptedRowsAfte
 assert integrated['archiveFetches']==2, integrated
 print('EP07 INTEGRATED DATA UPDATE PROOF',json.dumps({k:integrated[k] for k in ['layer','generations','acceptedRowsBeforeUpdate','acceptedRowsAfterUpdate','archiveFetches']},separators=(',',':')))
 shared=f['ep05Canary']['ep07SharedLedger']
-assert shared['status']=='PASS' and shared['testTrustOnly'] is True and shared['productionPublication'] is False and shared['currentBehaviorOnly'] is True, shared
+assert shared['status']=='PASS' and shared['testTrustOnly'] is True and shared['productionPublication'] is False, shared
 assert all(shared[key] is True for key in [
-    'cooldownSpansSamePackage','cooldownSpansUpdate','cooldownSpansRollback',
-    'refusedCyclesKeepRowsMappingCalendar','refusedCyclesDoNotCountAsNetworkSuccess','fetchesAgainAfterCooldown'
+    'softFreshnessSkipsWithZeroRequests','updateDoesNotResetFreshness','rollbackDoesNotResetFreshness',
+    'receiptFollowsPackageWithoutRequest','onlyDueRolesAreAsked','rolesNotDueAreNotRefetched',
+    'manualBypassesSoftFreshness','manualNeverBypassesTheHardFloor','deferralIsTypedWithATime',
+    'hostDenialDoesNotDamageSourceHealth','skippedCyclesKeepRowsMappingCalendarAndLastSync'
 ]), shared
-assert len(shared['cycles'])==5 and shared['refusedCycleOutcome']=='Failed:extension-refresh-partial(retryable=true)', shared
-assert shared['cycles'][0]['requestsReachedFixture']>0 and shared['cycles'][4]['requestsReachedFixture']>0, shared
-print('EP07 SHARED LEDGER PROOF',json.dumps({'refusedCycleOutcome':shared['refusedCycleOutcome'],'cycles':shared['cycles']},separators=(',',':')))
+cycles=shared['cycles']
+assert len(cycles)==8, shared
+assert cycles[0]['requestsReachedFixture']>0 and cycles[4]['requestsReachedFixture']>0 and cycles[6]['requestsReachedFixture']>0, shared
+assert all(cycles[i]['requestsReachedFixture']==0 and cycles[i]['outcome'].startswith('Skipped:extension-data-fresh') for i in (1,2,3)), shared
+assert cycles[7]['requestsReachedFixture']==0 and cycles[7]['outcome'].startswith('Skipped:extension-budget-deferred'), shared
+print('EP07 SHARED LEDGER PROOF',json.dumps({'cycles':cycles},separators=(',',':')))
 data=f['ep06SingleSourceWorker']['ep07ExtensionData']
 assert data['status']=='PASS' and data['testTrustOnly'] is True, data
 assert data['acceptedRowsAfterReopen'] > 0, data
@@ -246,7 +251,7 @@ assert data['productionWorkManagerDeviceProof'] is True and data['processKillPro
 assert data['twoStartupChecksSkipWithoutFullRefresh'] is True and data['rowsVisibleDuringWorkManagerRefresh'] is True, data
 assert data['newCalendarRowAdded'] is True and data['changedCalendarRowRevisionApplied'] is True, data
 assert data['persistedDatesReachProductCalendar'] is True and data['calendarEventKeysRetainedAcrossCommit'] is True, data
-assert data['periodicWorkDurableBeforeKill'] is True, data
+assert data['slotWorkDurableBeforeKill'] is True, data
 p=report['performance']
 raw_attempts=p.get('attempts',[])
 (root/'performance-raw.json').write_text(json.dumps(raw_attempts,indent=2)+'\n')
@@ -318,7 +323,7 @@ assert str(restart['seedPid']) == (root/'force-stopped-seed-pid.txt').read_text(
 assert all(restart[key] is True for key in [
     'persistedRowsReadBeforeScheduling','mappingAvailableBeforeRefresh','signedPackageReverified',
     'actualProductWorkManagerWorker','freshSkipsNetworkAndRuntime','processKillProof',
-    'productCalendarDatesAvailableBeforeRefresh','periodicWorkSurvivedProcessKill'
+    'productCalendarDatesAvailableBeforeRefresh','slotWorkSurvivedProcessKill'
 ]), restart
 assert 'EP07_RESTART_PASS' in text and 'INSTRUMENTATION_CODE: -1' in text, text
 (root/'restart-report.json').write_text(json.dumps(restart,indent=2)+'\n')

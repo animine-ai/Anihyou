@@ -142,8 +142,14 @@ sealed interface ShadowRefreshOutcome {
         val presentationObservations: List<ProviderObservationV1> = emptyList(),
         val successfulPresentationRoles: Set<SourceRole> = emptySet(),
         val refreshSucceeded: Boolean = false,
+        /** Roles whose every request was a real 2xx response with a SUCCESS parse report. Only these count as fresh. */
+        val successfulRoles: Set<SourceRole> = emptySet(),
     ) : ShadowRefreshOutcome
-    data class Skipped(val reason: String) : ShadowRefreshOutcome
+    /**
+     * Nothing was requested. [nextEligibleAt] (when known) is the earliest time the same request can make
+     * sense again, so callers wait for it instead of retrying a denied or fresh request right away.
+     */
+    data class Skipped(val reason: String, val nextEligibleAt: Instant? = null) : ShadowRefreshOutcome
     data class Failed(val reason: String, val retryable: Boolean) : ShadowRefreshOutcome
 }
 
@@ -166,5 +172,9 @@ fun interface AniWorldShadowRefreshCoordinator { suspend fun refresh(): ShadowRe
 /** WorkManager passes its stable work ID so a retry cannot mint a second Room cycle. */
 interface WorkScopedShadowRefreshCoordinator : AniWorldShadowRefreshCoordinator {
     suspend fun refreshForWork(workId: String): ShadowRefreshOutcome
+}
+/** Product entry that scopes the run by trigger and soft freshness before any request is made. */
+fun interface TriggeredShadowRefreshCoordinator {
+    suspend fun refreshForTrigger(workId: String, trigger: ExtensionRefreshTrigger): ShadowRefreshOutcome
 }
 fun interface AniWorldShadowScheduler { fun scheduleCanaryNow() }

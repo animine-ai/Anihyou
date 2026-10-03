@@ -15,7 +15,7 @@ val workerModule = module {
     worker<ExtensionSourceRefreshWorker>()
     worker<ExtensionReleaseRefreshWorker>()
     single<com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler> {
-        WorkManagerExtensionReleaseRefreshScheduler(get())
+        WorkManagerExtensionReleaseRefreshScheduler(get(), get())
     }
     single<ReleaseOutboxScheduler> { WorkManagerReleaseOutboxScheduler(get()) }
     single<ReleaseForecastRecheckScheduler> { WorkManagerReleaseForecastRecheckScheduler(get()) }

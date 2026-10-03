@@ -51,6 +51,8 @@ class ExtensionShadowSyncOrchestrator(
     private val requireCompleteRefresh: Boolean = false,
     /** The exact release source this run belongs to; its cycles are folded into that source's own rows (R04). */
     private val selection: ExtensionSelectionKey? = null,
+    /** Per role name: when the ledger cooldown that denied that role in this run lapses. Empty: nothing was denied. */
+    private val deferralProbe: suspend (generationId: String) -> Map<String, Instant> = { emptyMap() },
 ) : WorkScopedShadowRefreshCoordinator {
     private val mutex = Mutex()
 
@@ -93,9 +95,30 @@ class ExtensionShadowSyncOrchestrator(
                     val evidence = authority.project(result).filter { it.languageTrack?.name in enabledTracks }
                     val started = Instant.parse(result.receipt.startedAt)
                     val completed = Instant.parse(result.receipt.completedAt)
-                    val health = sourceHealth(result, completed)
-                    if (requireCompleteRefresh && (health.isEmpty() ||
-                            health.any { it.status != SourceHealthStatus.HEALTHY })) {
+                    val succeeded = succeededRoles(result)
+                    // A role whose requests the host ledger denied (a cooldown, not an answer of the source) was not
+                    // asked: it is neither a failure nor judged absent, and it does not touch source health.
+                    val deniedUntil = if (requireCompleteRefresh) deferralProbe(lease.executionGenerationId) else emptyMap()
+                    val deniedRoles = deniedUntil.keys.mapNotNull { name -> SourceRole.entries.firstOrNull { it.name == name } }
+                        .filterTo(mutableSetOf()) { role ->
+                            val requestIds = result.requestRoles.filterValues { it == role }.keys
+                            requestIds.isNotEmpty() && result.responseProvenance.none { it.requestId in requestIds }
+                        }
+                    val health = sourceHealth(result, completed).filterNot { entry ->
+                        deniedRoles.any { ROLE_TYPES.getValue(it) == entry.sourceType }
+                    }
+                    val asked = result.requestRoles.values.toSet() - deniedRoles
+                    if (requireCompleteRefresh && succeeded.isEmpty()) {
+                        if (asked.isEmpty() && deniedRoles.isNotEmpty()) {
+                            // Every request was denied by a cooldown: a typed deferral, not a failure. The generation
+                            // closes without touching source health and the caller waits for the time.
+                            val recorded = commitGuard {
+                                generations.abort(lease, "extension-budget-deferred", completed, emptyList())
+                                true
+                            }
+                            if (!recorded) generations.abort(lease, "stale-active-source", completed)
+                            return@withLock ShadowRefreshOutcome.Skipped(REASON_DEFERRED, deniedUntil.values.max())
+                        }
                         val recorded = commitGuard {
                             generations.abort(lease, "extension-refresh-partial", completed,
                                 if (currentSelection()) health else emptyList())
@@ -104,8 +127,11 @@ class ExtensionShadowSyncOrchestrator(
                         if (!recorded) generations.abort(lease, "stale-active-source", completed)
                         return@withLock ShadowRefreshOutcome.Failed("extension-refresh-partial", retryable = true)
                     }
+                    // A product run commits only roles that fully succeeded; a role that failed, was denied or was
+                    // not requested is simply absent from the cycle and can never read as "the item disappeared".
+                    val includedRoles = if (requireCompleteRefresh) succeeded else SOURCE_ROLES
                     val healthByType = health.associateBy { it.sourceType }
-                    val sourceObservations = LIST_ROLES.sortedBy(SourceRole::ordinal).map { role ->
+                    val sourceObservations = LIST_ROLES.filter { it in includedRoles }.sortedBy(SourceRole::ordinal).map { role ->
                         val type = ROLE_TYPES.getValue(role)
                         val items = evidence.filter { it.sourceType == type }
                         CycleSourceObservation(
@@ -118,7 +144,7 @@ class ExtensionShadowSyncOrchestrator(
                             observedAt = completed,
                             evidence = items,
                         )
-                    } + targets.map { target ->
+                    } + (if (SourceRole.DIRECT in includedRoles) targets else emptyList()).map { target ->
                         val type = ReleaseSourceType.ANIWORLD_DIRECT_PAGE
                         val items = evidence.filter {
                             it.sourceType == type &&
@@ -174,6 +200,7 @@ class ExtensionShadowSyncOrchestrator(
                             successfulPresentationRoles = successfulPresentationRoles,
                             refreshSucceeded = result.requestRoles.isNotEmpty() &&
                                 health.isNotEmpty() && health.all { it.status == SourceHealthStatus.HEALTHY },
+                            successfulRoles = succeeded,
                         )
                     }
                 }
@@ -191,6 +218,16 @@ class ExtensionShadowSyncOrchestrator(
             ShadowRefreshOutcome.Failed(failure::class.simpleName ?: "extension-shadow-failure", false)
         }
     }
+
+    /** A role succeeded only if every one of its requests was a real 2xx response with a SUCCESS report. */
+    private fun succeededRoles(result: ExtensionHostResult.Completed): Set<SourceRole> =
+        result.requestRoles.values.toSet().filterTo(mutableSetOf()) { role ->
+            val requestIds = result.requestRoles.filterValues { it == role }.keys
+            requestIds.isNotEmpty() && requestIds.all { requestId ->
+                result.responseProvenance.any { it.requestId == requestId && it.httpStatus in 200..299 } &&
+                    result.reports.singleOrNull { it.requestId == requestId }?.outcome == ExtensionReportOutcome.SUCCESS
+            }
+        }
 
     private fun sourceHealth(result: ExtensionHostResult.Completed, completedAt: Instant): List<SourceHealth> =
         ROLE_TYPES.mapNotNull { (role, sourceType) ->
@@ -257,6 +294,7 @@ class ExtensionShadowSyncOrchestrator(
         .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }
 
     companion object {
+        const val REASON_DEFERRED = "extension-budget-deferred"
         private val WORK_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,111}")
         private const val EXTENSION_PARSER_VERSION = "aniworld-v3-extension-v1"
         private val LIST_ROLES = setOf(SourceRole.CALENDAR, SourceRole.RECENT, SourceRole.POSTPONEMENT)

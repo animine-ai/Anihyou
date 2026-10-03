@@ -13,8 +13,11 @@ import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import com.axiel7.anihyou.feature.worker.ExtensionReleaseRefreshWorker
 import com.axiel7.anihyou.feature.worker.WorkManagerExtensionReleaseRefreshScheduler
+import com.axiel7.anihyou.release.core.api.ExtensionRefreshTrigger
 import com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshCoordinator
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
+import com.axiel7.anihyou.release.data.extension.FileExtensionRefreshScheduleStore
+import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +28,8 @@ import kotlinx.coroutines.withTimeout
 /** TEST-only injection; real WorkManager database, scheduling and product CoroutineWorker. */
 internal object Ep07WorkManagerProof {
     private lateinit var manager: WorkManager
+    private lateinit var schedules: FileExtensionRefreshScheduleStore
+    private lateinit var scheduler: WorkManagerExtensionReleaseRefreshScheduler
     @Volatile private var coordinator: ExtensionReleaseRefreshCoordinator? = null
     val completions = AtomicInteger()
     @Volatile var lastOutcome: ShadowRefreshOutcome? = null
@@ -35,21 +40,27 @@ internal object Ep07WorkManagerProof {
             override fun createWorker(appContext: Context, workerClassName: String, parameters: WorkerParameters): ListenableWorker? {
                 if (workerClassName != ExtensionReleaseRefreshWorker::class.java.name) return null
                 return ExtensionReleaseRefreshWorker(appContext, parameters, object : ExtensionReleaseRefreshCoordinator {
-                    override suspend fun refresh(workId: String, force: Boolean): ShadowRefreshOutcome {
-                        val outcome = requireNotNull(coordinator).refresh(workId, force)
+                    override suspend fun refresh(workId: String, trigger: ExtensionRefreshTrigger): ShadowRefreshOutcome {
+                        val outcome = requireNotNull(coordinator).refresh(workId, trigger)
                         lastOutcome = outcome
                         completions.incrementAndGet()
                         return outcome
                     }
-                })
+                }, scheduler, schedules)
             }
         }
         WorkManager.initialize(context, Configuration.Builder().setWorkerFactory(factory).build())
         manager = WorkManager.getInstance(context)
+        schedules = FileExtensionRefreshScheduleStore(File(context.filesDir, "ep07-proof-refresh-schedule"))
+        scheduler = WorkManagerExtensionReleaseRefreshScheduler(manager, schedules)
     }
 
+    /**
+     * Process start through the real scheduler and the real product CoroutineWorker: the automatic run of a
+     * fresh process and the slot chain it leaves behind. The slot work itself is hours away and never runs here.
+     */
     suspend fun due(context: Context, actual: ExtensionReleaseRefreshCoordinator, twice: Boolean = false,
-        leavePeriodicForRestart: Boolean = false): ShadowRefreshOutcome {
+        leaveSlotForRestart: Boolean = false): ShadowRefreshOutcome {
         if (Build.VERSION.SDK_INT >= 26) awaitValidatedNetwork(context)
         coordinator = actual
         initialize(context)
@@ -58,18 +69,23 @@ internal object Ep07WorkManagerProof {
         }
         lastOutcome = null
         val before = completions.get()
-        val scheduler = WorkManagerExtensionReleaseRefreshScheduler(manager)
         scheduler.scheduleDue()
         if (twice) scheduler.scheduleDue()
         withTimeout(30_000) {
             while (completions.get() == before) delay(100)
-            // Wait for the due chain, so a second startup check cannot escape into a later proof.
+            // Wait for the automatic work, so a second startup check cannot escape into a later proof.
             while (withContext(Dispatchers.IO) {
-                manager.getWorkInfosForUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.NOW)
+                manager.getWorkInfosForUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.AUTO)
                     .get(10, TimeUnit.SECONDS).any { !it.state.isFinished }
             }) delay(100)
+            // The slot chain is enqueued asynchronously: one future slot, no periodic job.
+            while (withContext(Dispatchers.IO) { pendingSlots().isEmpty() }) delay(100)
         }
-        if (!leavePeriodicForRestart) {
+        check(withContext(Dispatchers.IO) {
+            manager.getWorkInfosForUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.LEGACY_PERIODIC)
+                .get(10, TimeUnit.SECONDS).none { !it.state.isFinished }
+        }) { "the hourly periodic work must not exist" }
+        if (!leaveSlotForRestart) {
             scheduler.cancel()
             withContext(Dispatchers.IO) {
                 manager.cancelAllWorkByTag(WorkManagerExtensionReleaseRefreshScheduler.TAG).result.get(10, TimeUnit.SECONDS)
@@ -130,12 +146,12 @@ internal object Ep07WorkManagerProof {
         }
     }.getOrDefault("[unavailable]")
 
-    suspend fun retainedPeriodicId(): String = withContext(Dispatchers.IO) {
-        manager.getWorkInfosForUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.PERIODIC)
-            .get(10, TimeUnit.SECONDS).single { !it.state.isFinished }.id.toString()
-    }
+    private fun pendingSlots() = manager.getWorkInfosByTag(WorkManagerExtensionReleaseRefreshScheduler.SLOT_TAG)
+        .get(10, TimeUnit.SECONDS).filter { it.state == androidx.work.WorkInfo.State.ENQUEUED }
 
-    suspend fun verifyRetainedPeriodic(context: Context, actual: ExtensionReleaseRefreshCoordinator, id: String) {
+    suspend fun retainedSlotId(): String = withContext(Dispatchers.IO) { pendingSlots().single().id.toString() }
+
+    suspend fun verifyRetainedSlot(context: Context, actual: ExtensionReleaseRefreshCoordinator, id: String) {
         coordinator = actual
         initialize(context)
         val retained = withContext(Dispatchers.IO) {
@@ -143,7 +159,7 @@ internal object Ep07WorkManagerProof {
         }
         check(retained != null && !retained.state.isFinished &&
             WorkManagerExtensionReleaseRefreshScheduler.TAG in retained.tags) {
-            "scheduled product periodic work did not survive the external process kill: $retained"
+            "scheduled product slot work did not survive the external process kill: $retained"
         }
     }
 }

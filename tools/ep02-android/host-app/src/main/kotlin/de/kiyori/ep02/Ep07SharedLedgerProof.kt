@@ -6,6 +6,7 @@ package de.kiyori.ep02
 
 import android.content.Context
 import androidx.room.Room
+import com.axiel7.anihyou.release.core.api.ExtensionRefreshTrigger
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
 import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.extension.*
@@ -38,16 +39,15 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
 /**
- * Documents what the product does today when several refresh cycles share the ONE durable host network ledger, as
- * the product does (filesDir/release-extension-network): a successful fetch keeps the same URL closed for six hours
- * across refresh generations, packages, updates and rollbacks (FileExtensionNetworkLedger success cooldown).
- *
- * The integrated data proof gives every phase its own ledger directory and therefore cannot see this. This proof uses
- * one ledger over five cycles with a real signed same-identity update and rollback and a controllable ledger clock:
- * cycle 1 fetches; cycles 2 to 4 (same package, after the update, after the rollback) are refused by the ledger and
- * end as a retryable partial result with the rows, mapping and calendar unchanged; after the cooldown has elapsed
- * (ledger clock advanced) cycle 5 fetches again with the restored package. It asserts the CURRENT behavior and makes
- * no claim that this behavior is the desired product behavior. TEST trust only, never production.
+ * Proves the refresh behavior of the ONE durable host ledger the product shares (filesDir/release-extension-network)
+ * across process start checks, slots, manual refreshes, a real signed update and a rollback:
+ *  - soft success freshness per role (CALENDAR/POSTPONEMENT one hour, RECENT/DIRECT 15 minutes) decides what is
+ *    asked; a start check right after a success asks nothing and sends no request;
+ *  - an update and a rollback do not reset that freshness or the hard limits (no budget reset);
+ *  - only the due roles are asked later, and the roles that were not asked are not refetched;
+ *  - a manual refresh bypasses soft freshness for every role but never the hard per-URL success floor, which then
+ *    ends as a typed deferral with a time instead of a partial result.
+ * The integrated data proof gives every phase its own ledger and cannot see this. TEST trust only, never production.
  */
 internal object Ep07SharedLedgerProof {
     private const val EXTENSION_ID = "de.aniworld"
@@ -69,8 +69,10 @@ internal object Ep07SharedLedgerProof {
         canonicalKey: String,
         httpsFixture: LocalHttpsFixtureServer,
     ): JSONObject {
-        val workerClock = Clock.systemUTC()
         val ledgerClock = OffsetClock()
+        // One controllable clock for the worker, the generation store and the host ledger: advancing it ages the
+        // soft freshness and lets the hard limits lapse in the same time domain.
+        val workerClock: Clock = ledgerClock
         val fixtureDirectory = File(context.cacheDir, "ep07-shared-fixtures").apply {
             check(!exists() || deleteRecursively())
             check(mkdirs())
@@ -191,22 +193,14 @@ internal object Ep07SharedLedgerProof {
             )
             val calendarRange = LocalDate.of(2026, 9, 18)..LocalDate.of(2027, 1, 31)
 
-            val coordinator = ProductionExtensionReleaseRefreshCoordinator(
-                repository, policy, repository, receipt,
-                object : WorkScopedShadowRefreshCoordinator {
-                    private val pinned = worker(runtime)
-                    override suspend fun refresh() = refreshForWork("ep07-shared-ledger")
-                    override suspend fun refreshForWork(workId: String) = pinned.refreshForProductWork(workId)
-                },
-                workerClock,
-            )
+            val coordinator = ProductionExtensionReleaseRefreshCoordinator(repository, worker(runtime))
 
             class Cycle(val outcome: ShadowRefreshOutcome, val requests: Int,
                 val rows: List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity>,
                 val lastSuccess: String?, val packageDigest: String?, val packageGeneration: Long)
-            suspend fun cycle(id: String): Cycle {
+            suspend fun cycle(id: String, trigger: ExtensionRefreshTrigger): Cycle {
                 val before = httpsFixture.totalRequests()
-                val outcome = coordinator.refresh(id, true)
+                val outcome = coordinator.refresh(id, trigger)
                 val state = receipt.state.value
                 return Cycle(outcome, httpsFixture.totalRequests() - before,
                     database.reconciliationDao().projectionPage(256, 0),
@@ -215,17 +209,24 @@ internal object Ep07SharedLedgerProof {
             fun describe(outcome: ShadowRefreshOutcome) = when (outcome) {
                 is ShadowRefreshOutcome.Committed -> "Committed(refreshSucceeded=${outcome.refreshSucceeded})"
                 is ShadowRefreshOutcome.Failed -> "Failed:${outcome.reason}(retryable=${outcome.retryable})"
-                is ShadowRefreshOutcome.Skipped -> "Skipped:${outcome.reason}"
+                is ShadowRefreshOutcome.Skipped -> "Skipped:${outcome.reason}(next=${outcome.nextEligibleAt != null})"
             }
             val log = org.json.JSONArray()
             fun record(name: String, cycle: Cycle) = log.put(JSONObject().put("cycle", name)
                 .put("outcome", describe(cycle.outcome)).put("requestsReachedFixture", cycle.requests)
                 .put("packageGeneration", cycle.packageGeneration))
 
-            // Cycle 1: nothing in the ledger yet, the release fetches and commits.
-            val c1 = cycle("ep07-shared-1")
-            record("1 first package, empty ledger", c1)
+            val paths = mapOf(
+                SourceRole.CALENDAR to "/animekalender", SourceRole.RECENT to "/neue-episoden",
+                SourceRole.POSTPONEMENT to "/support/frage/anime-verschiebungen",
+                SourceRole.DIRECT to "/anime/stream/fixture-series/staffel-1/episode-1")
+            fun counts() = paths.mapValues { httpsFixture.pathCount(it.value) }
+
+            // Cycle 1: the planned slot asks every role; nothing is in the ledger yet.
+            val c1 = cycle("ep07-shared-1", ExtensionRefreshTrigger.SCHEDULED_SLOT)
+            record("1 slot, empty ledger", c1)
             check(c1.outcome is ShadowRefreshOutcome.Committed && c1.outcome.refreshSucceeded) { "cycle 1: ${describe(c1.outcome)}" }
+            check(c1.outcome.successfulRoles == SourceRole.entries.toSet()) { "the slot must ask every role" }
             check(c1.requests > 0 && c1.rows.isNotEmpty() && c1.lastSuccess != null) { "cycle 1 fetched nothing" }
             val target = targets.first()
             val subject = AniWorldMappingSubject.Season(
@@ -238,28 +239,24 @@ internal object Ep07SharedLedgerProof {
             val calendarFirst = calendarRepository.currentCalendar(null, calendarRange)
             check(calendarFirst.isNotEmpty())
 
-            // The receipt keeps its statistics per package generation: for the first package a refused cycle keeps the
-            // earlier network success, for a package generation that never fetched (after the update, after the
-            // rollback) there is none. In no case may a refused cycle create or move a network success.
-            fun unchanged(name: String, cycle: Cycle, expectedLastSuccess: String?) {
-                check(cycle.rows == c1.rows) { "$name: rows changed during a refused cycle" }
-                val actual = cycle.lastSuccess?.takeIf { it.isNotBlank() }
-                check(actual == expectedLastSuccess) {
-                    "$name: a refused cycle must not count as a network success, last successful sync was '$actual', expected '$expectedLastSuccess'"
-                }
-            }
             suspend fun assertUntouched() {
                 check(database.releaseDao().getExternalMapping(subject.stableKey, "anilist") == mapping)
                 check(calendarRepository.currentCalendar(null, calendarRange) == calendarFirst)
             }
-            val refused = ShadowRefreshOutcome.Failed("extension-refresh-partial", retryable = true)
+            fun skippedFresh(name: String, cycle: Cycle) {
+                val outcome = cycle.outcome
+                check(outcome is ShadowRefreshOutcome.Skipped && outcome.reason == "extension-data-fresh" &&
+                    outcome.nextEligibleAt != null) { "$name: ${describe(cycle.outcome)}" }
+                check(cycle.requests == 0) { "$name: a fresh skip sent ${cycle.requests} requests" }
+                check(cycle.rows == c1.rows) { "$name: rows changed during a skipped cycle" }
+                // A skip never counts as a network success: the last successful sync is the one of cycle 1.
+                check(cycle.lastSuccess == c1.lastSuccess) { "$name: a skip moved the last successful sync" }
+            }
 
-            // Cycle 2: the same package right after a success on the same ledger.
-            val c2 = cycle("ep07-shared-2")
-            record("2 same package, same ledger", c2)
-            check(c2.outcome == refused) { "cycle 2: ${describe(c2.outcome)}" }
-            check(c2.requests < c1.requests) { "cycle 2 reached the fixture ${c2.requests} times, cycle 1 ${c1.requests}" }
-            unchanged("cycle 2", c2, c1.lastSuccess); assertUntouched()
+            // Cycle 2: a process start check right after the success: everything is fresh, nothing is sent.
+            val c2 = cycle("ep07-shared-2", ExtensionRefreshTrigger.PROCESS_START)
+            record("2 process start, same package", c2)
+            skippedFresh("cycle 2", c2); assertUntouched()
 
             // Update to the signed second release (same identity, new package).
             currentIndex.set("second")
@@ -269,12 +266,13 @@ internal object Ep07SharedLedgerProof {
             val updated = requireNotNull(repository.loadInstalled(key))
             check(updated.packageDigest == second.getString("packageDigest") && updated.packageGeneration > first.packageGeneration)
 
-            // Cycle 3: the update does not reset the ledger.
-            val c3 = cycle("ep07-shared-3")
+            // Cycle 3: the update does not reset freshness or any limit; the receipt follows the new package.
+            val c3 = cycle("ep07-shared-3", ExtensionRefreshTrigger.PROCESS_START)
             record("3 after the signed update, same ledger", c3)
-            check(c3.outcome == refused) { "cycle 3: ${describe(c3.outcome)}" }
-            check(c3.requests < c1.requests)
-            unchanged("cycle 3", c3, null); assertUntouched()
+            skippedFresh("cycle 3", c3); assertUntouched()
+            check(c3.packageDigest == updated.packageDigest && c3.packageGeneration == updated.packageGeneration) {
+                "the receipt did not follow the updated package without a request"
+            }
 
             // Explicit rollback to the first package.
             val generationBeforeRollback = repository.sources.value.single().extensions.single().packageGeneration
@@ -282,32 +280,83 @@ internal object Ep07SharedLedgerProof {
             val restored = requireNotNull(repository.loadInstalled(key))
             check(restored.packageDigest == first.packageDigest && restored.packageGeneration > updated.packageGeneration)
 
-            // Cycle 4: the rollback does not reset the ledger either.
-            val c4 = cycle("ep07-shared-4")
+            // Cycle 4: the rollback does not reset anything either.
+            val c4 = cycle("ep07-shared-4", ExtensionRefreshTrigger.PROCESS_START)
             record("4 after the rollback, same ledger", c4)
-            check(c4.outcome == refused) { "cycle 4: ${describe(c4.outcome)}" }
-            check(c4.requests < c1.requests)
-            unchanged("cycle 4", c4, null); assertUntouched()
+            skippedFresh("cycle 4", c4); assertUntouched()
+            check(c4.packageDigest == restored.packageDigest && c4.packageGeneration == restored.packageGeneration)
 
-            // Cycle 5: after the six hour cooldown (ledger clock advanced) the release fetches again.
-            ledgerClock.advance(Duration.ofHours(6).plusMinutes(1))
-            val c5 = cycle("ep07-shared-5")
-            record("5 restored package, cooldown elapsed", c5)
+            // Cycle 5: 20 minutes later RECENT and DIRECT (15 minute windows) are due, CALENDAR and POSTPONEMENT
+            // (one hour) are not. The slot asks only the due roles; the other two are not fetched again.
+            ledgerClock.advance(Duration.ofMinutes(20))
+            val before5 = counts()
+            val c5 = cycle("ep07-shared-5", ExtensionRefreshTrigger.SCHEDULED_SLOT)
+            record("5 slot after 20 minutes, restored package", c5)
             check(c5.outcome is ShadowRefreshOutcome.Committed && c5.outcome.refreshSucceeded) { "cycle 5: ${describe(c5.outcome)}" }
-            check(c5.requests > 0 && c5.packageDigest == first.packageDigest && c5.packageGeneration == restored.packageGeneration)
+            check(c5.outcome.successfulRoles == setOf(SourceRole.RECENT, SourceRole.DIRECT)) {
+                "cycle 5 asked ${c5.outcome.successfulRoles}"
+            }
+            val after5 = counts()
+            check(after5.getValue(SourceRole.CALENDAR) == before5.getValue(SourceRole.CALENDAR) &&
+                after5.getValue(SourceRole.POSTPONEMENT) == before5.getValue(SourceRole.POSTPONEMENT)) {
+                "roles that were not due were fetched again: $before5 -> $after5"
+            }
+            check(after5.getValue(SourceRole.RECENT) > before5.getValue(SourceRole.RECENT) &&
+                after5.getValue(SourceRole.DIRECT) > before5.getValue(SourceRole.DIRECT))
             check(c5.rows.map { it.projectionKey }.containsAll(c1.rows.map { it.projectionKey }))
+            check(c5.packageDigest == first.packageDigest && c5.packageGeneration == restored.packageGeneration)
             check(c5.lastSuccess != c1.lastSuccess)
             check(database.releaseDao().getExternalMapping(subject.stableKey, "anilist") == mapping)
 
+            // Cycle 6: a manual refresh right after bypasses soft freshness for every role. CALENDAR and POSTPONEMENT
+            // were fetched 20 minutes ago, so they are asked again. RECENT and DIRECT succeeded seconds ago: their
+            // hard per-URL success floor is still closed, so they are denied by the host, not asked, not a failure.
+            val before6 = counts()
+            val c6 = cycle("ep07-shared-6", ExtensionRefreshTrigger.MANUAL)
+            record("6 manual right after a partial slot", c6)
+            check(c6.outcome is ShadowRefreshOutcome.Committed) { "cycle 6: ${describe(c6.outcome)}" }
+            check(c6.outcome.successfulRoles == setOf(SourceRole.CALENDAR, SourceRole.POSTPONEMENT)) {
+                "cycle 6 succeeded ${c6.outcome.successfulRoles}"
+            }
+            val after6 = counts()
+            check(after6.getValue(SourceRole.CALENDAR) > before6.getValue(SourceRole.CALENDAR) &&
+                after6.getValue(SourceRole.POSTPONEMENT) > before6.getValue(SourceRole.POSTPONEMENT))
+            check(after6.getValue(SourceRole.RECENT) == before6.getValue(SourceRole.RECENT) &&
+                after6.getValue(SourceRole.DIRECT) == before6.getValue(SourceRole.DIRECT)) {
+                "the hard floor let a denied role through: $before6 -> $after6"
+            }
+            val recentHealth = requireNotNull(database.aniworldPollDao().health("ANIWORLD_RECENT")).status
+            check(recentHealth == "HEALTHY") { "a host denial damaged the source health of RECENT: $recentHealth" }
+
+            // Cycle 7: after the floor has lapsed the manual refresh asks every role again.
+            ledgerClock.advance(Duration.ofMinutes(2))
+            val before7 = counts()
+            val c7 = cycle("ep07-shared-7", ExtensionRefreshTrigger.MANUAL)
+            record("7 manual after the floor", c7)
+            check(c7.outcome is ShadowRefreshOutcome.Committed && c7.outcome.refreshSucceeded) { "cycle 7: ${describe(c7.outcome)}" }
+            check(c7.outcome.successfulRoles == SourceRole.entries.toSet())
+            val after7 = counts()
+            check(paths.keys.all { after7.getValue(it) > before7.getValue(it) }) { "manual did not ask every role: $before7 -> $after7" }
+
+            // Cycle 8: another manual refresh right away: every URL is inside its hard floor, so every request is
+            // denied. That is a typed deferral with a time and zero requests, not a partial result or a retry loop.
+            val c8 = cycle("ep07-shared-8", ExtensionRefreshTrigger.MANUAL)
+            record("8 manual inside every floor", c8)
+            check(c8.outcome is ShadowRefreshOutcome.Skipped && c8.outcome.reason == "extension-budget-deferred" &&
+                c8.outcome.nextEligibleAt != null) { "cycle 8: ${describe(c8.outcome)}" }
+            check(c8.requests == 0) { "the hard floor let ${c8.requests} requests through" }
+
             return JSONObject().put("status", "PASS").put("testTrustOnly", true).put("productionPublication", false)
-                .put("layer", "device: one durable production-wired network ledger over five refresh cycles with a real signed update and rollback, real Wasmtime guest, production TLS socket path, Room; only the ledger clock is controllable")
-                .put("currentBehaviorOnly", true)
+                .put("layer", "device: one durable production-wired network ledger over eight refresh cycles with a real signed update and rollback, real Wasmtime guest, production TLS socket path, Room; one controllable clock")
                 .put("cycles", log)
-                .put("refusedCycleOutcome", describe(refused))
-                .put("cooldownSpansSamePackage", true).put("cooldownSpansUpdate", true).put("cooldownSpansRollback", true)
-                .put("refusedCyclesKeepRowsMappingCalendar", true).put("refusedCyclesDoNotCountAsNetworkSuccess", true)
-                .put("fetchesAgainAfterCooldown", true)
-                .put("note", "documents today's behavior of the one product ledger; it does not state that this behavior is the desired product behavior")
+                .put("softFreshnessSkipsWithZeroRequests", true)
+                .put("updateDoesNotResetFreshness", true).put("rollbackDoesNotResetFreshness", true)
+                .put("receiptFollowsPackageWithoutRequest", true)
+                .put("onlyDueRolesAreAsked", true).put("rolesNotDueAreNotRefetched", true)
+                .put("manualBypassesSoftFreshness", true)
+                .put("manualNeverBypassesTheHardFloor", true).put("deferralIsTypedWithATime", true)
+                .put("hostDenialDoesNotDamageSourceHealth", true)
+                .put("skippedCyclesKeepRowsMappingCalendarAndLastSync", true)
         } finally {
             database.close()
             context.deleteDatabase(databaseName)

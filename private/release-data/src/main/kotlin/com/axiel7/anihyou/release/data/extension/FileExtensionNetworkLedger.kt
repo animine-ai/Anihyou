@@ -14,8 +14,34 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+/** Resource keys of the soft-freshness rows; the ledger scopes them per release source and provider. */
+internal object ExtensionFreshnessKeys {
+    /** The last time an automatic (foreground or process start) run was started for a source. */
+    const val AUTOMATIC_ATTEMPT = "AUTOMATIC_ATTEMPT"
+    fun role(role: com.axiel7.anihyou.release.core.extension.SourceRole) = "ROLE:${role.name}"
+    fun target(canonicalKey: String) = "TARGET:$canonicalKey"
+    fun of(resource: com.axiel7.anihyou.release.core.sync.ExtensionFreshResource): String = when (resource) {
+        is com.axiel7.anihyou.release.core.sync.ExtensionFreshResource.Role -> role(resource.role)
+        is com.axiel7.anihyou.release.core.sync.ExtensionFreshResource.DirectTarget -> target(resource.canonicalKey)
+    }
+    fun source(key: com.axiel7.anihyou.release.core.source.ExtensionSelectionKey): String =
+        listOf(key.sourceId, key.extensionId, key.publisherId, key.providerId).joinToString("\u0000")
+}
+
+/**
+ * Soft success freshness and denial bookkeeping, kept in the same durable host ledger so that workers,
+ * app start, manual refresh, updates and rollbacks all see one state. It never relaxes a hard limit.
+ */
+interface ExtensionFreshnessLedger {
+    /** The last real network success per resource key for exactly one release source. */
+    suspend fun lastSuccesses(source: String, provider: String, keys: Collection<String>): Map<String, Instant>
+    suspend fun markFresh(source: String, provider: String, keys: Collection<String>, at: Instant)
+    /** Per role name: when the cooldown that denied that role's requests in [generation] lapses. Empty if none was denied. */
+    suspend fun deniedUntil(provider: String, generation: String): Map<String, Instant>
+}
+
 /** Durable host-owned budget. A crashed reservation remains charged for its deadline window. */
-internal class FileExtensionNetworkLedger(private val directory: File) : ExtensionNetworkLedger {
+internal class FileExtensionNetworkLedger(private val directory: File) : ExtensionNetworkLedger, ExtensionFreshnessLedger {
     private val state = AtomicFile(File(directory, "extension-network-ledger-v1"))
     private val lock = File(directory, "extension-network-ledger-v1.lock")
 
@@ -33,6 +59,10 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
         val roleCount = attempts.count { it.role == role }
         val active = attempts.count { it.outcome == "RESERVED" && it.at + 240 > now.epochSecond }
         val hostAttempts = rows.filter { it.kind == 'A' && it.host == host }
+        // Cooldowns come from 429, failure backoff, the host key and the short success floor. Success
+        // cooldowns written before the soft-freshness split (outcome "0") are ignored: they are history.
+        val blocking = rows.filter { it.kind == 'C' && it.outcome != LEGACY_SUCCESS && it.key in setOf(root, hop, host) &&
+            (it.scope != scope || it.key == host) && it.at > now.epochSecond }
         if (attempts.size >= 22 || active >= 2 ||
             hostAttempts.count { it.outcome == "RESERVED" && it.at + 240 > now.epochSecond } >= 2 ||
             (role == "NAVIGATION" && hostAttempts.count { it.role == "NAVIGATION" && it.at > now.epochSecond - 60 } >= 6) ||
@@ -41,10 +71,18 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
                 it.role != "DIRECT" && it.role != "NAVIGATION"
             } >= 18) ||
             (role == "NAVIGATION" && roleCount >= 7) ||
-            rows.any { it.kind == 'C' && it.key in setOf(root, hop, host) &&
-                (it.scope != scope || it.key == host) && it.at > now.epochSecond } ||
+            blocking.isNotEmpty() ||
             rows.any { it.kind == 'A' && it.scope == scope && it.key == root && it.role == role &&
-                it.aux == root && hop == root }) return@transaction null
+                it.aux == root && hop == root }) {
+            if (blocking.isNotEmpty()) {
+                // Remember when the cooldown lapses so the caller can wait for it instead of retrying.
+                val until = maxOf(blocking.maxOf { it.at },
+                    rows.filter { it.kind == 'D' && it.scope == scope && it.role == role }.maxOfOrNull { it.at } ?: 0)
+                rows.removeAll { it.kind == 'D' && it.scope == scope && it.role == role }
+                rows += Row('D', scope, root, "", role, "", until, "DENIED", host)
+            }
+            return@transaction null
+        }
         val token = UUID.randomUUID().toString()
         rows += Row('A', scope, root, hop, role, token, now.epochSecond, "RESERVED", host)
         ExtensionNetworkReservation(token)
@@ -67,7 +105,9 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
                 outcome == "HTTP_304" -> 1_800L
                 failure -> backoff
                 attempt.role == "NAVIGATION" -> 1L
-                else -> 21_600L
+                // A success only keeps a short anti-hammer floor. Freshness (1 h and 15 min windows) is soft
+                // and decided by the caller; this row is the hard limit and must stay small.
+                else -> SUCCESS_FLOOR_SECONDS
             }
             val keys = (listOf(attempt.key, attempt.aux) +
                 if (outcome == "HTTP_429") listOf(attempt.host) else emptyList()).distinct()
@@ -77,10 +117,39 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
                 val next = now.epochSecond + cooldown
                 rows += Row('C', if (prior != null && prior.at >= next) prior.scope else attempt.scope,
                     key, "", "", "", maxOf(next, prior?.at ?: 0),
-                    if (prior != null && prior.at >= next) prior.outcome else failures.toString(), "")
+                    if (prior != null && prior.at >= next) prior.outcome
+                    else if (failure || outcome == "HTTP_429") failures.toString() else SUCCESS_OUTCOME, "")
             }
             Unit
         }
+    }
+
+    override suspend fun lastSuccesses(source: String, provider: String, keys: Collection<String>): Map<String, Instant> =
+        transaction { rows ->
+            val scope = hash(source)
+            val wanted = keys.associateBy { hash("$provider\u0000$it") }
+            rows.filter { it.kind == 'F' && it.scope == scope && it.key in wanted }
+                .associate { wanted.getValue(it.key) to Instant.ofEpochSecond(it.at) }
+        }
+
+    override suspend fun markFresh(source: String, provider: String, keys: Collection<String>, at: Instant) {
+        if (keys.isEmpty()) return
+        transaction { rows ->
+            val scope = hash(source)
+            keys.forEach { key ->
+                val hashed = hash("$provider\u0000$key")
+                val prior = rows.firstOrNull { it.kind == 'F' && it.scope == scope && it.key == hashed }
+                rows.removeAll { it.kind == 'F' && it.scope == scope && it.key == hashed }
+                // A late writer must not move a newer success backwards.
+                rows += Row('F', scope, hashed, "", "", "", maxOf(at.epochSecond, prior?.at ?: 0), "OK", "")
+            }
+        }
+    }
+
+    override suspend fun deniedUntil(provider: String, generation: String): Map<String, Instant> = transaction { rows ->
+        val scope = hash("$provider\u0000$generation")
+        rows.filter { it.kind == 'D' && it.scope == scope }.groupBy { it.role }
+            .mapValues { (_, denials) -> Instant.ofEpochSecond(denials.maxOf { it.at }) }
     }
 
     private suspend fun <T> transaction(block: (MutableList<Row>) -> T): T = PROCESS_MUTEX.withLock {
@@ -141,7 +210,14 @@ internal class FileExtensionNetworkLedger(private val directory: File) : Extensi
     private data class Row(val kind: Char, val scope: String, val key: String, val aux: String,
         val role: String, val token: String, val at: Long, val outcome: String, val host: String)
 
-    private companion object { val PROCESS_MUTEX = Mutex() }
+    private companion object {
+        val PROCESS_MUTEX = Mutex()
+        /** Hard floor between two successful fetches of the same URL. Not a freshness window. */
+        const val SUCCESS_FLOOR_SECONDS = 60L
+        const val SUCCESS_OUTCOME = "S"
+        /** Success cooldown rows written by the 6 hour rule; ignored now. */
+        const val LEGACY_SUCCESS = "0"
+    }
 }
 
 /** The caller supplies an app-private directory; no cookies, credentials or ambient client exist. */

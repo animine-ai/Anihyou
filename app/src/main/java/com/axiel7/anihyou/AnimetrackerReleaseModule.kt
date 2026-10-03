@@ -178,14 +178,13 @@ val animetrackerReleaseModule = module {
     }
     single<com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshCoordinator> {
         com.axiel7.anihyou.release.data.repository.ProductionExtensionReleaseRefreshCoordinator(
-            sources = get(), policy = get(), installed = get(), receipt = get(),
-            delegate = object : com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator {
-                private val worker = get<com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator>()
-                override suspend fun refresh() = worker.refresh()
-                override suspend fun refreshForWork(workId: String) = worker.refreshForProductWork(workId)
-            },
-            clock = get(),
+            sources = get(),
+            delegate = get<com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator>(),
         )
+    }
+    single<com.axiel7.anihyou.release.core.api.ExtensionRefreshScheduleRepository> {
+        com.axiel7.anihyou.release.data.extension.FileExtensionRefreshScheduleStore(
+            androidApplication().filesDir.resolve("release-extension-refresh"))
     }
     single { AniWorldClient(get()) }
     single { AniWorldProvider(client = get(), clock = get()) }

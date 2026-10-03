@@ -6,6 +6,7 @@ package de.kiyori.ep02
 
 import android.content.Context
 import androidx.room.Room
+import com.axiel7.anihyou.release.core.api.ExtensionRefreshTrigger
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
 import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.extension.*
@@ -244,19 +245,11 @@ internal object Ep07IntegratedDataUpdateProof {
             }
             check(policy.policy.value.activeReleaseSource == key)
 
-            // 4. The next due execution runs with the newly active healthy package, not as fresh data of the old one.
-            // Each phase gets its own host network ledger directory: the production ledger keeps a successful
-            // fetch of the same URL closed for six hours, so a later phase on the same ledger would model "the
-            // cooldown has not elapsed" instead of the data path under test.
-            fun productCoordinator(networkName: String) = ProductionExtensionReleaseRefreshCoordinator(
-                repository, policy, repository, receipt,
-                object : WorkScopedShadowRefreshCoordinator {
-                    private val pinned = worker(runtime, networkName)
-                    override suspend fun refresh() = refreshForWork("ep07-integrated-due")
-                    override suspend fun refreshForWork(workId: String) = pinned.refreshForProductWork(workId)
-                },
-                workerClock,
-            )
+            // 4. The next due execution runs with the newly active healthy package. Each phase gets its own host
+            // network ledger directory so the data path is under test; that soft freshness and the hard limits
+            // span update and rollback on one ledger is proven by the shared-ledger proof.
+            fun productCoordinator(networkName: String) =
+                ProductionExtensionReleaseRefreshCoordinator(repository, worker(runtime, networkName))
             val coordinator = productCoordinator("ep07-integrated-network-updated")
             val afterUpdate = Ep07WorkManagerProof.due(context, coordinator)
             check(afterUpdate is ShadowRefreshOutcome.Committed && afterUpdate.refreshSucceeded) {
@@ -272,10 +265,11 @@ internal object Ep07IntegratedDataUpdateProof {
             check(rowsAfterUpdate.map { it.projectionKey }.containsAll(rowsFirst.map { it.projectionKey }))
             check(database.releaseDao().getExternalMapping(subject.stableKey, "anilist") == mapping)
             // Right after, the same generation is fresh: no second execution.
-            check(coordinator.refresh("ep07-integrated-fresh-updated", false) == ShadowRefreshOutcome.Skipped("extension-data-fresh"))
+            val skippedRightAfter = coordinator.refresh("ep07-integrated-fresh-updated", ExtensionRefreshTrigger.PROCESS_START)
+            check(skippedRightAfter is ShadowRefreshOutcome.Skipped) { "a second start check right after executed: $skippedRightAfter" }
 
-            // 5. Explicit rollback to the first digest: a new package generation, rows and mapping retained, and the
-            // fresh receipt of the second generation does not suppress the next run.
+            // 5. Explicit rollback to the first digest: a new package generation, rows and mapping retained, and an
+            // explicit refresh runs with the restored package.
             val generationBeforeRollback = repository.sources.value.single().extensions.single().packageGeneration
             check(repository.sources.value.single().extensions.single().rollbackTarget?.digest == first.packageDigest)
             repository.rollback(sourceId, EXTENSION_ID, generationBeforeRollback, first.packageDigest)
@@ -286,9 +280,9 @@ internal object Ep07IntegratedDataUpdateProof {
             check(database.releaseDao().getExternalMapping(subject.stableKey, "anilist") == mapping)
             check(calendarRepository.currentCalendar(null, calendarRange).isNotEmpty())
             val afterRollback = productCoordinator("ep07-integrated-network-rollback")
-                .refresh("ep07-integrated-due-rollback", false)
+                .refresh("ep07-integrated-due-rollback", ExtensionRefreshTrigger.MANUAL)
             check(afterRollback is ShadowRefreshOutcome.Committed && afterRollback.refreshSucceeded) {
-                "freshness crossed the rollback generation: $afterRollback"
+                "the refresh after the rollback did not execute: $afterRollback"
             }
             check(receipt.state.value.packageDigest == first.packageDigest &&
                 receipt.state.value.packageGeneration == restored.packageGeneration)
@@ -314,8 +308,8 @@ internal object Ep07IntegratedDataUpdateProof {
                 .put("nextDueRunUsesNewActivePackage", true)
                 .put("freshSkipAfterUpdateExecutesNothing", true)
                 .put("rollbackKeepsRowsAndMapping", true)
-                .put("freshnessNotCrossingRollbackGeneration", true)
-                .put("networkLedgerNote", "each phase uses its own host network ledger; the production ledger keeps a fetched URL closed for six hours, so a refresh right after a rollback may end as a retryable partial result while rows stay visible")
+                .put("refreshAfterRollbackUsesRestoredPackage", true)
+                .put("networkLedgerNote", "each phase uses its own host network ledger so the data path is under test; soft freshness and hard limits across update and rollback on one ledger are proven by the shared-ledger proof")
                 .put("releaseHighWaterKeptAcrossRollback", true)
                 .put("stalePreRollbackGenerationFenced", true)
                 .put("archiveFetches", archiveFetchUrls.size)

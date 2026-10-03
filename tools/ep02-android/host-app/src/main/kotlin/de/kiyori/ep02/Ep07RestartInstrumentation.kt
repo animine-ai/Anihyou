@@ -6,7 +6,16 @@ import android.os.Bundle
 import android.os.Process
 import androidx.room.Room
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
-import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
+import com.axiel7.anihyou.release.core.extension.ExtensionExecutionLimits
+import com.axiel7.anihyou.release.core.extension.ExtensionRuntime
+import com.axiel7.anihyou.release.core.extension.ExtensionRuntimeResult
+import com.axiel7.anihyou.release.data.extension.ApprovedExtensionAuthorityTuple
+import com.axiel7.anihyou.release.data.extension.ExtensionEvidenceAuthorityAdapter
+import com.axiel7.anihyou.release.data.extension.ExtensionTargetSource
+import com.axiel7.anihyou.release.data.repository.ReleaseExtensionHostCoordinatorFactory
+import com.axiel7.anihyou.release.data.repository.RoomExtensionShadowGenerationStore
+import com.axiel7.anihyou.release.data.repository.RoomReleaseReconciliationRepository
+import com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.source.*
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.data.extension.FileExtensionProductPolicyRepository
@@ -85,20 +94,38 @@ class Ep07RestartInstrumentation : Instrumentation() {
             val mapping = requireNotNull(database.releaseDao().getExternalMapping(marker.getString("mappingKey"), "anilist"))
             check(mapping.externalId == marker.getString("mappingId") && mapping.mappingSource == "MANUAL" &&
                 mapping.confidence == "EXACT" && mapping.mappingStatus == "ACTIVE" && mapping.validatedAt != null)
-            var delegateCalls = 0
-            val delegate = object : WorkScopedShadowRefreshCoordinator {
-                override suspend fun refresh() = refreshForWork("restart")
-                override suspend fun refreshForWork(workId: String): ShadowRefreshOutcome {
-                    delegateCalls++
-                    error("fresh process restart must not invoke network or runtime")
-                }
-            }
             // The prior stale proof advanced its controlled clock by two hours; keep that clock domain.
             val clock = Clock.fixed(Instant.parse(marker.getString("proofNow")), ZoneOffset.UTC)
-            val coordinator = ProductionExtensionReleaseRefreshCoordinator(sources, policy, installed, receipt, delegate, clock)
-            Ep07WorkManagerProof.verifyRetainedPeriodic(context, coordinator, marker.getString("periodicWorkId"))
+            // The real product worker over the durable ledger of the first process. A host or a guest run would
+            // fail the proof: after the restart the soft freshness decides, before anything is requested.
+            var hostRuns = 0
+            val reconciliation = RoomReleaseReconciliationRepository(database)
+            val worker = SingleSourceShadowRefreshCoordinator(
+                policy = policy, installed = installed,
+                runtime = object : ExtensionRuntime {
+                    override suspend fun execute(moduleDigest: String, moduleBytes: ByteArray, exportName: String,
+                        inputUtf8: ByteArray, limits: ExtensionExecutionLimits): ExtensionRuntimeResult {
+                        hostRuns++
+                        error("fresh process restart must not invoke the runtime")
+                    }
+                },
+                networkDirectory = File(context.cacheDir, marker.getString("networkDirectory")),
+                authority = ExtensionEvidenceAuthorityAdapter(setOf(ApprovedExtensionAuthorityTuple(
+                    verified.publisherId, verified.signingKeyId, verified.extensionId.value,
+                    verified.providerId.value, verified.grantedRoles))),
+                reconciliation = reconciliation,
+                generations = RoomExtensionShadowGenerationStore(database, reconciliation, clock, "ep07-restart-process"),
+                targetSource = ExtensionTargetSource { emptyList() },
+                clock = clock, navigationStore = receipt,
+                releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { _, _, _, _ ->
+                    hostRuns++
+                    error("fresh process restart must not create a host")
+                },
+            )
+            val coordinator = ProductionExtensionReleaseRefreshCoordinator(sources, worker)
+            Ep07WorkManagerProof.verifyRetainedSlot(context, coordinator, marker.getString("slotWorkId"))
             val outcome = Ep07WorkManagerProof.due(context, coordinator, twice = true)
-            check(outcome == ShadowRefreshOutcome.Skipped("extension-data-fresh") && delegateCalls == 0)
+            check(outcome is ShadowRefreshOutcome.Skipped && hostRuns == 0) { "restart did not skip: $outcome, hostRuns=$hostRuns" }
             check(database.reconciliationDao().projectionPage(256, 0) == rows)
             return JSONObject().put("status", "PASS").put("testTrustOnly", true)
                 .put("seedPid", marker.getInt("seedPid")).put("restartPid", Process.myPid())
@@ -106,7 +133,7 @@ class Ep07RestartInstrumentation : Instrumentation() {
                 .put("mappingAvailableBeforeRefresh", true).put("signedPackageReverified", true)
                 .put("productCalendarDatesAvailableBeforeRefresh", true)
                 .put("actualProductWorkManagerWorker", true).put("freshSkipsNetworkAndRuntime", true)
-                .put("periodicWorkSurvivedProcessKill", true).put("retainedPeriodicWorkId", marker.getString("periodicWorkId"))
+                .put("slotWorkSurvivedProcessKill", true).put("retainedSlotWorkId", marker.getString("slotWorkId"))
                 .put("processKillProof", true)
         } finally { database.close() }
     }

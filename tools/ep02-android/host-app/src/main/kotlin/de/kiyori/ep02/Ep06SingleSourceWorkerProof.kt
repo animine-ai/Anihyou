@@ -3,7 +3,9 @@ package de.kiyori.ep02
 import android.content.Context
 import android.os.Process
 import androidx.room.Room
+import com.axiel7.anihyou.release.core.api.ExtensionRefreshTrigger
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
+import com.axiel7.anihyou.release.core.api.TriggeredShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.extension.*
 import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
@@ -371,6 +373,31 @@ internal object Ep06SingleSourceWorkerProof {
             val receipt = FileProviderNavigationStateStore(navigationDirectory)
             check(policy.policy.value.activeReleaseSource == source)
             check(receipt.state.value.source == source && receipt.state.value.installments.isNotEmpty())
+            // One real slot refresh seeds the soft freshness of the product ledger for this source. The product
+            // keeps this state in filesDir/release-extension-network; here it lives in one proof directory that
+            // every later phase of the process start check shares, like the real app does.
+            val productNetwork = File(context.cacheDir, "ep07-product-refresh-network")
+            check(!productNetwork.exists() || productNetwork.deleteRecursively())
+            fun productWorker(network: File, workerClock: Clock, process: String): SingleSourceShadowRefreshCoordinator {
+                val workerReconciliation = RoomReleaseReconciliationRepository(reopened)
+                return SingleSourceShadowRefreshCoordinator(
+                    policy = policy, installed = installed, runtime = runtime, networkDirectory = network,
+                    authority = authority, reconciliation = workerReconciliation,
+                    generations = RoomExtensionShadowGenerationStore(reopened, workerReconciliation, workerClock, process),
+                    targetSource = targets, clock = workerClock, navigationStore = receipt,
+                    releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { repository, actualRuntime, directory, observationPolicy ->
+                        ExtensionHostCoordinator(repository, actualRuntime, ProductionExtensionTransportFactory.create(directory),
+                            observationPolicy, clock = workerClock, enabled = { true },
+                            parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L))
+                    },
+                )
+            }
+            val seedWorker = productWorker(productNetwork, clock, "ep07-seed-process")
+            val seeded = seedWorker.refreshForTrigger("ep07-product-seed", ExtensionRefreshTrigger.SCHEDULED_SLOT)
+            check(seeded is ShadowRefreshOutcome.Committed && seeded.refreshSucceeded) { "the seed slot did not commit: $seeded" }
+            check(seeded.successfulRoles == com.axiel7.anihyou.release.core.extension.SourceRole.entries.toSet()) {
+                "the slot must ask every granted role: ${seeded.successfulRoles}"
+            }
             val before = reopened.reconciliationDao().projectionPage(256, 0)
             check(before.isNotEmpty()) { "reopened Room lost accepted release projections" }
             // The product wiring: rows are presented only for the source whose refresh committed them.
@@ -391,20 +418,22 @@ internal object Ep06SingleSourceWorkerProof {
             val sourcePaths = listOf("/animekalender", "/neue-episoden", "/support/frage/anime-verschiebungen",
                 "/anime/stream/fixture-series/staffel-1/episode-1")
             val countsBefore = sourcePaths.associateWith(fixture::pathCount)
-            var delegateCalls = 0
-            val controlled = object : WorkScopedShadowRefreshCoordinator {
-                override suspend fun refresh() = refreshForWork("ep07-controlled")
-                override suspend fun refreshForWork(workId: String): ShadowRefreshOutcome {
-                    delegateCalls++
-                    return ShadowRefreshOutcome.Failed("controlled-runtime-failure", true)
-                }
-            }
-            val coordinator = ProductionExtensionReleaseRefreshCoordinator(sources, policy, installed, receipt, controlled, clock)
+            // A process start check right after the slot: every list role is fresh in the shared ledger, so the
+            // real worker answers with a typed skip and nothing reaches the network or the guest.
+            val coordinator = ProductionExtensionReleaseRefreshCoordinator(sources, seedWorker)
             val fresh = Ep07WorkManagerProof.due(context, coordinator, twice = true)
-            check(fresh == ShadowRefreshOutcome.Skipped("extension-data-fresh")) { "fresh receipt did not skip: $fresh" }
-            check(delegateCalls == 0 && sourcePaths.associateWith(fixture::pathCount) == countsBefore)
+            check(fresh is ShadowRefreshOutcome.Skipped && fresh.reason == "extension-data-fresh" && fresh.nextEligibleAt != null) {
+                "fresh roles did not skip with a time: $fresh"
+            }
+            check(sourcePaths.associateWith(fixture::pathCount) == countsBefore) { "a fresh skip reached the fixture" }
+            var delegateCalls = 0
+            val controlled = TriggeredShadowRefreshCoordinator { _, _ ->
+                delegateCalls++
+                ShadowRefreshOutcome.Failed("controlled-runtime-failure", true)
+            }
             val receiptBeforeFailure = receipt.state.value
-            val failed = coordinator.refresh("ep07-product-controlled-failure", true)
+            val failed = ProductionExtensionReleaseRefreshCoordinator(sources, controlled)
+                .refresh("ep07-product-controlled-failure", ExtensionRefreshTrigger.MANUAL)
             check(failed is ShadowRefreshOutcome.Failed && failed.retryable && delegateCalls == 1)
             check(reopened.reconciliationDao().projectionPage(256, 0) == before)
             check(reopened.releaseDao().getExternalMapping(subject.stableKey, "anilist") == persistedMapping)
@@ -433,7 +462,7 @@ internal object Ep06SingleSourceWorkerProof {
             val lastSuccessBeforeTransportFailure = receipt.state.value.syncStatistics["Last successful sync"]
             fixture.failureMode = LocalHttpsFixtureServer.FailureMode.RESET_AFTER_HANDSHAKE
             val transportFailed = try {
-                failureWorker.refreshForProductWork("ep07-product-transport-failure")
+                failureWorker.refreshForTrigger("ep07-product-transport-failure", ExtensionRefreshTrigger.MANUAL)
             } finally { fixture.failureMode = LocalHttpsFixtureServer.FailureMode.NONE }
             check(!(transportFailed is ShadowRefreshOutcome.Committed && transportFailed.refreshSucceeded)) {
                 "a reset connection must not count as a successful refresh: $transportFailed"
@@ -455,32 +484,18 @@ internal object Ep06SingleSourceWorkerProof {
             // Expiry changes scheduling eligibility, not the underlying accepted rows/mappings.
             fixture.retentionCalendarChanged = true
             val staleClock = Clock.offset(clock, Duration.ofHours(2))
-            val reconciliation = RoomReleaseReconciliationRepository(reopened)
-            val network = File(context.cacheDir, "ep07-product-stale-refresh-network")
-            check(!network.exists() || network.deleteRecursively())
-            val worker = SingleSourceShadowRefreshCoordinator(
-                policy = policy, installed = installed, runtime = runtime, networkDirectory = network,
-                authority = authority, reconciliation = reconciliation,
-                generations = RoomExtensionShadowGenerationStore(reopened, reconciliation, staleClock, "ep07-reopened-process"),
-                targetSource = targets, clock = staleClock, navigationStore = receipt,
-                releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { repository, actualRuntime, directory, observationPolicy ->
-                    ExtensionHostCoordinator(repository, actualRuntime, ProductionExtensionTransportFactory.create(directory),
-                        observationPolicy, clock = staleClock, enabled = { true },
-                        parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L))
-                },
-            )
-            val realDelegate = object : WorkScopedShadowRefreshCoordinator {
+            // The same shared ledger as the seed: two hours later every list role is stale again.
+            val worker = productWorker(productNetwork, staleClock, "ep07-reopened-process")
+            val realDelegate = object : TriggeredShadowRefreshCoordinator {
                 val reached = CompletableDeferred<Unit>()
                 val release = CompletableDeferred<Unit>()
-                override suspend fun refresh() = refreshForWork("ep07-product-stale")
-                override suspend fun refreshForWork(workId: String): ShadowRefreshOutcome {
+                override suspend fun refreshForTrigger(workId: String, trigger: ExtensionRefreshTrigger): ShadowRefreshOutcome {
                     reached.complete(Unit)
                     withTimeout(20_000) { release.await() }
-                    return worker.refreshForProductWork(workId)
+                    return worker.refreshForTrigger(workId, trigger)
                 }
             }
-            val staleCoordinator = ProductionExtensionReleaseRefreshCoordinator(sources, policy, installed,
-                receipt, realDelegate, staleClock)
+            val staleCoordinator = ProductionExtensionReleaseRefreshCoordinator(sources, realDelegate)
             val refreshed = coroutineScope {
                 val background = async(Dispatchers.Default) { Ep07WorkManagerProof.due(context, staleCoordinator) }
                 withTimeout(20_000) { realDelegate.reached.await() }
@@ -511,10 +526,12 @@ internal object Ep06SingleSourceWorkerProof {
                 row.forecastAt != old.forecastAt && row.revision > old.revision } })
             check(receipt.state.value.packageDigest == packageInfo.packageDigest &&
                 receipt.state.value.packageGeneration == packageInfo.packageGeneration)
-            check(Ep07WorkManagerProof.due(context, staleCoordinator, leavePeriodicForRestart = true) ==
-                ShadowRefreshOutcome.Skipped("extension-data-fresh"))
+            // The stale run counted as the automatic attempt of this hour, so the next process start is a typed skip.
+            val skippedAgain = Ep07WorkManagerProof.due(context, ProductionExtensionReleaseRefreshCoordinator(sources, worker), leaveSlotForRestart = true)
+            check(skippedAgain is ShadowRefreshOutcome.Skipped) { "refreshed data did not skip again: $skippedAgain" }
             val restartMarker = JSONObject().put("seedPid", Process.myPid())
-                .put("periodicWorkId", Ep07WorkManagerProof.retainedPeriodicId())
+                .put("slotWorkId", Ep07WorkManagerProof.retainedSlotId())
+                .put("networkDirectory", productNetwork.name)
                 .put("databaseName", databaseName).put("navigationDirectory", navigationDirectory.name)
                 .put("policyDirectory", policyDirectory.name).put("mappingKey", subject.stableKey)
                 .put("mappingId", MEDIA_ID.toString()).put("proofNow", staleClock.instant().toString())
@@ -537,7 +554,7 @@ internal object Ep06SingleSourceWorkerProof {
                 .put("twoStartupChecksSkipWithoutFullRefresh", true).put("rowsVisibleDuringWorkManagerRefresh", true)
                 .put("newCalendarRowAdded", true).put("changedCalendarRowRevisionApplied", true)
                 .put("persistedDatesReachProductCalendar", true).put("calendarEventKeysRetainedAcrossCommit", true)
-                .put("periodicWorkDurableBeforeKill", true)
+                .put("slotWorkDurableBeforeKill", true)
                 .put("processKillProof", false)
         } finally { reopened.close() }
     }
