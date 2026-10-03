@@ -147,6 +147,18 @@ class SingleSourceShadowRefreshCoordinatorTest {
         assertTrue(product(rig, access).refresh("stale-start", ExtensionRefreshTrigger.PROCESS_START) is ShadowRefreshOutcome.Committed)
         val again = product(rig, access).refresh("start-again", ExtensionRefreshTrigger.PROCESS_START)
         assertTrue("the same process must skip, got $again", again is ShadowRefreshOutcome.Skipped)
+        // What a new process reads from disk must equal what the old one held, piece by piece.
+        val policyAfter = FileExtensionProductPolicyRepository(rig.policyDirectory) { true }.policy.value
+        val receiptAfter = FileProviderNavigationStateStore(rig.navigationDirectory).state.value
+        val seen = FileExtensionNetworkLedger(rig.networkDirectory).lastSuccesses(ExtensionFreshnessKeys.source(SOURCE_A_KEY), "aniworld",
+            SourceRole.entries.map(ExtensionFreshnessKeys::role) + ExtensionFreshnessKeys.AUTOMATIC_ATTEMPT)
+        val problems = buildList {
+            if (rig.policy.policy.value != policyAfter) add("policy before=${rig.policy.policy.value} after=$policyAfter")
+            if (rig.navigationStore.state.value != receiptAfter) add("receipt before=${rig.navigationStore.state.value} after=$receiptAfter")
+            if (!rig.reconciliation.hasCommittedCycles(SOURCE_A_KEY)) add("no committed cycles of the source")
+            if (seen[ExtensionFreshnessKeys.AUTOMATIC_ATTEMPT] != rig.clock.now) add("ledger=$seen now=${rig.clock.now}")
+        }
+        assertTrue("a new process must read the same state: $problems", problems.isEmpty())
         val restarted = product(rig, access, delegate = rig.restarted()).refresh("restarted-start", ExtensionRefreshTrigger.PROCESS_START)
         assertTrue("the restarted process must skip, got $restarted", restarted is ShadowRefreshOutcome.Skipped)
     }
@@ -670,7 +682,8 @@ class SingleSourceShadowRefreshCoordinatorTest {
             )
         }
         return Rig(worker, policy, navigationStore, runtime, reconciliation, File(root, "navigation"), clock, network,
-            originalAccess = installed, coordinatorFactory = coordinatorFactory, restarted = restarted)
+            originalAccess = installed, coordinatorFactory = coordinatorFactory,
+            policyDirectory = File(root, "policy"), restarted = restarted)
     }
 
     private suspend fun assertCurrentEvidenceProducedReceipt(outcome: ShadowRefreshOutcome, rig: Rig) {
@@ -747,6 +760,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val networkDirectory: File,
         val originalAccess: InstalledExtensionAccess,
         val coordinatorFactory: (InstalledExtensionAccess) -> SingleSourceShadowRefreshCoordinator,
+        val policyDirectory: File,
         /** A coordinator of a new process: policy and receipt are read from disk again, nothing is shared in memory. */
         val restarted: () -> SingleSourceShadowRefreshCoordinator,
     )
