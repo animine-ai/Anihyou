@@ -55,14 +55,9 @@ interface ReleaseMatchingDao {
     suspend fun labelsOf(sourceId: String, extensionId: String, publisherId: String, providerId: String,
                          limit: Int, offset: Int): List<SourceSeriesLabelEntity>
 
-    /** Labels of one source that have no active source-bound binding for any subject: the demand matcher's pool. */
-    @Query("SELECT l.* FROM v3_source_series_label l WHERE l.sourceId=:sourceId AND l.extensionId=:extensionId " +
-        "AND l.publisherId=:publisherId AND l.providerId=:providerId AND NOT EXISTS (SELECT 1 FROM v3_source_mapping m " +
-        "WHERE m.sourceId=l.sourceId AND m.extensionId=l.extensionId AND m.publisherId=l.publisherId " +
-        "AND m.providerId=l.providerId AND m.siteSlug=l.providerSeriesKey AND m.mappingStatus='ACTIVE') " +
-        "ORDER BY l.titleNormalized LIMIT :limit")
-    suspend fun unmappedLabels(sourceId: String, extensionId: String, publisherId: String, providerId: String,
-                               limit: Int): List<SourceSeriesLabelEntity>
+    /** Local AniList metadata that is already cached for these media ids; nothing is fetched. */
+    @Query("SELECT * FROM identity_candidate WHERE mediaId IN (:mediaIds) ORDER BY fetchedAt DESC")
+    suspend fun cachedCandidates(mediaIds: List<Int>): List<IdentityCandidateEntity>
 
     // --- source-bound mappings --------------------------------------------------------------------------------
     @Query("SELECT * FROM v3_source_mapping WHERE sourceId=:sourceId AND extensionId=:extensionId " +
