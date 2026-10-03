@@ -48,7 +48,8 @@ assert 'FAILURES!!!' not in text and 'INSTRUMENTATION_FAILED' not in text and 'P
 match=re.search(r'OK \((\d+) tests?\)',text)
 assert match and int(match[1])>0 and 'INSTRUMENTATION_CODE: -1' in text, text[-20000:]
 required={'ExtensionCalendarComposeTest','ExtensionUpdateComposeTest','ExtensionSourcesUserFlowTest',
-          'MainNavigationProductComposeTest','MediaDetailsNavigationComposeTest','ScreenshotCaptureGuardTest'}
+          'MainNavigationProductComposeTest','MediaDetailsNavigationComposeTest','MatchingManagementComposeTest',
+          'ScreenshotCaptureGuardTest'}
 for name in required:
     assert name in text, (name,text[-20000:])
 assert 'INSTRUMENTATION_STATUS_CODE: -3' not in text and 'INSTRUMENTATION_STATUS_CODE: -4' not in text, 'skipped/assumption-failed test'
@@ -72,9 +73,22 @@ for name in sorted(expected):
     assert (fields['activityWindowFocused'],fields['appDialogInFront']) in (('true/true','false/false'),('false/false','true/true')), (name,report)
 guard=(out/'guard'/'guard-positive.capture.txt').read_text()
 assert 'activityResumed=true/true' in guard and not (out/'guard'/'guard-negative.png').exists(), guard
+matching_dir=out/'guard'/'matching-ui'
+matching_expected={'matching-list','matching-source-confirmation','matching-editor','matching-empty-dark-large-text'}
+matching_shots={p.stem for p in matching_dir.glob('*.png')}
+assert matching_shots==matching_expected, ('matching UI screenshot set differs',
+    sorted(matching_expected-matching_shots), sorted(matching_shots-matching_expected))
+for name in sorted(matching_expected):
+    report=(matching_dir/f'{name}.capture.txt').read_text()
+    assert f'name={name}' in report, report
+    fields=dict(line.split('=',1) for line in report.splitlines() if '=' in line)
+    package=fields['expectedPackage']
+    assert fields['activeWindowPackageBefore']==package and fields['activeWindowPackageAfter']==package, (name,report)
+    assert fields['activityResumed']=='true/true' and fields['activityWindowFocused'] in ('true/true','false/false'), (name,report)
+    assert (fields['activityWindowFocused'],fields['appDialogInFront']) in (('true/true','false/false'),('false/false','true/true')), (name,report)
 report={'status':'PASS','api':int(sys.argv[2]),'tests':int(match[1]),'failures':0,'skips':0,
-        'requiredSuites':sorted(required),'screenshots':sorted(p.name for p in shots)}
+        'requiredSuites':sorted(required),'screenshots':sorted(p.name for p in shots),
+        'matchingUiScreenshots':sorted(f'{name}.png' for name in matching_expected)}
 (out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
 print('EP07 PRODUCT UI VERIFIED',json.dumps(report,separators=(',',':')))
 PY
-

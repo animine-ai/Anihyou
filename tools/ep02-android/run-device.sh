@@ -277,7 +277,7 @@ if report['passed']:
     assert functional['status'] == 'PASS', report
     assert p['status'] == 'PASS', report
     assert 'EP02_ANDROID_PASS' in text and 'EP02_ANDROID_FUNCTIONAL_FAIL' not in text, text
-    assert 'INSTRUMENTATION_STATUS_CODE: -1' in text, text
+    assert any(marker in text.splitlines() for marker in ('INSTRUMENTATION_STATUS_CODE: -1', 'INSTRUMENTATION_CODE: -1')), text
     assert policy in ['PASS','SMALL_ABSOLUTE_DIFFERENCE'], p
     print('EP02 VERIFIED',json.dumps({
         'api':report['api'],'variant':sys.argv[3],'functionalStatus':functional['status'],

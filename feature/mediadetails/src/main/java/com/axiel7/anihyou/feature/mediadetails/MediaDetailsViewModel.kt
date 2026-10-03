@@ -6,6 +6,9 @@ import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.common.viewmodel.UiStateViewModel
 import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.MatchingManagementRepository
+import com.axiel7.anihyou.release.core.api.DetailMappingRequest
+import com.axiel7.anihyou.core.model.media.isAnime
 import com.axiel7.anihyou.core.domain.repository.AnimeNotificationsRepository
 import com.axiel7.anihyou.core.domain.repository.CustomLinksRepository
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
@@ -54,6 +57,7 @@ class MediaDetailsViewModel(
     private val mediaRepository: MediaRepository,
     private val favoriteRepository: FavoriteRepository,
     private val animeNotificationsRepository: AnimeNotificationsRepository,
+    private val matchingManagementRepository: MatchingManagementRepository,
     private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
     private val providerNavigationProductRepository: ProviderNavigationProductRepository =
         EmptyProviderNavigationProductRepository,
@@ -570,6 +574,32 @@ class MediaDetailsViewModel(
             }
             .launchIn(viewModelScope)
 
+        // Resolve matching on detail entry without waiting for it to populate provider navigation.
+        // Key this work to the detail metadata, not list progress, so progress refreshes do not cancel/restart it.
+        mutableUiState
+            .mapNotNull { state ->
+                state.details?.let { details ->
+                    val request = if (details.basicMediaDetails.isAnime()) DetailMappingRequest(
+                        mediaId = details.id,
+                        titles = (setOfNotNull(details.title?.userPreferred, details.title?.romaji,
+                            details.title?.english, details.title?.native) + details.synonyms.orEmpty().filterNotNull())
+                            .map(String::trim).filter { it.isNotBlank() && it.length <= 512 }.take(64).toSet(),
+                        format = details.basicMediaDetails.format?.name,
+                        startYear = details.startDate?.fuzzyDate?.year,
+                    ) else null
+                    details.id to request
+                }
+            }
+            .distinctUntilChanged()
+            .mapNotNull { (_, request) -> request }
+            .onEach { request ->
+                // The shared repository owns durable lookup, exact missing-identity resolution and coalescing.
+                try { matchingManagementRepository.ensureDetailMapping(request) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* Keep accepted streaming results after a lookup failure. */ }
+            }
+            .launchIn(viewModelScope)
+
         mutableUiState
             .mapNotNull { state ->
                 state.details?.let { details ->
@@ -578,9 +608,7 @@ class MediaDetailsViewModel(
                 }
             }
             .distinctUntilChanged()
-            .flatMapLatest { (mediaId, progress) ->
-                providerNavigationProductRepository.observe(mediaId, progress)
-            }
+            .flatMapLatest { (mediaId, progress) -> providerNavigationProductRepository.observe(mediaId, progress) }
             .onEach { productState ->
                 mutableUiState.update { state ->
                     state.copy(

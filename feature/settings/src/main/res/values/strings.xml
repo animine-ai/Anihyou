@@ -104,6 +104,9 @@
     <string name="matching_no_options">This matcher has no configurable options. Source language and track preferences are managed on the previous settings page.</string>
     <string name="matching_reset_configuration">Reset matcher configuration</string>
     <string name="matching_configuration_reset_help">Reset supported matcher options to their defaults. Saved mappings, source selection and language preferences remain unchanged.</string>
+    <string name="matching_selection_limit">Select up to 500 entries. Use the explicit source or all-mappings action for larger scopes.</string>
+    <string name="matching_select_entry">Select %1$s · %2$s · %3$s</string>
+    <string name="matching_unavailable">Matching management is currently unavailable.</string>
     <string name="extension_schedule_title">Update schedule</string>
     <string name="extension_schedule_explanation">When the active source is refreshed completely in the background. Opening the app also refreshes the lists, at most once per hour, and a role that was refreshed recently is not requested again.</string>
     <string name="extension_schedule_interval">Interval</string>
