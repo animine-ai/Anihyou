@@ -8,6 +8,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -20,16 +22,32 @@ import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.feature.settings.R
 import com.axiel7.anihyou.release.core.api.*
 import org.koin.compose.koinInject
+import org.koin.core.context.GlobalContext
 
 @Composable
 fun MatchingManagementView() {
-    val repository = koinInject<MatchingManagementRepository>()
+    val repository = remember { GlobalContext.get().getOrNull<MatchingManagementRepository>() }
+    if (repository == null) {
+        MatchingManagementUnavailable()
+        return
+    }
     val searchRepository = koinInject<SearchRepository>()
     val model: MatchingManagementViewModel = viewModel(factory = remember(repository, searchRepository) {
         viewModelFactory { initializer { MatchingManagementViewModel(repository, AniListMatchingTargetSearch(searchRepository)) } }
     })
     val state by model.state.collectAsStateWithLifecycle()
     MatchingManagementScreen(state, model)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MatchingManagementUnavailable() {
+    val nav = LocalNavActionManager.current
+    DefaultScaffoldWithSmallTopAppBar(title = stringResource(R.string.matching_title),
+        navigationIcon = { BackIconButton(nav::goBack) }, scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
+        Text(stringResource(R.string.matching_unavailable), Modifier.padding(padding).padding(16.dp)
+            .testTag("matching-unavailable"))
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,7 +81,7 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                 }
                 state.query.source?.let { key ->
                     val facet = state.page.sources.singleOrNull { it.key == key }
-                    ScopeActions(stringResource(R.string.matching_scope_source, facet?.label ?: key.sourceId), enabled,
+                    ScopeActions(stringResource(R.string.matching_scope_source, "${facet?.label ?: key.sourceId} · ${key.sourceId} / ${key.extensionId}"), enabled,
                         scope = MappingScope.Source(key), event = event, tag = "source")
                 }
                 ScopeActions(stringResource(R.string.matching_scope_all), enabled,
@@ -76,9 +94,12 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                 Card(onClick = { event.open(entry) }, enabled = !state.busy && !state.preparing,
                     modifier = Modifier.fillMaxWidth().testTag("mapping-row-${entry.id}")) {
                     Row(Modifier.padding(12.dp)) {
+                        val selectionLabel = stringResource(R.string.matching_select_entry,
+                            entry.sourceTitle?.takeIf { it.isNotBlank() } ?: entry.sourceIdentity,
+                            entry.sourceLabel, entry.partLabel)
                         Checkbox(checked = entry.id in state.selected,
                             onCheckedChange = { event.select(entry, it) }, enabled = !state.busy && !state.preparing,
-                            modifier = Modifier.testTag("mapping-select-${entry.id}"))
+                            modifier = Modifier.testTag("mapping-select-${entry.id}").semantics { contentDescription = selectionLabel })
                         Column(Modifier.weight(1f)) { MappingIdentity(entry) }
                     }
                 }
@@ -147,7 +168,7 @@ private fun SourceFilter(state: MatchingManagementState, event: MatchingManageme
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text(stringResource(R.string.matching_all_sources)) }, onClick = { expanded = false; event.filter(null) })
             state.page.sources.forEach { facet ->
-                DropdownMenuItem(text = { Text("${facet.label} (${facet.count})") }, onClick = { expanded = false; event.filter(facet.key) })
+                DropdownMenuItem(text = { Text("${facet.label} · ${facet.key.sourceId} / ${facet.key.extensionId} (${facet.count})") }, onClick = { expanded = false; event.filter(facet.key) })
             }
         }
     }
@@ -215,7 +236,7 @@ private fun MappingEditor(state: MatchingManagementState, entry: ManagedMapping,
 private fun scopeText(scope: MappingScope, state: MatchingManagementState): String = when (scope) {
     MappingScope.All -> stringResource(R.string.matching_scope_all)
     is MappingScope.Source -> stringResource(R.string.matching_scope_source,
-        state.page.sources.singleOrNull { it.key == scope.key }?.label ?: scope.key.sourceId)
+        "${state.page.sources.singleOrNull { it.key == scope.key }?.label ?: scope.key.sourceId} · ${scope.key.sourceId} / ${scope.key.extensionId}")
     is MappingScope.Entries -> stringResource(R.string.matching_scope_selected, scope.revisions.size)
 }
 private fun noticeText(notice: MatchingNotice) = when (notice) {
@@ -224,6 +245,7 @@ private fun noticeText(notice: MatchingNotice) = when (notice) {
     MatchingNotice.FAILED -> R.string.matching_failed
     MatchingNotice.CANCELLED -> R.string.matching_cancelled
     MatchingNotice.FINISHED -> R.string.matching_finished
+    MatchingNotice.SELECTION_LIMIT -> R.string.matching_selection_limit
 }
 private fun outcomeText(outcome: MappingRematchOutcome?) = when (outcome) {
     MappingRematchOutcome.REPLACED -> R.string.matching_replaced

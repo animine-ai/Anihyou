@@ -34,7 +34,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 
-/** Second instrumentation invocation after the runner force-stops the first host process. */
+/** Second instrumentation invocation after the first host process has been killed. */
 class Ep07RestartInstrumentation : Instrumentation() {
     override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); start() }
     override fun onStart() {

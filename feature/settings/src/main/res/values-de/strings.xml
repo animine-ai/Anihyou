@@ -104,6 +104,9 @@
     <string name="matching_no_options">Dieser Matcher hat keine konfigurierbaren Optionen. Quellen-, Sprach- und Trackpräferenzen werden auf der vorherigen Einstellungsseite verwaltet.</string>
     <string name="matching_reset_configuration">Matcher-Konfiguration zurücksetzen</string>
     <string name="matching_configuration_reset_help">Unterstützte Matcheroptionen auf Standardwerte setzen. Gespeicherte Zuordnungen, Quellenauswahl und Sprachpräferenzen bleiben erhalten.</string>
+    <string name="matching_selection_limit">Bis zu 500 Einträge auswählen. Für größere Umfänge die ausdrückliche Quellen- oder Alle-Aktion verwenden.</string>
+    <string name="matching_select_entry">%1$s · %2$s · %3$s auswählen</string>
+    <string name="matching_unavailable">Die Matchingverwaltung ist derzeit nicht verfügbar.</string>
     <string name="extension_schedule_title">Aktualisierungsplan</string>
     <string name="extension_schedule_explanation">Wann die aktive Quelle im Hintergrund vollständig aktualisiert wird. Beim Öffnen der App werden die Listen zusätzlich höchstens einmal pro Stunde aktualisiert, und eine kürzlich aktualisierte Rolle wird nicht erneut angefragt.</string>
     <string name="extension_schedule_interval">Intervall</string>

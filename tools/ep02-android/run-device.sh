@@ -32,7 +32,7 @@ bash "$root/configure-test-network.sh" "$out"
 diag_memory after-network-configuration
 adb install -r "$apk"
 adb logcat -c
-timeout 240 adb shell am instrument -w -r -e ep07HoldForKill true de.kiyori.ep02/.RuntimeProofInstrumentation > "$out/instrumentation.txt" 2>&1 &
+timeout 240 adb shell am instrument -w -r de.kiyori.ep02/.RuntimeProofInstrumentation > "$out/instrumentation.txt" 2>&1 &
 instrumentation_pid=$!
 for attempt in $(seq 1 240); do
   if grep -qE 'INSTRUMENTATION_STATUS_CODE: -1|INSTRUMENTATION_CODE:' "$out/instrumentation.txt"; then break; fi
@@ -277,7 +277,7 @@ if report['passed']:
     assert functional['status'] == 'PASS', report
     assert p['status'] == 'PASS', report
     assert 'EP02_ANDROID_PASS' in text and 'EP02_ANDROID_FUNCTIONAL_FAIL' not in text, text
-    assert 'INSTRUMENTATION_STATUS_CODE: -1' in text, text
+    assert any(marker in text.splitlines() for marker in ('INSTRUMENTATION_STATUS_CODE: -1', 'INSTRUMENTATION_CODE: -1')), text
     assert policy in ['PASS','SMALL_ABSOLUTE_DIFFERENCE'], p
     print('EP02 VERIFIED',json.dumps({
         'api':report['api'],'variant':sys.argv[3],'functionalStatus':functional['status'],
@@ -300,14 +300,52 @@ else:
     raise SystemExit(4)
 PY
 
-# Kill the host after its accepted data and WorkManager state are durable. A second
-# instrumentation process must read them before starting any provider work.
-seed_pid=$(adb shell pidof de.kiyori.ep02 | tr -d '\r')
-test -n "$seed_pid"
-adb shell am force-stop de.kiyori.ep02
-test -z "$(adb shell pidof de.kiyori.ep02 | tr -d '\r')"
+# pidof uses exit status 1 for a valid "no process" result. Keep that distinct from an
+# adb/device failure so set -e does not abort the process-restart proof before am kill.
+package_pid() {
+  local package="$1" output rc state
+  output=$(adb shell pidof "$package" 2>&1) && rc=0 || rc=$?
+  output=${output//$'\r'/}
+  if (( rc != 0 )); then
+    if [[ -n "$output" ]]; then
+      printf '%s\n' "$output" >&2
+      return "$rc"
+    fi
+    state=$(adb get-state 2>/dev/null) || {
+      echo "Unable to query adb device state while checking PID for $package" >&2
+      return 1
+    }
+    if [[ "$state" != "device" ]]; then
+      echo "Expected an online adb device, got '$state' while checking PID for $package" >&2
+      return 1
+    fi
+  fi
+  printf '%s' "$output"
+}
+
+# Finish instrumentation, then kill only the now-background process. am kill does not
+# set the package's force-stopped state, so its persisted WorkManager job can resume.
 wait "$instrumentation_pid" || true
-printf '%s\n' "$seed_pid" > "$out/force-stopped-seed-pid.txt"
+seed_pid=$(python3 - "$out/report.json" <<'PY'
+import json,sys
+print(json.load(open(sys.argv[1]))['hostPid'])
+PY
+)
+test -n "$seed_pid"
+printf '%s\n' "$seed_pid" > "$out/killed-seed-pid.txt"
+current_pid=$(package_pid de.kiyori.ep02)
+if [[ -n "$current_pid" ]]; then
+  adb shell am kill de.kiyori.ep02
+fi
+for attempt in $(seq 1 30); do
+  current_pid=$(package_pid de.kiyori.ep02)
+  [[ -z "$current_pid" ]] && break
+  sleep 1
+done
+if [[ -n "$current_pid" ]]; then
+  echo "EP07 process kill failed: seedPid=$seed_pid currentPid=$current_pid" >&2
+  exit 7
+fi
 timeout 90 adb shell am instrument -w -r de.kiyori.ep02/.Ep07RestartInstrumentation | tee "$out/restart-instrumentation.txt"
 python3 - "$out" <<'PY'
 from pathlib import Path
@@ -319,7 +357,7 @@ assert line is not None, text
 restart=json.loads(line.split('=',1)[1])
 assert restart['status']=='PASS' and restart['testTrustOnly'] is True, restart
 assert restart['seedPid']!=restart['restartPid'] and restart['acceptedRows']>0, restart
-assert str(restart['seedPid']) == (root/'force-stopped-seed-pid.txt').read_text().strip(), restart
+assert str(restart['seedPid']) == (root/'killed-seed-pid.txt').read_text().strip(), restart
 assert all(restart[key] is True for key in [
     'persistedRowsReadBeforeScheduling','mappingAvailableBeforeRefresh','signedPackageReverified',
     'actualProductWorkManagerWorker','freshSkipsNetworkAndRuntime','processKillProof',

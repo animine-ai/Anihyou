@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 enum class MappingAction { RESET, REMATCH }
-enum class MatchingNotice { APPLIED, STALE, FAILED, CANCELLED, FINISHED }
+enum class MatchingNotice { APPLIED, STALE, FAILED, CANCELLED, FINISHED, SELECTION_LIMIT }
 data class MappingConfirmation(val action: MappingAction, val scope: MappingScope, val token: MappingActionToken)
 data class MatchingManagementState(
     val query: MappingQuery = MappingQuery(),
@@ -111,7 +111,10 @@ class MatchingManagementViewModel(
         if (state.value.busy || state.value.preparing || state.value.confirmation != null) return
         // Only entries actually rendered on this page can be newly selected.
         if (state.value.page.entries.none { it.id == entry.id && it.revision == entry.revision }) return
-        if (selected && entry.id !in state.value.selected && state.value.selected.size >= 500) return
+        if (selected && entry.id !in state.value.selected && state.value.selected.size >= 500) {
+            mutable.update { it.copy(notice = MatchingNotice.SELECTION_LIMIT) }
+            return
+        }
         mutable.update { it.copy(selected = if (selected) it.selected + (entry.id to entry) else it.selected - entry.id) }
     }
     override fun clearSelection() { if (!state.value.busy) mutable.update { it.copy(selected = emptyMap()) } }
@@ -158,7 +161,7 @@ class MatchingManagementViewModel(
         val snapshot = state.value
         val editor = snapshot.editor ?: return
         val target = snapshot.chosenTarget ?: return
-        if (snapshot.busy) return
+        if (snapshot.busy || snapshot.preparing || snapshot.confirmation != null) return
         mutate {
             val result = repository.correct(editor.id, editor.revision, target.id)
             mutable.update { it.copy(notice = result.notice(), editor = if (result == MappingMutationResult.APPLIED) null else it.editor,

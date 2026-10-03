@@ -141,7 +141,7 @@ class RoomMatchingManagementRepositoryTest {
         val policy = Policy(ExtensionProductPolicy(activeReleaseSource = keyA))
         val sources = Sources(listOf(source(keyA, "Source A"), source(keyB, "Source B")))
         val candidates = Candidates()
-        val fence = MappingWriterFence(database)
+        val fence = MappingWriterFence(database, clock)
         val service = SourceSeriesMatchingService(database, policy, navigation, candidates, fence, clock = clock)
         val repository = RoomMatchingManagementRepository(database, navigation, sources, service, fence, clock)
         val dao = database.matchingDao()
@@ -276,6 +276,32 @@ class RoomMatchingManagementRepositoryTest {
             rig.fence.allows(MappingEntryRef.FENCE_V3_SOURCE, fenceKey, t0.plusSeconds(30)))
         assertTrue(rig.fence.allows(MappingEntryRef.FENCE_V3_SOURCE, fenceKey, t0.plusSeconds(61)))
         assertEquals("a token is single use", MappingMutationResult.UNAVAILABLE, rig.repository.reset(token))
+    }
+
+    @Test fun resetCanResumeAfterRoomCommitBeforeNavigationRemoval() = runBlocking {
+        val rig = Rig()
+        rig.seedAll()
+        val page = rig.page()
+        val roomEntry = rig.entry(page.entries, 11)
+        val navigationEntry = rig.entry(page.entries, 51)
+        val token = rig.repository.capture(MappingScope.Entries(mapOf(
+            roomEntry.id to roomEntry.revision, navigationEntry.id to navigationEntry.revision)))
+
+        // Simulate the durable Room half of a reset having committed just before process death. The file segment and
+        // captured action remain, so retry must finish that half and then consume the action exactly once.
+        val entryKey = subject("alpha", 1).stableKey
+        assertEquals(1, rig.dao.deleteSourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId,
+            keyA.providerId, entryKey, "anilist"))
+        val fenceKey = "${MappingEntryIds.sourceKey(keyA)}|$entryKey"
+        rig.fence.bump(MappingEntryRef.FENCE_V3_SOURCE, fenceKey, t0.plusSeconds(60))
+        assertNull(rig.dao.action(token.value)?.consumedAt)
+        assertEquals(1, rig.navigation.state.value.segments.size)
+
+        assertEquals(MappingMutationResult.APPLIED, rig.repository.reset(token))
+        assertTrue(rig.navigation.state.value.segments.isEmpty())
+        assertFalse(rig.page().entries.any { it.id == roomEntry.id || it.id == navigationEntry.id })
+        assertNotNull(rig.dao.action(token.value)?.consumedAt)
+        assertEquals(MappingMutationResult.UNAVAILABLE, rig.repository.reset(token))
     }
 
     @Test fun resetIsAtomicWhenAnyCapturedRevisionChanged() = runBlocking {
@@ -468,6 +494,25 @@ class RoomMatchingManagementRepositoryTest {
             subject("aot", 1).stableKey, "anilist")!!
         assertEquals("7", row.externalId)
         assertEquals(2L, row.revision)
+    }
+
+    @Test fun rematchProcessesTheEntireCapturedScopeBeyondOneHundredEntries() = runBlocking {
+        val rig = Rig()
+        rig.releaseDao.upsertMappings((0 until 101).map { index ->
+            r2("aniworld/series-$index/EPISODE/1/DE_SUB", 1000 + index)
+        })
+
+        val token = rig.repository.capture(MappingScope.All)
+        assertEquals(101, token.count)
+
+        val progress = rig.repository.rematch(token).toList()
+
+        assertEquals(101, progress.first().total)
+        val results = progress.drop(1)
+        assertEquals(101, results.size)
+        assertTrue(results.all { it.outcome == MappingRematchOutcome.UNAVAILABLE })
+        assertEquals(101, progress.last().completed)
+        assertEquals(101, progress.last().total)
     }
 
     @Test fun rematchKeepsABindingWhenNothingBetterExistsOrItChangedSinceConfirmation() = runBlocking {

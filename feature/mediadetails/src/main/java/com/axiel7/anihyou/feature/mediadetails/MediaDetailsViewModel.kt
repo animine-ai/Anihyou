@@ -6,6 +6,9 @@ import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.common.viewmodel.UiStateViewModel
 import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.MatchingManagementRepository
+import com.axiel7.anihyou.release.core.api.DetailMappingRequest
+import com.axiel7.anihyou.core.model.media.isAnime
 import com.axiel7.anihyou.core.domain.repository.AnimeNotificationsRepository
 import com.axiel7.anihyou.core.domain.repository.CustomLinksRepository
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
@@ -54,6 +57,7 @@ class MediaDetailsViewModel(
     private val mediaRepository: MediaRepository,
     private val favoriteRepository: FavoriteRepository,
     private val animeNotificationsRepository: AnimeNotificationsRepository,
+    private val matchingManagementRepository: MatchingManagementRepository,
     private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
     private val providerNavigationProductRepository: ProviderNavigationProductRepository =
         EmptyProviderNavigationProductRepository,
@@ -573,13 +577,32 @@ class MediaDetailsViewModel(
         mutableUiState
             .mapNotNull { state ->
                 state.details?.let { details ->
-                    val progress = details.mediaListEntry?.basicMediaListEntry?.progress ?: 0
-                    details.id to progress
+                    val request = if (details.basicMediaDetails.isAnime()) DetailMappingRequest(
+                        mediaId = details.id,
+                        titles = (setOfNotNull(details.title?.userPreferred, details.title?.romaji,
+                            details.title?.english, details.title?.native) + details.synonyms.orEmpty().filterNotNull())
+                            .map(String::trim).filter { it.isNotBlank() && it.length <= 512 }.take(64).toSet(),
+                        format = details.basicMediaDetails.format?.name,
+                        startYear = details.startDate?.fuzzyDate?.year,
+                    ) else null
+                    details.id to request
                 }
             }
             .distinctUntilChanged()
-            .flatMapLatest { (mediaId, progress) ->
-                providerNavigationProductRepository.observe(mediaId, progress)
+            .flatMapLatest { (mediaId, request) ->
+                val progress = mutableUiState.mapNotNull { state ->
+                    state.details?.takeIf { it.id == mediaId }?.let {
+                        it.mediaListEntry?.basicMediaListEntry?.progress ?: 0
+                    }
+                }
+                progress.observeNavigationAfterDetailMapping(
+                    mediaId = mediaId,
+                    request = request,
+                    ensureDetailMapping = { detailRequest ->
+                        matchingManagementRepository.ensureDetailMapping(detailRequest)
+                    },
+                    observe = providerNavigationProductRepository::observe,
+                )
             }
             .onEach { productState ->
                 mutableUiState.update { state ->

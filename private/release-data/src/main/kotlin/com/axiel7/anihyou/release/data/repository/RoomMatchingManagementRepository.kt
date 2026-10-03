@@ -259,8 +259,9 @@ class RoomMatchingManagementRepository(
             if (entries.size != action.entryCount) return@withLock MappingMutationResult.UNAVAILABLE
             val decoded = entries.map { (MappingEntryIds.decode(it.entryId) ?: return@withLock MappingMutationResult.UNAVAILABLE) to it.revision }
 
-            // The manual episode segments live in a file, a second commit boundary: validate them first, remove after
-            // the Room transaction. A crash in between leaves them listed, never hidden, and a retry is idempotent.
+            // The manual episode segments live in a file, a second commit boundary. Keep the captured Room action
+            // unconsumed until both stores commit: if the process dies after Room commits, the durable action entries
+            // let a retry skip already-removed Room rows and finish removing the still-listed file segments.
             val storedSegments = navigation.state.value.segments.associateBy { MappingEntryIds.navigation(it) }
             val removals = HashSet<ProviderEpisodeSegment>()
             for ((ref, revision) in decoded) {
@@ -272,7 +273,6 @@ class RoomMatchingManagementRepository(
             val now = clock.instant()
             try {
                 database.withTransaction {
-                    if (dao.consumeAction(token.value, now.toString()) != 1) throw Abort(MappingMutationResult.UNAVAILABLE)
                     for ((ref, revision) in decoded) {
                         if (ref is MappingEntryRef.Navigation) continue
                         val current = current(ref) ?: continue
@@ -285,6 +285,10 @@ class RoomMatchingManagementRepository(
                 return@withLock abort.result
             }
             navigation.removeSegments(removals)
+            val consumed = database.withTransaction {
+                dao.consumeAction(token.value, clock.instant().toString())
+            }
+            if (consumed != 1) return@withLock MappingMutationResult.UNAVAILABLE
             MappingMutationResult.APPLIED
         }
     }
@@ -399,7 +403,9 @@ class RoomMatchingManagementRepository(
             emit(MappingRematchProgress(0, 0))
             return@flow
         }
-        val total = minOf(action.entryCount, MAX_REMATCH_ENTRIES)
+        // The captured scope is capped at MAX_SCOPE_ENTRIES and each entry performs bounded, cancellable work.
+        // Process the full confirmed scope so the UI cannot report a truncated batch as complete.
+        val total = action.entryCount
         emit(MappingRematchProgress(0, total))
         var from = 0
         var done = 0
@@ -450,7 +456,6 @@ class RoomMatchingManagementRepository(
     private companion object {
         const val CHUNK = 500
         const val MAX_SCOPE_ENTRIES = 20_000
-        const val MAX_REMATCH_ENTRIES = 100
         val TOKEN_TTL: Duration = Duration.ofHours(24)
         /** An accepted historical binding stays visible and manageable even after it went stale. */
         val MANAGED_STATUSES = setOf(MappingStatus.ACTIVE.name, MappingStatus.STALE.name)

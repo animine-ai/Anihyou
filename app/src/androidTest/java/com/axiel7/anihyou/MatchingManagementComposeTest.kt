@@ -62,9 +62,10 @@ class MatchingManagementComposeTest {
         composeRule.setContent { MaterialTheme { MatchingManagementScreen(snapshot.value, event) } }
         composeRule.onNodeWithTag("matching-save-target").assertIsNotEnabled()
         composeRule.onNodeWithText(entry.sourceIdentity).assertIsDisplayed()
+        // Capture the dialog before opening the system input-method window.
+        capture("matching-editor") { composeRule.onNodeWithTag("mapping-editor").assertIsDisplayed() }
         composeRule.onNodeWithTag("matching-target-search").performTextInput("replacement")
         assertEquals("replacement", event.targetText)
-        capture("matching-editor") { composeRule.onNodeWithTag("mapping-editor").assertIsDisplayed() }
         val target = MappingTarget(55, "Chosen target")
         composeRule.runOnIdle { snapshot.value = snapshot.value.copy(chosenTarget = target, targets = listOf(target)) }
         composeRule.onNodeWithTag("matching-save-target").assertIsEnabled().performClick()
