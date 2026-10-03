@@ -71,15 +71,39 @@ internal object Ep07WorkManagerProof {
         val before = completions.get()
         scheduler.scheduleDue()
         if (twice) scheduler.scheduleDue()
-        withTimeout(30_000) {
-            while (completions.get() == before) delay(100)
-            // Wait for the automatic work, so a second startup check cannot escape into a later proof.
-            while (withContext(Dispatchers.IO) {
-                manager.getWorkInfosForUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.AUTO)
-                    .get(10, TimeUnit.SECONDS).any { !it.state.isFinished }
-            }) delay(100)
-            // The slot chain is enqueued asynchronously: one future slot, no periodic job.
-            while (withContext(Dispatchers.IO) { pendingSlots().isEmpty() }) delay(100)
+        var waitStage = "first product worker completion"
+        try {
+            withTimeout(30_000) {
+                while (completions.get() == before) delay(100)
+                waitStage = "automatic work terminal state"
+                // Wait for the automatic work, so a second startup check cannot escape into a later proof.
+                while (withContext(Dispatchers.IO) {
+                    manager.getWorkInfosForUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.AUTO)
+                        .get(10, TimeUnit.SECONDS).any { !it.state.isFinished }
+                }) delay(100)
+                waitStage = "future slot queued"
+                // The slot chain is enqueued asynchronously: one future slot, no periodic job.
+                while (withContext(Dispatchers.IO) { pendingSlots().isEmpty() }) delay(100)
+            }
+        } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+            val workSnapshot = withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                val auto = runCatching {
+                    manager.getWorkInfosForUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.AUTO)
+                        .get(2, TimeUnit.SECONDS)
+                        .joinToString(prefix = "[", postfix = "]") { "${it.id}:${it.state}:tags=${it.tags}" }
+                }.getOrElse { "unavailable:${it.javaClass.simpleName}" }
+                val slots = runCatching {
+                    manager.getWorkInfosByTag(WorkManagerExtensionReleaseRefreshScheduler.SLOT_TAG)
+                        .get(2, TimeUnit.SECONDS)
+                        .joinToString(prefix = "[", postfix = "]") { "${it.id}:${it.state}:tags=${it.tags}" }
+                }.getOrElse { "unavailable:${it.javaClass.simpleName}" }
+                "auto=$auto slots=$slots schedule=${schedules.schedule.value}"
+            }
+            throw IllegalStateException(
+                "EP07 WorkManager proof timed out at '$waitStage'; completions=${completions.get()} " +
+                    "before=$before outcome=$lastOutcome; $workSnapshot",
+                timeout,
+            )
         }
         check(withContext(Dispatchers.IO) {
             manager.getWorkInfosForUniqueWork(WorkManagerExtensionReleaseRefreshScheduler.LEGACY_PERIODIC)
