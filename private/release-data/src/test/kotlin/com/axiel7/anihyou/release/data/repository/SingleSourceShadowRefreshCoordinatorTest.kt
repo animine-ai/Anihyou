@@ -117,6 +117,13 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val first = product(rig, access).refresh("product-first", ExtensionRefreshTrigger.SCHEDULED_SLOT)
         assertTrue(first is ShadowRefreshOutcome.Committed)
         assertEquals(NOW.toString(), rig.navigationStore.state.value.syncStatistics["Last successful sync"])
+        // The title the source itself reported is kept for the matching management, bound to the exact source only.
+        val label = database.matchingDao().label(SOURCE_A_KEY.sourceId, SOURCE_A_KEY.extensionId,
+            SOURCE_A_KEY.publisherId, SOURCE_A_KEY.providerId, "fixture-series")
+        assertEquals("Fixture release", label?.title)
+        assertEquals("fixture release", label?.titleNormalized)
+        assertEquals(null, database.matchingDao().label(SOURCE_B_KEY.sourceId, SOURCE_B_KEY.extensionId,
+            SOURCE_B_KEY.publisherId, SOURCE_B_KEY.providerId, "fixture-series"))
         val exports = rig.runtime.exports.toList()
         // A new store and a new coordinator over the same app directories see the durable freshness.
         val skipped = product(rig.copy(navigationStore = FileProviderNavigationStateStore(rig.navigationDirectory)), access)
