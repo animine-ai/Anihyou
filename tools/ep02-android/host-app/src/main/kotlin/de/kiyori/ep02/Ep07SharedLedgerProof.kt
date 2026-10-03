@@ -239,9 +239,15 @@ internal object Ep07SharedLedgerProof {
             val calendarFirst = calendarRepository.currentCalendar(null, calendarRange)
             check(calendarFirst.isNotEmpty())
 
-            fun unchanged(cycle: Cycle) {
-                check(cycle.rows == c1.rows) { "rows changed during a refused cycle" }
-                check(cycle.lastSuccess == c1.lastSuccess) { "a refused cycle must not count as a network success" }
+            // The receipt keeps its statistics per package generation: for the first package a refused cycle keeps the
+            // earlier network success, for a package generation that never fetched (after the update, after the
+            // rollback) there is none. In no case may a refused cycle create or move a network success.
+            fun unchanged(name: String, cycle: Cycle, expectedLastSuccess: String?) {
+                check(cycle.rows == c1.rows) { "$name: rows changed during a refused cycle" }
+                val actual = cycle.lastSuccess?.takeIf { it.isNotBlank() }
+                check(actual == expectedLastSuccess) {
+                    "$name: a refused cycle must not count as a network success, last successful sync was '$actual', expected '$expectedLastSuccess'"
+                }
             }
             suspend fun assertUntouched() {
                 check(database.releaseDao().getExternalMapping(subject.stableKey, "anilist") == mapping)
@@ -254,7 +260,7 @@ internal object Ep07SharedLedgerProof {
             record("2 same package, same ledger", c2)
             check(c2.outcome == refused) { "cycle 2: ${describe(c2.outcome)}" }
             check(c2.requests < c1.requests) { "cycle 2 reached the fixture ${c2.requests} times, cycle 1 ${c1.requests}" }
-            unchanged(c2); assertUntouched()
+            unchanged("cycle 2", c2, c1.lastSuccess); assertUntouched()
 
             // Update to the signed second release (same identity, new package).
             currentIndex.set("second")
@@ -269,7 +275,7 @@ internal object Ep07SharedLedgerProof {
             record("3 after the signed update, same ledger", c3)
             check(c3.outcome == refused) { "cycle 3: ${describe(c3.outcome)}" }
             check(c3.requests < c1.requests)
-            unchanged(c3); assertUntouched()
+            unchanged("cycle 3", c3, null); assertUntouched()
 
             // Explicit rollback to the first package.
             val generationBeforeRollback = repository.sources.value.single().extensions.single().packageGeneration
@@ -282,7 +288,7 @@ internal object Ep07SharedLedgerProof {
             record("4 after the rollback, same ledger", c4)
             check(c4.outcome == refused) { "cycle 4: ${describe(c4.outcome)}" }
             check(c4.requests < c1.requests)
-            unchanged(c4); assertUntouched()
+            unchanged("cycle 4", c4, null); assertUntouched()
 
             // Cycle 5: after the six hour cooldown (ledger clock advanced) the release fetches again.
             ledgerClock.advance(Duration.ofHours(6).plusMinutes(1))
