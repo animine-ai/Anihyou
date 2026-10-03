@@ -23,6 +23,11 @@ required = {
     "wp04b_migration_v12NameCollisionFailsBeforeAnyCreate",
     "wp04b_migration_v12BadMarkerFailsBeforeAnyCreate",
     "wp04b_migration_v12IndexNameCollisionFailsBeforeAnyCreate",
+    "r04_migration_v13_to_v14_keepsMixedLegacyRowsWithoutOriginAndFoldsOnlyNewCommitsPerSource",
+    "r04_migration_v12_to_v14_usesCompleteChain",
+    "r04_migration_v13_faultAfterCreateRollsBackAllDdl",
+    "r04_migration_v13NameCollisionFailsBeforeAnyCreate",
+    "r04_migration_v13BadMarkerFailsBeforeAnyCreate",
 }
 seen = set()
 tests = failures = errors = skipped = 0

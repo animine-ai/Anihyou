@@ -198,6 +198,13 @@ class RoomReleaseReconciliationRepository(private val database: ReleaseDatabase)
                 check(stored.requestDigest == requestDigest && stored.policyVersion == cycle.policy.version) {
                     "cycle ID reused for a different request"
                 }
+                // A replay never moves a cycle to another source; legacy cycles without provenance stay unknown.
+                if (selection != null) dao.provenance(cycle.id)?.let { owner ->
+                    check(owner.sourceId == selection.sourceId && owner.extensionId == selection.extensionId &&
+                        owner.publisherId == selection.publisherId && owner.providerId == selection.providerId) {
+                        "cycle was committed by another release source"
+                    }
+                }
                 return@withTransaction emptyMap()
             }
             val latest = dao.latestCompletion(cycle.scopeId)?.let(Instant::parse)

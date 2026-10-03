@@ -10,7 +10,14 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.axiel7.anihyou.release.core.api.SourceResult
 import com.axiel7.anihyou.release.core.model.AniWorldIdentitySourceType
+import com.axiel7.anihyou.release.core.model.AbsencePolicySnapshot
 import com.axiel7.anihyou.release.core.model.AniWorldSiteIdentifier
+import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
+import com.axiel7.anihyou.release.core.model.CompletedObservationCycle
+import com.axiel7.anihyou.release.core.model.CycleResult
+import com.axiel7.anihyou.release.core.model.CycleSourceObservation
+import com.axiel7.anihyou.release.core.model.SourceHealthStatus
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.core.model.ConfidenceVector
 import com.axiel7.anihyou.release.core.model.Installment
 import com.axiel7.anihyou.release.core.model.LanguageTrack
@@ -24,6 +31,7 @@ import com.axiel7.anihyou.release.core.model.ScheduleCondition
 import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
 import com.axiel7.anihyou.release.data.ReleaseEvidenceFingerprintV2
 import com.axiel7.anihyou.release.data.repository.RoomReleaseDecisionRepository
+import com.axiel7.anihyou.release.data.repository.RoomReleaseReconciliationRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseEvidenceRepository
 import com.axiel7.anihyou.release.data.repository.RoomReleaseIntelligencePersistence
 import java.time.Instant
@@ -65,6 +73,11 @@ class ReleaseDatabaseMigrationTest {
         "release-persistence-v12-name-collision-test.db",
         "release-persistence-v12-bad-marker-test.db",
         "release-persistence-v12-index-collision-test.db",
+        "release-persistence-v13-to-v14-test.db",
+        "release-persistence-v12-to-v14-test.db",
+        "release-persistence-v13-fault-rollback-test.db",
+        "release-persistence-v13-name-collision-test.db",
+        "release-persistence-v13-bad-marker-test.db",
     )
     private val observedAt = Instant.parse("2026-09-11T12:00:00Z")
 
@@ -112,11 +125,11 @@ class ReleaseDatabaseMigrationTest {
         } finally { migrated.close() }
 
         val reopened = Room.databaseBuilder(context, ReleaseDatabase::class.java, name)
-            .addMigrations(RELEASE_MIGRATION_12_13).allowMainThreadQueries().build()
+            .addMigrations(RELEASE_MIGRATION_12_13, RELEASE_MIGRATION_13_14).allowMainThreadQueries().build()
         try {
             assertEquals("fixture-hash", reopened.releaseDao().getProviderSnapshot("aniworld/v13-preserve")?.sourceHash)
             assertEquals(12, reopened.releaseDao().getSchemaMeta("BASELINE_IMPORT_COMPLETE")?.schemaVersion)
-            assertEquals(13, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
+            assertEquals(14, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
         } finally { reopened.close() }
     }
 
@@ -343,6 +356,173 @@ class ReleaseDatabaseMigrationTest {
         } finally { reopened.close() }
     }
 
+    // R04 (Room v14): additive source-bound provenance. Mixed legacy rows keep their data and get no invented origin.
+
+    private val keyA = ExtensionSelectionKey("source-a", "de.aniworld", "publisher.a", "aniworld")
+    private val keyB = ExtensionSelectionKey("source-b", "de.aniworld", "publisher.b", "aniworld")
+
+    private fun r04Evidence(series: String, reportedAt: Instant, seenAt: Instant): ReleaseEvidence {
+        val item = ReleaseEvidence(
+            "r04-$series-$reportedAt", ReleaseSourceType.ANIWORLD_CALENDAR,
+            "https://aniworld.to/anime/stream/$series", "hash-$series-$reportedAt", "fixture",
+            seenAt, reportedAt, false, AniWorldSiteIdentifier(series), 2, 4,
+            Installment.Episode(1), LanguageTrack.DE_SUB, ReleaseEvidenceType.FORECAST,
+            ScheduleCondition.UNKNOWN, ConfidenceVector(1.0, 1.0, 1.0, 1.0, 1.0),
+        )
+        return item.copy(id = ReleaseEvidenceFingerprintV2.evidenceId(item))
+    }
+
+    /** Raw v13 rows: two cycles and two global projections of unknown (possibly mixed) origin. */
+    private fun seedMixedLegacyCanonicalRows(db: SupportSQLiteDatabase): List<String> {
+        val keys = listOf("legacy-shared", "legacy-other").mapIndexed { index, series ->
+            val identity = requireNotNull(CanonicalReleaseIdentity.from(r04Evidence(series, observedAt, observedAt)))
+            val cycleId = "legacy-cycle-$index"
+            db.insert("v3_observation_cycle", SQLiteDatabase.CONFLICT_NONE, ContentValues().apply {
+                put("cycleId", cycleId); put("commitSequence", index + 1L)
+                put("scopeId", "aniworld:extension:shadow:v1"); put("policyVersion", 1)
+                put("policyPayload", "v1:86400:1800:1800")
+                put("startedAt", observedAt.minusSeconds(60).toString()); put("completedAt", observedAt.toString())
+                put("completeness", "COMPLETE"); put("requestDigest", "legacy-digest-$index")
+            })
+            db.insert("v3_canonical_release_projection", SQLiteDatabase.CONFLICT_NONE, ContentValues().apply {
+                put("projectionKey", identity.key); put("bucketKey", identity.bucketKey)
+                put("underlyingPhase", "EXPECTED"); put("phase", "EXPECTED"); put("authority", "NONE")
+                put("scheduleCondition", "UNKNOWN"); putNull("scheduleEvidenceId"); putNull("releaseAt")
+                put("forecastAt", observedAt.toString()); putNull("forecastEvidenceId"); putNull("bindingKey")
+                put("conflictIdsPayload", "[]"); put("revision", 1L); put("lastAppliedSequence", index + 1L)
+                put("absenceCount", 0); putNull("lastAbsenceAt"); putNull("expectationEvidenceId")
+                put("navigationPayload", "[]"); putNull("latestCompletedAt")
+            })
+            identity.key
+        }
+        return keys
+    }
+
+    @Test
+    fun r04_migration_v13_to_v14_keepsMixedLegacyRowsWithoutOriginAndFoldsOnlyNewCommitsPerSource() = runBlocking {
+        val name = databaseNames[22]
+        val v13 = migrationTestHelper.createDatabase(name, 13)
+        seedSchemaMarker(v13, 13)
+        seedBaselineMarker(v13)
+        val legacyKeys = seedMixedLegacyCanonicalRows(v13)
+        v13.close()
+        val migrated = migrationTestHelper.runMigrationsAndValidate(name, 14, true, RELEASE_MIGRATION_13_14)
+        try {
+            assertEquals(14L, scalarLong(migrated, "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(2L, scalarLong(migrated, "SELECT count(*) FROM v3_observation_cycle"))
+            assertEquals(2L, scalarLong(migrated, "SELECT count(*) FROM v3_canonical_release_projection"))
+            assertEquals("the origin of legacy rows is never invented", 0L,
+                scalarLong(migrated, "SELECT count(*) FROM v3_cycle_provenance"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_source_projection"))
+            migrated.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+        } finally { migrated.close() }
+
+        val reopened = Room.databaseBuilder(context, ReleaseDatabase::class.java, name)
+            .addMigrations(RELEASE_MIGRATION_13_14).allowMainThreadQueries().build()
+        try {
+            val dao = reopened.reconciliationDao()
+            assertEquals(legacyKeys.sorted(), dao.projectionPage(256, 0).map { it.projectionKey }.sorted())
+            listOf(keyA, keyB).forEach { key ->
+                assertTrue("legacy rows are inactive for every source until it commits",
+                    dao.sourceProjectionPage(key.sourceId, key.extensionId, key.publisherId, key.providerId, 256, 0).isEmpty())
+            }
+            // A valid new commit of B folds B's own row; the legacy global row is not inherited as B's state.
+            val reported = Instant.parse("2026-09-28T10:00:00Z")
+            val completed = Instant.parse("2026-09-26T13:00:00Z")
+            val item = r04Evidence("legacy-shared", reported, completed)
+            RoomReleaseReconciliationRepository(reopened).persistCompletedCycle(CompletedObservationCycle(
+                "r04-b-cycle", "aniworld:extension:shadow:v1", completed.minusSeconds(30), completed,
+                AbsencePolicySnapshot(), listOf(CycleSourceObservation("r04-b-cycle:source", item.sourceType,
+                    requireNotNull(CanonicalReleaseIdentity.from(item)).key, item.languageTrack, CycleResult.SUCCESS,
+                    SourceHealthStatus.HEALTHY, observedAt = completed, evidence = listOf(item))),
+            ), keyB)
+            val rowB = dao.sourceProjectionPage(keyB.sourceId, keyB.extensionId, keyB.publisherId, keyB.providerId, 256, 0)
+            assertEquals(listOf(legacyKeys.first()), rowB.map { it.projectionKey })
+            assertEquals(reported.toString(), rowB.single().forecastAt)
+            assertTrue(dao.sourceProjectionPage(keyA.sourceId, keyA.extensionId, keyA.publisherId,
+                keyA.providerId, 256, 0).isEmpty())
+            assertEquals(keyB.sourceId, dao.provenance("r04-b-cycle")?.sourceId)
+            assertNull("legacy cycles stay without provenance", dao.provenance("legacy-cycle-0"))
+            assertEquals(2, dao.projectionPage(256, 0).size)
+        } finally { reopened.close() }
+    }
+
+    @Test
+    fun r04_migration_v12_to_v14_usesCompleteChain() {
+        val name = databaseNames[23]
+        val old = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(old, 12)
+        old.close()
+        val migrated = migrationTestHelper.runMigrationsAndValidate(name, 14, true,
+            RELEASE_MIGRATION_12_13, RELEASE_MIGRATION_13_14)
+        try {
+            assertEquals(14L, scalarLong(migrated, "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_cycle_provenance"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_source_projection"))
+            migrated.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+        } finally { migrated.close() }
+    }
+
+    @Test
+    fun r04_migration_v13_faultAfterCreateRollsBackAllDdl() {
+        val name = databaseNames[24]
+        val db = migrationTestHelper.createDatabase(name, 13)
+        seedSchemaMarker(db, 13)
+        try {
+            db.beginTransaction()
+            val failure = runCatching {
+                migrateReleaseDatabase13To14(db) { error("fault injected after first CREATE") }
+            }
+            assertTrue(failure.isFailure)
+        } finally {
+            if (db.inTransaction()) db.endTransaction()
+        }
+        try {
+            assertEquals(13L, scalarLong(db, "PRAGMA user_version"))
+            assertEquals(13L, scalarLong(db, "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(0L, scalarLong(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
+                "('v3_cycle_provenance','v3_source_projection')"))
+        } finally { db.close() }
+    }
+
+    @Test
+    fun r04_migration_v13NameCollisionFailsBeforeAnyCreate() {
+        val name = databaseNames[25]
+        val db = migrationTestHelper.createDatabase(name, 13)
+        seedSchemaMarker(db, 13)
+        db.execSQL("CREATE TABLE v3_source_projection (legacy TEXT NOT NULL)")
+        db.close()
+        assertTrue(runCatching {
+            migrationTestHelper.runMigrationsAndValidate(name, 14, true, RELEASE_MIGRATION_13_14)
+        }.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(13L, reopened.rawQuery("PRAGMA user_version", null).use { assertTrue(it.moveToFirst()); it.getLong(0) })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='v3_cycle_provenance'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { reopened.close() }
+    }
+
+    @Test
+    fun r04_migration_v13BadMarkerFailsBeforeAnyCreate() {
+        val name = databaseNames[26]
+        val db = migrationTestHelper.createDatabase(name, 13)
+        seedSchemaMarker(db, 12)
+        db.close()
+        assertTrue(runCatching {
+            migrationTestHelper.runMigrationsAndValidate(name, 14, true, RELEASE_MIGRATION_13_14)
+        }.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(13L, reopened.rawQuery("PRAGMA user_version", null).use { assertTrue(it.moveToFirst()); it.getLong(0) })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
+                    "('v3_cycle_provenance','v3_source_projection')", null).use { assertTrue(it.moveToFirst()); it.getLong(0) })
+        } finally { reopened.close() }
+    }
+
     private fun seedSchemaMarker(db: SupportSQLiteDatabase, version: Int) {
         val value = if (version == 10) "wp04a-intelligence" else "fixture"
         db.execSQL("INSERT INTO schema_meta(`key`, schemaVersion, value, updatedAt) " +
@@ -417,13 +597,13 @@ class ReleaseDatabaseMigrationTest {
             context,
             ReleaseDatabase::class.java,
             databaseName,
-        ).addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+        ).addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13, RELEASE_MIGRATION_13_14)
             .allowMainThreadQueries().build()
         try {
             runBlocking {
                 assertEquals("hash", reopened.releaseDao()
                     .getProviderSnapshot("aniworld/snapshot/EPISODE/1/DE_DUB")?.sourceHash)
-                assertEquals(13, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
+                assertEquals(14, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
             }
         } finally {
             reopened.close()
@@ -617,11 +797,11 @@ class ReleaseDatabaseMigrationTest {
         }
 
         var database = Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName)
-            .addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+            .addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13, RELEASE_MIGRATION_13_14)
             .allowMainThreadQueries().build()
         try {
             val evidenceRepository = RoomReleaseEvidenceRepository(database)
-            assertEquals(13L, scalarLong(database.openHelper.writableDatabase,
+            assertEquals(14L, scalarLong(database.openHelper.writableDatabase,
                 "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
             assertEquals(4L, scalarLong(database.openHelper.writableDatabase,
                 "SELECT COUNT(*) FROM v3_evidence_alias"))
@@ -668,7 +848,7 @@ class ReleaseDatabaseMigrationTest {
 
             database.close()
             database = Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName)
-                .addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+                .addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13, RELEASE_MIGRATION_13_14)
                 .allowMainThreadQueries().build()
             val replay = RoomReleaseIntelligencePersistence(
                 database,

@@ -64,6 +64,11 @@ jobs:
             source_ref: 28491cebaafc134da6e60831120207404b022cb0
             historical_source_sha: 28491cebaafc134da6e60831120207404b022cb0
             imported_source_commit: 28491cebaafc134da6e60831120207404b022cb0
+          # Room 13 is the last release schema before the source-bound provenance tables (v14).
+          - schema_version: 13
+            source_ref: d02336aa115e6e627da0cec0bd4726fba9a6ba81
+            historical_source_sha: d02336aa115e6e627da0cec0bd4726fba9a6ba81
+            imported_source_commit: d02336aa115e6e627da0cec0bd4726fba9a6ba81
     steps:
       - name: Checkout internalized historical schema source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -133,7 +138,7 @@ jobs:
           retention-days: 14
 
   release-modules-test:
-    name: Core/Data tests and Room schema 13 export
+    name: Core/Data tests and Room schema 14 export
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -206,17 +211,17 @@ jobs:
           python3 -m py_compile scripts/aniworld-shadow-canary-report.py scripts/tests/test_aniworld_shadow_canary_report.py
           python3 -m unittest discover -s scripts/tests -p 'test_aniworld_shadow_canary_report.py' -v
 
-      - name: Export Room schema 13 with KSP
+      - name: Export Room schema 14 with KSP
         run: ./gradlew --console=plain --stacktrace :private:release-data:kspDebugKotlin
 
-      - name: Validate generated Room schema 13
+      - name: Validate generated Room schema 14
         id: schema
         shell: bash
         run: |
           mkdir -p private/release-data/schemas
-          schema_path="$(find private/release-data/schemas -type f -name "13.json" -print -quit)"
+          schema_path="$(find private/release-data/schemas -type f -name "14.json" -print -quit)"
           if [[ -z "$schema_path" ]]; then
-            echo "Room schema 13.json was not generated"
+            echo "Room schema 14.json was not generated"
             find private/release-data/schemas -type f -print
             exit 1
           fi
@@ -235,10 +240,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload genuine Room schema 13
+      - name: Upload genuine Room schema 14
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: room-schema-13
+          name: room-schema-14
           path: ${{ steps.schema.outputs.schema_path }}
           if-no-files-found: error
           retention-days: 14
@@ -461,7 +466,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
 
-      - name: Download generated schemas 8, 9, 10, accepted 11/12 and generated 13
+      - name: Download generated schemas 8, 9, 10, accepted 11/12, generated 13 and 14
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           pattern: room-schema-*
@@ -473,7 +478,7 @@ jobs:
         run: |
           schema_dir="private/release-data/schemas/com.axiel7.anihyou.release.data.db.ReleaseDatabase"
           mkdir -p "$schema_dir"
-          for version in 8 9 10 11 12 13; do
+          for version in 8 9 10 11 12 13 14; do
             schema_path="$(find .ci-room-schemas -type f -name "$version.json" -print -quit)"
             if [[ -z "$schema_path" ]]; then
               echo "Downloaded schema $version.json is missing"
