@@ -162,7 +162,8 @@ class FileExtensionNetworkLedgerTest {
         )
 
         staleLedger.complete(newer, "HTTP_429", retryAfterSeconds = 7_200, now = NOW.plusSeconds(10))
-        // The older request finishes later with a short success cooldown.
+        // The older request finishes later with only the short success floor; the 429 deadline (10 s + 7 200 s)
+        // stays the longest one and a late success must never shorten it.
         staleLedger.complete(older, "HTTP_2XX", retryAfterSeconds = null, now = NOW.plusSeconds(20))
 
         val restartedStaleLedger = FileExtensionNetworkLedger(staleDirectory)
@@ -171,7 +172,7 @@ class FileExtensionNetworkLedgerTest {
                 restartedStaleLedger,
                 root = staleRoot,
                 generation = "generation-later",
-                at = NOW.plusSeconds(21_619),
+                at = NOW.plusSeconds(7_209),
             ),
         )
         assertNotNull(
@@ -179,7 +180,7 @@ class FileExtensionNetworkLedgerTest {
                 restartedStaleLedger,
                 root = staleRoot,
                 generation = "generation-later",
-                at = NOW.plusSeconds(21_620),
+                at = NOW.plusSeconds(7_210),
             ),
         )
     }
@@ -245,3 +246,4 @@ class FileExtensionNetworkLedgerTest {
         val NOW: Instant = Instant.parse("2026-09-28T12:00:00Z")
     }
 }
+
