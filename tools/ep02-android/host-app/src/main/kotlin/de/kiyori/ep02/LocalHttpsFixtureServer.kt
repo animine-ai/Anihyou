@@ -47,6 +47,8 @@ internal class LocalHttpsFixtureServer(context: Context) : Closeable {
 
     fun pathCount(path: String): Int = paths.count { it == path }
 
+    fun totalRequests(): Int = paths.size
+
     fun awaitLargeBodyAbort(timeoutMillis: Long = 5_000): Boolean =
         largeBodyAborted.await(timeoutMillis, TimeUnit.MILLISECONDS)
 

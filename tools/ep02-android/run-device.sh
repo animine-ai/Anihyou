@@ -221,6 +221,15 @@ assert integrated['generations'][0]<integrated['generations'][1]<integrated['gen
 assert integrated['acceptedRowsBeforeUpdate']>0 and integrated['acceptedRowsAfterUpdate']>=integrated['acceptedRowsBeforeUpdate'], integrated
 assert integrated['archiveFetches']==2, integrated
 print('EP07 INTEGRATED DATA UPDATE PROOF',json.dumps({k:integrated[k] for k in ['layer','generations','acceptedRowsBeforeUpdate','acceptedRowsAfterUpdate','archiveFetches']},separators=(',',':')))
+shared=f['ep05Canary']['ep07SharedLedger']
+assert shared['status']=='PASS' and shared['testTrustOnly'] is True and shared['productionPublication'] is False and shared['currentBehaviorOnly'] is True, shared
+assert all(shared[key] is True for key in [
+    'cooldownSpansSamePackage','cooldownSpansUpdate','cooldownSpansRollback',
+    'refusedCyclesKeepRowsMappingCalendar','refusedCyclesDoNotCountAsNetworkSuccess','fetchesAgainAfterCooldown'
+]), shared
+assert len(shared['cycles'])==5 and shared['refusedCycleOutcome']=='Failed:extension-refresh-partial(retryable=true)', shared
+assert shared['cycles'][0]['requestsReachedFixture']>0 and shared['cycles'][4]['requestsReachedFixture']>0, shared
+print('EP07 SHARED LEDGER PROOF',json.dumps({'refusedCycleOutcome':shared['refusedCycleOutcome'],'cycles':shared['cycles']},separators=(',',':')))
 data=f['ep06SingleSourceWorker']['ep07ExtensionData']
 assert data['status']=='PASS' and data['testTrustOnly'] is True, data
 assert data['acceptedRowsAfterReopen'] > 0, data

@@ -70,6 +70,37 @@ class FileProviderNavigationStateStoreTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun `row ownership follows committed refreshes through A then B then A with a restart between every step`() = runBlocking {
+        val directory = Files.createTempDirectory("ep07-rows-source-aba").toFile()
+        try {
+            val digestA = "a".repeat(64)
+            val digestB = "b".repeat(64)
+            val installment = AcceptedProviderInstallment("projection-1", "series", 1, "1", "DE_SUB")
+            fun reopened() = FileProviderNavigationStateStore(directory)
+
+            reopened().record(a, 1, digestA, listOf(installment), packageGeneration = 1, rowsCommitted = true)
+            assertEquals(a, reopened().state.value.rowsSource)
+
+            // B becomes active and its first run fails: the owner stays A, also after a restart.
+            reopened().record(b, 2, digestB, emptyList(), mapOf("Last sync outcome" to "FAILED"), packageGeneration = 1)
+            assertEquals(b, reopened().state.value.source)
+            assertEquals(a, reopened().state.value.rowsSource)
+
+            // B commits: the owner is B after a restart.
+            reopened().record(b, 2, digestB, listOf(installment), packageGeneration = 1, rowsCommitted = true)
+            assertEquals(b, reopened().state.value.rowsSource)
+
+            // Back to A: its first run fails, the owner stays B, so A is not presented as the owner of B's rows.
+            reopened().record(a, 3, digestA, emptyList(), mapOf("Last sync outcome" to "FAILED"), packageGeneration = 2)
+            assertEquals(a, reopened().state.value.source)
+            assertEquals(b, reopened().state.value.rowsSource)
+
+            // A commits again: the owner returns to A, never both and never none.
+            reopened().record(a, 3, digestA, listOf(installment), packageGeneration = 2, rowsCommitted = true)
+            assertEquals(a, reopened().state.value.rowsSource)
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun `receipt written before row ownership existed derives the owner from accepted installments`() = runBlocking {
         val withRows = Files.createTempDirectory("ep07-rows-source-legacy-rows").toFile()
         val failureOnly = Files.createTempDirectory("ep07-rows-source-legacy-failure").toFile()
