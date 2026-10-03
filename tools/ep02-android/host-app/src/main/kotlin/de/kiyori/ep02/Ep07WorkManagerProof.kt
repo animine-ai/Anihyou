@@ -33,15 +33,23 @@ internal object Ep07WorkManagerProof {
     @Volatile private var coordinator: ExtensionReleaseRefreshCoordinator? = null
     val completions = AtomicInteger()
     @Volatile var lastOutcome: ShadowRefreshOutcome? = null
+    /** Diagnostics only: how often WorkManager created the product worker, and what the coordinator last threw. */
+    private val workersCreated = AtomicInteger()
+    @Volatile private var lastError: String? = null
 
     private fun initialize(context: Context) {
         if (::manager.isInitialized) return
         val factory = object : WorkerFactory() {
             override fun createWorker(appContext: Context, workerClassName: String, parameters: WorkerParameters): ListenableWorker? {
                 if (workerClassName != ExtensionReleaseRefreshWorker::class.java.name) return null
+                workersCreated.incrementAndGet()
                 return ExtensionReleaseRefreshWorker(appContext, parameters, object : ExtensionReleaseRefreshCoordinator {
                     override suspend fun refresh(workId: String, trigger: ExtensionRefreshTrigger): ShadowRefreshOutcome {
-                        val outcome = requireNotNull(coordinator).refresh(workId, trigger)
+                        val outcome = try { requireNotNull(coordinator).refresh(workId, trigger) } catch (error: Throwable) {
+                            lastError = error.javaClass.name + ": " + error.message + " @ " +
+                                error.stackTrace.take(8).joinToString(" < ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" }
+                            throw error
+                        }
                         lastOutcome = outcome
                         completions.incrementAndGet()
                         return outcome
@@ -97,7 +105,7 @@ internal object Ep07WorkManagerProof {
                         .get(2, TimeUnit.SECONDS)
                         .joinToString(prefix = "[", postfix = "]") { "${it.id}:${it.state}:tags=${it.tags}" }
                 }.getOrElse { "unavailable:${it.javaClass.simpleName}" }
-                "auto=$auto slots=$slots schedule=${schedules.schedule.value} scheduling=${describeScheduling(context)}"
+                "auto=$auto slots=$slots schedule=${schedules.schedule.value} scheduling=${describeScheduling(context)} workersCreated=${workersCreated.get()} lastError=$lastError"
             }
             throw IllegalStateException(
                 "EP07 WorkManager proof timed out at '$waitStage'; completions=${completions.get()} " +
