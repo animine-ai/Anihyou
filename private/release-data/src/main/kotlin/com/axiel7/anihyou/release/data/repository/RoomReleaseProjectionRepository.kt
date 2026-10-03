@@ -29,7 +29,7 @@ class RoomReleaseProjectionRepository(
     private val clock: Clock = Clock.systemUTC(),
 ) : ReleaseProjectionRepository {
     private val dao = database.releaseDao()
-    private val mappingFence = MappingWriterFence(database)
+    private val mappingFence = MappingWriterFence(database, clock)
 
     override fun observeForMedia(
         accountId: Long?,

@@ -16,9 +16,10 @@ import com.axiel7.anihyou.release.data.db.toEntity
 /** Room-backed V3 mapping storage, separate from the R2 release_mapping table. */
 class RoomExternalMappingRepository(
     private val database: ReleaseDatabase,
+    clock: java.time.Clock = java.time.Clock.systemUTC(),
 ) : ExternalMappingRepository, MappingAttemptRepository {
     private val dao = database.releaseDao()
-    private val mappingFence = MappingWriterFence(database)
+    private val mappingFence = MappingWriterFence(database, clock)
 
     override suspend fun find(
         subject: AniWorldMappingSubject,

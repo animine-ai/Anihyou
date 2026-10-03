@@ -90,7 +90,6 @@ class SourceSeriesMatchingService(
     }
 
     private suspend fun resolve(active: ExtensionSelectionKey, request: DetailMappingRequest) {
-        val startedAt = clock.instant()
         val sourceKey = MappingEntryIds.sourceKey(active)
         if (dao.effectiveOverviewMappings(active.sourceId, active.extensionId, active.publisherId, active.providerId,
                 sourceKey, request.mediaId.toString()).isNotEmpty()) return
@@ -120,6 +119,8 @@ class SourceSeriesMatchingService(
             AniWorldMappingSubject.Season(AniWorldSiteIdentifier(label.providerSeriesKey), season)
         }.getOrNull() ?: return
         if (alreadyAccepted(active, subject)) return
+        // The writer epoch of this exact entry when the work begins; a reset or correction later raises it.
+        val epoch = fence.epoch(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}")
 
         val decision = matcher.match(
             ReleaseMatchRequest(sourceIdentity(active.providerId, label.providerSeriesKey, season), label.title,
@@ -129,14 +130,14 @@ class SourceSeriesMatchingService(
         )
         val matched = decision as? MatchDecision.Matched ?: return
         if (matched.mediaId != request.mediaId || matched.tier !in AUTO_TIERS) return
-        writeAuto(active, subject, label.providerSeriesKey, matched, startedAt)
+        writeAuto(active, subject, matched, epoch)
     }
 
     /**
      * The explicit rematch of one captured entry. The accepted binding stays until a valid replacement exists; a
-     * replacement is written only if no reset or correction happened since [startedAt].
+     * replacement is written only if the entry was neither reset nor corrected since the epoch the work began with.
      */
-    internal suspend fun rematch(ref: MappingEntryRef, currentMediaId: Int, startedAt: Instant): MappingRematchOutcome {
+    internal suspend fun rematch(ref: MappingEntryRef, currentMediaId: Int, epochAtStart: Long): MappingRematchOutcome {
         val (slug, season, source) = when (ref) {
             is MappingEntryRef.V3Source -> {
                 val (subject, provider) = splitEntryKey(ref.entryKey)
@@ -173,13 +174,13 @@ class SourceSeriesMatchingService(
         val matched = decision as? MatchDecision.Matched ?: return MappingRematchOutcome.RETAINED
         if (matched.tier !in AUTO_TIERS) return MappingRematchOutcome.RETAINED
         if (matched.mediaId == currentMediaId) return MappingRematchOutcome.RETAINED
-        return replace(ref, matched, startedAt)
+        return replace(ref, matched, epochAtStart)
     }
 
-    private suspend fun replace(ref: MappingEntryRef, matched: MatchDecision.Matched, startedAt: Instant): MappingRematchOutcome =
+    private suspend fun replace(ref: MappingEntryRef, matched: MatchDecision.Matched, epochAtStart: Long): MappingRematchOutcome =
         database.withTransaction {
             val (kind, fenceKey) = ref.fence ?: return@withTransaction MappingRematchOutcome.UNAVAILABLE
-            if (!fence.allows(kind, fenceKey, startedAt)) return@withTransaction MappingRematchOutcome.STALE
+            if (!fence.allowsEpoch(kind, fenceKey, epochAtStart)) return@withTransaction MappingRematchOutcome.STALE
             val now = clock.instant()
             val confidence = matched.tier.confidence()
             when (ref) {
@@ -207,11 +208,13 @@ class SourceSeriesMatchingService(
             MappingRematchOutcome.REPLACED
         }
 
-    private suspend fun writeAuto(active: ExtensionSelectionKey, subject: AniWorldMappingSubject.Season, slug: String,
-                                  matched: MatchDecision.Matched, startedAt: Instant) {
+    private suspend fun writeAuto(active: ExtensionSelectionKey, subject: AniWorldMappingSubject.Season,
+                                  matched: MatchDecision.Matched, epochAtStart: Long) {
         database.withTransaction {
             val entryKey = "${subject.stableKey}|${ExternalProvider.ANILIST.value}"
-            if (!fence.allows(MappingEntryRef.FENCE_V3_SOURCE, "${MappingEntryIds.sourceKey(active)}|$entryKey", startedAt)) return@withTransaction
+            if (!fence.allowsEpoch(MappingEntryRef.FENCE_V3_SOURCE, "${MappingEntryIds.sourceKey(active)}|$entryKey", epochAtStart)) {
+                return@withTransaction
+            }
             // Accepted bindings are kept; a concurrent writer that got there first wins.
             if (dao.sourceMapping(active.sourceId, active.extensionId, active.publisherId, active.providerId,
                     subject.stableKey, ExternalProvider.ANILIST.value) != null) return@withTransaction

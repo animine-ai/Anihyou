@@ -26,7 +26,7 @@ class RoomReleaseSyncStore(
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val dao = database.releaseDao()
-    private val mappingFence = MappingWriterFence(database)
+    private val mappingFence = MappingWriterFence(database, clock)
 
     suspend fun currentGeneration(generationKey: String): Long {
         require(generationKey.isNotBlank()) { "generation key must not be blank" }

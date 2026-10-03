@@ -381,9 +381,12 @@ class RoomMatchingManagementRepositoryTest {
         val token = rig.repository.capture(MappingScope.Entries(mapOf(legacy.id to legacy.revision)))
         rig.clock.now = t0.plusSeconds(60)
         assertEquals(MappingMutationResult.APPLIED, rig.repository.reset(token))
-        val writer = RoomExternalMappingRepository(rig.database)
+        val writer = RoomExternalMappingRepository(rig.database, rig.clock)
         assertFalse("resolved before the reset", writer.put(domain("gamma", 1, 31, MappingSource.MALSYNC, t0.plusSeconds(30))))
+        assertFalse("a writer that claims to have observed in the future is refused too",
+            writer.put(domain("gamma", 1, 31, MappingSource.MALSYNC, t0.plusSeconds(86_400))))
         assertNull(rig.releaseDao.getExternalMapping(subject("gamma", 1).stableKey, "anilist"))
+        rig.clock.now = t0.plusSeconds(120)
         assertTrue("resolved after the reset", writer.put(domain("gamma", 1, 31, MappingSource.MALSYNC, t0.plusSeconds(61))))
         assertTrue("an explicit manual binding is never blocked",
             writer.put(domain("gamma", 1, 32, MappingSource.MANUAL, t0.plusSeconds(1))))
@@ -488,20 +491,54 @@ class RoomMatchingManagementRepositoryTest {
             subject("bleach", 1).stableKey, "anilist")!!.externalId)
     }
 
-    @Test fun aRematchThatStartedBeforeAResetCannotWriteAReplacement() = runBlocking {
+    @Test fun aRematchThatBeganBeforeACorrectionCannotWriteAReplacement() = runBlocking {
         val rig = Rig()
         rig.dao.upsertSourceMapping(sourceRow(keyA, "aot", 1, 9))
         rig.dao.upsertLabel(label(keyA, "aot", "Attack on Titan"))
         rig.candidates.targeted = listOf(IdentityCandidate(7, setOf("Attack on Titan"), "TV", null))
         val entry = rig.page().entries.single()
         val ref = MappingEntryIds.decode(entry.id)!!
-        val startedAt = t0
-        rig.clock.now = t0.plusSeconds(10)
-        // The user corrects the binding while the job that started at t0 is still running.
+        val (kind, key) = ref.fence!!
+        val epochAtStart = rig.fence.epoch(kind, key)
+        // The clock does not matter: the user corrects the binding while the job that began earlier is still running.
         assertEquals(MappingMutationResult.APPLIED, rig.repository.correct(entry.id, entry.revision, 55))
-        assertEquals(MappingRematchOutcome.STALE, rig.service.rematch(ref, 9, startedAt))
+        assertEquals(epochAtStart + 1, rig.fence.epoch(kind, key))
+        assertEquals(MappingRematchOutcome.STALE, rig.service.rematch(ref, 9, epochAtStart))
         assertEquals("55", rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
             subject("aot", 1).stableKey, "anilist")!!.externalId)
+    }
+
+    @Test fun theFenceNeverMovesBackwardsAndTimeBasedWritersAreCheckedAgainstTheLastChange() = runBlocking {
+        val rig = Rig()
+        val kind = MappingEntryRef.FENCE_R2
+        val key = "aniworld/x/EPISODE/1/DE_SUB"
+        assertEquals(0L, rig.fence.epoch(kind, key))
+        assertTrue(rig.fence.allows(kind, key, t0.minusSeconds(3600)))
+        rig.clock.now = t0.plusSeconds(100)
+        rig.fence.bump(kind, key, rig.clock.now)
+        // A clock that jumped back must not reopen the entry for writers that began before the change.
+        rig.fence.bump(kind, key, t0.plusSeconds(10))
+        assertEquals(2L, rig.fence.epoch(kind, key))
+        assertEquals(t0.plusSeconds(100).toString(), rig.dao.fence(kind, key)!!.changedAt)
+        assertFalse(rig.fence.allows(kind, key, t0.plusSeconds(50)))
+        assertFalse(rig.fence.allows(kind, key, t0.plusSeconds(100)))
+        assertFalse("claimed observation in the future", rig.fence.allows(kind, key, t0.plusSeconds(7200)))
+        assertTrue(rig.fence.allows(kind, key, t0.plusSeconds(101).also { rig.clock.now = t0.plusSeconds(200) }))
+        assertTrue(rig.fence.allowsEpoch(kind, key, 2L))
+        assertFalse(rig.fence.allowsEpoch(kind, key, 1L))
+    }
+
+    @Test fun staleHistoricalBindingsStayVisibleAndCanBeReset() = runBlocking {
+        val rig = Rig()
+        val stale = sourceRow(keyA, "old", 1, 70).copy(mappingStatus = MappingStatus.STALE.name,
+            staleAt = t0.plusSeconds(5).toString())
+        rig.dao.upsertSourceMapping(stale)
+        val page = rig.page()
+        assertEquals(listOf(70), page.entries.map { it.mediaId })
+        assertTrue("a stale binding is no authority for any consumer", rig.effective(keyA).isEmpty())
+        val token = rig.repository.capture(MappingScope.All)
+        assertEquals(MappingMutationResult.APPLIED, rig.repository.reset(token))
+        assertEquals(0, rig.page().total)
     }
 
     @Test fun noMatcherOptionIsExposedAndSettingOneIsRejected() = runBlocking {

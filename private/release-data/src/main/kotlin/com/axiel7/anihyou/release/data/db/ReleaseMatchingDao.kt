@@ -115,18 +115,21 @@ interface ReleaseMatchingDao {
                externalId, mappingSource, mappingStatus, confidence, createdAt, validatedAt, staleAt, provenance, parserVersion
         FROM v3_source_mapping
         WHERE sourceId=:sourceId AND extensionId=:extensionId AND publisherId=:publisherId AND providerId=:providerId
-          AND externalProvider='anilist' AND mappingStatus='ACTIVE' AND externalId=:mediaId AND subjectType='SEASON'
+          AND externalProvider='anilist' AND mappingStatus='ACTIVE' AND confidence='EXACT' AND externalId=:mediaId
+          AND subjectType='SEASON' AND validatedAt IS NOT NULL AND staleAt IS NULL
         UNION ALL
         SELECT e.mappingSubjectKey, e.seriesStableKey, e.siteSlug, e.subjectType, e.navigationSeason, e.filmNumber,
                e.externalProvider, e.externalId, e.mappingSource, e.mappingStatus, e.confidence, e.createdAt, e.validatedAt,
                e.staleAt, e.provenance, e.parserVersion
         FROM v3_external_mapping e
-        WHERE e.externalProvider='anilist' AND e.mappingStatus='ACTIVE' AND e.externalId=:mediaId AND e.subjectType='SEASON'
+        WHERE e.externalProvider='anilist' AND e.mappingStatus='ACTIVE' AND e.confidence='EXACT' AND e.externalId=:mediaId
+          AND e.subjectType='SEASON' AND e.validatedAt IS NOT NULL AND e.staleAt IS NULL
           AND NOT EXISTS (SELECT 1 FROM v3_source_mapping s WHERE s.sourceId=:sourceId AND s.extensionId=:extensionId
               AND s.publisherId=:publisherId AND s.providerId=:providerId AND s.mappingSubjectKey=e.mappingSubjectKey
               AND s.externalProvider=e.externalProvider)
           AND NOT EXISTS (SELECT 1 FROM v3_mapping_fence f WHERE f.entryKind='V3S'
               AND f.entryKey = :sourceKey || '|' || e.mappingSubjectKey || '|' || e.externalProvider)
+        LIMIT 2
     """)
     suspend fun effectiveOverviewMappings(sourceId: String, extensionId: String, publisherId: String, providerId: String,
                                           sourceKey: String, mediaId: String): List<ExternalMappingEntity>
@@ -144,7 +147,7 @@ interface ReleaseMatchingDao {
             FROM v3_source_mapping m
             LEFT JOIN v3_source_series_label l ON l.sourceId=m.sourceId AND l.extensionId=m.extensionId
                 AND l.publisherId=m.publisherId AND l.providerId=m.providerId AND l.providerSeriesKey=m.siteSlug
-            WHERE m.externalProvider='anilist' AND m.mappingStatus='ACTIVE' AND m.externalId IS NOT NULL
+            WHERE m.externalProvider='anilist' AND m.mappingStatus IN ('ACTIVE', 'STALE') AND m.externalId IS NOT NULL
               AND m.confidence IN ('EXACT', 'HIGH')
               AND (:filterSource = 0 OR (m.sourceId=:sourceId AND m.extensionId=:extensionId
                    AND m.publisherId=:publisherId AND m.providerId=:providerId))
@@ -154,7 +157,7 @@ interface ReleaseMatchingDao {
                    COALESCE(e.validatedAt, '') || '|' || e.externalId || '|' || e.mappingSource || '|' || e.confidence || '|' || e.createdAt,
                    NULL, replace(lower(e.siteSlug), '-', ' '), ''
             FROM v3_external_mapping e
-            WHERE :filterSource = 0 AND e.externalProvider='anilist' AND e.mappingStatus='ACTIVE' AND e.externalId IS NOT NULL
+            WHERE :filterSource = 0 AND e.externalProvider='anilist' AND e.mappingStatus IN ('ACTIVE', 'STALE') AND e.externalId IS NOT NULL
               AND e.confidence IN ('EXACT', 'HIGH')
             UNION ALL
             SELECT 'R2', '', '', '', '', r.streamKey, r.streamKey, r.streamKey, 'R2', NULL, NULL, CAST(r.mediaId AS TEXT),
@@ -178,14 +181,14 @@ interface ReleaseMatchingDao {
             FROM v3_source_mapping m
             LEFT JOIN v3_source_series_label l ON l.sourceId=m.sourceId AND l.extensionId=m.extensionId
                 AND l.publisherId=m.publisherId AND l.providerId=m.providerId AND l.providerSeriesKey=m.siteSlug
-            WHERE m.externalProvider='anilist' AND m.mappingStatus='ACTIVE' AND m.externalId IS NOT NULL
+            WHERE m.externalProvider='anilist' AND m.mappingStatus IN ('ACTIVE', 'STALE') AND m.externalId IS NOT NULL
               AND m.confidence IN ('EXACT', 'HIGH')
               AND (:filterSource = 0 OR (m.sourceId=:sourceId AND m.extensionId=:extensionId
                    AND m.publisherId=:publisherId AND m.providerId=:providerId))
             UNION ALL
             SELECT e.siteSlug, replace(lower(e.siteSlug), '-', ' '), '', e.externalId
             FROM v3_external_mapping e
-            WHERE :filterSource = 0 AND e.externalProvider='anilist' AND e.mappingStatus='ACTIVE' AND e.externalId IS NOT NULL
+            WHERE :filterSource = 0 AND e.externalProvider='anilist' AND e.mappingStatus IN ('ACTIVE', 'STALE') AND e.externalId IS NOT NULL
               AND e.confidence IN ('EXACT', 'HIGH')
             UNION ALL
             SELECT r.streamKey, replace(replace(lower(r.streamKey), '-', ' '), '/', ' '), '', CAST(r.mediaId AS TEXT)
@@ -200,12 +203,12 @@ interface ReleaseMatchingDao {
 
     /** Per exact source, regardless of any search text. */
     @Query("SELECT sourceId, extensionId, publisherId, providerId, COUNT(*) AS total FROM v3_source_mapping " +
-        "WHERE externalProvider='anilist' AND mappingStatus='ACTIVE' AND externalId IS NOT NULL " +
+        "WHERE externalProvider='anilist' AND mappingStatus IN ('ACTIVE', 'STALE') AND externalId IS NOT NULL " +
         "AND confidence IN ('EXACT', 'HIGH') GROUP BY sourceId, extensionId, publisherId, providerId " +
         "ORDER BY sourceId, extensionId, publisherId, providerId")
     suspend fun sourceFacets(): List<SourceFacetRow>
 
-    @Query("SELECT COUNT(*) FROM v3_external_mapping WHERE externalProvider='anilist' AND mappingStatus='ACTIVE' " +
+    @Query("SELECT COUNT(*) FROM v3_external_mapping WHERE externalProvider='anilist' AND mappingStatus IN ('ACTIVE', 'STALE') " +
         "AND externalId IS NOT NULL AND confidence IN ('EXACT', 'HIGH')")
     suspend fun legacyV3Count(): Int
 
@@ -215,17 +218,17 @@ interface ReleaseMatchingDao {
     // --- the whole accepted set of one scope, ids and revisions only ---------------------------------------------
     @Query("SELECT CAST(revision AS TEXT) FROM v3_source_mapping WHERE sourceId=:sourceId AND extensionId=:extensionId " +
         "AND publisherId=:publisherId AND providerId=:providerId AND mappingSubjectKey=:subjectKey " +
-        "AND externalProvider=:externalProvider AND mappingStatus='ACTIVE'")
+        "AND externalProvider=:externalProvider AND mappingStatus IN ('ACTIVE', 'STALE')")
     suspend fun sourceMappingRevision(sourceId: String, extensionId: String, publisherId: String, providerId: String,
                                       subjectKey: String, externalProvider: String): String?
 
     @Query("SELECT mappingSubjectKey || '|' || externalProvider AS entryKey FROM v3_source_mapping " +
         "WHERE sourceId=:sourceId AND extensionId=:extensionId AND publisherId=:publisherId AND providerId=:providerId " +
-        "AND externalProvider='anilist' AND mappingStatus='ACTIVE' AND externalId IS NOT NULL ORDER BY entryKey")
+        "AND externalProvider='anilist' AND mappingStatus IN ('ACTIVE', 'STALE') AND externalId IS NOT NULL ORDER BY entryKey")
     suspend fun sourceMappingKeys(sourceId: String, extensionId: String, publisherId: String, providerId: String): List<String>
 
     @Query("SELECT mappingSubjectKey || '|' || externalProvider AS entryKey FROM v3_external_mapping " +
-        "WHERE externalProvider='anilist' AND mappingStatus='ACTIVE' AND externalId IS NOT NULL ORDER BY entryKey")
+        "WHERE externalProvider='anilist' AND mappingStatus IN ('ACTIVE', 'STALE') AND externalId IS NOT NULL ORDER BY entryKey")
     suspend fun legacyV3Keys(): List<String>
 
     @Query("SELECT streamKey FROM release_mapping WHERE mediaId IS NOT NULL ORDER BY streamKey")
@@ -237,7 +240,7 @@ interface ReleaseMatchingDao {
                    m.providerId AS providerId, m.mappingSubjectKey || '|' || m.externalProvider AS entryKey,
                    CAST(m.revision AS TEXT) AS revisionKey
             FROM v3_source_mapping m
-            WHERE m.externalProvider='anilist' AND m.mappingStatus='ACTIVE' AND m.externalId IS NOT NULL
+            WHERE m.externalProvider='anilist' AND m.mappingStatus IN ('ACTIVE', 'STALE') AND m.externalId IS NOT NULL
               AND m.confidence IN ('EXACT', 'HIGH')
               AND (:filterSource = 0 OR (m.sourceId=:sourceId AND m.extensionId=:extensionId
                    AND m.publisherId=:publisherId AND m.providerId=:providerId))
@@ -245,7 +248,7 @@ interface ReleaseMatchingDao {
             SELECT 'V3L', '', '', '', '', e.mappingSubjectKey || '|' || e.externalProvider,
                    COALESCE(e.validatedAt, '') || '|' || e.externalId || '|' || e.mappingSource || '|' || e.confidence || '|' || e.createdAt
             FROM v3_external_mapping e
-            WHERE :filterSource = 0 AND e.externalProvider='anilist' AND e.mappingStatus='ACTIVE' AND e.externalId IS NOT NULL
+            WHERE :filterSource = 0 AND e.externalProvider='anilist' AND e.mappingStatus IN ('ACTIVE', 'STALE') AND e.externalId IS NOT NULL
               AND e.confidence IN ('EXACT', 'HIGH')
             UNION ALL
             SELECT 'R2', '', '', '', '', r.streamKey,

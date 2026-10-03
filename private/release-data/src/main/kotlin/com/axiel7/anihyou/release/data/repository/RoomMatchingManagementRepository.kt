@@ -306,12 +306,12 @@ class RoomMatchingManagementRepository(
         is MappingEntryRef.V3Source -> {
             val (subject, provider) = splitEntryKey(ref.entryKey)
             dao.sourceMapping(ref.key.sourceId, ref.key.extensionId, ref.key.publisherId, ref.key.providerId, subject, provider)
-                ?.takeIf { it.mappingStatus == MappingStatus.ACTIVE.name }
+                ?.takeIf { it.mappingStatus in MANAGED_STATUSES }
                 ?.let { Current(it.revision.toString(), it.externalId?.toIntOrNull()) }
         }
         is MappingEntryRef.V3Legacy -> {
             val (subject, provider) = splitEntryKey(ref.entryKey)
-            releaseDao.getExternalMapping(subject, provider)?.takeIf { it.mappingStatus == MappingStatus.ACTIVE.name }
+            releaseDao.getExternalMapping(subject, provider)?.takeIf { it.mappingStatus in MANAGED_STATUSES }
                 ?.let { Current(MappingEntryIds.legacyV3Revision(it), it.externalId?.toIntOrNull()) }
         }
         is MappingEntryRef.R2 -> releaseDao.getMapping(ref.streamKey)?.takeIf { it.mediaId != null }
@@ -401,7 +401,6 @@ class RoomMatchingManagementRepository(
         }
         val total = minOf(action.entryCount, MAX_REMATCH_ENTRIES)
         emit(MappingRematchProgress(0, total))
-        val startedAt = clock.instant()
         var from = 0
         var done = 0
         while (done < total) {
@@ -409,7 +408,7 @@ class RoomMatchingManagementRepository(
             if (page.isEmpty()) break
             for (entry in page) {
                 currentCoroutineContext().ensureActive()
-                val outcome = rematchOne(entry, startedAt)
+                val outcome = rematchOne(entry)
                 done++
                 emit(MappingRematchProgress(done, total, entry.entryId, outcome))
             }
@@ -417,13 +416,15 @@ class RoomMatchingManagementRepository(
         }
     }.flowOn(Dispatchers.IO)
 
-    private suspend fun rematchOne(entry: MappingActionEntryEntity, startedAt: java.time.Instant): MappingRematchOutcome {
+    private suspend fun rematchOne(entry: MappingActionEntryEntity): MappingRematchOutcome {
         val ref = MappingEntryIds.decode(entry.entryId) ?: return MappingRematchOutcome.UNAVAILABLE
         return try {
+            // The epoch first, the revision second: a change in between fails one of the two checks.
+            val epoch = ref.fence?.let { (kind, key) -> fence.epoch(kind, key) } ?: 0L
             val current = current(ref) ?: return MappingRematchOutcome.STALE
             if (current.revision != entry.revision) return MappingRematchOutcome.STALE
             val media = current.mediaId ?: return MappingRematchOutcome.UNAVAILABLE
-            service.rematch(ref, media, startedAt)
+            service.rematch(ref, media, epoch)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -451,6 +452,8 @@ class RoomMatchingManagementRepository(
         const val MAX_SCOPE_ENTRIES = 20_000
         const val MAX_REMATCH_ENTRIES = 100
         val TOKEN_TTL: Duration = Duration.ofHours(24)
+        /** An accepted historical binding stays visible and manageable even after it went stale. */
+        val MANAGED_STATUSES = setOf(MappingStatus.ACTIVE.name, MappingStatus.STALE.name)
         const val MANUAL_PROVENANCE = "settings-correction"
         const val MANUAL_MATCHER_VERSION = "manual-v1"
     }

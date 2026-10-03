@@ -191,7 +191,7 @@ val animetrackerReleaseModule = module {
     single { RoomIdentityCandidateStore(get(), get()) }
     single<IdentityCandidateSource> { AniListIdentityCandidateSource(get(), get(), get()) }
     // Matching management (Settings): one real Room-backed repository, one shared targeted matching service.
-    single { com.axiel7.anihyou.release.data.repository.MappingWriterFence(get<ReleaseDatabase>()) }
+    single { com.axiel7.anihyou.release.data.repository.MappingWriterFence(get<ReleaseDatabase>(), get<Clock>()) }
     single {
         com.axiel7.anihyou.release.data.repository.SourceSeriesMatchingService(
             database = get<ReleaseDatabase>(),
