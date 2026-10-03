@@ -49,7 +49,7 @@ match=re.search(r'OK \((\d+) tests?\)',text)
 assert match and int(match[1])>0 and 'INSTRUMENTATION_CODE: -1' in text, text[-20000:]
 required={'ExtensionCalendarComposeTest','ExtensionUpdateComposeTest','ExtensionSourcesUserFlowTest',
           'MainNavigationProductComposeTest','MediaDetailsNavigationComposeTest','MatchingManagementComposeTest',
-          'ScreenshotCaptureGuardTest'}
+          'ExtensionRefreshScheduleComposeTest','ScreenshotCaptureGuardTest'}
 for name in required:
     assert name in text, (name,text[-20000:])
 assert 'INSTRUMENTATION_STATUS_CODE: -3' not in text and 'INSTRUMENTATION_STATUS_CODE: -4' not in text, 'skipped/assumption-failed test'
@@ -86,9 +86,18 @@ for name in sorted(matching_expected):
     assert fields['activeWindowPackageBefore']==package and fields['activeWindowPackageAfter']==package, (name,report)
     assert fields['activityResumed']=='true/true' and fields['activityWindowFocused'] in ('true/true','false/false'), (name,report)
     assert (fields['activityWindowFocused'],fields['appDialogInFront']) in (('true/true','false/false'),('false/false','true/true')), (name,report)
+schedule_dir=out/'guard'/'schedule-ui'
+schedule_shots={p.stem for p in schedule_dir.glob('*.png')}
+assert schedule_shots=={'schedule-default'}, ('schedule UI screenshot set differs', sorted(schedule_shots))
+schedule_report=(schedule_dir/'schedule-default.capture.txt').read_text()
+schedule_fields=dict(line.split('=',1) for line in schedule_report.splitlines() if '=' in line)
+assert schedule_fields['name']=='schedule-default', schedule_report
+assert schedule_fields['activeWindowPackageBefore']==schedule_fields['expectedPackage']==schedule_fields['activeWindowPackageAfter'], schedule_report
+assert schedule_fields['activityResumed']=='true/true', schedule_report
 report={'status':'PASS','api':int(sys.argv[2]),'tests':int(match[1]),'failures':0,'skips':0,
         'requiredSuites':sorted(required),'screenshots':sorted(p.name for p in shots),
-        'matchingUiScreenshots':sorted(f'{name}.png' for name in matching_expected)}
+        'matchingUiScreenshots':sorted(f'{name}.png' for name in matching_expected),
+        'scheduleUiScreenshots':['schedule-default.png']}
 (out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
 print('EP07 PRODUCT UI VERIFIED',json.dumps(report,separators=(',',':')))
 PY
