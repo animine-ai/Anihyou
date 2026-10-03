@@ -1267,6 +1267,34 @@ class ExtensionInstallStoreTest {
         store.loadUsableExtension(extensionId)
     }
 
+    @Test
+    fun `promotion refuses a candidate that lost its standing after activation and readers keep the published package`() {
+        for (loss in listOf("yanked", "revoked")) {
+            val directory = temporaryFolder.newFolder("d1-promotion-after-$loss")
+            val fixture = StoreFixture(directory)
+            val first = fixture.release(1)
+            val second = fixture.release(2)
+            val store = fixture.store()
+            fixture.initialize(store, fixture.index(1, listOf(first)))
+            store.install(first.archive, EXTENSION, NOW)
+            store.promoteHealthy(EXTENSION, NOW)
+            store.acceptIndex(fixture.index(2, listOf(first, second)).envelope, NOW)
+            store.install(second.archive, EXTENSION, NOW)
+
+            // The candidate is active but not yet healthy. A higher authentic index withdraws it before promotion.
+            val withdrawn = if (loss == "yanked") yanked(second) else second.copy(revoked = true)
+            store.acceptIndex(fixture.index(3, listOf(first, withdrawn)).envelope, NOW)
+
+            assertRejectedByPolicy { store.promoteHealthy(EXTENSION, NOW) }
+            val generation = fixture.store().snapshot().generations.getValue(EXTENSION)
+            assertEquals(loss, second.binding.archiveSha256, generation.active?.digest)
+            assertEquals(loss, first.binding.archiveSha256, generation.knownGood?.digest)
+            for (reader in listOf(store, fixture.store())) {
+                assertEquals("$loss: readers keep the published package", first.binding.archiveSha256, load(reader)!!.packageDigest)
+            }
+        }
+    }
+
     private fun load(store: ExtensionInstallStore) = runBlocking {
         store.loadUsable(ProviderId.parse(PROVIDER))
     }

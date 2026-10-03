@@ -598,6 +598,35 @@ class ExtensionUpdateComposeTest {
         assertEquals(listOf(listOf(keyB, keyA)), event.providerOrders)
     }
 
+    @Test
+    fun withdrawnInstalledVersionKeepsRunningAndIsExplainedWithoutAnError() {
+        val key = key("withdrawn-installed")
+        val withdrawn = current(key).copy(candidateYanked = true, digest = "installed-digest-current", activationAllowed = false)
+        val state = mutableStateOf(ExtensionSourcesUiState(sources = listOf(source(key.sourceId, withdrawn))))
+        composeManage(state, RecordingEvent())
+
+        composeRule.onNodeWithTag("extension-yank-note-${key.extensionId}")
+            .performScrollTo().assertTextContains("keeps running", substring = true)
+        composeRule.onNodeWithTag("extension-update-state-${key.extensionId}")
+            .assertTextContains("Installed and current", substring = true)
+        composeRule.onNodeWithTag("extension-installed-version-${key.extensionId}")
+            .assertTextContains("Installed version: 1.0.0")
+        captureScreenshot("manage-installed-version-withdrawn") {
+            composeRule.onNodeWithTag("extension-yank-note-${key.extensionId}").assertIsDisplayedCompat()
+        }
+    }
+
+    @Test
+    fun withdrawnCandidateThatIsNotInstalledIsStillShownAsAProblem() {
+        val key = key("withdrawn-candidate")
+        val withdrawn = update(key).copy(candidateYanked = true, updateAvailable = false, digest = "other-candidate-digest")
+        val state = mutableStateOf(ExtensionSourcesUiState(sources = listOf(source(key.sourceId, withdrawn))))
+        composeManage(state, RecordingEvent())
+
+        composeRule.onNodeWithTag("extension-yank-note-${key.extensionId}")
+            .performScrollTo().assertTextContains("cannot be installed", substring = true)
+    }
+
     private fun composeManage(
         state: androidx.compose.runtime.State<ExtensionSourcesUiState>,
         event: RecordingEvent,

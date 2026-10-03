@@ -57,7 +57,7 @@ expected={f'calendar-{kind}-{step}' for kind in ('standard-light','grid-light','
           for step in ('initial-today','history','refresh-keeps-history','returned-today')}
 expected|={'postponements-safe-and-unassigned','rollback-confirmation','manage-overview',
            'manage-overview-dark-narrow-large-text','diagnostics','diagnostics-dark',
-           'trust-unavailable-manage','trust-unavailable-notice'}
+           'trust-unavailable-manage','trust-unavailable-notice','manage-installed-version-withdrawn'}
 names={p.stem for p in shots}
 assert names==expected, ('screenshot set differs', sorted(expected-names), sorted(names-expected))
 # Every stored picture carries the foreground facts that were verified before and after its capture.

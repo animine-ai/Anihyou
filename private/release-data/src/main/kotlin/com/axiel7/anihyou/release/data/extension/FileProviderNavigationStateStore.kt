@@ -25,6 +25,12 @@ data class ProviderNavigationStoredState(
     val syncStatistics: Map<String, String> = emptyMap(),
     val navigationStatus: String? = null,
     val packageGeneration: Long = 0,
+    /**
+     * The source whose refresh last committed accepted rows. [source] also moves when a refresh only failed, so it
+     * cannot say who owns the persisted rows: a new source whose first refresh fails must not take over the rows of
+     * the previous source. Package updates and rollbacks of the same source keep it.
+     */
+    val rowsSource: ExtensionSelectionKey? = null,
 )
 
 /** Separate source-bound product receipt. Never reads R2 as release truth. */
@@ -37,7 +43,8 @@ class FileProviderNavigationStateStore(private val directory: File) {
 
     suspend fun record(source: ExtensionSelectionKey, releaseGeneration: Long, packageDigest: String,
         installments: List<AcceptedProviderInstallment>,
-        statistics: Map<String, String> = emptyMap(), packageGeneration: Long = 0) = mutate { old ->
+        statistics: Map<String, String> = emptyMap(), packageGeneration: Long = 0,
+        rowsCommitted: Boolean = false) = mutate { old ->
         require(packageDigest.matches(Regex("[0-9a-f]{64}")))
         require(releaseGeneration >= 0 && packageGeneration >= 0)
         require(old.source != source || packageGeneration >= old.packageGeneration) {
@@ -52,7 +59,8 @@ class FileProviderNavigationStateStore(private val directory: File) {
             installments = (retained + installments).distinct().takeLast(10000),
             syncStatistics = statistics.takeIf { it.isNotEmpty() } ?: if (sameSelection) old.syncStatistics else emptyMap(),
             navigationStatus = if (sameSelection) old.navigationStatus else null,
-            packageGeneration = packageGeneration)
+            packageGeneration = packageGeneration,
+            rowsSource = if (rowsCommitted) source else old.rowsSource)
     }
 
     suspend fun recordNavigation(source: ExtensionSelectionKey, packageDigest: String, status: String,
@@ -105,6 +113,7 @@ class FileProviderNavigationStateStore(private val directory: File) {
         put("schemaVersion", 1); put("source", key(state.source)); put("releaseGeneration", state.releaseGeneration)
         put("packageDigest", state.packageDigest?.let(::JsonPrimitive) ?: JsonNull)
         put("packageGeneration", state.packageGeneration)
+        put("rowsSource", key(state.rowsSource))
         put("syncStatistics", JsonObject(state.syncStatistics.mapValues { JsonPrimitive(it.value) }))
         put("navigationStatus", state.navigationStatus?.let(::JsonPrimitive) ?: JsonNull)
         put("installments", JsonArray(state.installments.map { i -> JsonArray(
@@ -118,9 +127,8 @@ class FileProviderNavigationStateStore(private val directory: File) {
     private fun decode(bytes: ByteArray): ProviderNavigationStoredState {
         val json = ExtensionWireCodec.parseStrictJson(bytes, 4 * 1024 * 1024).jsonObject
         val required = setOf("schemaVersion", "source", "releaseGeneration", "packageDigest", "installments", "segments")
-        val statistics = setOf("syncStatistics", "navigationStatus")
-        require(json.keys == required || json.keys == required + statistics ||
-            json.keys == required + "packageGeneration" || json.keys == required + statistics + "packageGeneration")
+        val optional = setOf("syncStatistics", "navigationStatus", "packageGeneration", "rowsSource")
+        require(json.keys.containsAll(required) && optional.containsAll(json.keys - required))
         require(json.getValue("schemaVersion").jsonPrimitive.int == 1)
         val rows = json.getValue("installments").jsonArray; require(rows.size <= 10000)
         val installments = rows.map { row ->
@@ -137,7 +145,12 @@ class FileProviderNavigationStateStore(private val directory: File) {
             ProviderEpisodeSegment(requireNotNull(parseKey(s.getValue("key"))), int("mediaId"),
                 s.getValue("seriesKey").jsonPrimitive.content, int("sourceSeason"), int("providerFirst"), int("canonicalFirst"), int("count"))
         }
-        return ProviderNavigationStoredState(parseKey(json.getValue("source")),
+        val source = parseKey(json.getValue("source"))
+        // Files written before this field existed: the receipt source owned the rows exactly when it had accepted
+        // installments. A receipt that only ever recorded a failure has none.
+        val rowsSource = if ("rowsSource" in json) parseKey(json.getValue("rowsSource"))
+            else source.takeIf { installments.isNotEmpty() }
+        return ProviderNavigationStoredState(source,
             json.getValue("releaseGeneration").jsonPrimitive.long.also { require(it >= 0) },
             json.getValue("packageDigest").takeUnless { it == JsonNull }?.jsonPrimitive?.content?.also { require(it.matches(Regex("[0-9a-f]{64}"))) },
             installments, segments,
@@ -147,6 +160,7 @@ class FileProviderNavigationStateStore(private val directory: File) {
             json["navigationStatus"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.also {
                 require(it in setOf("READY", "UNAVAILABLE", "LAUNCHED", "LAUNCH_REJECTED"))
             },
-            json["packageGeneration"]?.jsonPrimitive?.long?.also { require(it >= 0) } ?: 0)
+            json["packageGeneration"]?.jsonPrimitive?.long?.also { require(it >= 0) } ?: 0,
+            rowsSource)
     }
 }

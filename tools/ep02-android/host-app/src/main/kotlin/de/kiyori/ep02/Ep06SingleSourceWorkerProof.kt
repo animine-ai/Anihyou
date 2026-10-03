@@ -375,7 +375,7 @@ internal object Ep06SingleSourceWorkerProof {
             check(before.isNotEmpty()) { "reopened Room lost accepted release projections" }
             // The product wiring: rows are presented only for the source whose refresh committed them.
             val calendarRepository = RoomReleasePresentationRepository(RoomReleaseProjectionRepository(reopened), reopened, policy, sources,
-                committedSource = receipt.state.map { it.source })
+                committedSource = receipt.state.map { it.rowsSource })
             val calendarRange = java.time.LocalDate.of(2026, 9, 18)..java.time.LocalDate.of(2026, 10, 16)
             val calendarBefore = calendarRepository.currentCalendar(null, calendarRange)
             check(calendarBefore.isNotEmpty() && calendarBefore.any { it.sourceDate == java.time.LocalDate.of(2026, 9, 30) }) {
@@ -531,7 +531,7 @@ internal object Ep06SingleSourceWorkerProof {
                 .put("realTransportFailureKeepsRowsMappingAndReceipt", true)
                 .put("transportFailureLayer", "production TLS socket path; fixture ends the connection after the handshake; device network unchanged; not whole-device offline")
                 .put("transportFailureRequestsReachedFixture", requestsReachedFixture)
-                .put("transportFailureOutcome", transportFailed.javaClass.simpleName)
+                .put("transportFailureOutcome", (transportFailed as? ShadowRefreshOutcome.Failed)?.let { "Failed:" + it.reason } ?: "NotFailed")
                 .put("staleRefreshUsesRealSignedGuestAndProductionTransport", true)
                 .put("manualExactMappingRetained", true).put("acceptedProjectionKeysRetained", true)
                 .put("refreshedDataSkipsAgain", true).put("productionWorkManagerDeviceProof", true)
@@ -582,7 +582,7 @@ internal object Ep06SingleSourceWorkerProof {
         }
     }
 
-    private class DirectParseGateRuntime(private val delegate: ExtensionRuntime) : ExtensionRuntime {
+    internal class DirectParseGateRuntime(private val delegate: ExtensionRuntime) : ExtensionRuntime {
         val directParseReached = CompletableDeferred<Unit>()
         val releaseDirectParse = CompletableDeferred<Unit>()
 

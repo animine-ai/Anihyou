@@ -7,6 +7,7 @@ import org.erdtman.jcs.JsonCanonicalizer;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 /** Device-generated signed packages and catalogs for the test-only EP07 proof. */
@@ -97,6 +99,79 @@ public final class Ep07TestChainBridge {
             .put("v2", v2.toJson()).put("v3", v3.toJson())
             .put("indexSequences", new JSONArray().put(1).put(2).put(3).put(4).put(5))
             .put("revocationIndexKeyId", keyIds[3]);
+    }
+
+    /**
+     * Second signed release of the pinned AniWorld guest for the integrated data/update proof. It is derived from the
+     * supplied TEST chain with the public TEST keys (label 13 index, label 14 publisher): the same module, provenance,
+     * notice, publisher, key and identity, with a new version and the next release sequence. The index of sequence 2
+     * lists both releases. Nothing is edited after signing. Never a production key.
+     */
+    public static JSONObject deriveAniWorldSecondRelease(File chainDirectory, File outputDirectory) throws Exception {
+        if (!outputDirectory.isDirectory() && !outputDirectory.mkdirs()) throw new IllegalStateException("fixture directory unavailable");
+        byte[] firstArchive = java.nio.file.Files.readAllBytes(new File(chainDirectory, "aniworld-test.arex").toPath());
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(firstArchive))) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = input.read(buffer)) >= 0) bytes.write(buffer, 0, read);
+                entries.put(entry.getName(), bytes.toByteArray());
+            }
+        }
+        for (String required : new String[]{"manifest.json", "module.wasm", "provenance.json", "NOTICE", "package.sig"}) {
+            if (!entries.containsKey(required)) throw new IllegalStateException("first release lacks " + required);
+        }
+        Ed25519PrivateKeyParameters publisherKey = testKey(14);
+        Ed25519PrivateKeyParameters indexKey = testKey(13);
+        String publisherKeyId = sha256(publisherKey.generatePublicKey().getEncoded());
+        String indexKeyId = sha256(indexKey.generatePublicKey().getEncoded());
+
+        JSONObject manifest = new JSONObject(new String(entries.get("manifest.json"), StandardCharsets.UTF_8));
+        if (!manifest.getString("keyId").equals(publisherKeyId) || !manifest.getString("extensionId").equals("de.aniworld")) {
+            throw new IllegalStateException("the supplied chain is not the pinned AniWorld TEST chain");
+        }
+        String secondVersion = "1.0.1-test.2";
+        manifest.put("version", secondVersion).put("releaseSequence", 2);
+        byte[] canonicalManifest = canonical(manifest);
+        JSONObject signature = new JSONObject().put("algorithm", "Ed25519").put("keyId", publisherKeyId)
+            .put("signature", Base64.toBase64String(sign("AREX-PACKAGE-V1\n", canonicalManifest, publisherKey)));
+        Map<String, byte[]> second = new LinkedHashMap<>();
+        second.put("manifest.json", manifest.toString().getBytes(StandardCharsets.UTF_8));
+        second.put("module.wasm", entries.get("module.wasm"));
+        second.put("provenance.json", entries.get("provenance.json"));
+        second.put("NOTICE", entries.get("NOTICE"));
+        second.put("package.sig", signature.toString().getBytes(StandardCharsets.UTF_8));
+        File secondFile = new File(outputDirectory, "aniworld-test-v2.arex");
+        writeDeterministicZip(secondFile, second);
+        byte[] secondArchive = java.nio.file.Files.readAllBytes(secondFile.toPath());
+
+        JSONObject firstIndex = new JSONObject(new String(
+            java.nio.file.Files.readAllBytes(new File(chainDirectory, "index.json").toPath()), StandardCharsets.UTF_8));
+        JSONObject signed = new JSONObject(firstIndex.getJSONObject("signed").toString());
+        JSONArray firstEntries = signed.getJSONArray("entries");
+        if (firstEntries.length() != 1) throw new IllegalStateException("one first release expected");
+        JSONObject firstEntry = firstEntries.getJSONObject(0);
+        JSONObject secondEntry = new JSONObject(firstEntry.toString());
+        String origin = new JSONObject(new String(java.nio.file.Files.readAllBytes(
+            new File(chainDirectory, "test-pin.json").toPath()), StandardCharsets.UTF_8))
+            .getJSONArray("distributionOrigins").getString(0);
+        String secondDigest = sha256(secondArchive);
+        secondEntry.put("version", secondVersion).put("releaseSequence", 2)
+            .put("packageUrl", origin + "/dist/de.aniworld/" + secondVersion + "/" + secondDigest + ".arex")
+            .put("archiveSha256", secondDigest).put("archiveBytes", secondArchive.length)
+            .put("manifestSha256", sha256(canonicalManifest));
+        signed.put("sequence", 2).put("entries", new JSONArray().put(firstEntry).put(secondEntry));
+        JSONObject envelope = new JSONObject().put("signed", signed).put("signatures", new JSONArray()
+            .put(new JSONObject().put("algorithm", "Ed25519").put("keyId", indexKeyId)
+                .put("signature", Base64.toBase64String(sign("AREX-INDEX-V1\n", canonical(signed), indexKey)))));
+        write(new File(outputDirectory, "index-v2.json"), envelope.toString().getBytes(StandardCharsets.UTF_8));
+        return new JSONObject().put("testTrustOnly", true).put("version", secondVersion).put("releaseSequence", 2)
+            .put("packageDigest", secondDigest).put("packageBytes", secondArchive.length)
+            .put("sameModuleDigest", sha256(entries.get("module.wasm")))
+            .put("firstPackageDigest", firstEntry.getString("archiveSha256"));
     }
 
     private static PackageArtifact packageArtifact(File directory, String name, String version, long sequence,

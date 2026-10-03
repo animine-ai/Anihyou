@@ -219,7 +219,7 @@ val animetrackerReleaseModule = module {
             get(), get(), get(), get(),
             // Rows are shown only for the source whose refresh committed them (no source attribution in the rows).
             committedSource = get<com.axiel7.anihyou.release.data.extension.FileProviderNavigationStateStore>().state
-                .map { it.source },
+                .map { it.rowsSource },
         )
     }
     single<ReleasePresentationRepository> { get<RoomReleasePresentationRepository>() }

@@ -481,8 +481,14 @@ private fun SourceExtensionInfo(
         Text(stringResource(R.string.extension_manage_metadata_stale), style = MaterialTheme.typography.bodySmall)
     }
     if (extension.candidateYanked) {
-        Text(stringResource(R.string.extension_manage_candidate_yanked),
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        // D1: when the withdrawn release is the one that is installed and healthy, it keeps running. Say that
+        // instead of implying an error: only a withdrawn candidate that is not installed is a problem.
+        val installedIsWithdrawn = extension.installedDigest != null && extension.installedDigest == extension.digest
+        Text(stringResource(if (installedIsWithdrawn) R.string.extension_manage_installed_yanked
+                else R.string.extension_manage_candidate_yanked),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (installedIsWithdrawn) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+            modifier = Modifier.testTag("extension-yank-note-${extension.extensionId}"))
     }
 }
 

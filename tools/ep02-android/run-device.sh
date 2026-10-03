@@ -208,6 +208,19 @@ assert all(revoked[key] is True for key in [
     'activeV3Preserved','packageGenerationUnchanged','operationFailedClosed'
 ]), revoked
 assert ep07['repositoryTransportUsed'] is True and ep07['productionTransportUsed'] is False, ep07
+integrated=f['ep05Canary']['ep07IntegratedDataUpdate']
+assert integrated['status']=='PASS' and integrated['testTrustOnly'] is True and integrated['productionPublication'] is False, integrated
+assert all(integrated[key] is True for key in [
+    'updateKeepsRowsMappingAndCalendar','staleFirstGenerationWorkerFencedByUpdate','fencedWorkerLeftReceiptUntouched',
+    'nextDueRunUsesNewActivePackage','freshSkipAfterUpdateExecutesNothing','rollbackKeepsRowsAndMapping',
+    'freshnessNotCrossingRollbackGeneration','releaseHighWaterKeptAcrossRollback','stalePreRollbackGenerationFenced',
+    'sameModuleDigest'
+]), integrated
+assert integrated['firstPackageDigest']!=integrated['secondPackageDigest'] and len(integrated['generations'])==3, integrated
+assert integrated['generations'][0]<integrated['generations'][1]<integrated['generations'][2], integrated
+assert integrated['acceptedRowsBeforeUpdate']>0 and integrated['acceptedRowsAfterUpdate']>=integrated['acceptedRowsBeforeUpdate'], integrated
+assert integrated['archiveFetches']==2, integrated
+print('EP07 INTEGRATED DATA UPDATE PROOF',json.dumps({k:integrated[k] for k in ['layer','generations','acceptedRowsBeforeUpdate','acceptedRowsAfterUpdate','archiveFetches']},separators=(',',':')))
 data=f['ep06SingleSourceWorker']['ep07ExtensionData']
 assert data['status']=='PASS' and data['testTrustOnly'] is True, data
 assert data['acceptedRowsAfterReopen'] > 0, data

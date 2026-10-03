@@ -36,7 +36,7 @@ class RoomReleasePresentationRepository(
     private val productPolicy: ExtensionProductPolicyRepository? = null,
     private val extensionSources: ExtensionSourceRepository? = null,
     /**
-     * The source whose refresh last committed the accepted extension rows (the source-bound receipt). Canonical rows
+     * The source whose refresh last committed the accepted extension rows (`rowsSource` of the source-bound receipt; a failed refresh never moves it). Canonical rows
      * are keyed by provider identity and carry no source attribution, so two sources that offer the same provider
      * would otherwise share them: a trusted source B must not present the rows that source A accepted, in particular
      * after A lost trust. When this flow is supplied, rows are presented only while the receipt names exactly the

@@ -23,6 +23,7 @@
     <string name="extension_manage_other_capabilities">Other capabilities</string>
     <string name="extension_manage_authority_separation">Navigation access does not grant release-data authority.</string>
     <string name="extension_manage_candidate_yanked">The latest signed candidate is yanked and cannot be installed.</string>
+    <string name="extension_manage_installed_yanked">The publisher has withdrawn this version. It is installed and keeps running, but it cannot be reinstalled or used as a rollback target.</string>
     <string name="extension_manage_metadata_stale">Repository metadata is stale or unavailable. The installed package remains separately assessed.</string>
     <string name="extension_manage_update_failure">Last update issue: %1$s</string>
     <string name="extension_manage_previous_good">Previous Good</string>

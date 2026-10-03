@@ -23,6 +23,7 @@
     <string name="extension_manage_other_capabilities">Weitere Berechtigungen</string>
     <string name="extension_manage_authority_separation">Navigationszugriff gewährt keine Berechtigung für Veröffentlichungsdaten.</string>
     <string name="extension_manage_candidate_yanked">Der neueste signierte Kandidat wurde zurückgezogen und kann nicht installiert werden.</string>
+    <string name="extension_manage_installed_yanked">Der Herausgeber hat diese Version zurückgezogen. Sie ist installiert und läuft weiter, kann aber nicht erneut installiert oder als Rollback-Ziel verwendet werden.</string>
     <string name="extension_manage_metadata_stale">Repository-Metadaten sind veraltet oder nicht verfügbar. Das installierte Paket wird unabhängig bewertet.</string>
     <string name="extension_manage_update_failure">Letztes Update-Problem: %1$s</string>
     <string name="extension_manage_previous_good">Vorherige gute Version</string>

@@ -339,7 +339,36 @@ class SingleSourceShadowRefreshCoordinatorTest {
             assertTrue("the new source must be able to commit after the old worker was fenced: $own",
                 own is ShadowRefreshOutcome.Committed)
             assertEquals(SOURCE_OTHER_PUBLISHER_KEY, rig.navigationStore.state.value.source)
+            assertEquals(SOURCE_OTHER_PUBLISHER_KEY, rig.navigationStore.state.value.rowsSource)
             assertEquals(extensionPackage(SOURCE_OTHER_PUBLISHER_KEY).packageDigest, rig.navigationStore.state.value.packageDigest)
+        }
+    }
+
+    @Test
+    fun `a failed first refresh of a new source does not take over the rows of the previous source`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(
+            SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY),
+            SOURCE_OTHER_PUBLISHER_KEY to extensionPackage(SOURCE_OTHER_PUBLISHER_KEY),
+        ))
+        val runtime = FixtureRuntime()
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = runtime)
+        withTimeout(30_000) {
+            val first = rig.worker.refreshForProductWork("a-commits-the-rows")
+            assertTrue("source A must commit: $first", first is ShadowRefreshOutcome.Committed)
+            assertEquals(SOURCE_A_KEY, rig.navigationStore.state.value.rowsSource)
+
+            rig.policy.selectActiveSource(SOURCE_OTHER_PUBLISHER_KEY)
+            runtime.failPlan = true
+            val failed = rig.worker.refreshForProductWork("other-publisher-first-refresh-fails")
+            assertTrue("the refresh of the new source must fail: $failed", failed is ShadowRefreshOutcome.Failed)
+            // The failure is recorded for the new source, but the rows still belong to A.
+            assertEquals(SOURCE_OTHER_PUBLISHER_KEY, rig.navigationStore.state.value.source)
+            assertEquals(SOURCE_A_KEY, rig.navigationStore.state.value.rowsSource)
+
+            runtime.failPlan = false
+            val own = rig.worker.refreshForProductWork("other-publisher-second-refresh-succeeds")
+            assertTrue("the new source must commit once its runtime works: $own", own is ShadowRefreshOutcome.Committed)
+            assertEquals(SOURCE_OTHER_PUBLISHER_KEY, rig.navigationStore.state.value.rowsSource)
         }
     }
 
@@ -589,7 +618,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
 
     private class FixtureRuntime(
         private val blockParsing: Boolean = false,
-        private val failPlan: Boolean = false,
+        @Volatile var failPlan: Boolean = false,
     ) : ExtensionRuntime {
         val exports = mutableListOf<String>()
         val parseEntered = CompletableDeferred<Unit>()

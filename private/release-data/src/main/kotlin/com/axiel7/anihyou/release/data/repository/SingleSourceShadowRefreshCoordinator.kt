@@ -136,8 +136,9 @@ class SingleSourceShadowRefreshCoordinator(
                     put("Transport status", "COORDINATOR_COMPLETED")
                     put("Sync duration", java.time.Duration.between(outcome.cycle.startedAt, outcome.cycle.completedAt).toMillis().toString() + " ms")
                 }
+                // Only a committed refresh makes this source the owner of the persisted rows.
                 navigationStore.record(selected, snapshot.releaseGeneration, pinned.packageDigest, accepted, statistics,
-                    pinned.packageGeneration)
+                    pinned.packageGeneration, rowsCommitted = true)
             }
         }
         if (outcome is ShadowRefreshOutcome.Failed) policy.withCurrentSelection(snapshot) {

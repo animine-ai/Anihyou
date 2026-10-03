@@ -113,6 +113,16 @@ internal object Ep05CanaryProof {
             }
             val retry = orchestrator.refreshForWork("ep05-real-guest-canary")
             check(retry is ShadowRefreshOutcome.Skipped && retry.reason == "generation-already-committed")
+            // Before the single-source proof: that proof leaves its periodic work for the external process kill, and
+            // every run of the WorkManager proof first cancels all work with the product tag.
+            val integratedDataUpdate = Ep07IntegratedDataUpdateProof.run(
+                context = context,
+                runtime = runtime,
+                chain = chain,
+                authority = authority,
+                targets = targets,
+                canonicalKey = canonicalKey,
+            )
             val singleSourceWorker = Ep06SingleSourceWorkerProof.run(
                 context = context,
                 runtime = runtime,
@@ -136,6 +146,7 @@ internal object Ep05CanaryProof {
                 .put("unknownTrackNoAuthority", true).put("unboundPostponementNoAuthority", true)
                 .put("roomShadowCommitted", true).put("idempotentWorkRetry", true).put("sourceHealth", health)
                 .put("ep06SingleSourceWorker", singleSourceWorker)
+                .put("ep07IntegratedDataUpdate", integratedDataUpdate)
                 .put("authorityDecision", JSONObject().put("canonicalKey", canonicalKey)
                     .put("phase", decision.phase).put("underlyingPhase", decision.underlyingPhase)
                     .put("authority", decision.authority))

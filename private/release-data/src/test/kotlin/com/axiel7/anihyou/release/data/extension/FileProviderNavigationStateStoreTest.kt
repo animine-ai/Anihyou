@@ -43,6 +43,50 @@ class FileProviderNavigationStateStoreTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun `row ownership moves only with a committed refresh and survives update and restart`() = runBlocking {
+        val directory = Files.createTempDirectory("ep07-rows-source").toFile()
+        try {
+            val store = FileProviderNavigationStateStore(directory)
+            val digestA = "a".repeat(64)
+            val digestB = "b".repeat(64)
+            val installment = AcceptedProviderInstallment("projection-1", "series", 1, "1", "DE_SUB")
+            store.record(a, 1, digestA, listOf(installment), packageGeneration = 1, rowsCommitted = true)
+            assertEquals(a, store.state.value.rowsSource)
+
+            // A refresh of another source that only failed moves the receipt source, never the row owner.
+            store.record(b, 2, digestB, emptyList(), mapOf("Last sync outcome" to "FAILED"), packageGeneration = 1)
+            assertEquals(b, store.state.value.source)
+            assertEquals(a, store.state.value.rowsSource)
+
+            // Its committed refresh makes it the owner.
+            store.record(b, 2, digestB, listOf(installment), packageGeneration = 1, rowsCommitted = true)
+            assertEquals(b, store.state.value.rowsSource)
+
+            // An update of the same source (new digest and generation) that fails keeps the owner.
+            store.record(b, 2, "c".repeat(64), emptyList(), mapOf("Last sync outcome" to "FAILED"), packageGeneration = 2)
+            assertEquals(b, store.state.value.rowsSource)
+
+            assertEquals(b, FileProviderNavigationStateStore(directory).state.value.rowsSource)
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `receipt written before row ownership existed derives the owner from accepted installments`() = runBlocking {
+        val withRows = Files.createTempDirectory("ep07-rows-source-legacy-rows").toFile()
+        val failureOnly = Files.createTempDirectory("ep07-rows-source-legacy-failure").toFile()
+        try {
+            val installment = AcceptedProviderInstallment("projection-1", "series", 1, "1", "DE_SUB")
+            FileProviderNavigationStateStore(withRows).record(a, 1, "a".repeat(64), listOf(installment), rowsCommitted = true)
+            FileProviderNavigationStateStore(failureOnly).record(a, 1, "a".repeat(64), emptyList())
+            for (directory in listOf(withRows, failureOnly)) {
+                val file = directory.resolve("navigation-state.json")
+                file.writeText(Regex(",\"rowsSource\":(null|\\[[^\\]]*\\])").replace(file.readText(), ""))
+                assertFalse(file.readText().contains("rowsSource"))
+            }
+            assertEquals(a, FileProviderNavigationStateStore(withRows).state.value.rowsSource)
+            assertNull(FileProviderNavigationStateStore(failureOnly).state.value.rowsSource)
+        } finally { withRows.deleteRecursively(); failureOnly.deleteRecursively() }
+    }
+
     @Test fun `legacy receipt without package generation reopens as generation zero`() = runBlocking {
         val directory = Files.createTempDirectory("ep06-navigation-legacy-generation").toFile()
         try {
