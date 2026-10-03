@@ -246,15 +246,19 @@ internal object Ep07IntegratedDataUpdateProof {
             check(policy.policy.value.activeReleaseSource == key)
 
             // 4. The next due execution runs with the newly active healthy package, not as fresh data of the old one.
-            val coordinator = ProductionExtensionReleaseRefreshCoordinator(
+            // Each phase gets its own host network ledger directory: the production ledger keeps a successful
+            // fetch of the same URL closed for six hours, so a later phase on the same ledger would model "the
+            // cooldown has not elapsed" instead of the data path under test.
+            fun productCoordinator(networkName: String) = ProductionExtensionReleaseRefreshCoordinator(
                 repository, policy, repository, receipt,
                 object : WorkScopedShadowRefreshCoordinator {
-                    private val updatedWorker = worker(runtime, "ep07-integrated-network-updated")
-                    override suspend fun refresh() = refreshForWork("ep07-integrated-due-updated")
-                    override suspend fun refreshForWork(workId: String) = updatedWorker.refreshForProductWork(workId)
+                    private val pinned = worker(runtime, networkName)
+                    override suspend fun refresh() = refreshForWork("ep07-integrated-due")
+                    override suspend fun refreshForWork(workId: String) = pinned.refreshForProductWork(workId)
                 },
                 workerClock,
             )
+            val coordinator = productCoordinator("ep07-integrated-network-updated")
             val afterUpdate = Ep07WorkManagerProof.due(context, coordinator)
             check(afterUpdate is ShadowRefreshOutcome.Committed && afterUpdate.refreshSucceeded) {
                 "the next due run after the update did not execute: $afterUpdate"
@@ -282,7 +286,8 @@ internal object Ep07IntegratedDataUpdateProof {
             check(database.reconciliationDao().projectionPage(256, 0) == rowsAfterUpdate)
             check(database.releaseDao().getExternalMapping(subject.stableKey, "anilist") == mapping)
             check(calendarRepository.currentCalendar(null, calendarRange).isNotEmpty())
-            val afterRollback = coordinator.refresh("ep07-integrated-due-rollback", false)
+            val afterRollback = productCoordinator("ep07-integrated-network-rollback")
+                .refresh("ep07-integrated-due-rollback", false)
             check(afterRollback is ShadowRefreshOutcome.Committed && afterRollback.refreshSucceeded) {
                 "freshness crossed the rollback generation: $afterRollback"
             }
@@ -311,6 +316,7 @@ internal object Ep07IntegratedDataUpdateProof {
                 .put("freshSkipAfterUpdateExecutesNothing", true)
                 .put("rollbackKeepsRowsAndMapping", true)
                 .put("freshnessNotCrossingRollbackGeneration", true)
+                .put("networkLedgerNote", "each phase uses its own host network ledger; the production ledger keeps a fetched URL closed for six hours, so a refresh right after a rollback may end as a retryable partial result while rows stay visible")
                 .put("releaseHighWaterKeptAcrossRollback", true)
                 .put("stalePreRollbackGenerationFenced", true)
                 .put("archiveFetches", archiveFetchUrls.size)
