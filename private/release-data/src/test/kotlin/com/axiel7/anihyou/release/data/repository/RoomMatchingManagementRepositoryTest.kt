@@ -470,6 +470,25 @@ class RoomMatchingManagementRepositoryTest {
         assertEquals(2L, row.revision)
     }
 
+    @Test fun rematchProcessesTheEntireCapturedScopeBeyondOneHundredEntries() = runBlocking {
+        val rig = Rig()
+        rig.releaseDao.upsertMappings((0 until 101).map { index ->
+            r2("aniworld/series-$index/EPISODE/1/DE_SUB", 1000 + index)
+        })
+
+        val token = rig.repository.capture(MappingScope.All)
+        assertEquals(101, token.count)
+
+        val progress = rig.repository.rematch(token).toList()
+
+        assertEquals(101, progress.first().total)
+        val results = progress.drop(1)
+        assertEquals(101, results.size)
+        assertTrue(results.all { it.outcome == MappingRematchOutcome.UNAVAILABLE })
+        assertEquals(101, progress.last().completed)
+        assertEquals(101, progress.last().total)
+    }
+
     @Test fun rematchKeepsABindingWhenNothingBetterExistsOrItChangedSinceConfirmation() = runBlocking {
         val rig = Rig()
         rig.dao.upsertSourceMapping(sourceRow(keyA, "aot", 1, 7))

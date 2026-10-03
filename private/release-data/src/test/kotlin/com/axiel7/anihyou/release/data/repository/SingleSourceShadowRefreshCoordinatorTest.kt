@@ -338,7 +338,9 @@ class SingleSourceShadowRefreshCoordinatorTest {
             override suspend fun refreshEnabled() = false
             override suspend fun activate(sourceId: String, extensionId: String) = Unit
         }
-        return ProductionExtensionReleaseRefreshCoordinator(sources, delegate ?: rig.worker)
+        val selectedCoordinator = delegate ?: if (access === rig.originalAccess) rig.worker
+            else rig.coordinatorFactory(access)
+        return ProductionExtensionReleaseRefreshCoordinator(sources, selectedCoordinator)
     }
 
     @Test
@@ -608,29 +610,33 @@ class SingleSourceShadowRefreshCoordinatorTest {
                 packageInfo.providerId.value, packageInfo.grantedRoles,
             ) }.toSet())
         val navigationStore = FileProviderNavigationStateStore(File(root, "navigation"))
-        val worker = SingleSourceShadowRefreshCoordinator(
-            policy = policy,
-            installed = installed,
-            runtime = runtime,
-            networkDirectory = network,
-            authority = authority,
-            reconciliation = reconciliation,
-            generations = RoomExtensionShadowGenerationStore(
-                database, reconciliation, clock, processEpoch = "worker-test",
-            ),
-            targetSource = ExtensionTargetSource { listOf(ACQUISITION_TARGET) },
-            clock = clock,
-            navigationStore = navigationStore,
-            postponementStore = postponementStore,
-            releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { repository, hostRuntime, _, observationPolicy ->
-                ExtensionHostCoordinator(
-                    repository, hostRuntime, hermeticProductionTransport(transportLedger, clock), observationPolicy,
-                    clock = clock, enabled = { true },
-                    parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L),
-                )
-            },
-        )
-        return Rig(worker, policy, navigationStore, runtime, reconciliation, File(root, "navigation"), clock, network)
+        val coordinatorFactory: (InstalledExtensionAccess) -> SingleSourceShadowRefreshCoordinator = { accessForWorker ->
+            SingleSourceShadowRefreshCoordinator(
+                policy = policy,
+                installed = accessForWorker,
+                runtime = runtime,
+                networkDirectory = network,
+                authority = authority,
+                reconciliation = reconciliation,
+                generations = RoomExtensionShadowGenerationStore(
+                    database, reconciliation, clock, processEpoch = "worker-test",
+                ),
+                targetSource = ExtensionTargetSource { listOf(ACQUISITION_TARGET) },
+                clock = clock,
+                navigationStore = navigationStore,
+                postponementStore = postponementStore,
+                releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { repository, hostRuntime, _, observationPolicy ->
+                    ExtensionHostCoordinator(
+                        repository, hostRuntime, hermeticProductionTransport(transportLedger, clock), observationPolicy,
+                        clock = clock, enabled = { true },
+                        parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L),
+                    )
+                },
+            )
+        }
+        val worker = coordinatorFactory(installed)
+        return Rig(worker, policy, navigationStore, runtime, reconciliation, File(root, "navigation"), clock, network,
+            originalAccess = installed, coordinatorFactory = coordinatorFactory)
     }
 
     private suspend fun assertCurrentEvidenceProducedReceipt(outcome: ShadowRefreshOutcome, rig: Rig) {
@@ -705,6 +711,8 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val navigationDirectory: File,
         val clock: MutableClock,
         val networkDirectory: File,
+        val originalAccess: InstalledExtensionAccess,
+        val coordinatorFactory: (InstalledExtensionAccess) -> SingleSourceShadowRefreshCoordinator,
     )
 
     /** A clock the test moves; the host, the generation store and the coordinator all read the same one. */

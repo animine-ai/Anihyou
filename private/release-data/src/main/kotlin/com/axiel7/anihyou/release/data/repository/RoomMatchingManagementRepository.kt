@@ -399,7 +399,9 @@ class RoomMatchingManagementRepository(
             emit(MappingRematchProgress(0, 0))
             return@flow
         }
-        val total = minOf(action.entryCount, MAX_REMATCH_ENTRIES)
+        // The captured scope is capped at MAX_SCOPE_ENTRIES and each entry performs bounded, cancellable work.
+        // Process the full confirmed scope so the UI cannot report a truncated batch as complete.
+        val total = action.entryCount
         emit(MappingRematchProgress(0, total))
         var from = 0
         var done = 0
@@ -450,7 +452,6 @@ class RoomMatchingManagementRepository(
     private companion object {
         const val CHUNK = 500
         const val MAX_SCOPE_ENTRIES = 20_000
-        const val MAX_REMATCH_ENTRIES = 100
         val TOKEN_TTL: Duration = Duration.ofHours(24)
         /** An accepted historical binding stays visible and manageable even after it went stale. */
         val MANAGED_STATUSES = setOf(MappingStatus.ACTIVE.name, MappingStatus.STALE.name)
