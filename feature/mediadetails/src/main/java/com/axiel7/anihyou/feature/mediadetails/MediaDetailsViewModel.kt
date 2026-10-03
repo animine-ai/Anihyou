@@ -574,8 +574,6 @@ class MediaDetailsViewModel(
             }
             .launchIn(viewModelScope)
 
-        // Resolve matching on detail entry without waiting for it to populate provider navigation.
-        // Key this work to the detail metadata, not list progress, so progress refreshes do not cancel/restart it.
         mutableUiState
             .mapNotNull { state ->
                 state.details?.let { details ->
@@ -591,24 +589,21 @@ class MediaDetailsViewModel(
                 }
             }
             .distinctUntilChanged()
-            .mapNotNull { (_, request) -> request }
-            .onEach { request ->
-                // The shared repository owns durable lookup, exact missing-identity resolution and coalescing.
-                try { matchingManagementRepository.ensureDetailMapping(request) }
-                catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { /* Keep accepted streaming results after a lookup failure. */ }
-            }
-            .launchIn(viewModelScope)
-
-        mutableUiState
-            .mapNotNull { state ->
-                state.details?.let { details ->
-                    val progress = details.mediaListEntry?.basicMediaListEntry?.progress ?: 0
-                    details.id to progress
+            .flatMapLatest { (mediaId, request) ->
+                val progress = mutableUiState.mapNotNull { state ->
+                    state.details?.takeIf { it.id == mediaId }?.let {
+                        it.mediaListEntry?.basicMediaListEntry?.progress ?: 0
+                    }
                 }
+                progress.observeNavigationAfterDetailMapping(
+                    mediaId = mediaId,
+                    request = request,
+                    ensureDetailMapping = { detailRequest ->
+                        matchingManagementRepository.ensureDetailMapping(detailRequest)
+                    },
+                    observe = providerNavigationProductRepository::observe,
+                )
             }
-            .distinctUntilChanged()
-            .flatMapLatest { (mediaId, progress) -> providerNavigationProductRepository.observe(mediaId, progress) }
             .onEach { productState ->
                 mutableUiState.update { state ->
                     state.copy(
