@@ -300,6 +300,29 @@ else:
     raise SystemExit(4)
 PY
 
+# pidof uses exit status 1 for a valid "no process" result. Keep that distinct from an
+# adb/device failure so set -e does not abort the process-restart proof before am kill.
+package_pid() {
+  local package="$1" output rc state
+  output=$(adb shell pidof "$package" 2>&1) && rc=0 || rc=$?
+  output=${output//$'\r'/}
+  if (( rc != 0 )); then
+    if [[ -n "$output" ]]; then
+      printf '%s\n' "$output" >&2
+      return "$rc"
+    fi
+    state=$(adb get-state 2>/dev/null) || {
+      echo "Unable to query adb device state while checking PID for $package" >&2
+      return 1
+    }
+    if [[ "$state" != "device" ]]; then
+      echo "Expected an online adb device, got '$state' while checking PID for $package" >&2
+      return 1
+    fi
+  fi
+  printf '%s' "$output"
+}
+
 # Finish instrumentation, then kill only the now-background process. am kill does not
 # set the package's force-stopped state, so its persisted WorkManager job can resume.
 wait "$instrumentation_pid" || true
@@ -310,12 +333,12 @@ PY
 )
 test -n "$seed_pid"
 printf '%s\n' "$seed_pid" > "$out/killed-seed-pid.txt"
-current_pid=$(adb shell pidof de.kiyori.ep02 | tr -d '\r')
+current_pid=$(package_pid de.kiyori.ep02)
 if [[ -n "$current_pid" ]]; then
   adb shell am kill de.kiyori.ep02
 fi
 for attempt in $(seq 1 30); do
-  current_pid=$(adb shell pidof de.kiyori.ep02 | tr -d '\r')
+  current_pid=$(package_pid de.kiyori.ep02)
   [[ -z "$current_pid" ]] && break
   sleep 1
 done
