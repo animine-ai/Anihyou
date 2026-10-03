@@ -76,7 +76,6 @@ class SingleSourceShadowRefreshCoordinator(
                 }
             }
         }
-        val dispatch = releaseHostFactory.create(repository, runtime, networkDirectory, authority.observationPolicy())
         val effectiveTracks = snapshot.preferencesFor(selected).enabledTracks.intersect(
             ObservationTrack.entries.filter { it != ObservationTrack.UNKNOWN }.map { it.name }.toSet())
         // Historical mapping adapters are explicitly bound to their provider, never reused for another source.
@@ -137,6 +136,8 @@ class SingleSourceShadowRefreshCoordinator(
         val scopedWorkId = MessageDigest.getInstance("SHA-256").digest(
             "$workId/${snapshot.releaseGeneration}/${pinned.packageDigest}/${pinned.packageGeneration}".toByteArray())
             .joinToString("") { "%02x".format(it) }
+        // The host exists only for a run that really asks the source: a typed skip never builds one.
+        val dispatch = releaseHostFactory.create(repository, runtime, networkDirectory, authority.observationPolicy())
         val outcome = ExtensionShadowSyncOrchestrator(dispatch, authority, reconciliation, generations, runTargets, clock,
             providerId = pinned.providerId,
             sourceRoles = runRoles,
