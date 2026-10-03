@@ -1,5 +1,6 @@
 package com.axiel7.anihyou
 
+import kotlinx.coroutines.flow.map
 import androidx.room.Room
 import com.axiel7.anihyou.release.core.api.IdentityCandidateSource
 import com.axiel7.anihyou.release.core.api.AniWorldShadowPollStore
@@ -213,7 +214,14 @@ val animetrackerReleaseModule = module {
         )
     }
     single { RoomReleaseProjectionRepository(get(), get(), get()) }
-    single { RoomReleasePresentationRepository(get(), get(), get(), get()) }
+    single {
+        RoomReleasePresentationRepository(
+            get(), get(), get(), get(),
+            // Rows are shown only for the source whose refresh committed them (no source attribution in the rows).
+            committedSource = get<com.axiel7.anihyou.release.data.extension.FileProviderNavigationStateStore>().state
+                .map { it.source },
+        )
+    }
     single<ReleasePresentationRepository> { get<RoomReleasePresentationRepository>() }
     single { RoomReleaseMappingRepository(get(), get()) }
     single<ReleaseMappingRepository> { get<RoomReleaseMappingRepository>() }

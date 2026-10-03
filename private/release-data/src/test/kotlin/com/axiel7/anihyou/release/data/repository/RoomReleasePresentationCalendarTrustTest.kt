@@ -31,6 +31,7 @@ import com.axiel7.anihyou.release.data.ReleaseEvidenceFingerprintV2
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import java.time.Instant
 import java.time.LocalDate
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -142,6 +143,10 @@ class RoomReleasePresentationCalendarTrustTest {
     private fun repository(db: ReleaseDatabase, policy: Policy, sources: Sources) =
         RoomReleasePresentationRepository(RoomReleaseProjectionRepository(db), db, policy, sources)
 
+    /** The product wiring: rows are presented only for the source whose refresh committed them. */
+    private fun gatedRepository(db: ReleaseDatabase, policy: Policy, sources: Sources, committed: Flow<ExtensionSelectionKey?>) =
+        RoomReleasePresentationRepository(RoomReleaseProjectionRepository(db), db, policy, sources, committed)
+
     @Test fun usableThenRevokedHidesAcceptedRowsWithoutDeletingThemAndResumesOnlyWhenTrustedAgain() = runBlocking {
         val db = open()
         try {
@@ -196,6 +201,67 @@ class RoomReleasePresentationCalendarTrustTest {
             assertTrue("rows of source A must not appear while source B is not usable", presented(repository).isEmpty())
             policy.selectActiveSource(keyA)
             assertEquals(1, presented(repository).size)
+        } finally { db.close() }
+    }
+
+    /**
+     * Canonical rows are keyed by provider identity and carry no source attribution. Two trusted sources that both
+     * offer provider "aniworld" (different source id, publisher and trust history) must therefore not share the
+     * presentation: B must not show what A accepted, in particular not after A lost trust.
+     */
+    @Test fun aSecondTrustedSourceOfTheSameProviderNeverInheritsTheFirstSourcesRowsAsItsOwn() = runBlocking {
+        val db = open()
+        try {
+            seedAcceptedRow(db)
+            val sources = Sources(listOf(source(keyA), source(keyB)))
+            val policy = Policy(ExtensionProductPolicy(activeReleaseSource = keyA))
+            val committed = MutableStateFlow<ExtensionSelectionKey?>(keyA)
+            val repository = gatedRepository(db, policy, sources, committed)
+            assertEquals("A committed these rows and is active", 1, presented(repository).size)
+
+            policy.selectActiveSource(keyB)
+            assertTrue("B is usable but A's rows are not B's", presented(repository).isEmpty())
+
+            // A is revoked, B is still trusted and active: the revoked source's rows stay hidden.
+            sources.sources.value = listOf(source(keyA, extension(keyA, usable = false, status = InstalledPackageStatus.REVOKED,
+                revoked = true)), source(keyB))
+            assertTrue(presented(repository).isEmpty())
+
+            // B's own refresh commits: the receipt now names B and its lane is presented.
+            committed.value = keyB
+            assertEquals(1, presented(repository).size)
+
+            // Going back to A does not present B's lane as A's.
+            policy.selectActiveSource(keyA)
+            assertTrue(presented(repository).isEmpty())
+            // The persisted evidence was never touched by any of this.
+            assertEquals(1, db.reconciliationDao().projectionPage(10, 0).size)
+        } finally { db.close() }
+    }
+
+    @Test fun anUpdatedPackageOfTheSameSourceKeepsItsRowsPresented() = runBlocking {
+        val db = open()
+        try {
+            seedAcceptedRow(db)
+            val sources = Sources(listOf(source(keyA)))
+            val repository = gatedRepository(db, Policy(ExtensionProductPolicy(activeReleaseSource = keyA)), sources,
+                MutableStateFlow<ExtensionSelectionKey?>(keyA))
+            assertEquals(1, presented(repository).size)
+            // A new package digest of the same source identity (update or rollback) keeps last-known-good rows.
+            sources.sources.value = listOf(source(keyA, extension(keyA).copy(installedDigest = "digest-after-update", digest = "digest-after-update")))
+            assertEquals(1, presented(repository).size)
+        } finally { db.close() }
+    }
+
+    @Test fun withoutAnyCommittedReceiptNoExtensionRowsArePresentedWhenTheGateIsActive() = runBlocking {
+        val db = open()
+        try {
+            seedAcceptedRow(db)
+            val sources = Sources(listOf(source(keyA)))
+            val policy = Policy(ExtensionProductPolicy(activeReleaseSource = keyA))
+            assertTrue(presented(gatedRepository(db, policy, sources, MutableStateFlow<ExtensionSelectionKey?>(null))).isEmpty())
+            // Without a gate the previous behaviour is unchanged (used by contexts that have no receipt store).
+            assertEquals(1, presented(repository(db, policy, sources)).size)
         } finally { db.close() }
     }
 

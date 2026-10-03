@@ -17,6 +17,7 @@ import com.axiel7.anihyou.release.core.model.ReleasePhase
 import com.axiel7.anihyou.release.core.model.ReleaseStreamKey
 import com.axiel7.anihyou.release.core.model.SourceSeriesKey
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
 import com.axiel7.anihyou.release.core.source.usableExtension
 import com.axiel7.anihyou.release.core.sync.ReleaseSourceTimePolicy
@@ -34,6 +35,15 @@ class RoomReleasePresentationRepository(
     private val database: ReleaseDatabase? = null,
     private val productPolicy: ExtensionProductPolicyRepository? = null,
     private val extensionSources: ExtensionSourceRepository? = null,
+    /**
+     * The source whose refresh last committed the accepted extension rows (the source-bound receipt). Canonical rows
+     * are keyed by provider identity and carry no source attribution, so two sources that offer the same provider
+     * would otherwise share them: a trusted source B must not present the rows that source A accepted, in particular
+     * after A lost trust. When this flow is supplied, rows are presented only while the receipt names exactly the
+     * active release source (source, extension, publisher and provider). A package update of the same source keeps
+     * the receipt, so last-known-good rows survive updates and rollbacks. When it is not supplied nothing is gated.
+     */
+    private val committedSource: Flow<ExtensionSelectionKey?>? = null,
 ) : ReleasePresentationRepository {
     override fun observeForMedia(
         accountId: Long?,
@@ -54,17 +64,23 @@ class RoomReleasePresentationRepository(
         }
         val db = database ?: return legacy
         val policy = productPolicy ?: return legacy
+        val selection = combine(policy.policy, committedSource ?: kotlinx.coroutines.flow.flowOf(null)) { product, committed ->
+            product to committed
+        }
         return combine(
             legacy,
             db.reconciliationDao().observeNavigationProjections(),
             db.releaseDao().observeActiveAniListMappings(),
-            policy.policy,
+            selection,
             extensionSources?.sources ?: kotlinx.coroutines.flow.flowOf(emptyList()),
-        ) { legacyRows, canonicalRows, mappings, product, catalog ->
+        ) { legacyRows, canonicalRows, mappings, (product, committed), catalog ->
             when (product.activeReleaseSource?.providerId) {
-                "aniworld" -> if (catalog.usableExtension(requireNotNull(product.activeReleaseSource)) != null) {
-                    canonicalRows.toExtensionCalendarItems(mappings, range)
-                } else emptyList()
+                "aniworld" -> {
+                    val active = requireNotNull(product.activeReleaseSource)
+                    if (catalog.usableExtension(active) != null && (committedSource == null || committed == active)) {
+                        canonicalRows.toExtensionCalendarItems(mappings, range)
+                    } else emptyList()
+                }
                 null -> legacyRows
                 else -> emptyList()
             }

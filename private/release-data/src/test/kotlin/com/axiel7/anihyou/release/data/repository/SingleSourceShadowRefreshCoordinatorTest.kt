@@ -314,6 +314,36 @@ class SingleSourceShadowRefreshCoordinatorTest {
     }
 
     @Test
+    fun `switch to a same-provider source of another publisher fences the old worker and the new source commits under its own receipt`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(
+            SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY),
+            SOURCE_OTHER_PUBLISHER_KEY to extensionPackage(SOURCE_OTHER_PUBLISHER_KEY),
+        ))
+        val runtime = FixtureRuntime(blockParsing = true)
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = runtime)
+        seedHealth()
+        withTimeout(30_000) {
+            val running = async { rig.worker.refreshForWork("a-worker-across-a-publisher-switch") }
+            runtime.parseEntered.await()
+
+            rig.policy.selectActiveSource(SOURCE_OTHER_PUBLISHER_KEY)
+            runtime.releaseParsing.complete(Unit)
+            val stale = running.await()
+
+            assertEquals(ShadowRefreshOutcome.Failed("stale-generation-token", retryable = false), stale)
+            assertHealthUnchanged()
+            assertNull("the old worker must not leave a receipt in the new source's context", rig.navigationStore.state.value.source)
+            assertNull(database.aniworldPollDao().activeGeneration(RoomExtensionShadowGenerationStore.SCOPE_ID))
+
+            val own = rig.worker.refreshForWork("other-publisher-own-run")
+            assertTrue("the new source must be able to commit after the old worker was fenced: $own",
+                own is ShadowRefreshOutcome.Committed)
+            assertEquals(SOURCE_OTHER_PUBLISHER_KEY, rig.navigationStore.state.value.source)
+            assertEquals(extensionPackage(SOURCE_OTHER_PUBLISHER_KEY).packageDigest, rig.navigationStore.state.value.packageDigest)
+        }
+    }
+
+    @Test
     fun `active source track preference change fences the pinned release generation`() = runBlocking {
         val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
         val runtime = FixtureRuntime(blockParsing = true)
@@ -702,6 +732,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
         )
         private val SOURCE_A_KEY = ExtensionSelectionKey("release-source-a", "de.aniworld", "fixture-publisher", "aniworld")
         private val SOURCE_B_KEY = ExtensionSelectionKey("release-source-b", "de.aniworld", "fixture-publisher", "aniworld")
+        private val SOURCE_OTHER_PUBLISHER_KEY = ExtensionSelectionKey("release-source-c", "de.aniworld", "other-publisher", "aniworld")
         private val NAVIGATION_ONLY_KEY = ExtensionSelectionKey("navigation-only", "de.navigation", "navigation-publisher", "otherprovider")
         private val DIRECT_TARGET = ExtensionTargetV1(
             targetToken = "target-1",

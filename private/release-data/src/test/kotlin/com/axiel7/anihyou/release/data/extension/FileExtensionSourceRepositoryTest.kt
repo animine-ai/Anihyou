@@ -9,6 +9,7 @@ import com.axiel7.anihyou.release.core.source.ExtensionPreferences
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.core.source.ExtensionUpdateFailure
 import com.axiel7.anihyou.release.core.source.ExtensionUpdateState
+import com.axiel7.anihyou.release.core.source.InstalledPackageStatus
 import java.io.File
 import java.io.IOException
 import java.nio.charset.StandardCharsets
@@ -35,9 +36,16 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
+import org.bouncycastle.crypto.signers.Ed25519Signer
+import org.erdtman.jcs.JsonCanonicalizer
+import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -866,6 +874,188 @@ class FileExtensionSourceRepositoryTest {
         assertEquals(ExtensionSourceStatus.DISABLED, repository.source(id).status)
     }
 
+    // ---- Planner decision D1 end to end: authentic TEST-root, index and package chain with the real verifiers ----------
+    // Every index below is signed at test time with the public EP03 TEST index key over a fixture index; nothing is
+    // edited after signing. The root, the package archives, the pin and all verification code are the real ones.
+
+    @Test
+    fun `signed yank of the installed latest release keeps it running across restart and a higher index lifts it`() = runBlocking {
+        val directory = temporaryFolder.newFolder("d1-signed-yank-installed")
+        val rig = SourceRig()
+        val repository = rig.repository(directory)
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val installed = repository.source(id).extensions.single()
+        val key = ExtensionSelectionKey(id, EXTENSION_ID, installed.publisherId, installed.providerId)
+        repository.productPolicy.selectActiveSource(key)
+        assertEquals(1, rig.transport.archiveRequests)
+        assertEquals(1, rig.smokeCalls.get())
+
+        rig.transport.indexBytes = signedIndex("index.json", 2) { _, entry -> entry.withFlag("yanked", true) }
+        repository.refresh(id)
+
+        val yanked = repository.source(id).extensions.single()
+        assertEquals(2L, repository.source(id).indexSequence)
+        assertNull(repository.source(id).lastFailure)
+        assertTrue("the signed index flags the installed latest release", yanked.candidateYanked)
+        assertEquals(OLD_DIGEST, yanked.installedDigest)
+        assertTrue("a yank alone never retires a healthy installed package", yanked.installedUsable)
+        assertEquals(InstalledPackageStatus.USABLE, yanked.installedStatus)
+        assertFalse(yanked.updateAvailable)
+        assertNull("a yanked release is not offered", yanked.latestAvailableVersion)
+        assertEquals(OLD_DIGEST, repository.loadInstalled(key)?.packageDigest)
+        assertTrue("a yank is not a security classification", rig.stores.last().snapshot().quarantinedDigests.isEmpty())
+        assertTrue(rig.stores.last().snapshot().revokedDigests.isEmpty())
+
+        repository.activate(id, EXTENSION_ID)
+        assertEquals("reconfirming the installed release fetches and verifies nothing", 1, rig.transport.archiveRequests)
+        assertEquals(1, rig.smokeCalls.get())
+        assertEquals(OLD_DIGEST, repository.loadInstalled(key)?.packageDigest)
+        assertNull(repository.source(id).extensions.single().lastUpdateFailure)
+
+        val restarted = rig.repository(directory)
+        restarted.restoreInstalled()
+        assertEquals(OLD_DIGEST, restarted.loadInstalled(key)?.packageDigest)
+        assertEquals(key, restarted.productPolicy.policy.value.activeReleaseSource)
+        assertTrue(restarted.source(id).extensions.single().candidateYanked)
+        assertEquals(1, rig.transport.archiveRequests)
+
+        rig.transport.indexBytes = signedIndex("index.json", 3)
+        restarted.refresh(id)
+        assertFalse("a strictly higher authenticated index lifts a pure yank", restarted.source(id).extensions.single().candidateYanked)
+        assertEquals(OLD_DIGEST, restarted.loadInstalled(key)?.packageDigest)
+        assertEquals(1, rig.transport.archiveRequests)
+    }
+
+    @Test
+    fun `signed yank of a newer candidate blocks the update until a higher authenticated index lifts it`() = runBlocking {
+        val rig = SourceRig()
+        val repository = rig.repository(temporaryFolder.newFolder("d1-signed-yank-candidate"))
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        assertEquals(1, rig.transport.archiveRequests)
+
+        rig.transport.indexBytes = signedIndex("index-v2.json", 2) { version, entry ->
+            if (version == "0.2.0") entry.withFlag("yanked", true) else entry
+        }
+        repository.refresh(id)
+        val offered = repository.source(id).extensions.single()
+        assertTrue(offered.candidateYanked)
+        assertFalse(offered.updateAvailable)
+        assertNull(offered.latestAvailableVersion)
+
+        repository.activate(id, EXTENSION_ID)
+        assertEquals("a yanked candidate is never downloaded", 1, rig.transport.archiveRequests)
+        assertEquals(OLD_DIGEST, repository.source(id).extensions.single().installedDigest)
+        assertTrue(repository.source(id).extensions.single().installedUsable)
+        assertEquals(1, rig.smokeCalls.get())
+
+        rig.transport.indexBytes = signedIndex("index-v2.json", 3)
+        repository.refresh(id)
+        assertTrue("the same candidate is distributable again after the lift", repository.source(id).extensions.single().updateAvailable)
+        repository.activate(id, EXTENSION_ID)
+        assertEquals(2, rig.transport.archiveRequests)
+        assertEquals(NEW_DIGEST, repository.source(id).extensions.single().installedDigest)
+    }
+
+    @Test
+    fun `signed yank of the previous good removes the rollback target without touching the current package`() = runBlocking {
+        val rig = SourceRig()
+        val repository = rig.repository(temporaryFolder.newFolder("d1-signed-yank-previous-good"))
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        rig.transport.indexBytes = resource("index-v2.json")
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val current = repository.source(id).extensions.single()
+        assertEquals(NEW_DIGEST, current.installedDigest)
+        assertEquals(OLD_DIGEST, current.rollbackTarget?.digest)
+
+        rig.transport.indexBytes = signedIndex("index-v2.json", 3) { version, entry ->
+            if (version == "0.1.0") entry.withFlag("yanked", true) else entry
+        }
+        repository.refresh(id)
+        val yankedFallback = repository.source(id).extensions.single()
+        assertNull("a yanked previous good is no new activation target", yankedFallback.rollbackTarget)
+        assertEquals(NEW_DIGEST, yankedFallback.installedDigest)
+        assertTrue(yankedFallback.installedUsable)
+        repository.rollback(id, EXTENSION_ID, yankedFallback.packageGeneration, OLD_DIGEST)
+        assertEquals(NEW_DIGEST, repository.source(id).extensions.single().installedDigest)
+        assertEquals(2, rig.transport.archiveRequests)
+
+        rig.transport.indexBytes = signedIndex("index-v2.json", 4)
+        repository.refresh(id)
+        val lifted = repository.source(id).extensions.single()
+        assertEquals(OLD_DIGEST, lifted.rollbackTarget?.digest)
+        repository.rollback(id, EXTENSION_ID, lifted.packageGeneration, OLD_DIGEST)
+        assertEquals(OLD_DIGEST, repository.source(id).extensions.single().installedDigest)
+    }
+
+    @Test
+    fun `signed revocation wins over a yank and a later lifted index cannot restore the digest`() = runBlocking {
+        val directory = temporaryFolder.newFolder("d1-signed-revoked-wins")
+        val rig = SourceRig()
+        val repository = rig.repository(directory)
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val installed = repository.source(id).extensions.single()
+        val key = ExtensionSelectionKey(id, EXTENSION_ID, installed.publisherId, installed.providerId)
+
+        rig.transport.indexBytes = signedIndex("index.json", 2) { _, entry ->
+            entry.withFlag("yanked", true).withFlag("revoked", true)
+        }
+        repository.refresh(id)
+        assertNull("a revoked package is never handed to a dispatch", repository.loadInstalled(key))
+        val revoked = repository.source(id).extensions.single()
+        assertEquals(InstalledPackageStatus.REVOKED, revoked.installedStatus)
+        assertFalse(revoked.installedUsable)
+        assertTrue(OLD_DIGEST in rig.stores.last().snapshot().revokedDigests)
+
+        rig.transport.indexBytes = signedIndex("index.json", 3)
+        repository.refresh(id)
+        assertNull("revocation is permanent: a clean higher index does not lift it", repository.loadInstalled(key))
+        val restarted = rig.repository(directory)
+        restarted.restoreInstalled()
+        assertNull(restarted.loadInstalled(key))
+        assertEquals(InstalledPackageStatus.REVOKED, restarted.source(id).extensions.single().installedStatus)
+        assertEquals(1, rig.transport.archiveRequests)
+    }
+
+    @Test
+    fun `replayed equivocal and expired indexes cannot lift a signed yank`() = runBlocking {
+        val rig = SourceRig()
+        val repository = rig.repository(temporaryFolder.newFolder("d1-signed-yank-not-liftable"))
+        val id = repository.addSource()
+        repository.refresh(id)
+        repository.activate(id, EXTENSION_ID)
+        val installed = repository.source(id).extensions.single()
+        val key = ExtensionSelectionKey(id, EXTENSION_ID, installed.publisherId, installed.providerId)
+        rig.transport.indexBytes = signedIndex("index.json", 2) { _, entry -> entry.withFlag("yanked", true) }
+        repository.refresh(id)
+        val acceptedDigest = repository.source(id).indexDigest
+        assertTrue(repository.source(id).extensions.single().candidateYanked)
+
+        listOf(
+            resource("index.json"),
+            signedIndex("index.json", 2),
+            signedIndex("index.json", 3, expiresAt = "2026-09-01T00:00:00Z"),
+        ).forEach { notLifting ->
+            rig.transport.indexBytes = notLifting
+            repository.refresh(id)
+            val state = repository.source(id)
+            assertEquals(2L, state.indexSequence)
+            assertEquals(acceptedDigest, state.indexDigest)
+            assertEquals(ExtensionSourceFailure.INVALID_METADATA, state.lastFailure)
+            assertTrue("the yank stays in force", state.extensions.single().candidateYanked)
+            assertEquals(OLD_DIGEST, repository.loadInstalled(key)?.packageDigest)
+        }
+        assertEquals(1, rig.transport.archiveRequests)
+    }
+
     private suspend fun FileExtensionSourceRepository.addSource(): String =
         (add(SOURCE_URL) as AddExtensionSourceResult.Added).sourceId
 
@@ -1042,6 +1232,45 @@ class FileExtensionSourceRepositoryTest {
             )
         }
         val TEST_ANCHOR = AuthenticatedExtensionSourceAnchor(TEST_PIN, setOf("example.org"))
+
+        /** The public EP03 TEST index key (test_key(3) of the guest tooling). Never a production key. */
+        val TEST_INDEX_KEY: Ed25519PrivateKeyParameters by lazy {
+            Ed25519PrivateKeyParameters(
+                MessageDigest.getInstance("SHA-256").digest("AREX-EP03-PUBLIC-TEST-ONLY:3".toByteArray(StandardCharsets.UTF_8)), 0)
+        }
+
+        fun JsonObject.withFlag(name: String, value: Boolean): JsonObject = JsonObject(this + (name to JsonPrimitive(value)))
+
+        /** Re-signs a fixture index with a new sequence and edited entries. The edit happens before signing. */
+        fun signedIndex(
+            base: String,
+            sequence: Long,
+            expiresAt: String? = null,
+            edit: (version: String, entry: JsonObject) -> JsonObject = { _, entry -> entry },
+        ): ByteArray {
+            val signed = Json.parseToJsonElement(resource(base).toString(StandardCharsets.UTF_8)).jsonObject.getValue("signed").jsonObject
+            val entries = signed.getValue("entries").jsonArray.map { element ->
+                val entry = element.jsonObject
+                edit(entry.getValue("version").jsonPrimitive.content, entry)
+            }
+            val next = JsonObject(signed + mapOf(
+                "sequence" to JsonPrimitive(sequence),
+                "entries" to JsonArray(entries),
+            ) + (expiresAt?.let { mapOf("expiresAt" to JsonPrimitive(it)) } ?: emptyMap()))
+            val message = "AREX-INDEX-V1\n".toByteArray(StandardCharsets.UTF_8) +
+                JsonCanonicalizer(next.toString()).encodedString.toByteArray(StandardCharsets.UTF_8)
+            val signer = Ed25519Signer().apply { init(true, TEST_INDEX_KEY) }
+            signer.update(message, 0, message.size)
+            val keyId = MessageDigest.getInstance("SHA-256").digest(TEST_INDEX_KEY.generatePublicKey().encoded)
+                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            val signature = JsonObject(mapOf(
+                "algorithm" to JsonPrimitive("Ed25519"),
+                "keyId" to JsonPrimitive(keyId),
+                "signature" to JsonPrimitive(Base64.getEncoder().encodeToString(signer.generateSignature())),
+            ))
+            return JsonObject(mapOf("signed" to next, "signatures" to JsonArray(listOf(signature))))
+                .toString().toByteArray(StandardCharsets.UTF_8)
+        }
 
         fun resource(name: String): ByteArray = requireNotNull(
             FileExtensionSourceRepositoryTest::class.java.getResourceAsStream("/ep03/$name"),
