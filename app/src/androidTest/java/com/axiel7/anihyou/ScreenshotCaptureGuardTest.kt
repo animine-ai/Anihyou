@@ -23,7 +23,7 @@ import org.junit.runner.RunWith
  * Regression for the invalid API 24 "diagnostics.png" that showed the Android launcher onboarding card
  * ("Welcome / Wallpapers, widgets, & settings") while every assertion of the test passed.
  *
- * The first four tests pin the decision on the exact facts that were wrong in that run. The last test drives the
+ * The first five tests pin the decision on the exact facts that were wrong in that run. The last test drives the
  * real device to the home screen and requires the live capture path to refuse a picture instead of storing it.
  */
 @RunWith(AndroidJUnit4::class)
@@ -51,11 +51,22 @@ class ScreenshotCaptureGuardTest {
     }
 
     @Test
-    fun anAppWindowThatIsPausedOrWithoutFocusIsRejected() {
+    fun anAppWindowThatIsPausedIsRejected() {
         assertEquals(listOf("activity is not RESUMED"),
             ScreenshotForegroundPolicy.violations(ForegroundSnapshot(app, app, activityResumed = false, windowFocused = true)))
-        assertEquals(listOf("activity window has no input focus"),
-            ScreenshotForegroundPolicy.violations(ForegroundSnapshot(app, app, activityResumed = true, windowFocused = false)))
+    }
+
+    @Test
+    fun anOwnDialogInFrontOfTheActivityIsStillTheAppScreen() {
+        // The rollback confirmation is an AlertDialog window: the activity window has no input focus, the app package
+        // still owns the active window. This exact state made the first guard refuse a valid screenshot.
+        val dialog = ForegroundSnapshot(app, app, activityResumed = true, windowFocused = false, windowPackages = listOf(app, app))
+        assertTrue(ScreenshotForegroundPolicy.violations(dialog).isEmpty())
+        assertTrue(ScreenshotForegroundPolicy.appDialogInFront(dialog))
+        // The same missing focus with a foreign active window is not an app dialog and stays refused.
+        val foreign = ForegroundSnapshot(app, "com.android.launcher3", activityResumed = true, windowFocused = false)
+        assertFalse(ScreenshotForegroundPolicy.violations(foreign).isEmpty())
+        assertFalse(ScreenshotForegroundPolicy.appDialogInFront(foreign))
     }
 
     @Test
@@ -79,6 +90,7 @@ class ScreenshotCaptureGuardTest {
         val report = File(directory, "guard-positive.capture.txt").readText()
         assertTrue(report, report.contains("activeWindowPackageBefore=${composeRule.activity.packageName}"))
         assertTrue(report, report.contains("activityResumed=true/true"))
+        assertTrue(report, report.contains("appDialogInFront=false/false"))
 
         // Negative: show the real home screen. The OS must report a different active window, and the capture
         // must refuse to produce any file, in bounded time.

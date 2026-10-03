@@ -24,7 +24,10 @@ def reduce(png: Path):
     try:
         from PIL import Image
     except ImportError:
-        subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "pillow"], check=False)
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "--break-system-packages", "pillow"],
+            check=False,
+        )
         from PIL import Image
     with Image.open(png) as image:
         original = image.size

@@ -67,7 +67,9 @@ for name in sorted(expected):
     fields=dict(line.split('=',1) for line in report.splitlines() if '=' in line)
     package=fields['expectedPackage']
     assert fields['activeWindowPackageBefore']==package and fields['activeWindowPackageAfter']==package, (name,report)
-    assert fields['activityResumed']=='true/true' and fields['windowFocused']=='true/true', (name,report)
+    # An own dialog in front of the activity (rollback confirmation) is allowed; a foreign window never is (checked above).
+    assert fields['activityResumed']=='true/true' and fields['activityWindowFocused'] in ('true/true','false/false'), (name,report)
+    assert (fields['activityWindowFocused'],fields['appDialogInFront']) in (('true/true','false/false'),('false/false','true/true')), (name,report)
 guard=(out/'guard'/'guard-positive.capture.txt').read_text()
 assert 'activityResumed=true/true' in guard and not (out/'guard'/'guard-negative.png').exists(), guard
 report={'status':'PASS','api':int(sys.argv[2]),'tests':int(match[1]),'failures':0,'skips':0,

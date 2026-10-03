@@ -48,15 +48,25 @@ internal data class ForegroundSnapshot(
     val windowPackages: List<String> = emptyList(),
 )
 
-/** The fail-closed decision: an empty list means the app screen is the one being displayed. */
+/**
+ * The fail-closed decision: an empty list means the app screen is the one being displayed.
+ *
+ * The activity window itself loses input focus while one of the app's own dialogs (for example the rollback
+ * confirmation) is in front of it. That is still the app screen: the active window belongs to the app package and the
+ * activity stays RESUMED. A window of another package (launcher, system UI, another app) in the foreground is always a
+ * violation, whatever focus the activity window reports.
+ */
 internal object ScreenshotForegroundPolicy {
     fun violations(snapshot: ForegroundSnapshot): List<String> = buildList {
         if (snapshot.activeWindowPackage != snapshot.expectedPackage) {
             add("active window belongs to ${snapshot.activeWindowPackage ?: "no package"}, expected ${snapshot.expectedPackage}")
         }
         if (!snapshot.activityResumed) add("activity is not RESUMED")
-        if (!snapshot.windowFocused) add("activity window has no input focus")
     }
+
+    /** True when an own window (dialog) sits in front of the activity window. Reported, never a violation. */
+    fun appDialogInFront(snapshot: ForegroundSnapshot): Boolean =
+        snapshot.activeWindowPackage == snapshot.expectedPackage && snapshot.activityResumed && !snapshot.windowFocused
 }
 
 internal class ScreenshotNotOfAppException(message: String) : AssertionError(message)
@@ -143,7 +153,8 @@ internal fun ComposeTestRule.captureVerifiedScreenshot(
         appendLine("activeWindowPackageBefore=${before.activeWindowPackage}")
         appendLine("activeWindowPackageAfter=${after.activeWindowPackage}")
         appendLine("activityResumed=${before.activityResumed}/${after.activityResumed}")
-        appendLine("windowFocused=${before.windowFocused}/${after.windowFocused}")
+        appendLine("activityWindowFocused=${before.windowFocused}/${after.windowFocused}")
+        appendLine("appDialogInFront=${ScreenshotForegroundPolicy.appDialogInFront(before)}/${ScreenshotForegroundPolicy.appDialogInFront(after)}")
         appendLine("windowPackages=${before.windowPackages}")
         appendLine("attempts=$attempts")
         appendLine("firstAttemptViolations=$firstViolations")
