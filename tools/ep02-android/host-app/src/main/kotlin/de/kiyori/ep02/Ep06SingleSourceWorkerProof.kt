@@ -1,3 +1,5 @@
+@file:Suppress("INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
+
 package de.kiyori.ep02
 
 import android.content.Context
@@ -386,7 +388,9 @@ internal object Ep06SingleSourceWorkerProof {
                     generations = RoomExtensionShadowGenerationStore(reopened, workerReconciliation, workerClock, process),
                     targetSource = targets, clock = workerClock, navigationStore = receipt,
                     releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { repository, actualRuntime, directory, observationPolicy ->
-                        ExtensionHostCoordinator(repository, actualRuntime, ProductionExtensionTransportFactory.create(directory),
+                        ExtensionHostCoordinator(repository, actualRuntime, ProductionExtensionHttpTransport(
+                            FileExtensionNetworkLedger(directory), clock = workerClock,
+                        ),
                             observationPolicy, clock = workerClock, enabled = { true },
                             parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L))
                     },
