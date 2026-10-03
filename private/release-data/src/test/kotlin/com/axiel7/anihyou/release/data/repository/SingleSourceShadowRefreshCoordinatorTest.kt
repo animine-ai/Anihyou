@@ -138,6 +138,20 @@ class SingleSourceShadowRefreshCoordinatorTest {
     }
 
     @Test
+    fun `a restart that reads policy, receipt and ledger from disk again skips without creating a host`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = FixtureRuntime())
+        assertTrue(product(rig, access).refresh("seed-slot", ExtensionRefreshTrigger.SCHEDULED_SLOT) is ShadowRefreshOutcome.Committed)
+        // Like the device proof: two hours later the start of a process refreshes the lists, then asks again.
+        rig.clock.now = NOW.plusSeconds(2 * 3600)
+        assertTrue(product(rig, access).refresh("stale-start", ExtensionRefreshTrigger.PROCESS_START) is ShadowRefreshOutcome.Committed)
+        val again = product(rig, access).refresh("start-again", ExtensionRefreshTrigger.PROCESS_START)
+        assertTrue("the same process must skip, got $again", again is ShadowRefreshOutcome.Skipped)
+        val restarted = product(rig, access, delegate = rig.restarted()).refresh("restarted-start", ExtensionRefreshTrigger.PROCESS_START)
+        assertTrue("the restarted process must skip, got $restarted", restarted is ShadowRefreshOutcome.Skipped)
+    }
+
+    @Test
     fun `soft freshness survives an update and a rollback of the same source`() = runBlocking {
         val first = extensionPackage(SOURCE_A_KEY, packageGeneration = 6)
         val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to first))
@@ -635,8 +649,28 @@ class SingleSourceShadowRefreshCoordinatorTest {
             )
         }
         val worker = coordinatorFactory(installed)
+        val restarted: () -> SingleSourceShadowRefreshCoordinator = {
+            val reloadedReconciliation = RoomReleaseReconciliationRepository(database)
+            SingleSourceShadowRefreshCoordinator(
+                policy = FileExtensionProductPolicyRepository(File(root, "policy")) { true },
+                installed = installed,
+                runtime = runtime,
+                networkDirectory = network,
+                authority = authority,
+                reconciliation = reloadedReconciliation,
+                generations = RoomExtensionShadowGenerationStore(
+                    database, reloadedReconciliation, clock, processEpoch = "restarted-test",
+                ),
+                targetSource = ExtensionTargetSource { emptyList() },
+                clock = clock,
+                navigationStore = FileProviderNavigationStateStore(File(root, "navigation")),
+                releaseHostFactory = ReleaseExtensionHostCoordinatorFactory { _, _, _, _ ->
+                    error("a restarted process with fresh data must not create a host")
+                },
+            )
+        }
         return Rig(worker, policy, navigationStore, runtime, reconciliation, File(root, "navigation"), clock, network,
-            originalAccess = installed, coordinatorFactory = coordinatorFactory)
+            originalAccess = installed, coordinatorFactory = coordinatorFactory, restarted = restarted)
     }
 
     private suspend fun assertCurrentEvidenceProducedReceipt(outcome: ShadowRefreshOutcome, rig: Rig) {
@@ -713,6 +747,8 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val networkDirectory: File,
         val originalAccess: InstalledExtensionAccess,
         val coordinatorFactory: (InstalledExtensionAccess) -> SingleSourceShadowRefreshCoordinator,
+        /** A coordinator of a new process: policy and receipt are read from disk again, nothing is shared in memory. */
+        val restarted: () -> SingleSourceShadowRefreshCoordinator,
     )
 
     /** A clock the test moves; the host, the generation store and the coordinator all read the same one. */
