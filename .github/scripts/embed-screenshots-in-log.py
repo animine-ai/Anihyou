@@ -13,6 +13,7 @@ Format, one record per picture:
 import base64
 import hashlib
 import io
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -20,15 +21,43 @@ from pathlib import Path
 CHUNK = 3000
 
 
-def reduce(png: Path):
+def pillow_image():
     try:
         from PIL import Image
     except ImportError:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "--break-system-packages", "pillow"],
-            check=False,
-        )
-        from PIL import Image
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--quiet", "--break-system-packages", "pillow"],
+                check=False, timeout=120, stdout=sys.stderr, stderr=sys.stderr,
+            )
+            from PIL import Image
+        except (ImportError, OSError, subprocess.TimeoutExpired):
+            return None
+    return Image
+
+
+def reduce(png: Path, image_module):
+    if image_module is None:
+        convert = shutil.which("convert")
+        if convert is None:
+            raise RuntimeError("Pillow and ImageMagick convert are both unavailable")
+        png_bytes = png.read_bytes()
+        original_text = subprocess.run(
+            [convert, "png:-", "-format", "%w %h", "info:"], input=png_bytes,
+            check=True, capture_output=True, timeout=30,
+        ).stdout.decode("ascii")
+        original = tuple(map(int, original_text.split()))
+        jpeg = subprocess.run(
+            [convert, "png:-", "-background", "white", "-alpha", "remove", "-alpha", "off",
+             "-resize", "720x>", "-strip", "-quality", "72", "jpeg:-"],
+            input=png_bytes, check=True, capture_output=True, timeout=30,
+        ).stdout
+        reduced_text = subprocess.run(
+            [convert, "jpeg:-", "-format", "%w %h", "info:"], input=jpeg,
+            check=True, capture_output=True, timeout=30,
+        ).stdout.decode("ascii")
+        return original, tuple(map(int, reduced_text.split())), jpeg
+    Image = image_module
     with Image.open(png) as image:
         original = image.size
         rgb = image.convert("RGB")
@@ -41,11 +70,23 @@ def reduce(png: Path):
 
 
 def main() -> None:
+    if len(sys.argv) != 3:
+        print("EP07IMG-WARNING expected API and screenshot directory", file=sys.stderr)
+        return
     api = sys.argv[1]
     directory = Path(sys.argv[2])
-    for png in sorted(directory.glob("*.png")):
-        original_hash = hashlib.sha256(png.read_bytes()).hexdigest()
-        original, reduced_size, jpeg = reduce(png)
+    pngs = sorted(directory.glob("*.png"))
+    if not pngs:
+        print(f"EP07IMG-WARNING no PNGs in {directory}", file=sys.stderr)
+        return
+    image_module = pillow_image()
+    for png in pngs:
+        try:
+            original_hash = hashlib.sha256(png.read_bytes()).hexdigest()
+            original, reduced_size, jpeg = reduce(png, image_module)
+        except Exception as error:
+            print(f"EP07IMG-WARNING {api} {png.name}: {type(error).__name__}: {error}", file=sys.stderr)
+            continue
         encoded = base64.b64encode(jpeg).decode("ascii")
         chunks = [encoded[i:i + CHUNK] for i in range(0, len(encoded), CHUNK)]
         name = png.stem

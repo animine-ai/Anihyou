@@ -70,6 +70,8 @@ for name in sorted(expected):
     # An own dialog in front of the activity (rollback confirmation) is allowed; a foreign window never is (checked above).
     assert fields['activityResumed']=='true/true' and fields['activityWindowFocused'] in ('true/true','false/false'), (name,report)
     assert (fields['activityWindowFocused'],fields['appDialogInFront']) in (('true/true','false/false'),('false/false','true/true')), (name,report)
+    expected_method='uiAutomation' if int(sys.argv[2])<26 or fields['appDialogInFront']=='true/true' else 'composeRoot'
+    assert fields['captureMethod']==expected_method, (name,report)
 guard=(out/'guard'/'guard-positive.capture.txt').read_text()
 assert 'activityResumed=true/true' in guard and not (out/'guard'/'guard-negative.png').exists(), guard
 report={'status':'PASS','api':int(sys.argv[2]),'tests':int(match[1]),'failures':0,'skips':0,
@@ -77,4 +79,3 @@ report={'status':'PASS','api':int(sys.argv[2]),'tests':int(match[1]),'failures':
 (out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
 print('EP07 PRODUCT UI VERIFIED',json.dumps(report,separators=(',',':')))
 PY
-

@@ -2,6 +2,7 @@ package com.axiel7.anihyou
 
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -32,6 +33,39 @@ class ScreenshotCaptureGuardTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     private val app = "com.axiel7.anihyou.debug"
+
+    @Test
+    fun liveOwnDialogIsCapturedThroughTheDeviceDisplay() {
+        composeRule.setContent {
+            MaterialTheme {
+                Text("Activity behind dialog")
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = { Text("EP07 dialog capture", Modifier.testTag("guard-dialog-marker")) },
+                    text = { Text("This own dialog must appear in the device screenshot") },
+                    confirmButton = { Text("Confirm") },
+                )
+            }
+        }
+        val directory = File(composeRule.activity.getExternalFilesDir(null), "ep07-guard")
+        composeRule.storeVerifiedScreenshot(composeRule.activity, directory, "guard-dialog") {
+            composeRule.onNodeWithTag("guard-dialog-marker").assertIsDisplayed()
+        }
+        val report = File(directory, "guard-dialog.capture.txt").readText()
+        assertTrue(report, report.contains("captureMethod=uiAutomation"))
+        assertTrue(report, report.contains("appDialogInFront=true/true"))
+        assertTrue(File(directory, "guard-dialog.png").length() > 0)
+    }
+
+    @Test
+    fun ownDialogsUseTheDeviceScreenshotOnEverySupportedApi() {
+        for (sdk in listOf(24, 26, 35)) {
+            assertTrue("dialog on API $sdk", useDeviceScreenshot(sdk, appDialogInFront = true))
+        }
+        assertTrue(useDeviceScreenshot(24, appDialogInFront = false))
+        assertFalse(useDeviceScreenshot(26, appDialogInFront = false))
+        assertFalse(useDeviceScreenshot(35, appDialogInFront = false))
+    }
 
     @Test
     fun launcherOnboardingScreenIsNotTheAppScreen() {

@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
@@ -18,18 +19,22 @@ import java.io.File
  * Captures the real rendered state for screenshot gates on every supported API level.
  *
  * Compose's captureToImage uses PixelCopy.request(Window, Rect, ...), which does not exist before API 26 and made
- * the whole API24 suite fail before any assertion could judge the screen. API 26 and newer keep that exact path.
- * Below API 26 the instrumentation takes a screenshot of the actual display through UiAutomation after Compose is
+ * the whole API24 suite fail before any assertion could judge the screen. API 26 and newer use that path only when
+ * no own dialog is in front of the activity. Dialogs have a separate window and need the full display capture.
+ * Below API 26, and for own dialogs on every API, instrumentation captures the actual display through UiAutomation after Compose is
  * idle. The result is a non-empty full-screen bitmap, never a skipped assertion or a placeholder image.
  *
  * UiAutomation captures the global display, not the Compose root. An idle Compose tree and a non-empty bitmap do not
  * prove that the app is on screen: the launcher onboarding card was once stored as "diagnostics.png" on API 24.
- * [captureVerifiedScreenshot] therefore refuses to store a picture unless the app window is the active, focused,
- * RESUMED window both before and after the capture and the expected screen content is displayed.
+ * [captureVerifiedScreenshot] refuses to store a picture unless the active window belongs to the app, the activity
+ * is RESUMED before and after capture, and the expected content is displayed. An own dialog may hold input focus.
  */
-internal fun ComposeTestRule.captureRootBitmap(): Bitmap {
+internal fun useDeviceScreenshot(sdk: Int, appDialogInFront: Boolean): Boolean =
+    sdk < Build.VERSION_CODES.O || appDialogInFront
+
+internal fun ComposeTestRule.captureRootBitmap(appDialogInFront: Boolean = false): Bitmap {
     waitForIdle()
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    if (!useDeviceScreenshot(Build.VERSION.SDK_INT, appDialogInFront)) {
         return onRoot().captureToImage().asAndroidBitmap()
     }
     val screenshot = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()) {
@@ -46,6 +51,7 @@ internal data class ForegroundSnapshot(
     val activityResumed: Boolean,
     val windowFocused: Boolean,
     val windowPackages: List<String> = emptyList(),
+    val activityFlagSecure: Boolean = false,
 )
 
 /**
@@ -80,9 +86,11 @@ internal fun readForegroundSnapshot(activity: ComponentActivity): ForegroundSnap
     val instrumentation = InstrumentationRegistry.getInstrumentation()
     var resumed = false
     var focused = false
+    var secure = false
     instrumentation.runOnMainSync {
         resumed = activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && !activity.isFinishing
         focused = activity.window.decorView.hasWindowFocus()
+        secure = (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
     }
     val automation = instrumentation.uiAutomation
     @Suppress("DEPRECATION")
@@ -94,7 +102,7 @@ internal fun readForegroundSnapshot(activity: ComponentActivity): ForegroundSnap
             window.root?.let { root -> root.packageName?.toString().also { root.recycle() } }
         }
     }.getOrDefault(emptyList())
-    return ForegroundSnapshot(activity.packageName, activePackage, resumed, focused, windows)
+    return ForegroundSnapshot(activity.packageName, activePackage, resumed, focused, windows, secure)
 }
 
 /**
@@ -136,12 +144,18 @@ internal fun ComposeTestRule.captureVerifiedScreenshot(
         Thread.sleep(100)
     }
     assertTarget()
-    val bitmap = captureRootBitmap()
+    val dialogInFront = ScreenshotForegroundPolicy.appDialogInFront(before)
+    val deviceScreenshot = useDeviceScreenshot(Build.VERSION.SDK_INT, dialogInFront)
+    val bitmap = captureRootBitmap(appDialogInFront = dialogInFront)
     val after = readForegroundSnapshot(activity)
     val afterProblems = ScreenshotForegroundPolicy.violations(after)
     if (afterProblems.isNotEmpty()) {
         bitmap.recycle()
         throw ScreenshotNotOfAppException("$name: the foreground changed during the capture: $afterProblems; windows=${after.windowPackages}")
+    }
+    if (ScreenshotForegroundPolicy.appDialogInFront(after) != dialogInFront) {
+        bitmap.recycle()
+        throw ScreenshotNotOfAppException("$name: the app dialog state changed during the capture")
     }
     assertTarget()
     check(distinctSampledColors(bitmap) >= 3) { "$name: the captured frame is blank" }
@@ -149,6 +163,8 @@ internal fun ComposeTestRule.captureVerifiedScreenshot(
     val report = buildString {
         appendLine("name=$name")
         appendLine("sdk=${Build.VERSION.SDK_INT}")
+        appendLine("captureMethod=${if (deviceScreenshot) "uiAutomation" else "composeRoot"}")
+        appendLine("activityFlagSecure=${before.activityFlagSecure}/${after.activityFlagSecure}")
         appendLine("expectedPackage=${before.expectedPackage}")
         appendLine("activeWindowPackageBefore=${before.activeWindowPackage}")
         appendLine("activeWindowPackageAfter=${after.activeWindowPackage}")
