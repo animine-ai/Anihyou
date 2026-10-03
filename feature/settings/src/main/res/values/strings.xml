@@ -61,4 +61,47 @@
     <string name="extension_sources_failure_package">Invalid package</string>
     <string name="extension_sources_failure_runtime">Unsupported runtime</string>
     <string name="extension_sources_failure_storage">Storage error</string>
+
+    <!-- Settings-only persistent matching management. -->
+    <string name="matching_title">Manage matching</string>
+    <string name="matching_search">Search source titles or IDs</string>
+    <string name="matching_all_sources">All sources</string>
+    <string name="matching_count">%1$d saved matches · %2$d selected</string>
+    <string name="matching_empty">No saved matches for this search.</string>
+    <string name="matching_source_id">Source ID: %1$s</string>
+    <string name="matching_unknown_source">Source provenance unknown</string>
+    <string name="matching_manual">Manual mapping</string>
+    <string name="matching_automatic">Accepted automatic mapping</string>
+    <string name="matching_edit">Edit existing mapping</string>
+    <string name="matching_target_search">Find the correct AniList anime</string>
+    <string name="matching_find">Search AniList</string>
+    <string name="matching_save_target">Save selected target</string>
+    <string name="matching_scope_entry">This entry only</string>
+    <string name="matching_scope_selected">Selected entries: %1$d</string>
+    <string name="matching_scope_source">Entire source: %1$s (including search-hidden matches)</string>
+    <string name="matching_scope_all">All saved mappings, across every source (including hidden matches)</string>
+    <string name="matching_clear_selection">Clear selection</string>
+    <string name="matching_reset">Remove mappings</string>
+    <string name="matching_rematch">Match again</string>
+    <string name="matching_confirm_count">Affected saved entries: %1$d</string>
+    <string name="matching_reset_help">Only these mappings are removed. Source data and AniList data remain. This does not start matching.</string>
+    <string name="matching_rematch_help">Start a bounded matching request for these entries. Existing accepted mappings remain until a valid replacement is saved.</string>
+    <string name="matching_start">Confirm and start</string>
+    <string name="matching_cancel">Cancel</string>
+    <string name="matching_close">Close</string>
+    <string name="matching_previous">Previous page</string>
+    <string name="matching_next">Next page</string>
+    <string name="matching_progress">Processed %1$d of %2$d</string>
+    <string name="matching_results">Latest entry results</string>
+    <string name="matching_replaced">Replacement saved</string>
+    <string name="matching_retained">Previous mapping retained</string>
+    <string name="matching_applied">Saved.</string>
+    <string name="matching_stale">The saved mapping changed. Reload and confirm the current scope.</string>
+    <string name="matching_failed">The operation could not complete. Check entry results and try again.</string>
+    <string name="matching_cancelled">Cancelled. Completed valid replacements remain saved.</string>
+    <string name="matching_finished">Matching request finished. Check individual entry results.</string>
+    <string name="matching_configuration">Matcher configuration</string>
+    <string name="matching_no_options">This matcher has no configurable options. Source language and track preferences are managed on the previous settings page.</string>
+    <string name="matching_reset_configuration">Reset matcher configuration</string>
+    <string name="matching_configuration_reset_help">Reset supported matcher options to their defaults. Saved mappings, source selection and language preferences remain unchanged.</string>
 </resources>

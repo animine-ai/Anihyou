@@ -93,38 +93,8 @@ fun MediaInformationView(
     val context = LocalContext.current
     var showSpoiler by remember { mutableStateOf(false) }
     var showAllTags by remember { mutableStateOf(false) }
-    var episodeMappingProvider by remember { mutableStateOf<NavigationProvider?>(null) }
     val isAnime = uiState.details?.basicMediaDetails?.isAnime() == true
     val navigationState = uiState.extensionNavigation
-    val mappingProviders = navigationState.mappingProviders.filter {
-        NavigationCapability.EPISODE_NAVIGATION in it.capabilities
-    }
-
-    LaunchedEffect(uiState.episodeMappingSaveState) {
-        if (uiState.episodeMappingSaveState == EpisodeMappingSaveState.SAVED) {
-            episodeMappingProvider = null
-        }
-    }
-
-    val mappingDetails = uiState.details
-    if (episodeMappingProvider != null && mappingDetails != null) {
-        ProviderEpisodeMappingDialog(
-            provider = episodeMappingProvider!!,
-            mediaId = mappingDetails.id,
-            saveState = uiState.episodeMappingSaveState,
-            onDismiss = { episodeMappingProvider = null },
-            onSave = { seriesKey, providerSeason, providerFirst, anilistFirst, count ->
-                event?.saveProviderEpisodeMapping(
-                    key = episodeMappingProvider!!.key,
-                    seriesKey = seriesKey,
-                    providerSeason = providerSeason,
-                    providerFirstEpisode = providerFirst,
-                    anilistFirstEpisode = anilistFirst,
-                    episodeCount = count,
-                )
-            },
-        )
-    }
 
     Column(
         modifier = Modifier.fillMaxWidth()
@@ -397,38 +367,7 @@ fun MediaInformationView(
                 onOpenProvider = { event?.openProviderOverview(it) },
                 onChooseProvider = { event?.chooseNavigationProvider(it) },
             )
-            if (mappingProviders.isNotEmpty()) {
-                FlowRow(
-                    modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 4.dp)
-                ) {
-                    mappingProviders.forEach { provider ->
-                        AssistChip(
-                            onClick = {
-                                event?.clearEpisodeMappingFeedback()
-                                episodeMappingProvider = provider
-                            },
-                            enabled = uiState.episodeMappingSaveState != EpisodeMappingSaveState.SAVING,
-                            label = {
-                                Text(
-                                    stringResource(
-                                        R.string.episode_mapping_for_provider,
-                                        provider.displayName,
-                                    )
-                                )
-                            },
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                        )
-                    }
-                }
-            }
-            when (uiState.episodeMappingSaveState) {
-                EpisodeMappingSaveState.SAVING -> MappingStatusText(R.string.episode_mapping_saving)
-                EpisodeMappingSaveState.SAVED -> MappingStatusText(R.string.episode_mapping_saved)
-                EpisodeMappingSaveState.FAILED -> if (episodeMappingProvider == null) {
-                    MappingStatusText(R.string.episode_mapping_save_failed)
-                }
-                EpisodeMappingSaveState.IDLE -> Unit
-            }
+
         }
 
         // External links
