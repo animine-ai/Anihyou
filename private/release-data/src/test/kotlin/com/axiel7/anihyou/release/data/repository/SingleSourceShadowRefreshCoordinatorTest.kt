@@ -773,7 +773,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
                 "plan_requests" -> {
                     if (failPlan) return ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
                     val input = ExtensionWireCodec.decodePlanInput(inputUtf8)
-                    plannedRoles += input.context.sourceRoles
+                    plannedRoles.add(input.context.sourceRoles)
                     val requests = input.context.sourceRoles.map { role ->
                         val token = if (role == SourceRole.DIRECT) input.context.targets.single().targetToken else null
                         val url = when (role) {
