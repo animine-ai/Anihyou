@@ -801,4 +801,5 @@
     <string name="allow_start_notification">Benachrichtigungen bei Beginn erlauben</string>
     <string name="allow_airing_notification">Benachrichtigungen bei Ausstrahlung erlauben</string>
     <string name="allow_end_notification">Benachrichtigungen bei Abschluss erlauben</string>
+    <string name="postponements_search">Verschiebungen durchsuchen</string>
 </resources>

@@ -51,7 +51,8 @@ object ExtensionRefreshPlanner {
         now: Instant,
         policy: ExtensionFreshnessPolicy = ExtensionFreshnessPolicy(),
     ): ExtensionRefreshPlan {
-        val scope = if (trigger.automatic) granted.intersect(ExtensionFreshnessPolicy.AUTOMATIC_ROLES) else granted
+        val scope = (if (trigger.automatic) granted.intersect(ExtensionFreshnessPolicy.AUTOMATIC_ROLES) else granted)
+            .let { roles -> trigger.onlyRole?.let { only -> roles.filterTo(mutableSetOf()) { it == only } } ?: roles }
         if (scope.isEmpty()) return ExtensionRefreshPlan.Skip("extension-role-scope-empty", null)
 
         // At most one automatic run per window, except the very first fill of a source that has no data yet.

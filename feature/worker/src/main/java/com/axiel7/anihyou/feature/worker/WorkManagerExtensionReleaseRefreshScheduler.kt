@@ -51,6 +51,9 @@ class WorkManagerExtensionReleaseRefreshScheduler(
 
     override fun scheduleNow() = enqueue(MANUAL, ExtensionRefreshTrigger.MANUAL, ExistingWorkPolicy.KEEP)
 
+    override fun schedulePostponements() =
+        enqueue("extension-release-refresh-postponements", ExtensionRefreshTrigger.MANUAL_POSTPONEMENTS, ExistingWorkPolicy.KEEP)
+
     override fun scheduleDeferred(trigger: ExtensionRefreshTrigger, notBefore: Instant, chain: Int) {
         val now = clock.instant()
         // The name carries the time, so a deferral enqueued by a running deferred work is a different work.

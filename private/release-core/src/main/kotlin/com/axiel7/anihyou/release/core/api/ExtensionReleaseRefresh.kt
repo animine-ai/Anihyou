@@ -17,10 +17,15 @@ enum class ExtensionRefreshTrigger {
     /** A fresh process start: the same scope and the same hourly dedupe as FOREGROUND. */
     PROCESS_START,
     /** An explicit user action: every granted role; may bypass soft freshness, never hard limits. */
-    MANUAL;
+    MANUAL,
+    /** Pull to refresh on the postponements page: only the postponement role, past soft freshness, never hard limits. */
+    MANUAL_POSTPONEMENTS;
 
     val automatic: Boolean get() = this == FOREGROUND || this == PROCESS_START
-    val bypassesSoftFreshness: Boolean get() = this == MANUAL
+    val bypassesSoftFreshness: Boolean get() = this == MANUAL || this == MANUAL_POSTPONEMENTS
+    /** The only role this trigger asks for; null means every role its scope allows. */
+    val onlyRole: com.axiel7.anihyou.release.core.extension.SourceRole?
+        get() = if (this == MANUAL_POSTPONEMENTS) com.axiel7.anihyou.release.core.extension.SourceRole.POSTPONEMENT else null
 }
 
 /** Product release-data work, separate from repository metadata and the debug canary. */
@@ -39,6 +44,8 @@ interface ExtensionReleaseRefreshScheduler {
     fun scheduleForeground()
     /** Explicit user action. */
     fun scheduleNow()
+    /** Pull to refresh on the postponements page: the postponement role of the active source only. */
+    fun schedulePostponements() {}
     /** One bounded follow-up at the time a hard limit lapses; [chain] counts consecutive deferrals. */
     fun scheduleDeferred(trigger: ExtensionRefreshTrigger, notBefore: Instant, chain: Int)
     fun cancel()

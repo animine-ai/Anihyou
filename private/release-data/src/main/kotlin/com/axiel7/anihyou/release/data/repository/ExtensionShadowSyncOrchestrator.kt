@@ -200,16 +200,10 @@ class ExtensionShadowSyncOrchestrator(
                         generations.abort(lease, "stale-active-source", clock.instant())
                         ShadowRefreshOutcome.Failed("stale-generation-token", retryable = false)
                     } else {
-                        val successfulPresentationRoles = setOf(SourceRole.POSTPONEMENT).filterTo(mutableSetOf()) { role ->
-                            val requestIds = result.requestRoles.filterValues { it == role }.keys
-                            requestIds.isNotEmpty() && requestIds.all { requestId ->
-                                result.responseProvenance.any {
-                                    it.requestId == requestId && it.httpStatus in 200..299
-                                } && result.reports.singleOrNull {
-                                    it.requestId == requestId
-                                }?.outcome == ExtensionReportOutcome.SUCCESS
-                            }
-                        }
+                        // A PARTIAL report is a snapshot of every notice the guest could read (it drops the lines it cannot
+                        // interpret). The page of the real site always has such lines, and a snapshot that never counted
+                        // left the postponements page empty, so a real 2xx answer with SUCCESS or PARTIAL is presented.
+                        val successfulPresentationRoles = setOf(SourceRole.POSTPONEMENT).filter { it in usable }.toSet()
                         ShadowRefreshOutcome.Committed(
                             generationId = lease.cycleId,
                             cycle = cycle,
