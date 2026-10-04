@@ -43,6 +43,7 @@ import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -72,11 +73,13 @@ class RoomReleasePresentationCalendarTrustTest {
     private fun open() = Room.databaseBuilder(context, ReleaseDatabase::class.java, name)
         .allowMainThreadQueries().build()
 
-    private fun forecast(series: String = "trust-transition", reportedAt: Instant = observedAt): ReleaseEvidence {
+    private fun forecast(
+        series: String = "trust-transition", reportedAt: Instant = observedAt, at: Instant = observedAt,
+    ): ReleaseEvidence {
         val item = ReleaseEvidence(
             "trust-forecast-$series-$reportedAt", ReleaseSourceType.ANIWORLD_CALENDAR,
             "https://aniworld.to/anime/stream/$series", "hash-trust-forecast-$series-$reportedAt", "fixture",
-            observedAt, reportedAt, false, AniWorldSiteIdentifier(series), 2, 4,
+            at, reportedAt, false, AniWorldSiteIdentifier(series), 2, 4,
             Installment.Episode(1), LanguageTrack.DE_SUB, ReleaseEvidenceType.FORECAST,
             ScheduleCondition.UNKNOWN, ConfidenceVector(1.0, 1.0, 1.0, 1.0, 1.0),
         )
@@ -86,17 +89,17 @@ class RoomReleasePresentationCalendarTrustTest {
     /** Commits one cycle through the source-bound route, exactly like a refresh of [source] does. */
     private suspend fun seedAcceptedRow(
         db: ReleaseDatabase, series: String = "trust-transition", cycle: String = "trust-cycle", baseline: Boolean = true,
-        source: ExtensionSelectionKey = keyA, reportedAt: Instant = observedAt,
+        source: ExtensionSelectionKey = keyA, reportedAt: Instant = observedAt, at: Instant = observedAt,
     ) {
-        val item = forecast(series, reportedAt)
+        val item = forecast(series, reportedAt, at)
         val reconciliation = RoomReleaseReconciliationRepository(db)
         if (baseline) reconciliation.importBaseline()
         reconciliation.persistCompletedCycle(CompletedObservationCycle(
-            cycle, series, observedAt.minusSeconds(60), observedAt, AbsencePolicySnapshot(),
+            cycle, series, at.minusSeconds(60), at, AbsencePolicySnapshot(),
             listOf(CycleSourceObservation(
                 "$cycle:source", item.sourceType, CanonicalReleaseIdentity.from(item)?.key ?: "scope",
                 item.languageTrack, CycleResult.SUCCESS, SourceHealthStatus.HEALTHY,
-                observedAt = observedAt, evidence = listOf(item),
+                observedAt = at, evidence = listOf(item),
             )),
         ), source)
         reconciliation.rebuildProjections()
@@ -389,5 +392,46 @@ class RoomReleasePresentationCalendarTrustTest {
             assertTrue(presentedForMedia(repository).isEmpty())
             assertTrue(presentedForMedia(repository, setOf(42, 43)).isEmpty())
         } finally { db.close() }
+    }
+
+    /**
+     * A planned time moves from 13:00 to 14:00 UTC with a later refresh of the same source. The collectors of the per-media
+     * and the calendar flow stay open the whole time: both see the new time without being restarted, so no entry point keeps
+     * an old copy as its authority.
+     */
+    @Test fun aChangedPlannedTimeReachesEveryEntryPointThroughTheSameOpenFlows() = runBlocking {
+        val db = open()
+        val t13 = Instant.parse("2026-09-26T13:00:00Z")
+        val t14 = Instant.parse("2026-09-26T14:00:00Z")
+        val perMedia = java.util.concurrent.CopyOnWriteArrayList<Instant?>()
+        val calendar = java.util.concurrent.CopyOnWriteArrayList<Instant?>()
+        val collectors = mutableListOf<kotlinx.coroutines.Job>()
+        try {
+            seedAcceptedRow(db, cycle = "cycle-13", reportedAt = t13)
+            bindSeededRow(db)
+            val repository = repository(db, Policy(ExtensionProductPolicy(activeReleaseSource = keyA)),
+                Sources(listOf(source(keyA))))
+            collectors += launch(kotlinx.coroutines.Dispatchers.Default) {
+                repository.observeForMedia(null, setOf(42)).collect { perMedia += it[42]?.singleOrNull()?.nextForecastAt }
+            }
+            collectors += launch(kotlinx.coroutines.Dispatchers.Default) {
+                repository.observeCalendar(null, range).collect { calendar += it.singleOrNull()?.forecastAt }
+            }
+            suspend fun until(what: String, seen: List<Instant?>, expected: Instant) =
+                kotlinx.coroutines.withTimeout(10_000) {
+                    while (expected !in seen) kotlinx.coroutines.delay(25)
+                }.also { assertTrue("$what shows $expected", expected in seen) }
+            until("per-media flow", perMedia, t13)
+            until("calendar flow", calendar, t13)
+
+            seedAcceptedRow(db, cycle = "cycle-14", baseline = false, reportedAt = t14, at = observedAt.plusSeconds(3_600))
+            until("per-media flow", perMedia, t14)
+            until("calendar flow", calendar, t14)
+            assertEquals("the latest emission of each flow is the new time", t14, perMedia.last())
+            assertEquals(t14, calendar.last())
+        } finally {
+            collectors.forEach { it.cancel() }
+            db.close()
+        }
     }
 }
