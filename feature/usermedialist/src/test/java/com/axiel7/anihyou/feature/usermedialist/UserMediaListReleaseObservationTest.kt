@@ -85,7 +85,10 @@ class UserMediaListReleaseObservationTest {
                 while (true) {
                     testScheduler.advanceTimeBy(50)
                     testScheduler.runCurrent()
-                    if (condition()) return@withTimeout
+                    // The view model replaces its snapshot lists on Dispatchers.Default while this poll reads them; a read that
+                    // meets a replacement in flight is simply taken again on the next round.
+                    val met = try { condition() } catch (_: ConcurrentModificationException) { false }
+                    if (met) return@withTimeout
                     delay(10)
                 }
             }
