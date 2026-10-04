@@ -40,6 +40,34 @@ jobs:
       - name: Run focused checks
         shell: bash
         run: ./gradlew --continue --console=plain ${{ matrix.tasks }} 2>&1 | tee gradle-focused.log
+      - name: Test counts and measurements
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          totals = {}
+          measure = []
+          for path in sorted(glob.glob('**/build/test-results/**/*.xml', recursive=True)):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception:
+                  continue
+              module = path.split('/build/')[0]
+              row = totals.setdefault(module, [0, 0, 0, 0])
+              row[0] += int(root.get('tests', 0)); row[1] += int(root.get('failures', 0))
+              row[2] += int(root.get('errors', 0)); row[3] += int(root.get('skipped', 0))
+              for out in root.iter('system-out'):
+                  measure += [line for line in (out.text or '').splitlines() if line.startswith('MEASURE ')]
+          print('=== TEST COUNTS BEGIN (module tests failures errors skipped) ===')
+          for module, row in sorted(totals.items()):
+              print(module, *row)
+          print('total', *[sum(r[i] for r in totals.values()) for i in range(4)])
+          print('=== TEST COUNTS END ===')
+          for line in measure:
+              print(line)
+          PY
       - name: Failure digest
         if: failure()
         shell: bash
