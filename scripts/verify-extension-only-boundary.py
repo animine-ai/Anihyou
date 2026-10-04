@@ -20,7 +20,11 @@ for path in paths:
     assert "https://aniworld.to" not in value, path
 sources = (base / "extension/ProductionExtensionSources.kt").read_text()
 bootstrap = (base / "extension/ReviewedExtensionSourceTrustBootstrap.kt").read_text()
-assert "bootstrap = reviewedSourceBootstrap(configuration)" in sources
+assert "bootstrap = ManualTrustBootstrap(reviewedSourceBootstrap(configuration), manualTrust)" in sources
+manual = (base / "extension/ManualExtensionTrustStore.kt").read_text()
+assert "independent.authenticate(source)?.let { return it }" in manual
+assert "val record = store.find(source.url) ?: return null" in manual
+assert not re.search(r"(?i)(TEST_ANCHOR|TrustFixture|trustAll|always)", manual.split("internal class ManualTrustBootstrap")[1].split("override val provisioned")[0].replace("never answers yes", ""))
 assert "if (configuration == null) return UnavailableExtensionSourceTrustBootstrap" in bootstrap
 assert "AppTrustPin(configuration.repositoryId, configuration.initialRootSha256" in bootstrap
 assert "source.origin in pin.distributionOrigins" in bootstrap
