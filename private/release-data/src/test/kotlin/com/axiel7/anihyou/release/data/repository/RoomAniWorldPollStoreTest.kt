@@ -230,8 +230,7 @@ class RoomAniWorldPollStoreTest {
             val mappedSelected = DirectTargetSelectionPolicy.select(mapped, startedAt)
             assertEquals(4, mappedSelected.size)
             assertTrue(mappedSelected.all { it.exactTargetKeys.size == 2 })
-            // The retired built-in path must never recreate a website URL from these projections.
-            assertTrue(store.eligibleDirectTargets(startedAt).isEmpty())
+            // The retired built-in direct ingress no longer exists; only mapped targets can be selected.
             val legacyManifest = manifest("retired-direct")
             assertTrue(store.beginGeneration(legacyManifest,
                 DirectTargetSelectionPolicy.snapshotDigest(emptyList())))

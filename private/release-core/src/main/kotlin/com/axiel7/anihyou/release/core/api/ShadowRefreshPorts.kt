@@ -11,7 +11,6 @@ import java.time.Duration
 import java.time.Instant
 
 interface ShadowPollStore {
-    suspend fun eligibleDirectTargets(now: Instant): List<DirectTargetCandidate>
     /** Extension ingress selects mapped coordinates and never invokes legacy route construction. */
     suspend fun eligibleMappedDirectTargets(now: Instant): List<DirectTargetCandidate> = emptyList()
     suspend fun shadowComparison(now: Instant): ShadowComparison

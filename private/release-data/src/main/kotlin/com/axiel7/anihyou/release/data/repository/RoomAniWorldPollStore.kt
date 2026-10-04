@@ -33,9 +33,6 @@ class RoomAniWorldPollStore(
     private val reconciliationDao = database.reconciliationDao()
     private val releaseDao = database.releaseDao()
 
-    override suspend fun eligibleDirectTargets(now: Instant): List<DirectTargetCandidate> =
-        emptyList() // Retired built-in Direct ingress cannot select provider routes.
-
     override suspend fun eligibleMappedDirectTargets(now: Instant): List<DirectTargetCandidate> =
         database.withTransaction { readCandidates(now, rememberFirstEligibility = true, mappedOnly = true) }
 

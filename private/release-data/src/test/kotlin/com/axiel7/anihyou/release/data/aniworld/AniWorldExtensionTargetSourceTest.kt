@@ -120,7 +120,6 @@ class AniWorldExtensionTargetSourceTest {
 
     private class PollStore(private val candidates: List<DirectTargetCandidate>) : ShadowPollStore {
         constructor(candidate: DirectTargetCandidate) : this(listOf(candidate))
-        override suspend fun eligibleDirectTargets(now: Instant): List<DirectTargetCandidate> = error("legacy route path must not run")
         override suspend fun eligibleMappedDirectTargets(now: Instant) = candidates
         override suspend fun shadowComparison(now: Instant): ShadowComparison = error("unused")
         override suspend fun beginGeneration(manifest: ShadowGenerationManifest, candidateSnapshotDigest: String): Boolean = error("unused")
