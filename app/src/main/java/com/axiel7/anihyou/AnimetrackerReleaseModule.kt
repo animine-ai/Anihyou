@@ -73,7 +73,7 @@ import org.koin.dsl.module
 val animetrackerReleaseModule = module {
     single<Clock> { Clock.systemUTC() }
     single<com.axiel7.anihyou.release.core.source.ExtensionSourceRepository> {
-        com.axiel7.anihyou.release.data.extension.ProductionExtensionSources.create(androidApplication(), get(), get())
+        com.axiel7.anihyou.release.data.extension.ProductionExtensionSources.create(androidApplication(), get(), get(), reviewedExtensionConfiguration())
     }
     single<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository> {
         requireNotNull(get<com.axiel7.anihyou.release.core.source.ExtensionSourceRepository>().productPolicy)
@@ -143,20 +143,7 @@ val animetrackerReleaseModule = module {
     single<ExtensionTargetSource> { AniWorldExtensionTargetSource(get<AniWorldShadowPollStore>(), get()) }
     single { RoomExtensionShadowGenerationStore(get(), get(), get()) }
     single {
-        val rootDigest = BuildConfig.EXTENSION_ROOT_SHA256
-        val config = if (rootDigest.isBlank()) null else ProductionExtensionHostConfiguration(
-            repositoryId = BuildConfig.EXTENSION_REPOSITORY_ID,
-            initialRootSha256 = rootDigest,
-            distributionOrigins = BuildConfig.EXTENSION_DISTRIBUTION_ORIGINS.split(',').toSet(),
-            parseFuelByExtensionId = mapOf(
-                com.axiel7.anihyou.release.core.extension.ExtensionId.parse("de.aniworld") to 25_000_000L),
-            allowedHosts = BuildConfig.EXTENSION_ALLOWED_HOSTS.split(',').toSet(),
-            approvedAuthority = setOf(ApprovedExtensionAuthorityTuple(
-                BuildConfig.EXTENSION_PUBLISHER_ID, BuildConfig.EXTENSION_SIGNING_KEY_ID,
-                "de.aniworld", "aniworld",
-                setOf(SourceRole.CALENDAR, SourceRole.RECENT, SourceRole.POSTPONEMENT, SourceRole.DIRECT))),
-        )
-        ProductionExtensionHostBoundary.create(androidApplication(), config)
+        ProductionExtensionHostBoundary.create(androidApplication(), reviewedExtensionConfiguration())
     }
     single<AniWorldShadowRefreshCoordinator> {
         com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator(
@@ -237,7 +224,7 @@ val animetrackerReleaseModule = module {
     }
     single { RoomReleaseProjectionRepository(get(), get(), get()) }
     // Extension rows are folded per exact release source (Room v14), so no receipt gate is needed here.
-    single { RoomReleasePresentationRepository(get(), get(), get(), get()) }
+    single { RoomReleasePresentationRepository(get(), get(), get(), get(), get()) }
     single<ReleasePresentationRepository> { get<RoomReleasePresentationRepository>() }
     single { RoomReleaseMappingRepository(get(), get()) }
     single<ReleaseMappingRepository> { get<RoomReleaseMappingRepository>() }
@@ -245,4 +232,27 @@ val animetrackerReleaseModule = module {
     single<ReleaseOutboxRepository> { RoomReleaseOutboxRepository(get()) }
     single<ReleasePreferencesRepository> { RoomReleasePreferencesRepository(get()) }
     single<ReleaseNotificationGate> { RoomReleaseNotificationGate(get(), get(), get()) }
+}
+
+/** Both the user-source installer and the release Authority boundary receive the same reviewed configuration. */
+private fun reviewedExtensionConfiguration(): ProductionExtensionHostConfiguration? {
+    if (BuildConfig.EXTENSION_BUILD_PROFILE == "unprovisioned") {
+        check(listOf(BuildConfig.EXTENSION_REPOSITORY_ID, BuildConfig.EXTENSION_ROOT_SHA256,
+            BuildConfig.EXTENSION_DISTRIBUTION_ORIGINS, BuildConfig.EXTENSION_ALLOWED_HOSTS,
+            BuildConfig.EXTENSION_PUBLISHER_ID, BuildConfig.EXTENSION_SIGNING_KEY_ID).all(String::isBlank))
+        return null
+    }
+    check(BuildConfig.EXTENSION_BUILD_PROFILE == "reviewed")
+    return ProductionExtensionHostConfiguration(
+        repositoryId = BuildConfig.EXTENSION_REPOSITORY_ID,
+        initialRootSha256 = BuildConfig.EXTENSION_ROOT_SHA256,
+        distributionOrigins = BuildConfig.EXTENSION_DISTRIBUTION_ORIGINS.split(',').toSet(),
+        parseFuelByExtensionId = mapOf(
+            com.axiel7.anihyou.release.core.extension.ExtensionId.parse("de.aniworld") to 25_000_000L),
+        allowedHosts = BuildConfig.EXTENSION_ALLOWED_HOSTS.split(',').toSet(),
+        approvedAuthority = setOf(ApprovedExtensionAuthorityTuple(
+            BuildConfig.EXTENSION_PUBLISHER_ID, BuildConfig.EXTENSION_SIGNING_KEY_ID,
+            "de.aniworld", "aniworld",
+            setOf(SourceRole.CALENDAR, SourceRole.RECENT, SourceRole.POSTPONEMENT, SourceRole.DIRECT))),
+    )
 }

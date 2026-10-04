@@ -2,6 +2,7 @@ package com.axiel7.anihyou.release.data.repository
 
 import com.axiel7.anihyou.release.core.api.ReleaseAccountContextProvider
 import com.axiel7.anihyou.release.core.api.ReleaseNotificationGate
+import com.axiel7.anihyou.release.core.api.ReleaseDeliveryDecision
 import com.axiel7.anihyou.release.core.model.Installment
 import com.axiel7.anihyou.release.core.model.SourceIdentity
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
@@ -43,34 +44,30 @@ class RoomReleaseNotificationGate(
     }
 
     override suspend fun allowReleaseDelivery(
-        accountId: Long,
-        mediaId: Int,
-        identityKey: String,
-        installment: Installment?,
-    ): Boolean {
-        if (accountId <= 0L || mediaId <= 0 || identityKey.isBlank()) return false
-        if (installment == null || installment is Installment.Episode && installment.fraction != null) {
-            return false
-        }
-        if (!providerEnabled()) return false
+        accountId: Long, mediaId: Int, identityKey: String, installment: Installment?,
+    ): Boolean = evaluateReleaseDelivery(accountId, mediaId, identityKey, installment) == ReleaseDeliveryDecision.ALLOW
 
-        val accountContext = runCatching {
-            accountContextProvider.current(setOf(mediaId))
-        }.getOrNull() ?: return false
-        if (accountContext.accountId != accountId) return false
-        val currentProgress = accountContext.progressFor(mediaId) ?: return false
+    override suspend fun evaluateReleaseDelivery(
+        accountId: Long, mediaId: Int, identityKey: String, installment: Installment?,
+    ): ReleaseDeliveryDecision {
+        if (accountId <= 0L || mediaId <= 0 || identityKey.isBlank()) return ReleaseDeliveryDecision.INELIGIBLE
+        if (installment == null || installment is Installment.Episode && installment.fraction != null)
+            return ReleaseDeliveryDecision.INELIGIBLE
+        if (!providerEnabled()) return ReleaseDeliveryDecision.INELIGIBLE
 
-        return database.releaseDao()
-            .getValidMediaProjectionsForAccount(accountId, mediaId)
-            .asSequence()
-            .mapNotNull { it.toDomainOrNull() }
-            .any { projection ->
-                val confirmed = projection.confirmedInstallments.any { candidate ->
-                    candidate == installment &&
-                        SourceIdentity(projection.stream, candidate).stableKey == identityKey
+        // Do not turn a cold-cache miss into a permanently cancelled notification. No new AniList query policy.
+        val accountContext = accountContextProvider.current(setOf(mediaId))
+        if (accountContext.accountId == null) return ReleaseDeliveryDecision.UNKNOWN
+        if (accountContext.accountId != accountId) return ReleaseDeliveryDecision.INELIGIBLE
+        val currentProgress = accountContext.progressFor(mediaId) ?: return ReleaseDeliveryDecision.UNKNOWN
+        val confirmed = database.releaseDao().getValidMediaProjectionsForAccount(accountId, mediaId)
+            .asSequence().mapNotNull { it.toDomainOrNull() }.any { projection ->
+                projection.confirmedInstallments.any { candidate ->
+                    candidate == installment && SourceIdentity(projection.stream, candidate).stableKey == identityKey
                 }
-                confirmed && isTypedEligible(installment, currentProgress)
             }
+        return if (confirmed && isTypedEligible(installment, currentProgress)) ReleaseDeliveryDecision.ALLOW
+            else ReleaseDeliveryDecision.INELIGIBLE
     }
 
     private fun isTypedEligible(

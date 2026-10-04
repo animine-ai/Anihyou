@@ -10,7 +10,7 @@ base = root / "private/release-data/src/main/kotlin/com/axiel7/anihyou/release/d
 paths = [base / "extension" / name for name in (
     "ExtensionHostCoordinator.kt", "ProductionExtensionDispatches.kt",
     "ProductionExtensionHostBoundary.kt", "ProductionExtensionSources.kt",
-    "ExtensionInstallStore.kt", "FileExtensionSourceRepository.kt")]
+    "ExtensionInstallStore.kt", "FileExtensionSourceRepository.kt", "ReviewedExtensionSourceTrustBootstrap.kt")]
 paths += [base / "repository/ExtensionShadowSyncOrchestrator.kt"]
 for path in paths:
     value = path.read_text()
@@ -19,7 +19,12 @@ for path in paths:
     assert "/animekalender" not in value, path
     assert "https://aniworld.to" not in value, path
 sources = (base / "extension/ProductionExtensionSources.kt").read_text()
-assert "bootstrap = UnavailableExtensionSourceTrustBootstrap" in sources
+bootstrap = (base / "extension/ReviewedExtensionSourceTrustBootstrap.kt").read_text()
+assert "bootstrap = reviewedSourceBootstrap(configuration)" in sources
+assert "if (configuration == null) return UnavailableExtensionSourceTrustBootstrap" in bootstrap
+assert "AppTrustPin(configuration.repositoryId, configuration.initialRootSha256" in bootstrap
+assert "source.origin in pin.distributionOrigins" in bootstrap
+assert not re.search(r"(?i)(TEST_ANCHOR|TrustFixture|trustAvailable\s*=\s*true|TOFU)", bootstrap)
 assert "test-pin" not in sources and "test-publisher" not in sources
 installer = (base / "extension/ExtensionInstallStore.kt").read_text()
 assert "verifier.verify" in installer and "rollbackBad" in installer

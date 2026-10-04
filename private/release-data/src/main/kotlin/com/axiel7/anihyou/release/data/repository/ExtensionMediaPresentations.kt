@@ -15,6 +15,8 @@ import com.axiel7.anihyou.release.core.model.ReleaseStreamKey
 import com.axiel7.anihyou.release.core.model.SourceIdentity
 import com.axiel7.anihyou.release.core.model.SourceSeriesKey
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
+import com.axiel7.anihyou.release.core.navigation.ProviderEpisodeSegment
 import com.axiel7.anihyou.release.core.sync.ReleaseSourceTimePolicy
 import com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity
 import com.axiel7.anihyou.release.data.db.ExternalMappingEntity
@@ -30,13 +32,14 @@ import com.axiel7.anihyou.release.data.db.ReleaseReconciliationMapper
  * - a row without an effective binding to exactly one AniList media is not presented (the consumer keeps AniList);
  * - the user's progress and the pending count are not part of the rows: consumers derive them from the AniList entry.
  *
- * Source episode numbers are used as they are. An episode offset (split cour, absolute numbering) is part of the
- * navigation coordinates only and is not applied here, which is the same rule the calendar follows.
+ * Explicit host-validated episode segments also govern presentation coordinates, consistently with Watch Next.
  */
 internal fun List<CanonicalReleaseProjectionEntity>.toExtensionMediaPresentations(
     mappings: List<ExternalMappingEntity>,
     mediaIds: Set<Int>,
     preferences: ExtensionPreferences,
+    source: ExtensionSelectionKey? = null,
+    segments: List<ProviderEpisodeSegment> = emptyList(),
 ): Map<Int, List<ReleaseUiPresentation>> {
     if (mediaIds.isEmpty()) return emptyMap()
     val enabledTracks = preferences.enabledTracks - "UNKNOWN"
@@ -48,7 +51,9 @@ internal fun List<CanonicalReleaseProjectionEntity>.toExtensionMediaPresentation
         if (identity.installment is Installment.Special) return@mapNotNull null
         val media = lookup.aniListId(identity, state.navigationSeasons) ?: return@mapNotNull null
         if (media !in mediaIds) return@mapNotNull null
-        MediaRow(media, identity, state)
+        val installment = canonicalPresentationInstallment(source, media, identity.seriesPath,
+            identity.sourceSeason, identity.installment, segments) ?: return@mapNotNull null
+        MediaRow(media, identity, state, installment)
     }
     val trackOrder = preferences.preferredTrackOrder
     return rows
@@ -63,7 +68,7 @@ internal fun List<CanonicalReleaseProjectionEntity>.toExtensionMediaPresentation
         }
 }
 
-private data class MediaRow(val media: Int, val identity: CanonicalReleaseIdentity, val state: CanonicalReleaseState)
+private data class MediaRow(val media: Int, val identity: CanonicalReleaseIdentity, val state: CanonicalReleaseState, val installment: Installment)
 
 private data class StreamGroup(
     val media: Int,
@@ -76,11 +81,11 @@ private data class StreamGroup(
 private fun kindOf(identity: CanonicalReleaseIdentity): ReleaseKind =
     if (identity.installment is Installment.Film) ReleaseKind.MOVIE else ReleaseKind.EPISODE
 
-private fun wholeEpisode(identity: CanonicalReleaseIdentity): Int? = identity.installment.wholeEpisodeNumber
+private fun wholeEpisode(row: MediaRow): Int? = row.installment.wholeEpisodeNumber
 
 private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresentation? {
     val released = items.filter { it.state.underlyingPhase == ReleasePhase.RELEASED }
-    val confirmedThrough = released.mapNotNull { wholeEpisode(it.identity) }.maxOrNull()
+    val confirmedThrough = released.mapNotNull { wholeEpisode(it) }.maxOrNull()
     val stream = ReleaseStreamKey(
         providerId = ProviderId("aniworld"),
         stableSeriesKey = SourceSeriesKey(group.seriesPath),
@@ -91,10 +96,10 @@ private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresent
     val planned = items.filter {
         it.state.underlyingPhase in PLANNED_PHASES && it.state.phase != ReleasePhase.CONFLICT &&
             it.state.forecastAt != null &&
-            (confirmedThrough == null || wholeEpisode(it.identity).let { episode -> episode == null || episode > confirmedThrough })
+            (confirmedThrough == null || wholeEpisode(it).let { episode -> episode == null || episode > confirmedThrough })
     }
     val next = planned.minWithOrNull(
-        compareBy<MediaRow> { wholeEpisode(it.identity) ?: Int.MAX_VALUE }
+        compareBy<MediaRow> { wholeEpisode(it) ?: Int.MAX_VALUE }
             .thenBy { it.state.forecastAt }
             .thenBy { it.identity.key },
     )
@@ -110,7 +115,7 @@ private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresent
     val nextForecast = next?.let { row ->
         val at = requireNotNull(row.state.forecastAt)
         Forecast(
-            identity = SourceIdentity(stream, row.identity.installment),
+            identity = SourceIdentity(stream, row.installment),
             forecastAt = at,
             sourceDate = at.atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate(),
             sourceTime = null,
@@ -124,11 +129,11 @@ private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresent
         stream = stream,
         authority = ReleaseUiAuthority.VALID,
         confirmedThroughEpisode = confirmedThrough,
-        confirmedInstallments = released.map { it.identity.installment }.distinctBy { it.stableKey }
+        confirmedInstallments = released.map { it.installment }.distinctBy { it.stableKey }
             .sortedBy { it.wholeEpisodeNumber ?: Int.MAX_VALUE },
         // The rows carry no account progress; the consumer derives the pending count from its AniList entry.
         confirmedPending = 0,
-        nextExpectedInstallment = next?.identity?.installment,
+        nextExpectedInstallment = next?.installment,
         nextForecast = nextForecast,
         freshness = ReleaseUiFreshness.UNKNOWN,
         // No consumer reads a source URL, and the host does not build provider URLs on the extension path.

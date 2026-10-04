@@ -15,7 +15,17 @@ data class ProductionExtensionHostConfiguration(
     val allowedHosts: Set<String>,
     val approvedAuthority: Set<ApprovedExtensionAuthorityTuple>,
     val parseFuelByExtensionId: Map<ExtensionId, Long> = emptyMap(),
-)
+) {
+    init {
+        AppTrustPin(repositoryId, initialRootSha256, distributionOrigins)
+        require(allowedHosts.isNotEmpty() && allowedHosts.all { host ->
+            host.length <= 253 && host.split('.').all { label ->
+                label.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"))
+            }
+        }) { "Invalid allowed extension hosts" }
+        require(parseFuelByExtensionId.values.all { it > 0L })
+    }
+}
 
 /**
  * With no complete build-time configuration, V3 is inert. There is no debug root, TOFU, or

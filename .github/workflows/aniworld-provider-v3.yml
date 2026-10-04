@@ -10,6 +10,7 @@ on:
       - ep04/aniworld-v1
       - ep06/provider-navigation-watch-next
       - ep07/extension-update-ux
+      - ep07/device-feedback-cutover
     paths:
       - "private/release-core/**"
       - "private/release-data/**"

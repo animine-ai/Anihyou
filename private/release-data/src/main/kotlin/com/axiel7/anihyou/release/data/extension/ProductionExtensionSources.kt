@@ -8,12 +8,13 @@ import com.axiel7.anihyou.release.core.source.ExtensionSourceScheduler
 import java.time.Clock
 import kotlinx.coroutines.runBlocking
 
-/** Production has no generic authenticated bootstrap yet. No build property enables test anchors. */
+/** Source addition stays explicit. Independently provisioned public pins reuse the existing strict verifier. */
 object ProductionExtensionSources {
-    fun create(context: Context, scheduler: ExtensionSourceScheduler, clock: Clock): ExtensionSourceRepository =
+    fun create(context: Context, scheduler: ExtensionSourceScheduler, clock: Clock,
+        configuration: ProductionExtensionHostConfiguration? = null): ExtensionSourceRepository =
         FileExtensionSourceRepository(
             directory = context.filesDir.resolve("user-extension-sources"),
-            bootstrap = UnavailableExtensionSourceTrustBootstrap,
+            bootstrap = reviewedSourceBootstrap(configuration),
             transport = ProductionExtensionRepositoryTransport(),
             storeFactory = ExtensionSourceStoreFactory { directory, anchor ->
                 val runtime = AndroidIsolatedExtensionRuntime(context)

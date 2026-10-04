@@ -17,6 +17,10 @@ import com.axiel7.anihyou.release.core.model.ReleasePhase
 import com.axiel7.anihyou.release.core.model.ReleaseStreamKey
 import com.axiel7.anihyou.release.core.model.SourceSeriesKey
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
+import com.axiel7.anihyou.release.core.navigation.ProviderEpisodeSegment
+import com.axiel7.anihyou.release.data.extension.FileProviderNavigationStateStore
+import com.axiel7.anihyou.release.data.extension.ProviderNavigationStoredState
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
 import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
 import com.axiel7.anihyou.release.core.source.usableExtension
@@ -39,6 +43,7 @@ class RoomReleasePresentationRepository(
     private val database: ReleaseDatabase? = null,
     private val productPolicy: ExtensionProductPolicyRepository? = null,
     private val extensionSources: ExtensionSourceRepository? = null,
+    private val navigationStore: FileProviderNavigationStateStore? = null,
 ) : ReleasePresentationRepository {
     override fun observeForMedia(
         accountId: Long?,
@@ -57,7 +62,7 @@ class RoomReleasePresentationRepository(
                 is ReleaseSelection.Legacy -> legacyRows
                 is ReleaseSelection.None -> emptyMap()
                 is ReleaseSelection.Extension ->
-                    chosen.rows.toExtensionMediaPresentations(chosen.mappings, mediaIds, chosen.preferences)
+                    chosen.rows.toExtensionMediaPresentations(chosen.mappings, mediaIds, chosen.preferences, chosen.source, chosen.segments)
             }
         }.offMain()
     }
@@ -75,7 +80,7 @@ class RoomReleasePresentationRepository(
                 is ReleaseSelection.Legacy -> legacyRows
                 is ReleaseSelection.None -> emptyList()
                 is ReleaseSelection.Extension ->
-                    chosen.rows.toExtensionCalendarItems(chosen.mappings, range, chosen.preferences)
+                    chosen.rows.toExtensionCalendarItems(chosen.mappings, range, chosen.preferences, chosen.source, chosen.segments)
             }
         }.offMain()
     }
@@ -111,7 +116,8 @@ class RoomReleasePresentationRepository(
             mappings,
             policy.policy,
             extensionSources?.sources ?: kotlinx.coroutines.flow.flowOf(emptyList()),
-        ) { sourceRows, bindings, product, catalog ->
+            navigationStore?.state ?: kotlinx.coroutines.flow.flowOf(ProviderNavigationStoredState()),
+        ) { sourceRows, bindings, product, catalog, navigation ->
             when (product.activeReleaseSource?.providerId) {
                 "aniworld" -> {
                     val selected = requireNotNull(product.activeReleaseSource)
@@ -123,6 +129,7 @@ class RoomReleasePresentationRepository(
                             }.map { it.asCanonical() },
                             mappings = bindings,
                             preferences = product.preferencesFor(selected),
+                            source = selected, segments = navigation.segments,
                         )
                     } else ReleaseSelection.None
                 }
@@ -140,6 +147,8 @@ private sealed interface ReleaseSelection {
         val rows: List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity>,
         val mappings: List<ExternalMappingEntity>,
         val preferences: ExtensionPreferences,
+        val source: ExtensionSelectionKey,
+        val segments: List<ProviderEpisodeSegment>,
     ) : ReleaseSelection
 }
 
@@ -147,6 +156,8 @@ internal fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionE
     mappings: List<ExternalMappingEntity>,
     range: ClosedRange<LocalDate>,
     preferences: ExtensionPreferences = ExtensionPreferences(),
+    source: ExtensionSelectionKey? = null,
+    segments: List<ProviderEpisodeSegment> = emptyList(),
 ): List<ReleaseUiCalendarItem> {
     val lookup = MappingLookup(mappings)
     // The same track switches as the per-media fold: a language track the user turned off is not presented by any entry
@@ -181,8 +192,11 @@ internal fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionE
             is Installment.Film -> ReleaseKind.MOVIE
             is Installment.Special -> return@mapNotNull null
         }
+        val mediaId = lookup.aniListId(identity, state.navigationSeasons)
+        val installment = canonicalPresentationInstallment(source, mediaId, identity.seriesPath,
+            identity.sourceSeason, identity.installment, segments) ?: return@mapNotNull null
         ReleaseUiCalendarItem(
-            mediaId = lookup.aniListId(identity, state.navigationSeasons),
+            mediaId = mediaId,
             stream = ReleaseStreamKey(
                 providerId = ProviderId("aniworld"),
                 stableSeriesKey = SourceSeriesKey(identity.seriesPath),
@@ -190,7 +204,7 @@ internal fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionE
                 sourceSeason = identity.sourceSeason,
                 languageTrack = identity.track,
             ),
-            installment = identity.installment,
+            installment = installment,
             forecastAt = presentationAt,
             confirmed = confirmed,
             // The effective phase already encodes the monotonic release contract (ReleaseConflictPolicy.effectivePhase): an

@@ -84,7 +84,7 @@ import org.koin.core.component.inject
 
 private val ANI_WORLD_SOURCE_ZONE: ZoneId = ReleaseSourceTimePolicy.ANI_WORLD_ZONE
 
-private data class WidgetAiringItem(
+internal data class WidgetAiringItem(
     val eventKey: String,
     val media: AiringWidgetQuery.Medium?,
     val releaseRows: List<ReleaseUiCalendarItem>,
@@ -105,15 +105,9 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
 
         val today = clock.instant().atZone(ANI_WORLD_SOURCE_ZONE).toLocalDate()
         val accountId = defaultPreferencesRepository.userId.first()?.toLong()
-        val providerRows = accountId?.let {
-            runCatching {
-                releasePresentationRepository.currentCalendar(
-                    accountId = it,
-                    range = today..today.plusDays(14),
-                )
-            }.getOrDefault(emptyList())
-        }.orEmpty()
-            .filter { it.isAuthoritative }
+        val providerRows = runCatching {
+            releasePresentationRepository.currentCalendar(accountId = accountId, range = today..today.plusDays(14))
+        }.getOrDefault(emptyList()).filter { it.isAuthoritative }
 
         val cachedResult = mediaRepository.getAiringWidgetData(
             page = 1,
@@ -125,14 +119,10 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
             val prefs = currentState<Preferences>()
             val isColored = prefs[IS_COLORED_KEY] ?: true
             val resultState = remember { mutableStateOf(cachedResult) }
-            LaunchedEffect(providerRows.isEmpty()) {
-                if (providerRows.isEmpty()) {
-                    resultState.value = mediaRepository.getAiringWidgetData(
-                        page = 1,
-                        perPage = 50,
-                        fetchPolicy = FetchPolicy.NetworkFirst,
-                    )
-                }
+            LaunchedEffect(Unit) {
+                resultState.value = mediaRepository.getAiringWidgetData(
+                    page = 1, perPage = 50, fetchPolicy = FetchPolicy.NetworkFirst,
+                )
             }
 
             GlanceTheme(colors = DynamicThemeColorProviders) {
@@ -178,30 +168,7 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
         onRefresh: () -> Unit,
         providerRows: List<ReleaseUiCalendarItem> = emptyList(),
     ) {
-        val metadataById = (result as? DataResult.Success)
-            ?.data
-            .orEmpty()
-            .associateBy { it.id }
-        val widgetItems = if (providerRows.isNotEmpty()) {
-            providerRows.map { row ->
-                WidgetAiringItem(
-                    eventKey = row.eventKey,
-                    media = row.mediaId?.let(metadataById::get),
-                    releaseRows = listOf(row),
-                )
-            }
-        } else {
-            (result as? DataResult.Success)
-                ?.data
-                .orEmpty()
-                .map { item ->
-                    WidgetAiringItem(
-                        eventKey = "anilist-media-" + item.id,
-                        media = item,
-                        releaseRows = emptyList(),
-                    )
-                }
-        }
+        val unsortedItems = mergeWidgetAiringItems((result as? DataResult.Success)?.data.orEmpty(), providerRows)
 
         fun providerTimestampFor(item: WidgetAiringItem): Long? {
             val providerTimestamp = item.releaseRows.minOfOrNull { release ->
@@ -215,6 +182,10 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                 item.media?.nextAiringEpisode?.airingAt?.toLong()
             }
         }
+
+        val widgetItems = unsortedItems.sortedWith(
+            compareBy<WidgetAiringItem> { providerTimestampFor(it) ?: Long.MAX_VALUE }.thenBy { it.eventKey },
+        )
 
         val todayString = clock.instant().atZone(ANI_WORLD_SOURCE_ZONE).toLocalDate().toString()
 
@@ -599,4 +570,16 @@ private fun ReleaseUiCalendarItem.widgetText(context: Context): String {
 
 class AiringWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = AiringWidget()
+}
+
+/** Source priority is per media, never an all-or-nothing replacement of the AniList widget list. */
+internal fun mergeWidgetAiringItems(
+    media: List<AiringWidgetQuery.Medium>, releases: List<ReleaseUiCalendarItem>,
+): List<WidgetAiringItem> {
+    val metadata = media.associateBy { it.id }
+    val authoritative = releases.filter { it.isAuthoritative }.distinctBy { it.eventKey }
+    val coveredMedia = authoritative.mapNotNull { it.mediaId }.toSet()
+    return authoritative.map { WidgetAiringItem(it.eventKey, it.mediaId?.let(metadata::get), listOf(it)) } +
+        media.distinctBy { it.id }.filter { it.id !in coveredMedia }
+            .map { WidgetAiringItem("anilist-media-${it.id}", it, emptyList()) }
 }

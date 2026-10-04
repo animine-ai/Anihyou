@@ -9,6 +9,7 @@ android {
 }
 
 dependencies {
+    testImplementation(libs.junit)
     implementation(project(":private:release-core"))
     implementation(libs.apollo.normalized.cache)
     implementation(libs.androidx.glance.appwidget)

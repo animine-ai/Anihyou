@@ -13,15 +13,48 @@ val appPackageName = rootProject.extra["appPackageName"] as String
 val aniWorldShadowCanaryDebugValue = providers.gradleProperty("aniworldShadowCanary").orNull?.also {
     require(it == "true" || it == "false") { "aniworldShadowCanary must be exactly true or false" }
 } ?: "false"
-val extensionReleaseFields = listOf("extensionRepositoryId", "extensionRootSha256",
+// Public independently reviewed trust material only. No TEST trust or private signing key is a build input.
+val extensionBuildProfile = providers.gradleProperty("extensionBuildProfile").orNull ?: "unprovisioned"
+require(extensionBuildProfile in setOf("unprovisioned", "reviewed")) {
+    "extensionBuildProfile must be unprovisioned or reviewed; TEST trust is not a product profile"
+}
+val extensionPublicFields = listOf("extensionRepositoryId", "extensionRootSha256",
     "extensionDistributionOrigins", "extensionAllowedHosts", "extensionPublisherId", "extensionSigningKeyId")
     .associateWith { providers.gradleProperty(it).orNull.orEmpty() }
-require(extensionReleaseFields.values.all(String::isEmpty) || extensionReleaseFields.values.all(String::isNotEmpty)) {
-    "Production extension public pins/origins and authority tuple must be supplied together"
+require(if (extensionBuildProfile == "reviewed") extensionPublicFields.values.all(String::isNotEmpty)
+    else extensionPublicFields.values.all(String::isEmpty)) {
+    "The reviewed profile requires all six public trust inputs; unprovisioned accepts none"
 }
-require(extensionReleaseFields.values.all { it.matches(Regex("[A-Za-z0-9._:/,-]*")) }) {
-    "Invalid production extension build field"
+require(extensionPublicFields.values.all { it.matches(Regex("[A-Za-z0-9._:/,-]*")) }) {
+    "Invalid extension public build field"
 }
+if (extensionBuildProfile == "reviewed") {
+    require(extensionPublicFields.getValue("extensionRootSha256").matches(Regex("[0-9a-f]{64}"))) {
+        "extensionRootSha256 must be the independently reviewed root SHA256"
+    }
+    for (name in listOf("extensionRepositoryId", "extensionPublisherId", "extensionSigningKeyId")) {
+        require(extensionPublicFields.getValue(name).matches(Regex("[A-Za-z0-9._-]{1,128}"))) {
+            "Invalid public identity: $name"
+        }
+    }
+    val origins = extensionPublicFields.getValue("extensionDistributionOrigins").split(',')
+    require(origins.distinct().size == origins.size && origins.all { origin ->
+        val uri = java.net.URI(origin)
+        uri.scheme == "https" && uri.host != null && uri.rawAuthority == uri.host &&
+            uri.path.isEmpty() && uri.rawQuery == null && uri.rawFragment == null
+    }) { "Distribution origins must be unique canonical HTTPS origins without credentials/path/query" }
+    val hosts = extensionPublicFields.getValue("extensionAllowedHosts").split(',')
+    require(hosts.distinct().size == hosts.size && hosts.all { host ->
+        host.length <= 253 && host.split('.').all { label ->
+            label.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"))
+        }
+    }) { "Allowed hosts must be unique lowercase DNS hosts" }
+}
+val extensionBuildFields = mapOf("EXTENSION_REPOSITORY_ID" to "extensionRepositoryId",
+    "EXTENSION_ROOT_SHA256" to "extensionRootSha256",
+    "EXTENSION_DISTRIBUTION_ORIGINS" to "extensionDistributionOrigins",
+    "EXTENSION_ALLOWED_HOSTS" to "extensionAllowedHosts",
+    "EXTENSION_PUBLISHER_ID" to "extensionPublisherId", "EXTENSION_SIGNING_KEY_ID" to "extensionSigningKeyId")
 
 val versionProps = Properties().also {
     it.load(project.rootProject.file("version.properties").reader())
@@ -35,9 +68,9 @@ android {
         applicationId = appPackageName
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        listOf("EXTENSION_REPOSITORY_ID", "EXTENSION_ROOT_SHA256", "EXTENSION_DISTRIBUTION_ORIGINS",
-            "EXTENSION_ALLOWED_HOSTS", "EXTENSION_PUBLISHER_ID", "EXTENSION_SIGNING_KEY_ID").forEach {
-            buildConfigField("String", it, "\"\"")
+        buildConfigField("String", "EXTENSION_BUILD_PROFILE", "\"$extensionBuildProfile\"")
+        extensionBuildFields.forEach { (field, property) ->
+            buildConfigField("String", field, "\"${extensionPublicFields.getValue(property)}\"")
         }
         versionCode = versionProps.getProperty("code").toInt()
         versionName = versionProps.getProperty("name")
@@ -86,14 +119,6 @@ android {
         }
         release {
             buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", "false")
-            mapOf("EXTENSION_REPOSITORY_ID" to "extensionRepositoryId",
-                "EXTENSION_ROOT_SHA256" to "extensionRootSha256",
-                "EXTENSION_DISTRIBUTION_ORIGINS" to "extensionDistributionOrigins",
-                "EXTENSION_ALLOWED_HOSTS" to "extensionAllowedHosts",
-                "EXTENSION_PUBLISHER_ID" to "extensionPublisherId",
-                "EXTENSION_SIGNING_KEY_ID" to "extensionSigningKeyId").forEach { (field, property) ->
-                buildConfigField("String", field, "\"${extensionReleaseFields.getValue(property)}\"")
-            }
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true

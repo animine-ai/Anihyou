@@ -16,12 +16,17 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.axiel7.anihyou.core.base.APP_PACKAGE_NAME
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
+import com.axiel7.anihyou.core.domain.repository.MediaRepository
+import com.axiel7.anihyou.core.ui.utils.ImageUtils.getBitmapFromUrl
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CancellationException
 import com.axiel7.anihyou.core.model.DeepLink
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.utils.NotificationUtils.showNotification
 import com.axiel7.anihyou.release.core.api.ReleaseDeliveryState
 import com.axiel7.anihyou.release.core.api.ReleaseGermanTrack
 import com.axiel7.anihyou.release.core.api.ReleaseNotificationGate
+import com.axiel7.anihyou.release.core.api.ReleaseDeliveryDecision
 import com.axiel7.anihyou.release.core.api.ReleaseOutboxRepository
 import com.axiel7.anihyou.release.core.api.ReleasePreferencesRepository
 import com.axiel7.anihyou.release.core.model.Installment
@@ -39,6 +44,7 @@ class ReleaseOutboxDispatcherWorker(
     private val releasePreferencesRepository: ReleasePreferencesRepository,
     private val defaultPreferencesRepository: DefaultPreferencesRepository,
     private val clock: Clock,
+    private val mediaRepository: MediaRepository,
 ) : CoroutineWorker(context, params) {
 
     @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
@@ -131,13 +137,14 @@ class ReleaseOutboxDispatcherWorker(
             }
 
             val deliveryAllowed = runCatching {
-                releaseNotificationGate.allowReleaseDelivery(
+                releaseNotificationGate.evaluateReleaseDelivery(
                     accountId = claimed.accountId,
                     mediaId = claimed.mediaId,
                     identityKey = claimed.identityKey,
                     installment = claimed.installment,
                 )
             }.getOrElse { error ->
+                if (error is CancellationException) throw error
                 releaseOutboxRepository.reschedulePending(
                     eventKey = claimed.eventKey,
                     nextAttemptAt = now.plusSeconds(retryDelaySeconds(claimed.attemptCount)),
@@ -148,7 +155,17 @@ class ReleaseOutboxDispatcherWorker(
                 retryNeeded = true
                 return@forEach
             }
-            if (!deliveryAllowed) {
+            if (deliveryAllowed == ReleaseDeliveryDecision.UNKNOWN) {
+                val deferredState = releaseOutboxRepository.reschedulePending(
+                    eventKey = claimed.eventKey,
+                    nextAttemptAt = now.plusSeconds(retryDelaySeconds(claimed.attemptCount)),
+                    error = "release progress temporarily unknown",
+                )
+                // Persistence applies its existing retry cap; do not keep waking after its terminal cancellation.
+                retryNeeded = retryNeeded || deferredState == ReleaseDeliveryState.PENDING
+                return@forEach
+            }
+            if (deliveryAllowed == ReleaseDeliveryDecision.INELIGIBLE) {
                 releaseOutboxRepository.cancel(
                     eventKey = claimed.eventKey,
                     reason = "release no longer eligible",
@@ -156,6 +173,15 @@ class ReleaseOutboxDispatcherWorker(
                 )
                 return@forEach
             }
+
+            val cover = try {
+                withTimeoutOrNull(2_000L) {
+                    mediaRepository.cachedMediaCoverUrl(claimed.mediaId)?.let { url ->
+                        applicationContext.getBitmapFromUrl(url)
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { null }
 
             val accountBeforePost = defaultPreferencesRepository.userId.firstOrNull()?.toLong()
             if (accountBeforePost == null) {
@@ -189,6 +215,8 @@ class ReleaseOutboxDispatcherWorker(
                             ?: applicationContext.getString(R.string.release_notification_unknown_title),
                         claimed.installment.notificationLabel(applicationContext),
                     ),
+                    largeIcon = cover,
+                    bigPicture = cover,
                     pendingIntent = mediaDetailsIntent(notificationId, claimed.mediaId),
                     group = "airing",
                 )
