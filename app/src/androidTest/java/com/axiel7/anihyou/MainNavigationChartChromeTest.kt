@@ -50,7 +50,9 @@ class MainNavigationChartChromeTest {
     }
 
     @Test fun aPromotedChartHidesTheBottomBarAndBackLeadsToHomeWithTheBar() {
-        composeRule.onNodeWithTag("HomeTab").assertIsDisplayed().assertIsSelected()
+        // The activity may start on another tab (the same first step as MainNavigationActivityTest): select Home explicitly.
+        composeRule.onNodeWithTag("HomeTab").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("HomeTab").assertIsSelected()
         capture("home-with-bottom-bar") { composeRule.onNodeWithTag("MainTab-chart_top_anime").assertIsDisplayed() }
         composeRule.onNodeWithTag("MainTab-chart_top_anime").assertIsDisplayed().performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) {
