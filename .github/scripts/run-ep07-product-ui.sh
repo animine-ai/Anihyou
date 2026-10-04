@@ -77,6 +77,7 @@ expected|={'anilist-events-standard','anilist-events-grid','native-root-guest-li
            'native-root-account-dark','native-center-groups','providers-both-visible','providers-one-disabled'}
 expected|={'native-center-german-black-large','native-sources-empty-german-black-large',
            'native-providers-empty-german-black-large'}
+expected|={'anilist-next-day-standard','anilist-next-day-grid'}
 names={p.stem for p in shots}
 assert names==expected, ('screenshot set differs', sorted(expected-names), sorted(names-expected))
 # Every stored picture carries the foreground facts that were verified before and after its capture.

@@ -47,11 +47,12 @@ class AniListCalendarEventComposeTest {
         val third = CalendarAiringEvent(102, 1, tomorrowTimestamp, other)
         val day = first.localDate()
         lateinit var navigation: NavigationState
+        lateinit var navigator: Navigator
         rule.setContent {
             navigation = rememberNavigationState(Route.Calendar, MainNavigationResolver.allRoutes)
-            val nav = remember(navigation) { Navigator(navigation) }
-            CompositionLocalProvider(LocalNavActionManager provides NavActionManager(nav)) {
-                AniHyouTheme(darkTheme = false, dynamicColor = false) { CalendarViewContent(false, CalendarUiState(today = day, day = day.atStartOfDay(),
+            navigator = remember(navigation) { Navigator(navigation) }
+            CompositionLocalProvider(LocalNavActionManager provides NavActionManager(navigator)) {
+                AniHyouTheme(darkTheme = false, dynamicColor = false) { CalendarViewContent(false, CalendarUiState(today = third.localDate(), day = third.localDate().atStartOfDay(),
                     weeklyAnime = mutableMapOf(day to listOf(first, second, second), third.localDate() to listOf(third)),
                     listStyle = style, isLoading = false, autoScrollToToday = false), null) }
             }
@@ -67,6 +68,23 @@ class AniListCalendarEventComposeTest {
             rule.onAllNodesWithText("A Tale of the Secret Saint").assertCountEquals(2)
         }
         rule.onAllNodesWithText("A Tale of the Secret Saint")[0].performClick()
-        rule.runOnIdle { assertEquals(Route.MediaDetails(187402), navigation.getCurrentRoute()) }
+        rule.runOnIdle {
+            assertEquals(Route.MediaDetails(187402), navigation.getCurrentRoute())
+            navigator.goBack()
+        }
+        rule.onNodeWithTag(if (style == ListStyle.GRID) "calendar-grid" else "calendar-list")
+            .performScrollToIndex(3)
+        val sundayTime = tomorrowTimestamp.toLong().timestampToTimeString()!!
+        val sundayLabel = rule.activity.getString(com.axiel7.anihyou.core.resources.R.string.episode_airing_at, 1, sundayTime)
+        rule.onNodeWithTag("calendar-day-${third.localDate()}").assertIsDisplayed()
+        rule.onNodeWithText("Another scheduled title").assertIsDisplayed()
+        rule.onNodeWithText(sundayLabel).assertIsDisplayed()
+        rule.onNodeWithText(rule.activity.getString(com.axiel7.anihyou.core.resources.R.string.episode_airing_at, 3, sundayTime))
+            .assertDoesNotExist()
+        rule.storeVerifiedScreenshot(rule.activity, File(rule.activity.getExternalFilesDir(null), "ep07-ui"),
+            "anilist-next-day-${style.name.lowercase()}") {
+            rule.onNodeWithText("Another scheduled title").assertIsDisplayed()
+            rule.onNodeWithText(sundayLabel).assertIsDisplayed()
+        }
     }
 }
