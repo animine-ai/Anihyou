@@ -307,6 +307,12 @@ class DefaultPreferencesRepository(
         dataStore.setValue(CALENDAR_ON_MY_LIST_KEY, value)
     }
 
+    /** With an active release source the calendar shows only its rows; this adds the AniList entries that have no source match. */
+    val calendarShowAniListExtras = dataStore.getValue(key = CALENDAR_SHOW_ANILIST_EXTRAS_KEY, default = false)
+    suspend fun setCalendarShowAniListExtras(value: Boolean) {
+        dataStore.setValue(CALENDAR_SHOW_ANILIST_EXTRAS_KEY, value)
+    }
+
     // notifications
     val isNotificationsEnabled =
         dataStore.getValue(key = NOTIFICATIONS_ENABLED_KEY, default = false)
@@ -434,6 +440,7 @@ class DefaultPreferencesRepository(
         private val DEFAULT_EXPLORE_TAB_KEY = intPreferencesKey("default_explore_tab")
         private val AIRING_ON_MY_LIST_KEY = booleanPreferencesKey("airing_on_my_list")
         private val CALENDAR_ON_MY_LIST_KEY = booleanPreferencesKey("calendar_on_my_list")
+        private val CALENDAR_SHOW_ANILIST_EXTRAS_KEY = booleanPreferencesKey("calendar_show_anilist_extras")
 
         private val NOTIFICATIONS_ENABLED_KEY = booleanPreferencesKey("enabled_notifications")
         private val NOTIFICATION_INTERVAL_KEY = stringPreferencesKey("notification_interval")

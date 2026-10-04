@@ -85,4 +85,24 @@ class CalendarAiringEventsTest {
         assertEquals(listOf(7), active.presentationDays().last().rows.map { it.media!!.id })
         assertEquals(listOf(7, 8), original.presentationDays().single().rows.map { it.media!!.id })
     }
+
+    @Test fun anActiveSourceIsTheCalendarAndAniListExtrasAreOptIn() {
+        val matched = event(100, 1, mediaId = 7)
+        val extra = event(101, 1, mediaId = 8)
+        val source = ReleaseUiCalendarItem(
+            mediaId = 7,
+            stream = ReleaseStreamKey(ProviderId("aniworld"), SourceSeriesKey("/anime/stream/example"),
+                ReleaseKind.EPISODE, 1, LanguageTrack.DE_SUB),
+            installment = Installment.Episode(1), forecastAt = null, confirmed = false,
+            authority = ReleaseUiAuthority.VALID, sourceDate = day, sourceRoot = "https://aniworld.to", revision = 1,
+        )
+        val anilistOnly = CalendarUiState(today = day, weeklyAnime = mutableMapOf(day to listOf(matched, extra)))
+        assertEquals("without a source the AniList calendar is unchanged", 2, anilistOnly.presentationDays().single().rows.size)
+        assertFalse(anilistOnly.sourceIsMain())
+
+        val withSource = anilistOnly.copy(providerRowsByDate = mapOf(day to listOf(source)))
+        assertTrue(withSource.sourceIsMain())
+        assertEquals("only the source rows by default", 1, withSource.presentationDays().single().rows.size)
+        assertEquals(2, withSource.copy(showAniListExtras = true).presentationDays().single().rows.size)
+    }
 }

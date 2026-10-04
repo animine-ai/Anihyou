@@ -281,7 +281,7 @@ private fun AppBarActions(
                 onDismiss()
             },
             text = { Text(text = stringResource(R.string.on_my_list)) },
-            shapes = MenuDefaults.itemShape(0, 1),
+            shapes = MenuDefaults.itemShape(0, if (uiState.sourceIsMain()) 2 else 1),
             selectedLeadingIcon = {
                 if (uiState.onMyList != null) {
                     Icon(
@@ -294,8 +294,31 @@ private fun AppBarActions(
                 }
             },
         )
+        if (uiState.sourceIsMain()) {
+            SelectableDropdownMenuItem(
+                selected = uiState.showAniListExtras,
+                onClick = {
+                    event?.onShowAniListExtrasChanged(!uiState.showAniListExtras)
+                    onDismiss()
+                },
+                text = { Text(text = stringResource(R.string.calendar_show_anilist_extras)) },
+                shapes = MenuDefaults.itemShape(1, 2),
+                selectedLeadingIcon = {
+                    if (uiState.showAniListExtras) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.check_20),
+                            contentDescription = null,
+                            modifier = Modifier.size(MenuDefaults.LeadingIconSize)
+                        )
+                    }
+                },
+            )
+        }
     }
 }
+
+internal fun CalendarUiState.sourceIsMain(): Boolean =
+    providerRowsByDate.values.any { rows -> rows.any { it.isAuthoritative } }
 
 @Composable
 private fun StickyHeader(
@@ -380,6 +403,8 @@ internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
     val metadataByMediaId = weeklyAnime.values.asSequence().flatten().map { it.media }.associateBy { it.id }
     val sourceCoveredMediaIds = providerRowsByDate.values.asSequence().flatten()
         .filter { it.isAuthoritative }.mapNotNull { it.mediaId }.toSet()
+    // A release source is the main calendar as soon as it supplies rows: AniList entries without its match stay out unless asked for.
+    val sourceIsMain = sourceIsMain()
     return (weeklyAnime.keys + providerRowsByDate.keys + providerOnlyByDate.keys + today)
         .toSortedSet()
         .mapNotNull { date ->
@@ -406,6 +431,7 @@ internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
                 }
             }
             val originalRows = weeklyAnime[date].orEmpty().uniqueAiringEvents()
+                .filter { sourceIsMain.not() || showAniListExtras }
                 .filter { it.media.id !in sourceCoveredMediaIds }.map { airing ->
                     CalendarRow(
                         key = "$date-anilist-${airing.scheduleId}",

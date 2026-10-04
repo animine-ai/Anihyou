@@ -13,6 +13,7 @@ import java.time.LocalDate
 interface CalendarEvent : UiEvent, PagedEvent {
     fun onMyListChanged(value: Boolean?)
     fun onChangeListStyle(value: ListStyle)
+    fun onShowAniListExtrasChanged(value: Boolean) {}
     fun onUpdateListEntry(viewListEntry: BasicMediaListEntry?)
     fun selectItem(value: ExploreMedia?)
     fun nextDay()

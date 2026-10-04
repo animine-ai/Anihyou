@@ -66,6 +66,12 @@ class CalendarViewModel(
         }
     }
 
+    override fun onShowAniListExtrasChanged(value: Boolean) {
+        viewModelScope.launch {
+            defaultPreferencesRepository.setCalendarShowAniListExtras(value)
+        }
+    }
+
     override fun onChangeListStyle(value: ListStyle) {
         viewModelScope.launch {
             listPreferencesRepository.setCalendarListStyle(value)
@@ -251,6 +257,10 @@ class CalendarViewModel(
                     ).withTodayFirstItemIndex()
                 }
             }
+            .launchIn(viewModelScope)
+
+        defaultPreferencesRepository.calendarShowAniListExtras
+            .onEach { value -> mutableUiState.update { it.copy(showAniListExtras = value == true) } }
             .launchIn(viewModelScope)
 
         listPreferencesRepository.calendarListStyle
