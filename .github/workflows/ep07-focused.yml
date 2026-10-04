@@ -108,6 +108,8 @@ jobs:
             feature/settings/build/test-results/**
             feature/worker/build/test-results/**
             feature/calendar/build/test-results/**
+            feature/widget/build/reports/tests/**
+            feature/widget/build/test-results/**
             feature/home/build/test-results/**
             feature/usermedialist/build/test-results/**
             core/ui/build/test-results/**

@@ -29,6 +29,7 @@ on:
       - "version.properties"
       - ".github/workflows/aniworld-provider-v3.yml"
       - ".github/scripts/verify-extension-native-packaging.py"
+      - ".github/scripts/run-ep07-product-ui.sh"
       - "tools/ep02-android/**"
   workflow_dispatch:
 
