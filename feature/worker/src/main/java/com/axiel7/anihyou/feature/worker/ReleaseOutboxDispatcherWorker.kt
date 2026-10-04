@@ -106,6 +106,16 @@ class ReleaseOutboxDispatcherWorker(
                 )
                 return@forEach
             }
+            // The optional image may suspend. Revalidate preferences and release eligibility after it completes.
+            val cover = try {
+                withTimeoutOrNull(2_000L) {
+                    mediaRepository.cachedMediaCoverUrl(claimed.mediaId)?.let { url ->
+                        applicationContext.getBitmapFromUrl(url)
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { null }
+
             val currentPreferences = releasePreferencesRepository.releasePreferences.first()
             if (currentPreferences.selectedProvider != PROVIDER_ID ||
                 !currentPreferences.notificationsEnabled
@@ -174,15 +184,6 @@ class ReleaseOutboxDispatcherWorker(
                 return@forEach
             }
 
-            val cover = try {
-                withTimeoutOrNull(2_000L) {
-                    mediaRepository.cachedMediaCoverUrl(claimed.mediaId)?.let { url ->
-                        applicationContext.getBitmapFromUrl(url)
-                    }
-                }
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { null }
-
             val accountBeforePost = defaultPreferencesRepository.userId.firstOrNull()?.toLong()
             if (accountBeforePost == null) {
                 releaseOutboxRepository.reschedulePending(
@@ -205,7 +206,7 @@ class ReleaseOutboxDispatcherWorker(
             try {
                 val notificationId = com.axiel7.anihyou.release.core.notification.ReleaseNotificationId
                     .fromEventKey(claimed.eventKey)
-                applicationContext.showNotification(
+                val posted = applicationContext.showNotification(
                     notificationId = notificationId,
                     channelId = AIRING_CHANNEL_ID,
                     title = applicationContext.getString(R.string.notifications_airing),
@@ -220,10 +221,20 @@ class ReleaseOutboxDispatcherWorker(
                     pendingIntent = mediaDetailsIntent(notificationId, claimed.mediaId),
                     group = "airing",
                 )
+                if (!posted) {
+                    val deferredState = releaseOutboxRepository.reschedulePending(
+                        eventKey = claimed.eventKey,
+                        nextAttemptAt = now.plusSeconds(retryDelaySeconds(claimed.attemptCount)),
+                        error = "Android did not post release notification",
+                    )
+                    retryNeeded = retryNeeded || deferredState == ReleaseDeliveryState.PENDING
+                    return@forEach
+                }
                 if (!releaseOutboxRepository.markDelivered(claimed.eventKey, clock.instant())) {
                     retryNeeded = true
                 }
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 releaseOutboxRepository.reschedulePending(
                     eventKey = claimed.eventKey,
                     nextAttemptAt = now.plusSeconds(retryDelaySeconds(claimed.attemptCount)),
