@@ -72,37 +72,58 @@ class CurrentViewModel(
     ): Flow<PagedResult<CommonMediaListEntry>> = flow {
         val userId = myUserId.first()
         val scoreFormat = defaultPreferencesRepository.scoreFormat.first() ?: ScoreFormat.POINT_10_DECIMAL
-        val all = mutableListOf<CommonMediaListEntry>()
-        var page = 1
+        fun page(number: Int) = mediaListRepository.getUserMediaList(
+            userId = userId,
+            mediaType = mediaType,
+            statusIn = listOf(MediaListStatus.CURRENT, MediaListStatus.REPEATING),
+            sort = listOf(MediaListSort.UPDATED_TIME_DESC),
+            scoreFormat = scoreFormat,
+            fetchFromNetwork = fetchFromNetwork,
+            page = number,
+            perPage = CURRENT_PAGE_SIZE,
+        )
         emit(PagedResult.Loading)
-        while (page <= MAX_CURRENT_PAGES) {
-            // The first answer of a page decides it; a source that keeps emitting (a live cache) must not hold the loop.
-            val result = mediaListRepository.getUserMediaList(
-                userId = userId,
-                mediaType = mediaType,
-                statusIn = listOf(MediaListStatus.CURRENT, MediaListStatus.REPEATING),
-                sort = listOf(MediaListSort.UPDATED_TIME_DESC),
-                scoreFormat = scoreFormat,
-                fetchFromNetwork = fetchFromNetwork,
-                page = page,
-                perPage = CURRENT_PAGE_SIZE,
-            ).first { it !is PagedResult.Loading }
-            val pageResult = result as? PagedResult.Success
-            val failure = (result as? PagedResult.Error)?.message
-            if (failure != null || pageResult == null) {
-                AppLog.w("current") { "list $mediaType page=$page failed: ${failure ?: "no result"}; loaded so far=${all.size}" }
-                emit(PagedResult.Error(failure ?: "no result"))
-                return@flow
+        // The first page stays a live source (every answer of it is followed, as before); the pages behind it are read once.
+        page(1).collect { first ->
+            when (first) {
+                PagedResult.Loading -> Unit
+                is PagedResult.Error -> {
+                    AppLog.w("current") { "list $mediaType page=1 failed: ${first.message}" }
+                    emit(PagedResult.Error(first.message))
+                }
+                is PagedResult.Success -> {
+                    val all = first.list.toMutableList()
+                    var number = 1
+                    var hasNext = first.hasNextPage
+                    var failure: String? = null
+                    AppLog.d("current") {
+                        "list $mediaType page=1 got=${first.list.size} hasNext=$hasNext network=$fetchFromNetwork"
+                    }
+                    while (hasNext && number < MAX_CURRENT_PAGES) {
+                        number++
+                        when (val next = page(number).first { it !is PagedResult.Loading }) {
+                            is PagedResult.Success -> {
+                                all += next.list
+                                hasNext = next.hasNextPage
+                                AppLog.d("current") { "list $mediaType page=$number got=${next.list.size} total=${all.size} hasNext=$hasNext" }
+                            }
+                            is PagedResult.Error -> {
+                                failure = next.message
+                                hasNext = false
+                            }
+                            PagedResult.Loading -> hasNext = false
+                        }
+                    }
+                    if (failure != null) {
+                        AppLog.w("current") { "list $mediaType page=$number failed: $failure; loaded so far=${all.size}" }
+                        emit(PagedResult.Error(failure))
+                    } else {
+                        AppLog.i("current") { "list $mediaType complete entries=${all.size} pages=$number" }
+                        emit(PagedResult.Success(all.distinctBy { it.mediaId }, currentPage = number, hasNextPage = false))
+                    }
+                }
             }
-            all += pageResult.list
-            AppLog.d("current") {
-                "list $mediaType page=$page got=${pageResult.list.size} total=${all.size} hasNext=${pageResult.hasNextPage} network=$fetchFromNetwork"
-            }
-            if (!pageResult.hasNextPage) break
-            page++
         }
-        AppLog.i("current") { "list $mediaType complete entries=${all.size} pages=$page" }
-        emit(PagedResult.Success(all.distinctBy { it.mediaId }, currentPage = page, hasNextPage = false))
     }
 
     private fun Map<Int, List<ReleaseUiPresentation>>.authoritativeFor(mediaId: Int): ReleaseUiPresentation? =
