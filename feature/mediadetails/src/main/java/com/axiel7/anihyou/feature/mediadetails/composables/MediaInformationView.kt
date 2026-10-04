@@ -123,7 +123,10 @@ fun MediaInformationView(
                     R.string.episode_in_time,
                     installment.number,
                     java.time.Duration.between(now, forecastAt).seconds.coerceAtLeast(0L).secondsToLegibleText(),
-                )
+                ).let { line ->
+                    com.axiel7.anihyou.core.ui.composables.media.releaseTrackLabel(providerRelease.stream.languageTrack)
+                        ?.let { "$line · $it" } ?: line
+                }
             }
             InfoItemView(
                 title = stringResource(R.string.airing),

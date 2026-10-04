@@ -24,7 +24,7 @@
     <string name="unknown">Unbekannt</string>
     <string name="airing_soon">Erscheint bald</string>
     <string name="mean_score">Durchschnitt</string>
-    <string name="airing_in">Ausstrahlung in %s</string>
+    <string name="airing_in">In %s</string>
     <string name="winter">Winter</string>
     <string name="spring">Frühling</string>
     <string name="summer">Sommer</string>
@@ -81,8 +81,8 @@
     <string name="episode_in_time">Ep %d in %s</string>
     <string name="airing">Wird ausgestrahlt</string>
     <plurals name="num_episodes_behind">
-        <item quantity="one">%d Episode ausstehend</item>
-        <item quantity="other">%d Episoden ausstehend</item>
+        <item quantity="one">%d ausstehend</item>
+        <item quantity="other">%d ausstehend</item>
     </plurals>
     <string name="information">Informationen</string>
     <string name="duration">Laufzeit</string>
@@ -272,7 +272,7 @@
     <string name="friday">Freitag</string>
     <string name="saturday">Samstag</string>
     <string name="sunday">Sonntag</string>
-    <string name="episode_airing_at">Ep %d Ausstrahlung um %s Uhr</string>
+    <string name="episode_airing_at">Ep %d · %s Uhr</string>
     <string name="filter">Filter</string>
     <string name="notifications">Benachrichtigungen</string>
     <string name="threads">Themen</string>

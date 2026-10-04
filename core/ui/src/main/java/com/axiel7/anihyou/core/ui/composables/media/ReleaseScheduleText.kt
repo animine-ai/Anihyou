@@ -16,6 +16,7 @@ import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.release.core.api.pendingFor
 import com.axiel7.anihyou.release.core.model.Installment
+import com.axiel7.anihyou.release.core.model.LanguageTrack
 import com.axiel7.anihyou.release.core.model.ReleaseKind
 import java.time.Clock
 import java.time.Duration
@@ -86,7 +87,7 @@ fun ReleaseScheduleText(
     }
 
     Text(
-        text = text,
+        text = text.withTrack(presentation.stream.languageTrack),
         modifier = modifier,
         color = if (pending > 0) {
             MaterialTheme.colorScheme.primary
@@ -97,6 +98,16 @@ fun ReleaseScheduleText(
         textAlign = textAlign,
     )
 }
+
+/** "SUB" or "DUB" for a German track; null when the source did not say. */
+fun releaseTrackLabel(track: LanguageTrack): String? = when (track) {
+    LanguageTrack.DE_SUB -> "SUB"
+    LanguageTrack.DE_DUB -> "DUB"
+    else -> null
+}
+
+private fun String.withTrack(track: LanguageTrack): String =
+    releaseTrackLabel(track)?.let { "$this · $it" } ?: this
 
 @Composable
 fun releaseInstallmentLabel(

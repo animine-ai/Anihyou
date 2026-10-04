@@ -83,18 +83,18 @@ class ReleaseScheduleTextComposeTest {
         val nextEpisode = "Ep 11 in"
 
         // Confirmed 10, progress 8: two are pending, the plan never adds one.
-        composeRule.onNodeWithText(behind(2)).assertIsDisplayed()
+        composeRule.onNodeWithText(behind(2), substring = true).assertIsDisplayed()
 
         // Progress +1, then caught up: the count follows the progress, no source refresh is involved.
         composeRule.runOnIdle { progress = 9 }
-        composeRule.onNodeWithText(behind(1)).assertIsDisplayed()
+        composeRule.onNodeWithText(behind(1), substring = true).assertIsDisplayed()
         composeRule.runOnIdle { progress = 10 }
         composeRule.onNodeWithText(nextEpisode, substring = true).assertIsDisplayed()
         // Not on the list (logged out or not added): nothing is claimed as pending.
         composeRule.runOnIdle { progress = null }
         composeRule.onNodeWithText(nextEpisode, substring = true).assertIsDisplayed()
         composeRule.runOnIdle { progress = 8 }
-        composeRule.onNodeWithText(behind(2)).assertIsDisplayed()
+        composeRule.onNodeWithText(behind(2), substring = true).assertIsDisplayed()
 
         // The open screen ages: two hours after the plan it is still shown (the source needs time to confirm) ...
         composeRule.runOnIdle { progress = 10 }

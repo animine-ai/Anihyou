@@ -540,7 +540,12 @@ private fun ReleaseUiCalendarItem.widgetText(context: Context): String {
     val episode = (installment as? Installment.Episode)?.number
     val time = forecastAt?.epochSecond?.sourceTimeString()
     return if (episode != null && time != null) {
-        context.getString(R.string.episode_airing_at, episode, time)
+        context.getString(R.string.episode_airing_at, episode, time) +
+            when (stream.languageTrack) {
+                com.axiel7.anihyou.release.core.model.LanguageTrack.DE_SUB -> " · SUB"
+                com.axiel7.anihyou.release.core.model.LanguageTrack.DE_DUB -> " · DUB"
+                else -> ""
+            }
     } else {
         time.orEmpty()
     }

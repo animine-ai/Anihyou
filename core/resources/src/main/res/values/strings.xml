@@ -23,7 +23,7 @@
     <string name="unknown">Unknown</string>
     <string name="airing_soon">Airing Soon</string>
     <string name="mean_score">Mean score</string>
-    <string name="airing_in">Airing in %s</string>
+    <string name="airing_in">In %s</string>
     <string name="winter">Winter</string>
     <string name="spring">Spring</string>
     <string name="summer">Summer</string>
@@ -81,8 +81,8 @@
     <string name="airing">Airing</string>
     <string name="lorem_ipsun" translatable="false">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</string>
     <plurals name="num_episodes_behind">
-        <item quantity="one">%d episode behind</item>
-        <item quantity="other">%d episodes behind</item>
+        <item quantity="one">%d behind</item>
+        <item quantity="other">%d behind</item>
     </plurals>
     <string name="information">Information</string>
     <string name="duration">Duration</string>
@@ -273,7 +273,7 @@
     <string name="friday">Friday</string>
     <string name="saturday">Saturday</string>
     <string name="sunday">Sunday</string>
-    <string name="episode_airing_at">Ep %d airing at %s</string>
+    <string name="episode_airing_at">Ep %d · %s</string>
     <string name="filter">Filter</string>
     <string name="notifications">Notifications</string>
     <string name="threads">Threads</string>

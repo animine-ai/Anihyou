@@ -34,7 +34,8 @@ fun ReleaseCalendarScheduleText(
     }
 
     Text(
-        text = stringResource(R.string.episode_airing_at, episode, time),
+        text = stringResource(R.string.episode_airing_at, episode, time)
+            .let { line -> releaseTrackLabel(presentation.stream.languageTrack)?.let { "$line · $it" } ?: line },
         modifier = modifier,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         style = MaterialTheme.typography.labelLarge,
