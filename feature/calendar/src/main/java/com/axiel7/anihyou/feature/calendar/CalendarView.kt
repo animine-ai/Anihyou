@@ -377,11 +377,13 @@ internal fun List<CalendarRow>.withUniqueKeys(): List<CalendarRow> {
 
 internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
     val metadataByMediaId = weeklyAnime.values.asSequence().flatten().map { it.media }.associateBy { it.id }
+    val sourceCoveredMediaIds = providerRowsByDate.values.asSequence().flatten()
+        .filter { it.isAuthoritative }.mapNotNull { it.mediaId }.toSet()
     return (weeklyAnime.keys + providerRowsByDate.keys + providerOnlyByDate.keys + today)
         .toSortedSet()
         .mapNotNull { date ->
             val providerRows = providerRowsByDate[date].orEmpty()
-            val rows = if (providerRows.isNotEmpty()) {
+            val releaseRows = if (providerRows.isNotEmpty()) {
                 // Provider events own the date. AniList supplies metadata only.
                 val (knownRows, providerOnlyRows) = providerRows.partition { row ->
                     row.mediaId?.let(metadataByMediaId::containsKey) == true
@@ -394,14 +396,7 @@ internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
                     )
                 }
             } else {
-                weeklyAnime[date].orEmpty().uniqueAiringEvents().map { airing ->
-                    CalendarRow(
-                        key = "$date-anilist-${airing.scheduleId}",
-                        media = airing.media,
-                        releasePresentations = emptyList(),
-                        airingEvent = airing,
-                    )
-                } + providerOnlyByDate[date].orEmpty().map { release ->
+                providerOnlyByDate[date].orEmpty().map { release ->
                     CalendarRow(
                         key = "$date-provider-${release.eventKey}",
                         media = null,
@@ -409,6 +404,16 @@ internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
                     )
                 }
             }
+            val originalRows = weeklyAnime[date].orEmpty().uniqueAiringEvents()
+                .filter { it.media.id !in sourceCoveredMediaIds }.map { airing ->
+                    CalendarRow(
+                        key = "$date-anilist-${airing.scheduleId}",
+                        media = airing.media,
+                        releasePresentations = emptyList(),
+                        airingEvent = airing,
+                    )
+                }
+            val rows = releaseRows + originalRows
             if (rows.isNotEmpty() || date == today) CalendarDay(date, rows.withUniqueKeys()) else null
         }
 }

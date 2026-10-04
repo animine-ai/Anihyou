@@ -2,6 +2,9 @@ package com.axiel7.anihyou.feature.calendar
 
 import com.axiel7.anihyou.core.model.media.CalendarAiringEvent
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
+import com.axiel7.anihyou.release.core.api.ReleaseUiAuthority
+import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
+import com.axiel7.anihyou.release.core.model.*
 import io.mockk.every
 import io.mockk.mockk
 import java.time.Instant
@@ -66,5 +69,20 @@ class CalendarAiringEventsTest {
         val updated = state.withAiringPage(day, true, emptyList(), zone)
         assertFalse(day in updated)
         assertEquals(listOf(2), updated.getValue(day.plusDays(7)).map { it.scheduleId })
+    }
+
+    @Test fun activeSourceReplacesOnlyItsMappedMediaAndRemovingItRestoresOriginalSchedules() {
+        val first = event(1, 1, mediaId = 7)
+        val other = event(2, 1, mediaId = 8)
+        val source = ReleaseUiCalendarItem(mediaId = 7,
+            stream = ReleaseStreamKey(ProviderId("aniworld"), SourceSeriesKey("/anime/stream/series"),
+                ReleaseKind.EPISODE, 1, LanguageTrack.DE_SUB),
+            installment = Installment.Episode(2), forecastAt = null, confirmed = false,
+            authority = ReleaseUiAuthority.VALID, sourceDate = day.plusDays(1), sourceRoot = null, revision = 1)
+        val original = CalendarUiState(today = day, weeklyAnime = mutableMapOf(day to listOf(first, other)))
+        val active = original.copy(providerRowsByDate = mapOf(day.plusDays(1) to listOf(source)))
+        assertEquals(listOf(8), active.presentationDays().first().rows.map { it.media!!.id })
+        assertEquals(listOf(7), active.presentationDays().last().rows.map { it.media!!.id })
+        assertEquals(listOf(7, 8), original.presentationDays().single().rows.map { it.media!!.id })
     }
 }

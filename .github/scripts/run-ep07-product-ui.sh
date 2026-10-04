@@ -62,7 +62,8 @@ match=re.search(r'OK \((\d+) tests?\)',text)
 assert match and int(match[1])>0 and 'INSTRUMENTATION_CODE: -1' in text, text[-20000:]
 required={'ExtensionCalendarComposeTest','ExtensionUpdateComposeTest','ExtensionSourcesUserFlowTest',
           'MainNavigationProductComposeTest','MainNavigationChartChromeTest','ReleaseScheduleTextComposeTest','MediaDetailsNavigationComposeTest','MatchingManagementComposeTest',
-          'ExtensionRefreshScheduleComposeTest','ScreenshotCaptureGuardTest'}
+          'ExtensionRefreshScheduleComposeTest','ScreenshotCaptureGuardTest',
+          'AniListCalendarEventComposeTest','NativeSettingsGroupsComposeTest'}
 for name in required:
     assert name in text, (name,text[-20000:])
 assert 'INSTRUMENTATION_STATUS_CODE: -3' not in text and 'INSTRUMENTATION_STATUS_CODE: -4' not in text, 'skipped/assumption-failed test'
@@ -72,6 +73,8 @@ expected={f'calendar-{kind}-{step}' for kind in ('standard-light','grid-light','
 expected|={'postponements-safe-and-unassigned','rollback-confirmation','manage-overview',
            'manage-overview-dark-narrow-large-text','diagnostics','diagnostics-dark',
            'trust-unavailable-manage','trust-unavailable-notice','manage-installed-version-withdrawn'}
+expected|={'anilist-events-standard','anilist-events-grid','native-root-guest-light',
+           'native-root-account-dark','native-center-groups','providers-both-visible','providers-one-disabled'}
 names={p.stem for p in shots}
 assert names==expected, ('screenshot set differs', sorted(expected-names), sorted(names-expected))
 # Every stored picture carries the foreground facts that were verified before and after its capture.

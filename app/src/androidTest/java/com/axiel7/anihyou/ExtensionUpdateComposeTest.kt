@@ -26,6 +26,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
@@ -567,6 +569,50 @@ class ExtensionUpdateComposeTest {
         composeRule.onNodeWithTag(providerTag).assertIsEnabled()
         composeRule.onNodeWithTag(visibleTag).assertIsEnabled()
         composeRule.onNodeWithTag(moveUpTag).assertIsEnabled()
+    }
+
+    @Test
+    fun twoVisibleProvidersStayVisibleWhenThePreferredProviderChanges() {
+        val keyA = key("provider-a")
+        val keyB = key("provider-b")
+        val state = mutableStateOf(ExtensionSourcesUiState(
+            sources = listOf(source(keyA.sourceId, current(keyA)), source(keyB.sourceId, current(keyB))),
+            canEditProductPolicy = true,
+            productPolicy = ExtensionProductPolicy(preferredNavigationProvider = keyA,
+                navigationProviderOrder = listOf(keyA, keyB)),
+        ))
+        val event = object : ExtensionSourcesEvent by RecordingEvent() {
+            override fun selectNavigationProvider(key: ExtensionSelectionKey?) {
+                state.value = state.value.copy(productPolicy = state.value.productPolicy.copy(preferredNavigationProvider = key))
+            }
+            override fun setPreferences(key: ExtensionSelectionKey, preferences: ExtensionPreferences) {
+                state.value = state.value.copy(productPolicy = state.value.productPolicy.copy(
+                    preferences = state.value.productPolicy.preferences + (key to preferences)))
+            }
+        }
+        composeRule.setContent { MaterialTheme {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                ExtensionProviderDisplay(state.value, event)
+            }
+        } }
+        val visibleA = "extension-preference-provider-visible-${keyA.testTagPart()}"
+        val visibleB = "extension-preference-provider-visible-${keyB.testTagPart()}"
+        composeRule.onNodeWithTag(visibleA).assertIsOn()
+        composeRule.onNodeWithTag(visibleB).assertIsOn()
+        composeRule.onNodeWithTag("extension-product-navigation-${keyB.testTagPart()}")
+            .performScrollTo().performClick().assertIsSelected()
+        composeRule.onNodeWithTag(visibleA).performScrollTo().assertIsOn()
+        composeRule.onNodeWithTag(visibleB).assertIsOn()
+        captureScreenshot("providers-both-visible") {
+            composeRule.onNodeWithTag(visibleA).assertIsDisplayed().assertIsOn()
+            composeRule.onNodeWithTag(visibleB).assertIsDisplayed().assertIsOn()
+        }
+        composeRule.onNodeWithTag(visibleA).performClick().assertIsOff()
+        composeRule.onNodeWithTag(visibleB).assertIsOn()
+        captureScreenshot("providers-one-disabled") {
+            composeRule.onNodeWithTag(visibleA).assertIsDisplayed().assertIsOff()
+            composeRule.onNodeWithTag(visibleB).assertIsDisplayed().assertIsOn()
+        }
     }
 
     @Test

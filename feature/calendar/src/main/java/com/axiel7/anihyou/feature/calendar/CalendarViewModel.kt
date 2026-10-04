@@ -340,17 +340,8 @@ class CalendarViewModel(
     }
 
     private fun CalendarUiState.withTodayFirstItemIndex(): CalendarUiState {
-        val index = (weeklyAnime.keys + providerRowsByDate.keys + providerOnlyByDate.keys)
-            .filter { it < today }
-            .sumOf { date ->
-                val providerRows = providerRowsByDate[date].orEmpty()
-                val rowCount = if (providerRows.isNotEmpty()) {
-                    providerRows.size
-                } else {
-                    weeklyAnime[date].orEmpty().size + providerOnlyByDate[date].orEmpty().size
-                }
-                if (rowCount == 0) 0 else rowCount + 1 // the date header
-            }
+        val index = presentationDays().filter { it.date < today }
+            .sumOf { it.rows.size + 1 } // exactly the displayed rows plus their date header
         return copy(todayFirstItemIndex = index, todayAnchorReady = true)
     }
 
