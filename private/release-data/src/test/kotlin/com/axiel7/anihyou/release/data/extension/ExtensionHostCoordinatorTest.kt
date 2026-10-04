@@ -222,8 +222,8 @@ class ExtensionHostCoordinatorTest {
     fun `extended parse fuel is granted only to the verified extension identity`() = runBlocking {
         for ((grants, expected) in listOf(
             emptyMap<ExtensionId, Long>() to 10_000_000L,
-            mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L) to 25_000_000L,
-            mapOf(ExtensionId.parse("other.extension") to 25_000_000L) to 10_000_000L,
+            mapOf(ExtensionId.parse("de.aniworld") to 100_000_000L) to 100_000_000L,
+            mapOf(ExtensionId.parse("other.extension") to 100_000_000L) to 10_000_000L,
         )) {
             val runtime = FixtureRuntime(planUrl = "https://aniworld.to/calendar")
             val coordinator = ExtensionHostCoordinator(
@@ -240,7 +240,7 @@ class ExtensionHostCoordinatorTest {
     fun `resource grants cannot raise the hard parse fuel ceiling`() {
         ExtensionHostCoordinator(FakeRepository(extensionPackage()), FixtureRuntime(), FixtureTransport(),
             ExtensionObservationPolicy { _, _ -> true },
-            parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 25_000_001L))
+            parseFuelByExtensionId = mapOf(ExtensionId.parse("de.aniworld") to 100_000_001L))
     }
 
     private fun coordinator(

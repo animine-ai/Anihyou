@@ -20,4 +20,6 @@ interface CalendarEvent : UiEvent, PagedEvent {
     fun refresh()
     fun refreshDay(date: LocalDate)
     fun onAutoScrolled()
+    /** The calendar screen came into view (again): today is the focus each time. */
+    fun onScreenEntered() {}
 }

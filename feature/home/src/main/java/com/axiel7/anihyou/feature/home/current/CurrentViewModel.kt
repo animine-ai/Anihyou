@@ -423,6 +423,15 @@ class CurrentViewModel(
                             AppLog.i("current") {
                                 "anime list loaded total=${result.list.size} releasing=${currentEntries.size} other=${animeList.size}"
                             }
+                            if (AppLog.enabled) {
+                                result.list.take(60).forEach { entry ->
+                                    AppLog.d("current") {
+                                        "entry media=${entry.mediaId} listStatus=${entry.basicMediaListEntry.status} mediaStatus=${entry.media?.status} " +
+                                            "progress=${entry.basicMediaListEntry.progress} nextEp=${entry.media?.nextAiringEpisode?.episode} " +
+                                            "in=${entry.media?.nextAiringEpisode?.timeUntilAiring}s episodes=${entry.media?.basicMediaDetails?.episodes}"
+                                    }
+                                }
+                            }
                             logClassification("list load", currentEntries, uiState.releaseByMediaId)
                             uiState.airingList.clear()
                             uiState.airingList.addAll(airingList)
@@ -430,7 +439,11 @@ class CurrentViewModel(
                             uiState.behindList.addAll(behindList)
                             uiState.animeList.clear()
                             uiState.animeList.addAll(animeList)
+                            // A finished refresh ends the network request. Every list watches this flag and restarts on every
+                            // state change while it is on, so a list that never switched it off (and a failing sibling that
+                            // never could) kept all of them restarting each other: 48 requests in 30 seconds, then HTTP 429.
                             uiState.copy(
+                                fetchFromNetwork = false,
                                 isLoading = false
                             )
                         }
@@ -442,6 +455,7 @@ class CurrentViewModel(
                         is PagedResult.Error -> {
                             uiState.copy(
                                 error = result.message,
+                                fetchFromNetwork = false,
                                 isLoading = false,
                             )
                         }
@@ -478,6 +492,7 @@ class CurrentViewModel(
                         is PagedResult.Error -> {
                             uiState.copy(
                                 error = result.message,
+                                fetchFromNetwork = false,
                                 isLoading = false,
                             )
                         }
@@ -572,6 +587,7 @@ class CurrentViewModel(
                         is PagedResult.Error -> {
                             uiState.copy(
                                 error = result.message,
+                                fetchFromNetwork = false,
                                 isLoading = false,
                             )
                         }

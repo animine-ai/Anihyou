@@ -203,6 +203,11 @@ class CalendarViewModel(
         }
     }
 
+    override fun onScreenEntered() {
+        AppLog.i("calendar") { "screen entered: focus today again (anchor ready=${uiState.value.todayAnchorReady}, index=${uiState.value.todayFirstItemIndex})" }
+        mutableUiState.update { if (it.autoScrollToToday) it else it.copy(autoScrollToToday = true) }
+    }
+
     override fun onAutoScrolled() {
         // Initial focus is one-shot; the Today index remains available for the FAB.
         mutableUiState.update { it.copy(autoScrollToToday = false) }

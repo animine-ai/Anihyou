@@ -41,7 +41,7 @@ class SingleSourceShadowRefreshCoordinator(
     private val releaseHostFactory: ReleaseExtensionHostCoordinatorFactory = ReleaseExtensionHostCoordinatorFactory {
             repository, extensionRuntime, directory, observationPolicy ->
         ProductionExtensionDispatches.create(repository, extensionRuntime, directory,
-            observationPolicy, mapOf(ExtensionId.parse("de.aniworld") to 25_000_000L)).release
+            observationPolicy, mapOf(ExtensionId.parse("de.aniworld") to 100_000_000L)).release
     },
     private val postponementStore: FileExtensionPostponementStore? = null,
     /** Shared durable ledger state: soft success freshness and denial times. Hard limits stay in the transport. */

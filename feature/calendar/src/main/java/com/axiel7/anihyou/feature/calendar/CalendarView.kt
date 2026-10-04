@@ -130,6 +130,9 @@ fun CalendarViewContent(
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
 
+    // Every visit of the tab starts on today, not only the first one after the app opened.
+    LaunchedEffect(Unit) { event?.onScreenEntered() }
+
     fun showEditSheetAction() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         if (isLoggedIn) {
@@ -173,6 +176,7 @@ fun CalendarViewContent(
             }
             FloatingActionButton(
                 onClick = {
+                    AppLog.i("calendar") { "jump to today tapped: index=${uiState.todayFirstItemIndex} style=${uiState.listStyle}" }
                     scope.launch {
                         if (uiState.listStyle == ListStyle.GRID) {
                             gridState.animateScrollToItem(uiState.todayFirstItemIndex)

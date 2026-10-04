@@ -31,7 +31,7 @@ class ExtensionCenterDiagnosticsRepository(
         }
         // Actual enforced bounds, not a measurement of resources used by the last invocation.
         values["Fuel limit"] = ExtensionHostCoordinator.PLAN_LIMITS.fuel.toString() + " plan / " +
-            (if (key.extensionId == "de.aniworld") 25_000_000L else ExtensionHostCoordinator.PARSE_LIMITS.fuel).toString() + " parse"
+            (if (key.extensionId == "de.aniworld") 100_000_000L else ExtensionHostCoordinator.PARSE_LIMITS.fuel).toString() + " parse"
         values["Memory limit"] = ExtensionHostCoordinator.PARSE_LIMITS.memoryBytes.toString() + " B"
         values["Deadline limit"] = ExtensionHostCoordinator.PARSE_LIMITS.deadlineMillis.toString() + " ms"
         return if (policy.policy.value == selection && sources.sources.value.usableExtension(key)?.let {

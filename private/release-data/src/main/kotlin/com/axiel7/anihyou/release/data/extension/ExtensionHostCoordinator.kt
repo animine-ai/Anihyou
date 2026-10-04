@@ -122,7 +122,7 @@ class ExtensionHostCoordinator(
     parseFuelByExtensionId: Map<ExtensionId, Long> = emptyMap(),
 ) {
     private val parseFuelGrants = parseFuelByExtensionId.toMap().also { grants ->
-        require(grants.values.all { it in 10_000_000L..25_000_000L })
+        require(grants.values.all { it in 10_000_000L..MAX_PARSE_FUEL_GRANT })
     }
 
     suspend fun execute(request: ExtensionRunRequest): ExtensionHostResult {
@@ -366,6 +366,12 @@ class ExtensionHostCoordinator(
         const val MIN_MODULE_BYTES = 8
         const val MAX_URL_BYTES = 2048
         const val MAX_BODY_BYTES = 2 * 1024 * 1024
+        /**
+         * The host hands every response of one refresh to a single parse call. The measured guest cost of the three AniWorld pages
+         * together is about 47 million fuel (calendar 22.5M, recent 22.4M, postponements 2.5M); 25 million trapped on real data.
+         * The hard ceiling is twice that, the 2 s deadline still bounds the wall clock.
+         */
+        const val MAX_PARSE_FUEL_GRANT = 100_000_000L
         const val MAX_TARGETS = 256
         val PLAN_LIMITS = ExtensionExecutionLimits(
             maxInputBytes = 256 * 1024,

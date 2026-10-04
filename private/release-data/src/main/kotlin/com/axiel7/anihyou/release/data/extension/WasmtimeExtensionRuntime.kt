@@ -280,6 +280,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                 }
 
                 if (reply.status != RuntimeProtocol.STATUS_OK) {
+                    AppLog.w("runtime") { "guest reply status=${reply.status} error=${reply.error?.take(300)}" }
                     reply.outputFd?.close()
                     if (!sendModule && reply.error?.contains(RuntimeProtocol.ERROR_MODULE_MISS) == true) {
                         return@coroutineScope RuntimeAttempt.ModuleMiss
