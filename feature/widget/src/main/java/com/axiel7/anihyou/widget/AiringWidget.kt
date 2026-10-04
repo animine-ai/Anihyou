@@ -535,36 +535,14 @@ private fun stableWidgetId(eventKey: String): Long {
     return hash.takeIf { it != 0L } ?: 1L
 }
 
+/** The original wording of the widget ("Ep 3 airing at 14:30") with the data of the release source. */
 private fun ReleaseUiCalendarItem.widgetText(context: Context): String {
-    val label = when (val value = installment) {
-        is Installment.Episode -> value.fraction?.let {
-            context.getString(
-                R.string.release_installment_episode_fraction,
-                value.number,
-                it,
-            )
-        } ?: context.getString(R.string.release_installment_episode, value.number)
-        is Installment.Film -> value.number?.let {
-            context.getString(R.string.release_installment_film_number, it)
-        } ?: context.getString(R.string.release_installment_film)
-        is Installment.Special -> when (stream.releaseKind) {
-            ReleaseKind.OVA -> context.getString(R.string.release_installment_ova)
-            ReleaseKind.ONA -> context.getString(R.string.release_installment_ona)
-            else -> value.number?.let {
-                context.getString(R.string.release_installment_special_number, it)
-            } ?: context.getString(R.string.release_installment_special)
-        }
-    }
-    return if (confirmed) {
-        context.getString(R.string.release_schedule_confirmed_installment, label)
+    val episode = (installment as? Installment.Episode)?.number
+    val time = forecastAt?.epochSecond?.sourceTimeString()
+    return if (episode != null && time != null) {
+        context.getString(R.string.episode_airing_at, episode, time)
     } else {
-        forecastAt?.epochSecond?.let {
-            context.getString(
-                R.string.release_schedule_next_at,
-                label,
-                it.sourceTimeString(),
-            )
-        } ?: context.getString(R.string.release_schedule_next, label)
+        time.orEmpty()
     }
 }
 

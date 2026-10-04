@@ -77,6 +77,7 @@ import com.axiel7.anihyou.feature.mediadetails.EpisodeMappingSaveState
 import com.axiel7.anihyou.feature.mediadetails.isValidProviderSeriesKey
 import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.release.core.api.pendingFor
+import com.axiel7.anihyou.release.core.model.Installment
 import com.axiel7.anihyou.release.core.navigation.NavigationProvider
 import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import kotlinx.collections.immutable.persistentListOf
@@ -113,40 +114,16 @@ fun MediaInformationView(
                 Clock.systemUTC(),
                 providerReleases.mapNotNull { it.nextForecastAt }.minOrNull(),
             )
-            val providerInfoLines = providerReleases.map { providerRelease ->
-                val pending = providerRelease.pendingFor(progress)
-                val providerInfoParts = buildList {
-                    providerRelease.confirmedThroughEpisode?.let {
-                        add(stringResource(R.string.release_schedule_confirmed_through, it))
-                    }
-                    if (pending > 0) {
-                        add(pluralStringResource(R.plurals.release_schedule_pending, pending, pending))
-                    }
-                    providerRelease.nextExpectedInstallment?.let { installment ->
-                        val label = releaseInstallmentLabel(
-                            installment = installment,
-                            releaseKind = providerRelease.stream.releaseKind,
-                        )
-                        add(
-                            // A plan that passed without a confirmation stays a plan: no time.
-                            providerRelease.nextForecastAt
-                                ?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
-                                ?.let { forecastAt ->
-                                    stringResource(
-                                        R.string.release_schedule_next_at,
-                                        label,
-                                        forecastAt.atZone(ZoneId.systemDefault())
-                                            .toLocalDateTime()
-                                            .toLocalized()
-                                            .orEmpty(),
-                                    )
-                                } ?: stringResource(R.string.release_schedule_next, label),
-                        )
-                    }
-                }
-                providerInfoParts.ifEmpty {
-                    listOf(stringResource(R.string.release_schedule_available))
-                }.joinToString(" · ")
+            // The original line of the app ("Ep 15 in 3d 4h") with the next release of the source.
+            val providerInfoLines = providerReleases.mapNotNull { providerRelease ->
+                val installment = providerRelease.nextExpectedInstallment as? Installment.Episode
+                val forecastAt = providerRelease.nextForecastAt?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
+                if (installment == null || forecastAt == null) null
+                else stringResource(
+                    R.string.episode_in_time,
+                    installment.number,
+                    java.time.Duration.between(now, forecastAt).seconds.coerceAtLeast(0L).secondsToLegibleText(),
+                )
             }
             InfoItemView(
                 title = stringResource(R.string.airing),

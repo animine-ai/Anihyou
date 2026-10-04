@@ -109,6 +109,36 @@ interface ReleaseMatchingDao {
     fun observeEffectiveAniListMappings(sourceId: String, extensionId: String, publisherId: String, providerId: String,
                                         sourceKey: String): Flow<List<ExternalMappingEntity>>
 
+    /**
+     * The bindings the release data (calendar, Behind, details) uses: only what this source bound itself. The older
+     * provider-wide rows come from the MALSync lane and stay reserved for opening the streaming page; they said "season 1"
+     * for a series whose later seasons the calendar names, and they know nothing of the calendar entries.
+     */
+    @Query("""
+        SELECT mappingSubjectKey, seriesStableKey, siteSlug, subjectType, navigationSeason, filmNumber, externalProvider,
+               externalId, mappingSource, mappingStatus, confidence, createdAt, validatedAt, staleAt, provenance, parserVersion
+        FROM v3_source_mapping
+        WHERE sourceId=:sourceId AND extensionId=:extensionId AND publisherId=:publisherId AND providerId=:providerId
+          AND externalProvider='anilist' AND mappingStatus='ACTIVE' AND staleAt IS NULL AND validatedAt IS NOT NULL
+          AND externalId IS NOT NULL AND confidence IN ('EXACT', 'HIGH')
+        ORDER BY seriesStableKey, mappingSubjectKey
+    """)
+    fun observeSourceBoundAniListMappings(sourceId: String, extensionId: String, publisherId: String,
+                                          providerId: String): Flow<List<ExternalMappingEntity>>
+
+    @Query("SELECT COUNT(*) FROM v3_source_mapping WHERE sourceId=:sourceId AND extensionId=:extensionId " +
+        "AND publisherId=:publisherId AND providerId=:providerId AND externalProvider='anilist' AND externalId=:mediaId " +
+        "AND mappingStatus='ACTIVE' AND staleAt IS NULL")
+    suspend fun sourceBoundCount(sourceId: String, extensionId: String, publisherId: String, providerId: String,
+                                 mediaId: String): Int
+
+    /** Automatic bindings of an earlier matcher version; they are decided again. Manual ones are never touched. */
+    @Query("DELETE FROM v3_source_mapping WHERE sourceId=:sourceId AND extensionId=:extensionId " +
+        "AND publisherId=:publisherId AND providerId=:providerId AND mappingSource='PERSISTED' " +
+        "AND provenance LIKE 'targeted:%' AND provenance NOT LIKE '%:' || :version")
+    suspend fun deleteAutoMappingsOtherThan(sourceId: String, extensionId: String, publisherId: String,
+                                            providerId: String, version: String): Int
+
     /** The same view for the navigation overview of one media id. */
     @Query("""
         SELECT mappingSubjectKey, seriesStableKey, siteSlug, subjectType, navigationSeason, filmNumber, externalProvider,

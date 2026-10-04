@@ -11,6 +11,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import com.axiel7.anihyou.core.resources.R
+import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.release.core.api.pendingFor
@@ -65,38 +66,27 @@ fun ReleaseScheduleText(
         return
     }
 
+    // The original wording of the app, with the data of the release source: "N episodes behind" in the accent colour,
+    // otherwise "Ep N in 3d 4h". No wording of its own.
     val now = rememberReleaseNow(clock, presentation.nextForecastAt)
     val pending = presentation.pendingFor(progress)
-    val parts = mutableListOf<String>()
-    presentation.confirmedThroughEpisode?.let {
-        parts += stringResource(R.string.release_schedule_confirmed_through, it)
+    val next = presentation.nextExpectedInstallment
+    // A plan that passed without a confirmation stays a plan: no time, never "now" for days.
+    val forecastAt = presentation.nextForecast?.forecastAt?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
+    val untilNext = forecastAt?.let { Duration.between(now, it).seconds.coerceAtLeast(0L).secondsToLegibleText() }
+    val text = when {
+        pending > 0 -> pluralStringResource(R.plurals.num_episodes_behind, pending, pending)
+        next is Installment.Episode && untilNext != null -> stringResource(R.string.episode_in_time, next.number, untilNext)
+        next != null && untilNext != null -> stringResource(R.string.airing_in, untilNext)
+        else -> null
     }
-    if (pending > 0) {
-        parts += pluralStringResource(
-            R.plurals.release_schedule_pending,
-            pending,
-            pending,
-        )
-    }
-    presentation.nextExpectedInstallment?.let { installment ->
-        val label = releaseInstallmentLabel(installment, presentation.stream.releaseKind)
-        // A plan that passed without a confirmation stays a plan: no time, never "now" for days.
-        parts += presentation.nextForecast?.forecastAt
-            ?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
-            ?.let { forecastAt ->
-                stringResource(
-                    R.string.release_schedule_next_at,
-                    label,
-                    forecastAt.releaseRelativeText(now),
-                )
-            } ?: stringResource(R.string.release_schedule_next, label)
-    }
-    if (parts.isEmpty()) {
-        parts += stringResource(R.string.release_schedule_available)
+    if (text == null) {
+        fallback()
+        return
     }
 
     Text(
-        text = parts.joinToString(" · "),
+        text = text,
         modifier = modifier,
         color = if (pending > 0) {
             MaterialTheme.colorScheme.primary

@@ -301,11 +301,13 @@ class RoomReleasePresentationCalendarTrustTest {
 
     /** The effective binding of the seeded row (series "trust-transition", navigation season 4) to AniList media [media]. */
     private suspend fun bindSeededRow(db: ReleaseDatabase, media: Int = 42, series: String = "trust-transition") =
-        db.releaseDao().upsertExternalMapping(ExternalMappingEntity(
-            mappingSubjectKey = "subject-$series-4", seriesStableKey = series, siteSlug = series, subjectType = "SEASON",
-            navigationSeason = 4, filmNumber = null, externalProvider = "anilist", externalId = media.toString(),
-            mappingSource = "MANUAL", mappingStatus = "ACTIVE", confidence = "EXACT", createdAt = observedAt.toString(),
-            validatedAt = observedAt.toString(), staleAt = null, provenance = "fixture", parserVersion = null,
+        db.matchingDao().upsertSourceMapping(com.axiel7.anihyou.release.data.db.SourceMappingEntity(
+            sourceId = keyA.sourceId, extensionId = keyA.extensionId, publisherId = keyA.publisherId,
+            providerId = keyA.providerId, mappingSubjectKey = "subject-$series-4", externalProvider = "anilist",
+            seriesStableKey = series, siteSlug = series, subjectType = "SEASON", navigationSeason = 4, filmNumber = null,
+            externalId = media.toString(), mappingSource = "MANUAL", mappingStatus = "ACTIVE", confidence = "EXACT",
+            createdAt = observedAt.toString(), validatedAt = observedAt.toString(), staleAt = null,
+            provenance = "fixture", parserVersion = null, revision = 1L, updatedAt = observedAt.toString(),
         ))
 
     private fun legacyProjection(media: Int, confirmedThrough: Int) = MediaReleaseProjection(

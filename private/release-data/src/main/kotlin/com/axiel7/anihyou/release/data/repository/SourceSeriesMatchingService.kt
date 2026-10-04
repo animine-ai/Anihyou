@@ -13,6 +13,10 @@ import com.axiel7.anihyou.release.core.matching.MatchDecision
 import com.axiel7.anihyou.release.core.matching.MatchTier
 import com.axiel7.anihyou.release.core.matching.ReleaseMatchRequest
 import com.axiel7.anihyou.release.core.matching.ReleaseMatcher
+import com.axiel7.anihyou.release.core.matching.SeasonCandidateRule
+import com.axiel7.anihyou.release.core.sync.CandidatePoolRequest
+import com.axiel7.anihyou.release.core.sync.CandidatePoolWindows
+import com.axiel7.anihyou.release.core.sync.ReleaseSourceTimePolicy
 import com.axiel7.anihyou.release.core.matching.TitleNormalizer
 import com.axiel7.anihyou.release.core.model.AniWorldMappingSubject
 import com.axiel7.anihyou.release.core.model.AniWorldSiteIdentifier
@@ -65,7 +69,7 @@ class SourceSeriesMatchingService(
     private val navigation: FileProviderNavigationStateStore,
     private val candidates: IdentityCandidateSource,
     private val fence: MappingWriterFence,
-    private val matcher: ReleaseMatcher = ReleaseMatcher(),
+    private val matcher: ReleaseMatcher = ReleaseMatcher(MATCHER_VERSION),
     private val clock: Clock = Clock.systemUTC(),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
@@ -100,8 +104,8 @@ class SourceSeriesMatchingService(
     private suspend fun resolve(active: ExtensionSelectionKey, request: DetailMappingRequest) {
         val sourceKey = MappingEntryIds.sourceKey(active)
         val media = request.mediaId
-        if (dao.effectiveOverviewMappings(active.sourceId, active.extensionId, active.publisherId, active.providerId,
-                sourceKey, request.mediaId.toString()).isNotEmpty()) {
+        if (dao.sourceBoundCount(active.sourceId, active.extensionId, active.publisherId, active.providerId,
+                request.mediaId.toString()) > 0) {
             AppLog.d("matching") { "media=$media: a persisted mapping exists, no matcher run" }
             return
         }
@@ -170,7 +174,7 @@ class SourceSeriesMatchingService(
         // The writer epoch of this exact entry when the work begins; a reset or correction later raises it.
         val epoch = fence.epoch(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}")
 
-        val decision = matcher.match(
+        val decision = decide(
             ReleaseMatchRequest(sourceIdentity(active.providerId, label.providerSeriesKey, season), label.title,
                 aliases = names(label).toSet() - label.title, season = season.takeIf { it in 1..99 }),
             listOf(IdentityCandidate(request.mediaId, titles, request.format,
@@ -217,13 +221,26 @@ class SourceSeriesMatchingService(
                 subjects.merge(slug to season, distance) { a, b -> minOf(a, b) }
             }
         }
-        val bindings = dao.observeEffectiveAniListMappings(active.sourceId, active.extensionId, active.publisherId,
-            active.providerId, MappingEntryIds.sourceKey(active)).first()
+        val bindings = dao.observeSourceBoundAniListMappings(active.sourceId, active.extensionId, active.publisherId,
+            active.providerId).first()
         val bound = bindings.filter { it.subjectType == "SEASON" && it.navigationSeason != null }
             .map { it.siteSlug to it.navigationSeason!! }.toSet()
         return Pending(subjects.size, bound.size,
             subjects.entries.filter { it.key !in bound }.sortedBy { it.value }.map { it.key },
             bindings.mapNotNull { it.externalId?.toIntOrNull() }.toSet())
+    }
+
+    private suspend fun seasonPool(): List<IdentityCandidate> {
+        val windows = CandidatePoolWindows.currentAndPrevious(clock.instant().atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate())
+        return windows.flatMap { window ->
+            attempt { candidates.boundedSeasonPool(CandidatePoolRequest(window = window, maxPages = POOL_PAGES)).candidates }.orEmpty()
+        }.distinctBy { it.mediaId }
+    }
+
+    /** The accepted matcher on the candidates that the season rule lets through. */
+    private fun decide(request: ReleaseMatchRequest, candidates: List<IdentityCandidate>): MatchDecision {
+        val today = clock.instant().atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate()
+        return matcher.match(request, SeasonCandidateRule.filter(request.season, candidates, today))
     }
 
     /** The active source (null without one), for the management list. */
@@ -260,8 +277,16 @@ class SourceSeriesMatchingService(
     suspend fun autoMatchPending(maxSearches: Int = AUTO_SEARCHES_PER_RUN): AutoMatchReport {
         val active = policy.policy.value.activeReleaseSource ?: return AutoMatchReport()
         val sourceKey = MappingEntryIds.sourceKey(active)
+        // Decisions of an earlier matcher version are taken again: the first one matched later seasons to the first season.
+        val dropped = dao.deleteAutoMappingsOtherThan(active.sourceId, active.extensionId, active.publisherId,
+            active.providerId, MATCHER_VERSION)
+        if (dropped > 0) AppLog.i("matching") { "auto match: $dropped automatic bindings of an earlier matcher version dropped" }
         val found = findPending(active)
         val takenMedia = found.takenMedia.toMutableSet()
+        // The AniList entries of the current and the last season, loaded once and matched locally (the cache answers when
+        // the pool is complete): a later season of a series airs now, the first season of it is not in this pool.
+        val pool = seasonPool()
+        AppLog.i("matching") { "auto match: candidate pool of the current and last season holds ${pool.size} entries" }
         val pending = found.series
         AppLog.i("matching") {
             "auto match start: series seasons=${found.subjects} bound=${found.bound} pending=${pending.size} budget=$maxSearches"
@@ -283,8 +308,9 @@ class SourceSeriesMatchingService(
                 aliases = label?.let { names(it).toSet() - it.title }.orEmpty(), season = season)
             val epoch = fence.epoch(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}")
             examined++
-            val local = attempt { candidates.localCandidates(setOf(identity)).candidates }.orEmpty()
-            var decision = matcher.match(request, local)
+            val local = (attempt { candidates.localCandidates(setOf(identity)).candidates }.orEmpty() + pool)
+                .distinctBy { it.mediaId }
+            var decision = decide(request, local)
             val localHit = decision as? MatchDecision.Matched
             if (localHit == null || localHit.tier !in AUTO_TIERS) {
                 val started = System.nanoTime()
@@ -297,7 +323,7 @@ class SourceSeriesMatchingService(
                     searches++
                     delay(AUTO_SEARCH_PACE_MS)
                 }
-                decision = matcher.match(request, (local + found).distinctBy { it.mediaId })
+                decision = decide(request, (local + found).distinctBy { it.mediaId })
             }
             val accepted = decision as? MatchDecision.Matched
             if (accepted == null || accepted.tier !in AUTO_TIERS) {
@@ -345,7 +371,7 @@ class SourceSeriesMatchingService(
             season = season.takeIf { it in 1..99 })
         // The local pool first; only if it settles nothing, one bounded, cached AniList search for this one title.
         val local = attempt { candidates.localCandidates(setOf(identity)).candidates }.orEmpty()
-        var decision = matcher.match(request, local)
+        var decision = decide(request, local)
         val localHit = decision as? MatchDecision.Matched
         if (localHit == null || localHit.tier !in AUTO_TIERS) {
             // The explicit run has a bounded number of AniList searches; an entry it cannot examine stays as it is.
@@ -356,7 +382,7 @@ class SourceSeriesMatchingService(
                     signature = "settings-rematch|${identity.stableKey}|$title")).candidates
             }.orEmpty()
             delay(SEARCH_PACE_MS)
-            decision = matcher.match(request, (local + searched).distinctBy { it.mediaId })
+            decision = decide(request, (local + searched).distinctBy { it.mediaId })
         }
         val matched = decision as? MatchDecision.Matched ?: return MappingRematchOutcome.RETAINED
         if (matched.tier !in AUTO_TIERS) return MappingRematchOutcome.RETAINED
@@ -455,7 +481,10 @@ class SourceSeriesMatchingService(
         /** Spacing between two network searches of one explicit rematch run. */
         const val SEARCH_PACE_MS = 700L
         /** AniList answers about 90 requests a minute; the automatic pass stays far below it and spreads over refreshes. */
-        const val AUTO_SEARCHES_PER_RUN = 30
+        const val AUTO_SEARCHES_PER_RUN = 12
+        /** Bumped with every change of the rules; automatic bindings of another version are decided again. */
+        const val MATCHER_VERSION = "v3-season-strict-1"
+        const val POOL_PAGES = 4
         const val AUTO_SEARCH_PACE_MS = 1_100L
         val AUTO_FORMATS = setOf("TV", "TV_SHORT", "ONA", "OVA")
         /** A fuzzy hit is never accepted without the user. */

@@ -6,9 +6,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import com.axiel7.anihyou.core.common.utils.DateUtils.timestampToTimeString
 import com.axiel7.anihyou.core.resources.R
+import com.axiel7.anihyou.release.core.model.Installment
 import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
-import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import java.time.Clock
 
 @Composable
@@ -24,30 +25,18 @@ fun ReleaseCalendarScheduleText(
         return
     }
 
-    val now = rememberReleaseNow(clock, presentation.forecastAt?.takeUnless { presentation.confirmed })
-    val label = releaseInstallmentLabel(
-        installment = presentation.installment,
-        releaseKind = presentation.stream.releaseKind,
-    )
-    val text = if (presentation.confirmed) {
-        stringResource(R.string.release_schedule_confirmed_installment, label)
-    } else {
-        presentation.forecastAt
-            ?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
-            ?.let {
-                stringResource(
-                    R.string.release_schedule_next_at,
-                    label,
-                    it.releaseRelativeText(now),
-                )
-            } ?: stringResource(R.string.release_schedule_next, label)
+    // The original calendar wording ("Ep 3 airing at 14:30") with the time of the release source.
+    val episode = (presentation.installment as? Installment.Episode)?.number
+    val time = presentation.forecastAt?.epochSecond?.timestampToTimeString()
+    if (episode == null || time == null) {
+        fallback()
+        return
     }
 
     Text(
-        text = text,
+        text = stringResource(R.string.episode_airing_at, episode, time),
         modifier = modifier,
-        color = if (presentation.confirmed) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.onSurfaceVariant,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         style = MaterialTheme.typography.labelLarge,
         textAlign = textAlign,
     )

@@ -78,34 +78,38 @@ class ReleaseScheduleTextComposeTest {
                 ReleaseScheduleText(presentation(authority), clock = clock, progress = progress) { Text("anilist-fallback") }
             }
         }
-        val inThreeHours = plural(R.plurals.release_relative_hours, 3)
+        // The original wording of the app with the data of the source: "N episodes behind" while behind, otherwise "Ep N in ...".
+        fun behind(count: Int) = plural(R.plurals.num_episodes_behind, count)
+        val nextEpisode = "Ep 11 in"
 
-        // Confirmed 10, progress 8: two are pending, the plan never adds one. The plan is three hours away.
-        composeRule.onNodeWithText("$confirmed · ${pending(2)} · ${nextAt(inThreeHours)}").assertIsDisplayed()
+        // Confirmed 10, progress 8: two are pending, the plan never adds one.
+        composeRule.onNodeWithText(behind(2)).assertIsDisplayed()
 
         // Progress +1, then caught up: the count follows the progress, no source refresh is involved.
         composeRule.runOnIdle { progress = 9 }
-        composeRule.onNodeWithText("$confirmed · ${pending(1)} · ${nextAt(inThreeHours)}").assertIsDisplayed()
+        composeRule.onNodeWithText(behind(1)).assertIsDisplayed()
         composeRule.runOnIdle { progress = 10 }
-        composeRule.onNodeWithText("$confirmed · ${nextAt(inThreeHours)}").assertIsDisplayed()
+        composeRule.onNodeWithText(nextEpisode, substring = true).assertIsDisplayed()
         // Not on the list (logged out or not added): nothing is claimed as pending.
         composeRule.runOnIdle { progress = null }
-        composeRule.onNodeWithText("$confirmed · ${nextAt(inThreeHours)}").assertIsDisplayed()
+        composeRule.onNodeWithText(nextEpisode, substring = true).assertIsDisplayed()
         composeRule.runOnIdle { progress = 8 }
-        composeRule.onNodeWithText("$confirmed · ${pending(2)} · ${nextAt(inThreeHours)}").assertIsDisplayed()
+        composeRule.onNodeWithText(behind(2)).assertIsDisplayed()
 
-        // The open screen ages: two hours after the plan the label is still "now" (the source needs time to confirm) ...
+        // The open screen ages: two hours after the plan it is still shown (the source needs time to confirm) ...
+        composeRule.runOnIdle { progress = 10 }
         clock.now = plan.plusSeconds(2 * 3_600L)
         composeRule.mainClock.advanceTimeBy(61_000)
-        composeRule.onNodeWithText("$confirmed · ${pending(2)} · ${nextAt(string(R.string.release_relative_now))}").assertIsDisplayed()
+        composeRule.onNodeWithText(nextEpisode, substring = true).assertIsDisplayed()
 
-        // ... and past that grace the plan stays a plan: no time, never "now" for days, no invented release.
+        // ... and past that grace the plan stays a plan: no time, no invented release, the fallback shows.
         clock.now = plan.plusSeconds(2 * 3_600L + 1)
         composeRule.mainClock.advanceTimeBy(61_000)
-        composeRule.onNodeWithText("$confirmed · ${pending(2)} · ${string(R.string.release_schedule_next, episode11)}").assertIsDisplayed()
+        composeRule.onNodeWithText("anilist-fallback").assertIsDisplayed()
 
         // A presentation that is not valid never replaces the AniList text.
-        composeRule.runOnIdle { authority = ReleaseUiAuthority.STALE }
+        composeRule.runOnIdle { progress = 8; clock.now = start; authority = ReleaseUiAuthority.STALE }
+        composeRule.mainClock.advanceTimeBy(61_000)
         composeRule.onNodeWithText("anilist-fallback").assertIsDisplayed()
     }
 }

@@ -126,8 +126,8 @@ class RoomReleasePresentationRepository(
         // of unknown origin that it has not reset or corrected itself (R04 / matching management).
         val mappings = active.flatMapLatest { selected ->
             if (selected == null) kotlinx.coroutines.flow.flowOf(emptyList()) else
-                db.matchingDao().observeEffectiveAniListMappings(selected.sourceId, selected.extensionId,
-                    selected.publisherId, selected.providerId, MappingEntryIds.sourceKey(selected))
+                db.matchingDao().observeSourceBoundAniListMappings(selected.sourceId, selected.extensionId,
+                    selected.publisherId, selected.providerId)
         }
         return combine(
             activeRows,
