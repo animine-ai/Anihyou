@@ -204,8 +204,11 @@ class SingleSourceShadowRefreshCoordinator(
                     put("Role health", outcome.cycle.sources.groupBy { it.sourceType }.entries.joinToString("; ") {
                         it.key.name + ": " + it.value.map { row -> row.health.name + "/" + row.result.name }.distinct().joinToString()
                     })
-                    put("Last parse status", if (successful) "SUCCESS" else "PARTIAL_OR_FAILED")
-                    put("Last sync outcome", if (successful) "COMMITTED" else "PARTIAL")
+                    // The rows of every usable role are committed in both cases; PARTIAL means a role dropped rows it could
+                    // not read or another role was not usable, so the run does not count as a fully successful sync.
+                    put("Last committed sync", outcome.cycle.completedAt.toString())
+                    put("Last parse status", if (successful) "SUCCESS" else "PARTIAL")
+                    put("Last sync outcome", if (successful) "COMMITTED" else "COMMITTED_PARTIAL")
                     put("Last sync failure", if (successful) "NONE" else "ROLE_HEALTH_NOT_SUCCESSFUL")
                     if (outcome.roleReports.isNotEmpty()) put("Role reports", outcome.roleReports)
                     put("Cancellation", "NOT_CANCELLED")

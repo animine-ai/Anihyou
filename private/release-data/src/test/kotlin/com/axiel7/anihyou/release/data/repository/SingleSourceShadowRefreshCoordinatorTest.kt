@@ -286,6 +286,10 @@ class SingleSourceShadowRefreshCoordinatorTest {
         assertEquals("only a fully successful role is fresh", setOf(SourceRole.CALENDAR, SourceRole.POSTPONEMENT), outcome.successfulRoles)
         assertFalse(outcome.refreshSucceeded)
         assertTrue(outcome.roleReports, outcome.roleReports.contains("RECENT:") && outcome.roleReports.contains("report=PARTIAL"))
+        val statistics = rig.navigationStore.state.value.syncStatistics
+        assertEquals("COMMITTED_PARTIAL", statistics["Last sync outcome"])
+        assertEquals(NOW.toString(), statistics["Last committed sync"])
+        assertEquals("", statistics["Last successful sync"])
     }
 
     @Test

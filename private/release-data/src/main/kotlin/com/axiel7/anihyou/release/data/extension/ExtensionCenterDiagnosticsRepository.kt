@@ -24,7 +24,8 @@ class ExtensionCenterDiagnosticsRepository(
             values["Tracks"] = recorded.installments.groupingBy { it.track }.eachCount()
                 .entries.sortedBy { it.key }.joinToString { it.key + ": " + it.value }
             values["Last navigation status"] = recorded.navigationStatus.orEmpty()
-            val last = recorded.syncStatistics["Last successful sync"]?.let {
+            val last = (recorded.syncStatistics["Last successful sync"]?.takeIf { it.isNotBlank() }
+                ?: recorded.syncStatistics["Last committed sync"])?.let {
                 runCatching { Instant.parse(it) }.getOrNull()
             }
             if (last != null) values["Freshness"] = Duration.between(last, Instant.now()).seconds.coerceAtLeast(0).toString() + " s"
