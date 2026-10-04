@@ -1,7 +1,9 @@
 package com.axiel7.anihyou.feature.worker
 
 import android.Manifest
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.annotation.RequiresPermission
@@ -12,7 +14,9 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.axiel7.anihyou.core.base.APP_PACKAGE_NAME
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
+import com.axiel7.anihyou.core.model.DeepLink
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.utils.NotificationUtils.showNotification
 import com.axiel7.anihyou.release.core.api.ReleaseDeliveryState
@@ -173,9 +177,10 @@ class ReleaseOutboxDispatcherWorker(
             }
 
             try {
+                val notificationId = com.axiel7.anihyou.release.core.notification.ReleaseNotificationId
+                    .fromEventKey(claimed.eventKey)
                 applicationContext.showNotification(
-                    notificationId = com.axiel7.anihyou.release.core.notification.ReleaseNotificationId
-                        .fromEventKey(claimed.eventKey),
+                    notificationId = notificationId,
                     channelId = AIRING_CHANNEL_ID,
                     title = applicationContext.getString(R.string.notifications_airing),
                     text = applicationContext.getString(
@@ -184,6 +189,7 @@ class ReleaseOutboxDispatcherWorker(
                             ?: applicationContext.getString(R.string.release_notification_unknown_title),
                         claimed.installment.notificationLabel(applicationContext),
                     ),
+                    pendingIntent = mediaDetailsIntent(notificationId, claimed.mediaId),
                     group = "airing",
                 )
                 if (!releaseOutboxRepository.markDelivered(claimed.eventKey, clock.instant())) {
@@ -202,6 +208,21 @@ class ReleaseOutboxDispatcherWorker(
         }
         return if (retryNeeded) Result.retry() else Result.success()
     }
+
+    /** A tap opens the media's details, the same target the AniList airing notification uses. */
+    private fun mediaDetailsIntent(notificationId: Int, mediaId: Int): PendingIntent? = runCatching {
+        val target = releaseTapTarget(mediaId)
+        applicationContext.packageManager.getLaunchIntentForPackage(APP_PACKAGE_NAME)?.apply {
+            action = target.action
+            putExtra("content_id", target.contentId)
+            // The widget flag keeps the tap from marking the user's AniList notifications as read.
+            putExtra("widget", target.opensFromOwnSurface)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }?.let { intent ->
+            // One request code per notification: extras alone do not make two pending intents different.
+            PendingIntent.getActivity(applicationContext, notificationId, intent, PendingIntent.FLAG_IMMUTABLE)
+        }
+    }.getOrNull()
 
     private fun canPostNotifications(): Boolean =
         NotificationManagerCompat.from(applicationContext).areNotificationsEnabled() &&
@@ -233,6 +254,15 @@ class ReleaseOutboxDispatcherWorker(
         }
     }
 }
+
+/** What a tap on a release notification asks the main activity for; kept free of Android types so a test can pin it. */
+internal data class ReleaseTapTarget(val action: String, val contentId: String, val opensFromOwnSurface: Boolean)
+
+internal fun releaseTapTarget(mediaId: Int) = ReleaseTapTarget(
+    action = DeepLink.Type.ANIME.intentAction,
+    contentId = mediaId.toString(),
+    opensFromOwnSurface = true,
+)
 
 internal fun ReleaseGermanTrack.toLanguageTrack(): LanguageTrack = when (this) {
     ReleaseGermanTrack.DE_SUB -> LanguageTrack.DE_SUB
