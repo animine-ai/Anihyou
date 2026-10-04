@@ -24,6 +24,8 @@ data class ExtensionSourcesUiState(
     val sources: List<ExtensionSource> = emptyList(),
     val productPolicy: ExtensionProductPolicy = ExtensionProductPolicy(),
     val canEditProductPolicy: Boolean = false,
+    /** The release notification switch of the extension data path; null when this build has no such setting. */
+    val releaseNotificationsEnabled: Boolean? = null,
     /** False when this build cannot authenticate any source; mutating repository actions are then not offered. */
     val trustAvailable: Boolean = true,
     val url: String = "",
@@ -52,6 +54,7 @@ interface ExtensionSourcesEvent {
     fun removeExtension(sourceId: String, extensionId: String) {}
     fun rollback(sourceId: String, extensionId: String, expectedGeneration: Long, targetDigest: String) {}
     fun setProviderOrder(keys: List<ExtensionSelectionKey>) {}
+    fun setReleaseNotificationsEnabled(enabled: Boolean) {}
     fun refreshDiagnostics() {}
     fun clearActionFailure()
 }
@@ -60,6 +63,8 @@ class ExtensionSourcesViewModel(
     private val repository: ExtensionSourceRepository,
     private val productPolicyRepository: ExtensionProductPolicyRepository? = null,
     private val diagnosticsRepository: com.axiel7.anihyou.release.core.source.ExtensionDiagnosticsRepository? = null,
+    private val releasePreferencesRepository: com.axiel7.anihyou.release.core.api.ReleasePreferencesRepository? = null,
+    private val releaseOutboxRepository: com.axiel7.anihyou.release.core.api.ReleaseOutboxRepository? = null,
 ) : ViewModel(), ExtensionSourcesEvent {
 
     private val _uiState = MutableStateFlow(
@@ -83,7 +88,24 @@ class ExtensionSourcesViewModel(
                 }
             }
         }
+        releasePreferencesRepository?.let { preferences ->
+            viewModelScope.launch {
+                preferences.releasePreferences.collect { value ->
+                    _uiState.update { it.copy(releaseNotificationsEnabled = value.notificationsEnabled) }
+                }
+            }
+        }
         performAction { repository.restoreInstalled() }
+    }
+
+    override fun setReleaseNotificationsEnabled(enabled: Boolean) {
+        val preferences = releasePreferencesRepository ?: return
+        viewModelScope.launch {
+            preferences.setNotificationsEnabled(enabled)
+            if (!enabled) {
+                releaseOutboxRepository?.cancelPending("release notifications disabled", java.time.Instant.now())
+            }
+        }
     }
 
     override fun onUrlChanged(value: String) {

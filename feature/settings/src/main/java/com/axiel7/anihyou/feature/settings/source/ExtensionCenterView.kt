@@ -173,6 +173,18 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
     PlainPreference(title = stringResource(R.string.extension_center_schedule), icon = CoreR.drawable.schedule_24,
         shape = preferenceShape(1, 2), modifier = Modifier.testTag("extension-source-schedule"),
         onClick = { nav.navigate(Route.ExtensionCenterPage("schedule")) })
+    state.releaseNotificationsEnabled?.let { enabled ->
+        PreferencesTitle(text = stringResource(CoreR.string.notifications))
+        SwitchPreference(
+            title = stringResource(CoreR.string.release_notifications_enabled),
+            subtitle = stringResource(CoreR.string.release_notifications_enabled_summary),
+            preferenceValue = enabled,
+            icon = CoreR.drawable.notifications_24,
+            shape = singleShape,
+            modifier = Modifier.testTag("extension-preference-release-notifications"),
+            onValueChange = event::setReleaseNotificationsEnabled,
+        )
+    }
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     val entries = installedEntries(state)
     val canEdit = state.canEditProductPolicy && !state.hasSourceOperationInFlight()

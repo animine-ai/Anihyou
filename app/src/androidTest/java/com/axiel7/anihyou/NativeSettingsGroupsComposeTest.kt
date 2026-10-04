@@ -24,6 +24,7 @@ import com.axiel7.anihyou.core.ui.common.navigation.*
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.feature.settings.*
 import com.axiel7.anihyou.feature.settings.R as SettingsR
+import com.axiel7.anihyou.core.resources.R as CoreR
 import com.axiel7.anihyou.feature.settings.source.*
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import java.io.File
@@ -50,6 +51,10 @@ class NativeSettingsGroupsComposeTest {
                     SettingsViewContent(SettingsUiState(isLoggedIn = loggedIn), null, null)
                 }
             }
+        }
+        for (old in listOf(CoreR.string.release_provider_enabled, CoreR.string.release_provider_status, CoreR.string.release_preferred_track,
+            CoreR.string.release_mapping_title, CoreR.string.release_notifications_enabled)) {
+            rule.onAllNodesWithText(rule.activity.getString(old)).assertCountEquals(0)
         }
         val sourceTitle = rule.activity.getString(SettingsR.string.settings_sources_section)
         val navigationTitle = rule.activity.getString(SettingsR.string.settings_navigation_section)
@@ -101,6 +106,16 @@ class NativeSettingsGroupsComposeTest {
         }
         rule.onNodeWithTag("extension-source-matching").performClick()
         rule.runOnIdle { org.junit.Assert.assertEquals(Route.ExtensionCenterPage("matching"), navigation.getCurrentRoute()) }
+    }
+
+    @Test fun dataSourcePageOwnsTheReleaseNotificationSwitch() {
+        var changed: Boolean? = null
+        rule.setContent { AniHyouTheme(darkTheme = false, dynamicColor = false) { Column(Modifier.verticalScroll(rememberScrollState())) {
+            val event = object : ExtensionSourcesEvent by noSourceEvent { override fun setReleaseNotificationsEnabled(enabled: Boolean) { changed = enabled } }
+            ExtensionDataSourcePreferences(ExtensionSourcesUiState(releaseNotificationsEnabled = false), event)
+        } } }
+        rule.onNodeWithTag("extension-preference-release-notifications").performScrollTo().assertIsDisplayed().performClick()
+        rule.runOnIdle { org.junit.Assert.assertEquals(true, changed) }
     }
 
     @Test fun emptyProvidersExplainTheStateWithLargeGermanText() {

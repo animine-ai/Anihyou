@@ -40,6 +40,24 @@ class ExtensionSourcesViewModelTest {
     }
 
     @Test
+    fun releaseNotificationSwitchIsOfferedOnlyWithTheSettingAndWritesIt() = runTest {
+        assertNull(ExtensionSourcesViewModel(repository).uiState.value.releaseNotificationsEnabled)
+        val preferences = object : com.axiel7.anihyou.release.core.api.ReleasePreferencesRepository {
+            val current = MutableStateFlow(com.axiel7.anihyou.release.core.api.ReleaseProviderPreferences())
+            override val releasePreferences = current
+            override suspend fun setProviderEnabled(enabled: Boolean) = Unit
+            override suspend fun setPreferredTrack(track: com.axiel7.anihyou.release.core.api.ReleaseGermanTrack) = Unit
+            override suspend fun setNotificationsEnabled(enabled: Boolean) { current.value = current.value.copy(notificationsEnabled = enabled) }
+        }
+        val viewModel = ExtensionSourcesViewModel(repository, releasePreferencesRepository = preferences)
+        assertEquals(false, viewModel.uiState.value.releaseNotificationsEnabled)
+        viewModel.setReleaseNotificationsEnabled(true)
+        assertEquals(true, viewModel.uiState.value.releaseNotificationsEnabled)
+        viewModel.setReleaseNotificationsEnabled(false)
+        assertEquals(false, viewModel.uiState.value.releaseNotificationsEnabled)
+    }
+
+    @Test
     fun trustAvailabilityIsTakenFromTheRepositoryAndDefaultsToAvailable() = runTest {
         assertTrue(ExtensionSourcesViewModel(repository).uiState.value.trustAvailable)
         repository.trustAvailable = false
