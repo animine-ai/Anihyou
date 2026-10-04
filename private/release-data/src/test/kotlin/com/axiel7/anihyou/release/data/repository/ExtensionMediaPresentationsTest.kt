@@ -205,7 +205,7 @@ class ExtensionMediaPresentationsTest {
         return candidates.mapNotNull { it.externalId?.toIntOrNull()?.takeIf { id -> id > 0 } }.distinct().singleOrNull()
     }
 
-    private inline fun medianMillis(runs: Int = 5, block: () -> Unit): Double {
+    private fun medianMillis(runs: Int = 5, block: () -> Unit): Double {
         block() // warm-up, not counted
         val samples = DoubleArray(runs) {
             val start = System.nanoTime()
