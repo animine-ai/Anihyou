@@ -26,10 +26,12 @@ import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.data.db.ReleaseReconciliationMapper
 import java.time.Instant
 import java.time.LocalDate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
 class RoomReleasePresentationRepository(
@@ -47,7 +49,7 @@ class RoomReleasePresentationRepository(
                 candidates.map { it.toUiPresentation() }
             }
         }
-        val selection = selection() ?: return legacy
+        val selection = selection() ?: return legacy.offMain()
         // Extension First, the same selection as the calendar: an active usable source owns the release fields of
         // every entry point; without an active source the old provider-wide projection stays; an unusable one shows nothing.
         return combine(legacy, selection) { legacyRows, chosen ->
@@ -57,7 +59,7 @@ class RoomReleasePresentationRepository(
                 is ReleaseSelection.Extension ->
                     chosen.rows.toExtensionMediaPresentations(chosen.mappings, mediaIds, chosen.preferences)
             }
-        }
+        }.offMain()
     }
 
     override fun observeCalendar(
@@ -67,15 +69,22 @@ class RoomReleasePresentationRepository(
         val legacy = projections.observeCalendar(accountId, range).map { rows ->
             rows.map { it.toUiCalendarItem() }
         }
-        val selection = selection() ?: return legacy
+        val selection = selection() ?: return legacy.offMain()
         return combine(legacy, selection) { legacyRows, chosen ->
             when (chosen) {
                 is ReleaseSelection.Legacy -> legacyRows
                 is ReleaseSelection.None -> emptyList()
                 is ReleaseSelection.Extension -> chosen.rows.toExtensionCalendarItems(chosen.mappings, range)
             }
-        }
+        }.offMain()
     }
+
+    /**
+     * Decoding and folding the accepted rows is CPU work that grows with the rows of the source (about 16 ms per 1,000
+     * rows on a warm server JVM, see ExtensionMediaPresentationsTest). The consumers collect in their view model scope,
+     * which runs on the main thread, so the work runs on the default dispatcher and only the result is handed over.
+     */
+    private fun <T> Flow<T>.offMain(): Flow<T> = flowOn(Dispatchers.Default)
 
     /** Which release data every consumer presents right now. Null when the repository has no source-bound inputs. */
     private fun selection(): Flow<ReleaseSelection>? {
