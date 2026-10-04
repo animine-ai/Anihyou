@@ -74,6 +74,7 @@ class MediaRepository(
     ).toFlow().asPagedResult(page = { it.Page?.pageInfo?.commonPage }) { data ->
         data.Page?.airingSchedules.orEmpty().mapNotNull { schedule ->
             val media = schedule?.media?.exploreMedia ?: return@mapNotNull null
+            val scheduleMedia = schedule.media
             val eligible = when (onMyList) {
                 true -> media.onMyListCalendarFilter()
                 false -> media.mediaListEntry == null
@@ -81,9 +82,9 @@ class MediaRepository(
             }
             if (!eligible || !media.adultFilter(isAdult)) return@mapNotNull null
             val titles = listOfNotNull(
-                schedule.media.title?.romaji, schedule.media.title?.english, schedule.media.title?.native,
+                scheduleMedia?.title?.romaji, scheduleMedia?.title?.english, scheduleMedia?.title?.native,
                 media.basicMediaDetails.title?.userPreferred,
-            ) + schedule.media.synonyms.orEmpty().filterNotNull()
+            ) + scheduleMedia?.synonyms.orEmpty().filterNotNull()
             CalendarAiringEvent(schedule.id, schedule.episode, schedule.airingAt, media,
                 titles.map(String::trim).filter { it.isNotBlank() && it.length <= 512 }.toSet())
         }
