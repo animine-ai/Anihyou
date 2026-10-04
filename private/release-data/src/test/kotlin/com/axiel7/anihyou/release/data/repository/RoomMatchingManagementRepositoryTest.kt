@@ -126,6 +126,13 @@ class RoomMatchingManagementRepositoryTest {
         var targeted: List<IdentityCandidate> = emptyList()
         var localCalls = 0
         var targetedCalls = 0
+        /** The AniList entries of a season pool by its cache key, and which pools were asked for, in order. */
+        var pools: Map<String, List<IdentityCandidate>> = emptyMap()
+        val poolRequests = mutableListOf<String>()
+        override suspend fun boundedSeasonPool(request: com.axiel7.anihyou.release.core.sync.CandidatePoolRequest): CandidateBatch {
+            poolRequests += request.window.cacheKey
+            return CandidateBatch(pools[request.window.cacheKey].orEmpty(), true)
+        }
         override suspend fun localCandidates(keys: Set<SourceIdentity>): CandidateBatch {
             localCalls++
             return CandidateBatch(local, true)
@@ -494,6 +501,54 @@ class RoomMatchingManagementRepositoryTest {
         assertEquals("an existing binding is never overwritten here", MappingMutationResult.STALE,
             rig.repository.assignUnmatched(list.single(), 8))
         assertTrue(rig.repository.observeUnmatched().first().isEmpty())
+    }
+
+    private suspend fun Rig.seedSeries(vararg series: Triple<String, String, Int>) = series.forEach { (slug, title, season) ->
+        dao.upsertLabel(label(keyA, slug, title))
+        database.reconciliationDao().upsertSourceProjection(forecastRow(keyA, slug, season, t0.plusSeconds(3_600)))
+    }
+
+    @Test fun autoMatchLoadsTheCurrentSeasonFirstAndAsksForTheOthersOnlyWhenSomethingIsOpen() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("show", "Show", 2))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(
+            IdentityCandidate(11, setOf("Show Season 2"), "TV", java.time.LocalDate.of(2026, 10, 1))))
+        val report = rig.service.autoMatchPending()
+        assertEquals(1, report.matched)
+        assertEquals("the current season alone settled it", listOf("season-pool:fall:2026"), rig.candidates.poolRequests)
+        assertEquals("no single search", 0, rig.candidates.targetedCalls)
+    }
+
+    @Test fun autoMatchTakesTheLastSeasonThenTheNextAndSingleSearchesOnlyAtTheEnd() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("old", "Old Show", 1), Triple("soon", "Soon Show", 1), Triple("nowhere", "Nowhere", 1))
+        rig.candidates.pools = mapOf(
+            "season-pool:summer:2026" to listOf(IdentityCandidate(21, setOf("Old Show"), "TV", java.time.LocalDate.of(2026, 7, 5))),
+            "season-pool:winter:2027" to listOf(IdentityCandidate(22, setOf("Soon Show"), "TV", java.time.LocalDate.of(2027, 1, 8))),
+        )
+        val report = rig.service.autoMatchPending()
+        assertEquals(2, report.matched)
+        assertEquals(listOf("season-pool:fall:2026", "season-pool:summer:2026", "season-pool:winter:2027"), rig.candidates.poolRequests)
+        assertEquals("only the series nothing else settled is searched", 1, rig.candidates.targetedCalls)
+    }
+
+    @Test fun autoMatchTakesTheAiringEntryOfTheTitleWhenTheSeasonNumbersDiffer() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("black", "Black", 5))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(
+            IdentityCandidate(31, setOf("Black Season 2"), "TV", java.time.LocalDate.of(2026, 10, 2))))
+        assertEquals(1, rig.service.autoMatchPending().matched)
+        assertEquals("31", rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("black", 5).stableKey, "anilist")!!.externalId)
+    }
+
+    @Test fun autoMatchRunsOneAtATime() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("show", "Show", 2))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(
+            IdentityCandidate(11, setOf("Show Season 2"), "TV", java.time.LocalDate.of(2026, 10, 1))))
+        listOf(async { rig.service.autoMatchPending() }, async { rig.service.autoMatchPending() }).awaitAll()
+        assertEquals("the second run found nothing left and asked for no pool", 1, rig.candidates.poolRequests.size)
     }
 
     @Test fun autoMatchNeverBindsTwoSeriesToOneAniListEntry() = runBlocking {

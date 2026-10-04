@@ -21,9 +21,12 @@ object SeasonCandidateRule {
         if (titles.any { it.season == season }) return true
         // Another explicit season in a title and none for this one: a different entry of the same franchise.
         if (titles.any { it.season != null }) return false
-        val start = candidate.startDate ?: return false
-        return !start.isBefore(today.minusDays(RECENT_DAYS)) && !start.isAfter(today.plusDays(UPCOMING_DAYS))
+        return isRecent(candidate.startDate, today)
     }
+
+    /** The entry airs now, aired in the last season or starts soon. */
+    fun isRecent(start: LocalDate?, today: LocalDate): Boolean =
+        start != null && !start.isBefore(today.minusDays(RECENT_DAYS)) && !start.isAfter(today.plusDays(UPCOMING_DAYS))
 
     fun filter(requestSeason: Int?, candidates: List<IdentityCandidate>, today: LocalDate): List<IdentityCandidate> =
         candidates.filter { accepts(requestSeason, it, today) }

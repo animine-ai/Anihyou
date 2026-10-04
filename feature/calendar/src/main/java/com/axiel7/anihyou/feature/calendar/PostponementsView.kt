@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.padding
@@ -59,6 +60,22 @@ fun PostponementsViewContent(
     DefaultScaffoldWithSmallTopAppBar(
         title = stringResource(R.string.postponements),
         navigationIcon = { BackIconButton(nav::goBack) },
+        // The pull gesture is easy to miss on a short list, so the same refresh is a button with its own progress.
+        actions = {
+            if (state.isRefreshing) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.padding(horizontal = 12.dp).size(24.dp).testTag("postponements-refreshing"),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                androidx.compose.material3.IconButton(onClick = onRefresh, modifier = Modifier.testTag("postponements-refresh")) {
+                    androidx.compose.material3.Icon(
+                        painter = androidx.compose.ui.res.painterResource(R.drawable.refresh_24),
+                        contentDescription = stringResource(R.string.refresh),
+                    )
+                }
+            }
+        },
         scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(),
         modifier = modifier,
     ) { padding ->

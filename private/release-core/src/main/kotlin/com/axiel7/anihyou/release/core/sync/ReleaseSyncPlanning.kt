@@ -158,6 +158,18 @@ object CandidatePoolWindows {
         return listOf(current, previous)
     }
 
+    /** The current season first, then the last one, then the next one: the order in which the matcher loads them, only as needed. */
+    fun currentPreviousAndNext(sourceDate: java.time.LocalDate): List<CandidatePoolWindow> {
+        val (current, previous) = currentAndPrevious(sourceDate)
+        val next = when (current.season) {
+            CandidateSeason.WINTER -> CandidatePoolWindow(CandidateSeason.SPRING, current.year)
+            CandidateSeason.SPRING -> CandidatePoolWindow(CandidateSeason.SUMMER, current.year)
+            CandidateSeason.SUMMER -> CandidatePoolWindow(CandidateSeason.FALL, current.year)
+            CandidateSeason.FALL -> CandidatePoolWindow(CandidateSeason.WINTER, current.year + 1)
+        }
+        return listOf(current, previous, next)
+    }
+
     private fun seasonFor(month: Int): CandidateSeason = when (month) {
         in 1..3 -> CandidateSeason.WINTER
         in 4..6 -> CandidateSeason.SPRING
