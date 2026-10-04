@@ -20,4 +20,13 @@
     <string name="extension_no_measurement">Not measured</string>
     <string name="extension_statistics_empty">Select an installed data source to see its statistics.</string>
     <string name="extension_details_refresh">Refresh status</string>
+    <string name="settings_navigation_section">Navigation</string>
+    <string name="settings_sources_section">Sources &amp; extensions</string>
+    <string name="extension_center_management_section">Management</string>
+    <string name="extension_center_diagnostics_section">Diagnostics &amp; debug</string>
+    <string name="extension_provider_visible_section">Visible streaming providers</string>
+    <string name="extension_provider_preferred_section">Preferred provider</string>
+    <string name="extension_provider_preferred_explanation">This selects the default provider. Other enabled providers remain visible.</string>
+    <string name="extension_provider_order_section">Provider order</string>
+    <string name="extension_provider_empty">Install a usable extension with streaming navigation to show it here.</string>
 </resources>

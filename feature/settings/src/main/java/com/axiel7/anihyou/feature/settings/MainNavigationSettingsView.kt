@@ -117,8 +117,8 @@ fun MainNavigationEditor(
         Column(Modifier.padding(top = 16.dp, bottom = 16.dp)) {
             PlainPreference(
                 title = stringResource(R.string.main_navigation_reset),
+                icon = CoreR.drawable.refresh_24,
                 modifier = Modifier.testTag("main-reset"),
-                showIconSpacer = false,
                 shape = singleShape,
                 onClick = { update { MainNavigationConfig() } },
             )

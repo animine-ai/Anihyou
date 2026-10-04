@@ -26,6 +26,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -36,6 +42,8 @@ import com.axiel7.anihyou.core.ui.common.navigation.Route
 import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithSmallTopAppBar
 import com.axiel7.anihyou.core.resources.R as CoreR
 import com.axiel7.anihyou.core.ui.composables.PlainPreference
+import com.axiel7.anihyou.core.ui.composables.PreferencesTitle
+import com.axiel7.anihyou.core.ui.composables.SwitchPreference
 import com.axiel7.anihyou.core.ui.composables.preferenceShape
 import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
@@ -69,7 +77,7 @@ fun ExtensionCenterView() {
 @Composable
 fun ExtensionTrustUnavailableNotice(modifier: Modifier = Modifier) {
     Card(
-        modifier = modifier.fillMaxWidth().padding(bottom = 12.dp).testTag("extension-trust-unavailable"),
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("extension-trust-unavailable"),
         shape = singleShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {
@@ -90,12 +98,19 @@ fun ExtensionTrustUnavailableNotice(modifier: Modifier = Modifier) {
 
 @Composable
 fun ExtensionCenterMenu(onPage: (ExtensionCenterPage) -> Unit) {
-    // The grouped rounded rows with icons of the original settings pages.
-    ExtensionCenterPage.entries.forEachIndexed { index, page ->
-        PlainPreference(title = stringResource(page.title), icon = page.icon,
-            shape = preferenceShape(index, ExtensionCenterPage.entries.size),
-            modifier = Modifier.testTag("extension-center-" + page.id),
-            onClick = { onPage(page) })
+    listOf(
+        R.string.extension_center_management_section to listOf(
+            ExtensionCenterPage.MANAGE, ExtensionCenterPage.SOURCE, ExtensionCenterPage.PROVIDERS),
+        R.string.extension_center_diagnostics_section to listOf(
+            ExtensionCenterPage.STATISTICS, ExtensionCenterPage.DIAGNOSTICS),
+    ).forEach { (title, pages) ->
+        PreferencesTitle(text = stringResource(title))
+        pages.forEachIndexed { index, page ->
+            PlainPreference(title = stringResource(page.title), icon = page.icon,
+                shape = preferenceShape(index, pages.size),
+                modifier = Modifier.testTag("extension-center-" + page.id),
+                onClick = { onPage(page) })
+        }
     }
 }
 
@@ -139,7 +154,7 @@ private fun ExtensionCenterScaffold(title: String, content: @Composable () -> Un
     DefaultScaffoldWithSmallTopAppBar(title = title,
         navigationIcon = { BackIconButton(nav::goBack) },
         scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
-        Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) { content() }
+        Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) { content() }
     }
 }
 
@@ -187,40 +202,57 @@ fun ExtensionProviderDisplay(state: ExtensionSourcesUiState, event: ExtensionSou
         .sortedWith(compareBy<Pair<ExtensionSelectionKey, SourceExtension>> {
             state.productPolicy.navigationProviderOrder.indexOf(it.first).let { i -> if (i < 0) Int.MAX_VALUE else i }
         }.thenBy { it.first.sourceId }.thenBy { it.first.extensionId })
-    SelectionOption(stringResource(R.string.extension_sources_no_preferred_navigation_provider),
-        state.productPolicy.preferredNavigationProvider == null, canEdit,
-        { event.selectNavigationProvider(null) }, "extension-product-navigation-none")
+    PreferencesTitle(text = stringResource(R.string.extension_provider_visible_section))
+    if (entries.isEmpty()) {
+        Text(stringResource(R.string.extension_provider_empty), modifier = Modifier.padding(horizontal = 16.dp))
+    }
     entries.forEachIndexed { index, (key, extension) ->
         val preferences = state.productPolicy.preferences[key] ?: ExtensionPreferences().withGenericDefaults(extension)
-        Text(extension.displayName)
-        TrackSwitch(stringResource(R.string.extension_sources_visible_in_provider_field),
-            preferences.visibleInProviderField, canEdit,
-            "extension-preference-provider-visible-" + key.testTagPart()) {
-            event.setPreferences(key, preferences.copy(visibleInProviderField = it))
+        SwitchPreference(
+            title = extension.displayName,
+            preferenceValue = preferences.visibleInProviderField,
+            icon = CoreR.drawable.play_circle_24,
+            enabled = canEdit,
+            shape = preferenceShape(index, entries.size),
+            modifier = Modifier.testTag("extension-preference-provider-visible-" + key.testTagPart())
+                .semantics { toggleableState = if (preferences.visibleInProviderField) ToggleableState.On else ToggleableState.Off
+                    role = Role.Switch },
+            onValueChange = { event.setPreferences(key, preferences.copy(visibleInProviderField = it)) },
+        )
+    }
+    if (entries.isNotEmpty()) {
+        PreferencesTitle(text = stringResource(R.string.extension_provider_preferred_section))
+        Text(stringResource(R.string.extension_provider_preferred_explanation),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodyMedium)
+        SelectionOption(stringResource(R.string.extension_sources_no_preferred_navigation_provider),
+            state.productPolicy.preferredNavigationProvider == null, canEdit,
+            { event.selectNavigationProvider(null) }, "extension-product-navigation-none")
+        entries.forEach { (key, extension) ->
+            SelectionOption(extension.displayName, state.productPolicy.preferredNavigationProvider == key, canEdit,
+                { event.selectNavigationProvider(key) }, "extension-product-navigation-" + key.testTagPart())
         }
-        SelectionOption(stringResource(R.string.extension_sources_prefer_navigation_provider),
-            state.productPolicy.preferredNavigationProvider == key, canEdit,
-            { event.selectNavigationProvider(key) }, "extension-product-navigation-" + key.testTagPart())
-        Row {
-            fun move(offset: Int) {
-                val keys = entries.map { it.first }.toMutableList()
-                keys.removeAt(index); keys.add((index + offset).coerceIn(0, keys.size), key)
-                event.setProviderOrder(keys)
-            }
-            val moveUp = stringResource(R.string.extension_provider_move_up, extension.displayName)
-            val moveDown = stringResource(R.string.extension_provider_move_down, extension.displayName)
-            TextButton(onClick = { move(-1) }, enabled = index > 0 && canEdit,
-                modifier = Modifier.testTag("provider-up-" + key.testTagPart())
-                    .semantics { contentDescription = moveUp }) {
-                Text("↑", modifier = Modifier.clearAndSetSemantics { })
-            }
-            TextButton(onClick = { move(1) }, enabled = index < entries.lastIndex && canEdit,
-                modifier = Modifier.testTag("provider-down-" + key.testTagPart())
-                    .semantics { contentDescription = moveDown }) {
-                Text("↓", modifier = Modifier.clearAndSetSemantics { })
+        PreferencesTitle(text = stringResource(R.string.extension_provider_order_section))
+        entries.forEachIndexed { index, (key, extension) ->
+            Text(extension.displayName, modifier = Modifier.padding(horizontal = 16.dp))
+            Row(Modifier.padding(horizontal = 16.dp)) {
+                fun move(offset: Int) {
+                    val keys = entries.map { it.first }.toMutableList()
+                    keys.removeAt(index); keys.add((index + offset).coerceIn(0, keys.size), key)
+                    event.setProviderOrder(keys)
+                }
+                val moveUp = stringResource(R.string.extension_provider_move_up, extension.displayName)
+                val moveDown = stringResource(R.string.extension_provider_move_down, extension.displayName)
+                IconButton(onClick = { move(-1) }, enabled = index > 0 && canEdit,
+                    modifier = Modifier.testTag("provider-up-" + key.testTagPart())) {
+                    Icon(painterResource(CoreR.drawable.arrow_upward_24), contentDescription = moveUp)
+                }
+                IconButton(onClick = { move(1) }, enabled = index < entries.lastIndex && canEdit,
+                    modifier = Modifier.testTag("provider-down-" + key.testTagPart())) {
+                    Icon(painterResource(CoreR.drawable.arrow_downward_24), contentDescription = moveDown)
+                }
             }
         }
-        HorizontalDivider()
     }
 }
 

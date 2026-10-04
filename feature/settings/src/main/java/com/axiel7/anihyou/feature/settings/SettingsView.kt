@@ -96,34 +96,39 @@ fun SettingsView() {
         rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS)
     } else null
 
-    SettingsContent(
+    SettingsViewContent(
         uiState = uiState,
         event = viewModel,
         notificationPermission = notificationPermission,
-        extensionSourcesContent = {
-            PlainPreference(
-                title = stringResource(com.axiel7.anihyou.feature.settings.R.string.main_navigation_title),
-                icon = R.drawable.explore_24,
-                onClick = { navActionManager.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.MainNavigationSettings) },
-                shape = topShape,
-            )
-            PlainPreference(
-                title = stringResource(com.axiel7.anihyou.feature.settings.R.string.extension_center_title),
-                icon = R.drawable.link_24,
-                onClick = { navActionManager.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.ExtensionCenter) },
-                shape = bottomShape,
-            )
-        },
+    )
+}
+
+@Composable
+fun SettingsSourceNavigationPreferences() {
+    val nav = LocalNavActionManager.current
+    PreferencesTitle(text = stringResource(com.axiel7.anihyou.feature.settings.R.string.settings_navigation_section))
+    PlainPreference(
+        title = stringResource(com.axiel7.anihyou.feature.settings.R.string.main_navigation_title),
+        icon = R.drawable.explore_24,
+        onClick = { nav.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.MainNavigationSettings) },
+        shape = singleShape,
+    )
+    PreferencesTitle(text = stringResource(com.axiel7.anihyou.feature.settings.R.string.settings_sources_section))
+    PlainPreference(
+        title = stringResource(com.axiel7.anihyou.feature.settings.R.string.extension_center_title),
+        icon = R.drawable.link_24,
+        onClick = { nav.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.ExtensionCenter) },
+        shape = singleShape,
     )
 }
 
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsContent(
+fun SettingsViewContent(
     uiState: SettingsUiState,
     event: SettingsEvent?,
     notificationPermission: PermissionState?,
-    extensionSourcesContent: @Composable () -> Unit = {},
+    extensionSourcesContent: @Composable () -> Unit = { SettingsSourceNavigationPreferences() },
 ) {
     val navActionManager = LocalNavActionManager.current
     val isEnglishLocale = LocalIsLanguageEn.current
@@ -749,7 +754,7 @@ private fun SettingsContent(
 private fun SettingsViewPreview() {
     AniHyouTheme {
         Surface {
-            SettingsContent(
+            SettingsViewContent(
                 uiState = SettingsUiState(isLoggedIn = true),
                 event = null,
                 notificationPermission = null,

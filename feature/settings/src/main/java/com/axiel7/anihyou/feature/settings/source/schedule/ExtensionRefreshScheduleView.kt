@@ -36,6 +36,7 @@ import com.axiel7.anihyou.core.ui.composables.preferenceShape
 import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.feature.settings.R
+import com.axiel7.anihyou.core.resources.R as CoreR
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshInterval
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshSchedule
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshScheduleRepository
@@ -71,6 +72,7 @@ fun ExtensionRefreshScheduleScreen(schedule: ExtensionRefreshSchedule, event: Ex
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
             ListPreference(
                 title = stringResource(R.string.extension_schedule_interval),
+                icon = CoreR.drawable.update_24,
                 values = ExtensionRefreshInterval.entries.toImmutableList(),
                 labelForValue = { intervalLabel(it) },
                 preferenceValue = schedule.interval,
@@ -80,6 +82,7 @@ fun ExtensionRefreshScheduleScreen(schedule: ExtensionRefreshSchedule, event: Ex
             )
             PlainPreference(
                 title = stringResource(R.string.extension_schedule_start),
+                icon = CoreR.drawable.schedule_24,
                 subtitle = timeLabel(schedule.anchorMinuteOfDay),
                 onClick = { picking = true },
                 shape = preferenceShape(1, 2),
@@ -91,6 +94,7 @@ fun ExtensionRefreshScheduleScreen(schedule: ExtensionRefreshSchedule, event: Ex
             Spacer(Modifier.height(8.dp))
             PlainPreference(
                 title = stringResource(R.string.extension_schedule_reset),
+                icon = CoreR.drawable.refresh_24,
                 titleTint = MaterialTheme.colorScheme.primary,
                 onClick = event::reset,
                 shape = singleShape,

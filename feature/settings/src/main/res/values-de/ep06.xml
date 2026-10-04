@@ -20,4 +20,13 @@
     <string name="extension_no_measurement">Nicht gemessen</string>
     <string name="extension_statistics_empty">Wähle eine installierte Datenquelle, um ihre Statistik zu sehen.</string>
     <string name="extension_details_refresh">Status aktualisieren</string>
+    <string name="settings_navigation_section">Navigation</string>
+    <string name="settings_sources_section">Quellen &amp; Erweiterungen</string>
+    <string name="extension_center_management_section">Verwaltung</string>
+    <string name="extension_center_diagnostics_section">Diagnose &amp; Debug</string>
+    <string name="extension_provider_visible_section">Angezeigte Streaming-Anbieter</string>
+    <string name="extension_provider_preferred_section">Bevorzugter Anbieter</string>
+    <string name="extension_provider_preferred_explanation">Dies bestimmt nur die Vorauswahl. Andere eingeschaltete Anbieter bleiben sichtbar.</string>
+    <string name="extension_provider_order_section">Reihenfolge der Anbieter</string>
+    <string name="extension_provider_empty">Installiere eine benutzbare Extension mit Streaming-Navigation, um sie hier anzuzeigen.</string>
 </resources>

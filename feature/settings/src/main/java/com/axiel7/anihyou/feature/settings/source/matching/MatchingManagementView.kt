@@ -165,6 +165,7 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                     val optionCount = state.options.size + if (state.options.isNotEmpty()) 1 else 0
                     state.options.forEachIndexed { index, option ->
                         ListPreference(title = option.label, values = option.choices.toImmutableList(),
+                            icon = CoreR.drawable.settings_24,
                             preferenceValue = option.value, onValueChange = { event.setOption(option.key, it) },
                             shape = preferenceShape(index, optionCount))
                     }
