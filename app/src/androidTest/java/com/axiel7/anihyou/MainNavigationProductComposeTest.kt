@@ -5,6 +5,9 @@ import androidx.activity.BackEventCompat
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.Modifier
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
@@ -178,5 +181,36 @@ class MainNavigationProductComposeTest {
             }
             assertEquals(5, ExtensionCenterPage.entries.size)
         } finally { store.update { MainNavigationConfig() } }
+    }
+
+    @Test fun mainNavigationEditorNamesEveryControlAndKeepsTheFiveTabLimit() {
+        var config by mutableStateOf(MainNavigationConfig())
+        composeRule.setContent {
+            MaterialTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    MainNavigationEditor(config, { transform -> config = transform(config) })
+                }
+            }
+        }
+        val anime = composeRule.activity.getString(com.axiel7.anihyou.core.resources.R.string.anime)
+        // A screen reader reads the tab name with the switch and with both move buttons, not a bare switch or an arrow glyph.
+        composeRule.onNodeWithTag("main-visible-anime").assertContentDescriptionEquals(anime).assertIsOn()
+        composeRule.onNodeWithTag("main-move-up-anime").assert(hasContentDescription(anime, substring = true))
+        composeRule.onNodeWithTag("main-move-down-anime").assert(hasContentDescription(anime, substring = true))
+        composeRule.onNodeWithTag("main-visible-home").assertIsNotEnabled()
+        composeRule.onNodeWithTag("main-move-up-home").assertIsNotEnabled()
+
+        // Five tabs are in the bar: another tab cannot be switched on until one is hidden.
+        composeRule.onNodeWithTag("main-visible-profile").performScrollTo().assertIsNotEnabled().assertIsOff()
+        composeRule.onNodeWithTag("main-visible-anime").performClick()
+        composeRule.runOnIdle { assertFalse(config.normalized().visibleIds.contains("anime")) }
+        composeRule.onNodeWithTag("main-visible-profile").performScrollTo().assertIsEnabled().performClick()
+        composeRule.runOnIdle {
+            assertTrue(config.normalized().visibleIds.contains("profile"))
+            assertEquals(5, config.normalized().visibleIds.size)
+        }
+
+        composeRule.onNodeWithTag("main-reset").performScrollTo().performClick()
+        composeRule.runOnIdle { assertEquals(MainNavigationConfig().normalized().visibleIds, config.normalized().visibleIds) }
     }
 }

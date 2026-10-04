@@ -1,6 +1,10 @@
 <resources>
     <string name="main_navigation_title">Main navigation</string>
     <string name="main_navigation_explanation">Choose up to five main tabs. Home stays available and can be moved. Hidden tabs keep their navigation state.</string>
+    <string name="main_navigation_shown">In the main bar</string>
+    <string name="main_navigation_hidden">Not shown</string>
+    <string name="main_navigation_move_up">Move %1$s up</string>
+    <string name="main_navigation_move_down">Move %1$s down</string>
     <string name="main_navigation_reset">Restore defaults</string>
     <string name="main_navigation_save_failed">Could not save the navigation settings.</string>
     <string name="extension_center_title">Extensions &amp; Provider</string>

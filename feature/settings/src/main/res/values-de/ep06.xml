@@ -1,6 +1,10 @@
 <resources>
     <string name="main_navigation_title">Hauptnavigation</string>
     <string name="main_navigation_explanation">Wähle bis zu fünf Haupttabs. Home bleibt verfügbar und lässt sich verschieben. Ausgeblendete Tabs behalten ihren Navigationszustand.</string>
+    <string name="main_navigation_shown">In der Hauptleiste</string>
+    <string name="main_navigation_hidden">Nicht angezeigt</string>
+    <string name="main_navigation_move_up">%1$s nach oben</string>
+    <string name="main_navigation_move_down">%1$s nach unten</string>
     <string name="main_navigation_reset">Standard wiederherstellen</string>
     <string name="main_navigation_save_failed">Die Navigationseinstellungen konnten nicht gespeichert werden.</string>
     <string name="extension_center_title">Extensions &amp; Provider</string>
