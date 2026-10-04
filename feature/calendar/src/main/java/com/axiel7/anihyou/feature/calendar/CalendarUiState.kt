@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import com.axiel7.anihyou.core.base.state.PagedUiState
 import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
 import com.axiel7.anihyou.core.model.ListStyle
+import com.axiel7.anihyou.core.model.media.CalendarAiringEvent
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -18,7 +19,7 @@ data class CalendarUiState(
     val autoScrollToToday: Boolean = true,
     val today: LocalDate = LocalDate.of(2000, 1, 1),
     val day: LocalDateTime = LocalDateTime.of(2000, 1, 1, 0, 0),
-    val weeklyAnime: MutableMap<LocalDate, List<ExploreMedia>> = mutableMapOf(),
+    val weeklyAnime: MutableMap<LocalDate, List<CalendarAiringEvent>> = mutableMapOf(),
     val releaseCalendarRows: List<ReleaseUiCalendarItem> = emptyList(),
     val providerRowsByDate: Map<LocalDate, List<ReleaseUiCalendarItem>> = emptyMap(),
     val releaseByMediaId: Map<Int, List<ReleaseUiCalendarItem>> = emptyMap(),

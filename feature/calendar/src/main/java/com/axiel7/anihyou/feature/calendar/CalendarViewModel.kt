@@ -11,6 +11,8 @@ import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.ListPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
 import com.axiel7.anihyou.core.model.ListStyle
+import com.axiel7.anihyou.core.model.media.CalendarAiringEvent
+import com.axiel7.anihyou.core.model.media.uniqueAiringEvents
 import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -73,24 +75,20 @@ class CalendarViewModel(
     override fun onUpdateListEntry(viewListEntry: BasicMediaListEntry?) {
         mutableUiState.value.run {
             selectedItem?.let { selectedItem ->
-                weeklyAnime.forEach { (date, list) ->
-                    val index = list.indexOf(selectedItem)
-                    if (index != -1) {
-                        val updatedList = list.toMutableList()
-                        updatedList[index] = selectedItem.copy(
-                            mediaListEntry = viewListEntry?.let {
-                                ExploreMedia.MediaListEntry(
-                                    __typename = "ExploreMedia.MediaListEntry",
-                                    id = viewListEntry.id,
-                                    mediaId = viewListEntry.mediaId,
-                                    basicMediaListEntry = viewListEntry
-                                )
-                            }
+                val updatedMedia = selectedItem.copy(
+                    mediaListEntry = viewListEntry?.let {
+                        ExploreMedia.MediaListEntry(
+                            __typename = "ExploreMedia.MediaListEntry", id = viewListEntry.id,
+                            mediaId = viewListEntry.mediaId, basicMediaListEntry = viewListEntry,
                         )
-                        val updatedMap = weeklyAnime.toMutableMap()
-                        updatedMap[date] = updatedList
-                        mutableUiState.update { it.copy(weeklyAnime = updatedMap) }
-                    }
+                    },
+                )
+                mutableUiState.update { state ->
+                    state.copy(weeklyAnime = state.weeklyAnime.mapValues { (_, events) ->
+                        events.map { event ->
+                            if (event.media.id == selectedItem.id) event.copy(media = updatedMedia) else event
+                        }
+                    }.toMutableMap())
                 }
             }
         }
@@ -141,7 +139,7 @@ class CalendarViewModel(
         val start = date.atStartOfDay().toTimestamp(isEndOfDay = false)
         val end = date.atStartOfDay().toTimestamp(isEndOfDay = true)
         viewModelScope.launch {
-            val animes = mutableListOf<ExploreMedia>()
+            val animes = mutableListOf<CalendarAiringEvent>()
             var currentPage = 1
             var hasNextPage = true
             var fetchFailed = false
@@ -151,7 +149,8 @@ class CalendarViewModel(
             }
 
             while (hasNextPage) {
-                mediaRepository.getAiringAnimesPage(
+                var pageEvents = emptyList<CalendarAiringEvent>()
+                mediaRepository.getCalendarAiringEventsPage(
                     airingAtGreater = start,
                     airingAtLesser = end,
                     onMyList = mutableUiState.value.onMyList,
@@ -161,9 +160,8 @@ class CalendarViewModel(
                     fetchFromNetwork = true,
                 ).collect { result ->
                     if (result is PagedResult.Success) {
-                        animes.addAll(result.list)
+                        pageEvents = result.list
                         hasNextPage = result.hasNextPage
-                        currentPage++
                     } else if (result is PagedResult.Error) {
                         fetchFailed = true
                         hasNextPage = false
@@ -173,22 +171,19 @@ class CalendarViewModel(
                     }
                 }
                 if (fetchFailed) return@launch
+                animes.addAll(pageEvents)
+                currentPage++
             }
 
             mutableUiState.update { state ->
-                val updatedMap = state.weeklyAnime.toMutableMap()
-                if (animes.isNotEmpty()) {
-                    updatedMap[date] = animes
-                } else {
-                    updatedMap.remove(date)
-                }
+                val updatedMap = state.weeklyAnime.withAiringPage(date, replaceDay = true, animes)
                 state.copy(
                     weeklyAnime = updatedMap,
                     providerOnlyByDate = state.releaseCalendarRows.providerOnlyByDate(
                         knownMediaIds = updatedMap.values
                             .asSequence()
                             .flatten()
-                            .map { it.id }
+                            .map { it.media.id }
                             .toSet(),
                         fallbackDate = state.day.toLocalDate(),
                     ),
@@ -249,7 +244,7 @@ class CalendarViewModel(
                             knownMediaIds = state.weeklyAnime.values
                                 .asSequence()
                                 .flatten()
-                                .map { it.id }
+                                .map { it.media.id }
                                 .toSet(),
                             fallbackDate = state.day.toLocalDate(),
                         ),
@@ -294,7 +289,7 @@ class CalendarViewModel(
             .flatMapLatest { (uiState, displayAdult) ->
                 val start = uiState.day.toTimestamp(isEndOfDay = false)
                 val end = uiState.day.toTimestamp(isEndOfDay = true)
-                mediaRepository.getAiringAnimesPage(
+                mediaRepository.getCalendarAiringEventsPage(
                     airingAtGreater = start,
                     airingAtLesser = end,
                     onMyList = onMyList.first(),
@@ -302,18 +297,14 @@ class CalendarViewModel(
                     page = uiState.page,
                     perPage = 50,
                     fetchFromNetwork = uiState.fetchFromNetwork,
-                )
+                ).map { result -> Triple(uiState.day.toLocalDate(), uiState.page, result) }
             }
-            .onEach { result ->
+            .onEach { (requestedDate, requestedPage, result) ->
                 if (result is PagedResult.Success) {
                     mutableUiState.updateAndGet { state ->
-                        val localDate = state.day.toLocalDate()
-                        val currentList = state.weeklyAnime[localDate]
-                            .takeIf { state.page > 1 }
-                            .orEmpty()
-                        val updatedList = currentList + result.list
-                        val updatedMap = state.weeklyAnime.toMutableMap()
-                        updatedMap[localDate] = updatedList
+                        val updatedMap = state.weeklyAnime.withAiringPage(
+                            requestedDate, replaceDay = requestedPage == 1, events = result.list,
+                        )
 
                         state.copy(
                             weeklyAnime = updatedMap,
@@ -321,7 +312,7 @@ class CalendarViewModel(
                                 knownMediaIds = updatedMap.values
                                     .asSequence()
                                     .flatten()
-                                    .map { it.id }
+                                    .map { it.media.id }
                                     .toSet(),
                                 fallbackDate = state.day.toLocalDate(),
                             ),

@@ -57,6 +57,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.axiel7.anihyou.core.base.UNKNOWN_CHAR
 import com.axiel7.anihyou.core.common.utils.DateUtils.timestampToTimeString
 import com.axiel7.anihyou.core.model.ListStyle
+import com.axiel7.anihyou.core.model.media.CalendarAiringEvent
+import com.axiel7.anihyou.core.model.media.uniqueAiringEvents
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
 import com.axiel7.anihyou.core.resources.ColorUtils.colorFromHex
 import com.axiel7.anihyou.core.resources.R
@@ -336,6 +338,7 @@ internal data class CalendarRow(
     val key: String,
     val media: ExploreMedia?,
     val releasePresentations: List<ReleaseUiCalendarItem>,
+    val airingEvent: CalendarAiringEvent? = null,
 )
 
 private fun CalendarRow.providerFallbackTitle(): String? =
@@ -373,7 +376,7 @@ internal fun List<CalendarRow>.withUniqueKeys(): List<CalendarRow> {
 }
 
 internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
-    val metadataByMediaId = weeklyAnime.values.asSequence().flatten().associateBy { it.id }
+    val metadataByMediaId = weeklyAnime.values.asSequence().flatten().map { it.media }.associateBy { it.id }
     return (weeklyAnime.keys + providerRowsByDate.keys + providerOnlyByDate.keys + today)
         .toSortedSet()
         .mapNotNull { date ->
@@ -391,11 +394,12 @@ internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
                     )
                 }
             } else {
-                weeklyAnime[date].orEmpty().map { media ->
+                weeklyAnime[date].orEmpty().uniqueAiringEvents().map { airing ->
                     CalendarRow(
-                        key = "$date-anilist-${media.id}",
-                        media = media,
-                        releasePresentations = releaseByMediaId[media.id].orEmpty(),
+                        key = "$date-anilist-${airing.scheduleId}",
+                        media = airing.media,
+                        releasePresentations = emptyList(),
+                        airingEvent = airing,
                     )
                 } + providerOnlyByDate[date].orEmpty().map { release ->
                     CalendarRow(
@@ -414,11 +418,11 @@ private fun calendarSubtitle(row: CalendarRow): String =
     if (row.releasePresentations.any { it.isAuthoritative }) {
         ""
     } else {
-        row.media?.nextAiringEpisode?.let { nextAiringEpisode ->
+        row.airingEvent?.let { airingEvent ->
             stringResource(
                 R.string.episode_airing_at,
-                nextAiringEpisode.episode,
-                nextAiringEpisode.airingAt.toLong().timestampToTimeString() ?: UNKNOWN_CHAR,
+                airingEvent.episode,
+                airingEvent.airingAt.toLong().timestampToTimeString() ?: UNKNOWN_CHAR,
             )
         } ?: stringResource(R.string.unknown)
     }

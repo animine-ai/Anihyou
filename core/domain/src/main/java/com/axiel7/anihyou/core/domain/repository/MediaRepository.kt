@@ -5,6 +5,7 @@ import com.apollographql.cache.normalized.fetchPolicy
 import com.axiel7.anihyou.core.model.media.AnimeSeason
 import com.axiel7.anihyou.core.model.media.AnimeThemes
 import com.axiel7.anihyou.core.model.media.AnimeThemes.Companion.toBo
+import com.axiel7.anihyou.core.model.media.CalendarAiringEvent
 import com.axiel7.anihyou.core.model.media.ChartType
 import com.axiel7.anihyou.core.model.media.MediaCharactersAndStaff
 import com.axiel7.anihyou.core.model.media.MediaRelationsAndRecommendations
@@ -56,6 +57,32 @@ class MediaRepository(
                 null -> list.filter { it.adultFilter(isAdult) }
             }
         }
+
+    // Same query, fetch policy and paging as the existing media contract; only Calendar keeps event fields.
+    fun getCalendarAiringEventsPage(
+        airingAtGreater: Long? = null,
+        airingAtLesser: Long? = null,
+        sort: List<AiringSort> = listOf(AiringSort.TIME),
+        onMyList: Boolean? = null,
+        isAdult: Boolean = false,
+        page: Int,
+        perPage: Int = 25,
+        fetchFromNetwork: Boolean = false,
+    ) = api.airingAnimesQuery(
+        airingAtGreater = airingAtGreater, airingAtLesser = airingAtLesser,
+        sort = sort, page = page, perPage = perPage, fetchFromNetwork = fetchFromNetwork,
+    ).toFlow().asPagedResult(page = { it.Page?.pageInfo?.commonPage }) { data ->
+        data.Page?.airingSchedules.orEmpty().mapNotNull { schedule ->
+            val media = schedule?.media?.exploreMedia ?: return@mapNotNull null
+            val eligible = when (onMyList) {
+                true -> media.onMyListCalendarFilter()
+                false -> media.mediaListEntry == null
+                null -> true
+            }
+            if (!eligible || !media.adultFilter(isAdult)) return@mapNotNull null
+            CalendarAiringEvent(schedule.id, schedule.episode, schedule.airingAt, media)
+        }
+    }
 
     fun getAiringAnimeOnMyListPage(
         page: Int,
@@ -122,6 +149,11 @@ class MediaRepository(
         .mediaDetailsQuery(mediaId)
         .toFlow()
         .asDataResult { it.Media }
+
+    suspend fun cachedMediaCoverUrl(mediaId: Int): String? = withContext(Dispatchers.IO) {
+        api.mediaDetailsQuery(mediaId).fetchPolicy(FetchPolicy.CacheOnly).execute()
+            .data?.Media?.coverImage?.large
+    }
 
     suspend fun updateMediaDetailsCache(media: MediaDetailsQuery.Media) {
         api.updateMediaDetailsCache(
