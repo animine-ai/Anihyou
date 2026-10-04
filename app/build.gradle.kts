@@ -109,7 +109,9 @@ android {
         debug {
             buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", aniWorldShadowCanaryDebugValue)
             applicationIdSuffix = ".debug"
-            versionNameSuffix = "-DEBUG"
+            // The commit of the build is part of the version name, so a tester can tell two debug APKs apart in the
+            // app's info screen and in the log (the version code stays the same).
+            versionNameSuffix = "-DEBUG-" + (System.getenv("GITHUB_SHA")?.take(8) ?: "local")
             isDebuggable = true
             isMinifyEnabled = false
             isShrinkResources = false
