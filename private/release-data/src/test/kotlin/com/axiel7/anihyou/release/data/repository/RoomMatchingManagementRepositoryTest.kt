@@ -610,4 +610,50 @@ class RoomMatchingManagementRepositoryTest {
         rig.repository.resetMatcherOptions()
         assertEquals(0, rig.page().total)
     }
+
+    /**
+     * Synthetic scale measurement of the settings-only matching management on a real Room database: 100, 1,000 and 10,000
+     * accepted bindings of one source (each with a title). Nothing asserts a time; the numbers go to the log (MEASURE lines)
+     * and the test fails only when the scope is not complete: the first page, a search, a deep page, the frozen source scope
+     * and the atomic reset must see and remove every binding.
+     */
+    @Test fun matchingManagementCostIsMeasuredAtScaleAndTheScopeStaysComplete() = runBlocking {
+        fun nowMs() = System.nanoTime() / 1_000_000.0
+        for (count in listOf(100, 1_000, 10_000)) {
+            val rig = Rig()
+            val seedStart = nowMs()
+            for (index in 0 until count) {
+                val slug = "series-%05d".format(index)
+                rig.dao.upsertSourceMapping(sourceRow(keyA, slug, 1, 1_000 + index))
+                rig.dao.upsertLabel(label(keyA, slug, "Series Title %05d".format(index)))
+            }
+            val seedMs = nowMs() - seedStart
+            fun median(block: suspend () -> Unit): Double {
+                runBlocking { block() } // warm-up
+                return (0 until 3).map { val t = nowMs(); runBlocking { block() }; nowMs() - t }.sorted()[1]
+            }
+            var firstTotal = -1
+            val firstPageMs = median { firstTotal = rig.page().total }
+            assertEquals(count, firstTotal)
+            var searchHits = -1
+            val searchMs = median { searchHits = rig.page(MappingQuery(text = "Series Title %05d".format(count / 2))).entries.size }
+            assertEquals("a folded title search finds exactly its binding", 1, searchHits)
+            var deepSize = -1
+            val deepPageMs = median { deepSize = rig.page(MappingQuery(source = keyA, offset = count - 50)).entries.size }
+            assertEquals(50, deepSize)
+            val captureStart = nowMs()
+            val token = rig.repository.capture(MappingScope.Source(keyA))
+            val captureMs = nowMs() - captureStart
+            assertEquals("the frozen scope holds every binding of the source", count, token.count)
+            val resetStart = nowMs()
+            assertEquals(MappingMutationResult.APPLIED, rig.repository.reset(token))
+            val resetMs = nowMs() - resetStart
+            assertEquals("the reset removed every captured binding and nothing else", 0, rig.page().total)
+            println("MEASURE matching bindings=$count seedMs=%.0f firstPageMs=%.2f searchMs=%.2f deepPageMs=%.2f captureMs=%.2f resetMs=%.2f"
+                .format(seedMs, firstPageMs, searchMs, deepPageMs, captureMs, resetMs))
+            rig.database.close()
+            openDatabases.remove(rig.database)
+            context.deleteDatabase(name)
+        }
+    }
 }
