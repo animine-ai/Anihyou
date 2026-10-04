@@ -38,8 +38,6 @@ class AniWorldClient(
                 ))
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (budget: AniWorldRequestBudgetDeniedException) {
-                return failure(AniWorldFailureKind.BUDGET_DENIED, "durable request budget or cooldown denied this source")
             } catch (exception: Exception) {
                 return failure(AniWorldFailureKind.TRANSPORT_FAILURE,
                     "provider transport failed closed: " + (exception::class.simpleName ?: "transport-error"))
