@@ -19,6 +19,7 @@ import com.axiel7.anihyou.release.core.extension.RequestSpec
 import com.axiel7.anihyou.release.core.extension.ResponseEnvelope
 import com.axiel7.anihyou.release.core.extension.ResponseReportV1
 import com.axiel7.anihyou.release.core.extension.SourceRole
+import com.axiel7.anihyou.release.core.log.AppLog
 import java.net.URI
 import java.security.MessageDigest
 import java.time.Clock
@@ -192,6 +193,10 @@ class ExtensionHostCoordinator(
                 networkSession?.provenance?.lastOrNull {
                     it.requestId == (cachedResponse?.requestId ?: planned.requestId)
                 }?.let { allProvenance += it.copy(requestId = planned.requestId) }
+                AppLog.d("host") {
+                    "response ${planned.requestId} role=${planned.sourceRole} status=${response.status} http=${response.httpStatus} " +
+                        "chars=${response.bodyUtf8?.length ?: 0} fromCache=${cachedResponse != null} finalHost=${AppLog.host(response.finalUrl)}"
+                }
                 val parseInput = ParseInputV1(schemaVersion = 1, context = context, responses = listOf(response))
                 val parsedBytes = executeRuntime(
                     packageInfo,
@@ -211,6 +216,12 @@ class ExtensionHostCoordinator(
                         }) {
                         return ExtensionHostResult.Failed(ExtensionHostFailureCode.HOST_VALIDATION_FAILED)
                     }
+                }
+                AppLog.i("host") {
+                    "parsed ${planned.requestId}: observations=${parsed.observations.size} reports=" +
+                        parsed.responseReports.joinToString { report ->
+                            report.outcome.name + report.diagnostics.joinToString(prefix = "[", postfix = "]") { it.code.take(48) }
+                        }
                 }
                 allObservations += parsed.observations
                 allReports += parsed.responseReports
@@ -248,13 +259,17 @@ class ExtensionHostCoordinator(
                 plan.requests.associate { it.requestId to it.sourceRole })
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: ExtensionWireException) {
+        } catch (failure: ExtensionWireException) {
+            AppLog.w("host") { "execute failed: wire ${failure.javaClass.simpleName}: ${failure.message}" }
             return ExtensionHostResult.Failed(ExtensionHostFailureCode.HOST_VALIDATION_FAILED)
-        } catch (_: ExtensionGuestErrorException) {
+        } catch (failure: ExtensionGuestErrorException) {
+            AppLog.w("host") { "execute failed: guest error ${failure.message}" }
             return ExtensionHostResult.Failed(ExtensionHostFailureCode.RUNTIME_FAILURE)
-        } catch (_: IllegalArgumentException) {
+        } catch (failure: IllegalArgumentException) {
+            AppLog.w("host") { "execute failed: validation ${failure.message}" }
             return ExtensionHostResult.Failed(ExtensionHostFailureCode.HOST_VALIDATION_FAILED)
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
+            AppLog.w("host") { "execute failed: ${failure.javaClass.simpleName}: ${failure.message}" }
             return ExtensionHostResult.Failed(ExtensionHostFailureCode.RUNTIME_FAILURE)
         } finally {
             ExtensionExecutionSlot.active.set(false)
@@ -276,6 +291,7 @@ class ExtensionHostCoordinator(
         if (input.size > limits.maxInputBytes) {
             throw ExtensionWireException(ExtensionWireErrorCode.SIZE_LIMIT, "extension input exceeds its execution limit")
         }
+        val started = System.nanoTime()
         return when (val result = runtime.execute(
             moduleDigest = packageInfo.moduleDigest,
             moduleBytes = moduleBytes,
@@ -284,11 +300,21 @@ class ExtensionHostCoordinator(
             limits = limits,
         )) {
             is ExtensionRuntimeResult.Success -> result.outputUtf8.also {
+                AppLog.d("host") {
+                    "$exportName ok in ${(System.nanoTime() - started) / 1_000_000} ms input=${input.size} output=${it.size} " +
+                        "fuel=${limits.fuel} deadline=${limits.deadlineMillis}"
+                }
                 if (it.size > limits.maxOutputBytes) {
                     throw ExtensionWireException(ExtensionWireErrorCode.SIZE_LIMIT, "extension output exceeds its execution limit")
                 }
             }
-            is ExtensionRuntimeResult.Failure -> throw RuntimeException(result.code.name)
+            is ExtensionRuntimeResult.Failure -> {
+                AppLog.w("host") {
+                    "$exportName failed code=${result.code.name} after ${(System.nanoTime() - started) / 1_000_000} ms " +
+                        "input=${input.size} fuel=${limits.fuel} deadline=${limits.deadlineMillis}"
+                }
+                throw RuntimeException(result.code.name)
+            }
         }
     }
 

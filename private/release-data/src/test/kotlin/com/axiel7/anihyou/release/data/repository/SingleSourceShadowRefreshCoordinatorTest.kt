@@ -274,6 +274,21 @@ class SingleSourceShadowRefreshCoordinatorTest {
     }
 
     @Test
+    fun `a partial report still commits the rows the guest could read and never counts as fresh`() = runBlocking {
+        val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
+        val runtime = FixtureRuntime(partialRoles = setOf(SourceRole.RECENT))
+        val rig = rig(access, active = SOURCE_A_KEY, runtime = runtime)
+        val outcome = product(rig, access).refresh("partial-report", ExtensionRefreshTrigger.PROCESS_START)
+        assertTrue("expected a commit, got $outcome", outcome is ShadowRefreshOutcome.Committed)
+        outcome as ShadowRefreshOutcome.Committed
+        assertTrue("the partial role is in the cycle", outcome.cycle.sources.any { it.sourceType == ReleaseSourceType.ANIWORLD_RECENT })
+        assertTrue("its rows are evidence", outcome.cycle.sources.first { it.sourceType == ReleaseSourceType.ANIWORLD_RECENT }.evidence.isNotEmpty())
+        assertEquals("only a fully successful role is fresh", setOf(SourceRole.CALENDAR, SourceRole.POSTPONEMENT), outcome.successfulRoles)
+        assertFalse(outcome.refreshSucceeded)
+        assertTrue(outcome.roleReports, outcome.roleReports.contains("RECENT:") && outcome.roleReports.contains("report=PARTIAL"))
+    }
+
+    @Test
     fun `a cooldown that denies every request is a typed deferral with a time and changes nothing`() = runBlocking {
         val access = AtomicInstalledAccess(mapOf(SOURCE_A_KEY to extensionPackage(SOURCE_A_KEY)))
         val ledgerDirectory = temporaryFolder.newFolder()
@@ -815,6 +830,8 @@ class SingleSourceShadowRefreshCoordinatorTest {
         private val blockParsing: Boolean = false,
         @Volatile var failPlan: Boolean = false,
         @Volatile var failRoles: Set<SourceRole> = emptySet(),
+        /** Roles whose report is PARTIAL: the guest returned the rows it could read and dropped the others. */
+        @Volatile var partialRoles: Set<SourceRole> = emptySet(),
     ) : ExtensionRuntime {
         val exports = mutableListOf<String>()
         /** The roles the host asked the guest to plan, one entry per plan call. */
@@ -884,7 +901,7 @@ class SingleSourceShadowRefreshCoordinatorTest {
                     val track = target?.track?.name ?: ObservationTrack.DE_SUB.name
                     val observation = """{"schemaVersion":1,"extensionId":"${input.context.extensionId.value}","providerId":"${input.context.providerId.value}","requestId":"${response.requestId}","sourceRole":"${role.name}","providerSeriesKey":"$series","rawTitle":"Fixture release","sourceSeason":$sourceSeason,"navigationSeason":$navigationSeason,"installment":{"kind":"$installmentKind","number":"$installmentNumber"},"track":"$track","claimKind":"$kind","sourceDateText":null,"sourceTimeText":null,"sourceRawText":null,"parsedTimestamp":null,"approximate":false,"scheduleMarker":"NONE","correctionMarker":null,"sourceUrl":"${response.finalUrl}","sourceHash":"${response.sourceHash}","diagnostics":[]}"""
                     ExtensionRuntimeResult.Success(
-                        """{"schemaVersion":1,"observations":[$observation],"responseReports":[{"requestId":"${response.requestId}","outcome":"SUCCESS","diagnostics":[]}] }""".toByteArray(),
+                        """{"schemaVersion":1,"observations":[$observation],"responseReports":[{"requestId":"${response.requestId}","outcome":"${if (role in partialRoles) "PARTIAL" else "SUCCESS"}","diagnostics":[]}] }""".toByteArray(),
                     )
                 }
                 else -> error("unexpected extension export $exportName")

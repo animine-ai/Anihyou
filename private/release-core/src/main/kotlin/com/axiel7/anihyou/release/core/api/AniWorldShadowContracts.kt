@@ -144,13 +144,15 @@ sealed interface ShadowRefreshOutcome {
         val refreshSucceeded: Boolean = false,
         /** Roles whose every request was a real 2xx response with a SUCCESS parse report. Only these count as fresh. */
         val successfulRoles: Set<SourceRole> = emptySet(),
+        /** Per role what the source answered and what the guest reported: codes and counts only, shown in the diagnostics. */
+        val roleReports: String = "",
     ) : ShadowRefreshOutcome
     /**
      * Nothing was requested. [nextEligibleAt] (when known) is the earliest time the same request can make
      * sense again, so callers wait for it instead of retrying a denied or fresh request right away.
      */
     data class Skipped(val reason: String, val nextEligibleAt: Instant? = null) : ShadowRefreshOutcome
-    data class Failed(val reason: String, val retryable: Boolean) : ShadowRefreshOutcome
+    data class Failed(val reason: String, val retryable: Boolean, val roleReports: String = "") : ShadowRefreshOutcome
 }
 
 interface AniWorldShadowPollStore {

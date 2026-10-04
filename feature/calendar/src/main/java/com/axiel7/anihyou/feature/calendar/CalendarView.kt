@@ -483,10 +483,14 @@ private fun ListView(
     // The first screen is today. The index of today moves while the days before it are still arriving (more AniList
     // pages, extension rows), so the focus is renewed on every change until the user takes over by dragging. A single
     // animated scroll that then marked itself done left the list on whatever day was at that index at that moment.
-    LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex) {
+    // A scroll to today is clamped while there are not yet enough items behind it to fill the screen (cold start: today's
+    // page arrives after yesterday's), so the size of the content is part of the key and the focus is applied again.
+    val totalItems = uiState.presentationDays().sumOf { it.rows.size + 1 }
+    LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex, totalItems) {
         if (uiState.todayAnchorReady && uiState.autoScrollToToday) {
-            AppLog.d("calendar") { "focus today: scroll list to item ${uiState.todayFirstItemIndex}" }
+            AppLog.d("calendar") { "focus today: scroll list to item ${uiState.todayFirstItemIndex} (items=$totalItems)" }
             listState.scrollToItem(uiState.todayFirstItemIndex)
+            AppLog.d("calendar") { "focus today: list now at item ${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}" }
         }
     }
     LaunchedEffect(listState) {
@@ -569,10 +573,12 @@ private fun GridView(
         event?.onLoadMore()
     }
     // Same focus rule as the list view: renewed on every change of today's index until the user drags.
-    LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex) {
+    val totalItems = uiState.presentationDays().sumOf { it.rows.size + 1 }
+    LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex, totalItems) {
         if (uiState.todayAnchorReady && uiState.autoScrollToToday) {
-            AppLog.d("calendar") { "focus today: scroll grid to item ${uiState.todayFirstItemIndex}" }
+            AppLog.d("calendar") { "focus today: scroll grid to item ${uiState.todayFirstItemIndex} (items=$totalItems)" }
             gridState.scrollToItem(uiState.todayFirstItemIndex)
+            AppLog.d("calendar") { "focus today: grid now at item ${gridState.firstVisibleItemIndex} offset=${gridState.firstVisibleItemScrollOffset}" }
         }
     }
     LaunchedEffect(gridState) {

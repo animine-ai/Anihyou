@@ -137,6 +137,9 @@ fun ExtensionCenterPageView(pageId: String) {
             TextButton(onClick = model::refreshDiagnostics, modifier = Modifier.testTag("extension-details-refresh")) {
                 Text(stringResource(R.string.extension_details_refresh))
             }
+            TextButton(onClick = model::refreshReleasesNow, modifier = Modifier.testTag("extension-releases-refresh-now")) {
+                Text(stringResource(R.string.extension_releases_refresh_now))
+            }
         }
         when (page) {
             ExtensionCenterPage.MANAGE -> ExtensionSourcesSettingsSection(state, model)
@@ -323,7 +326,7 @@ fun ExtensionStatistics(state: ExtensionSourcesUiState) {
     DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_last_metadata_success), values["Last metadata success"])
     // Update check, successful update, release sequence and rollback availability already have localized rows above.
     // The raw revocation digest list and the other update facts stay in Diagnostics and its copy export.
-    listOf("Last successful sync", "Freshness", "Release count", "Tracks", "Role health", "Last sync outcome", "Sync duration",
+    listOf("Last successful sync", "Freshness", "Release count", "Tracks", "Role health", "Role reports", "Last sync outcome", "Sync duration",
         "Runtime", "Last parse status", "Last navigation status").forEach {
         DiagnosticRow(it, values[it])
     }
@@ -376,7 +379,7 @@ fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
         // The copy-to-clipboard export below still carries every raw entry.
         listOf("Extension ID", "Provider ID", "Signed displayName", "Repository", "Publisher",
             "Key ID", "Trust status", "Package SHA", "WASM SHA", "Active selection generation",
-            "Last update at", "Capabilities", "Allowed Hosts", "Role health",
+            "Last update at", "Capabilities", "Allowed Hosts", "Role health", "Role reports",
             "Last sync outcome", "Runtime", "Last parse status", "Last navigation status", "Fuel limit",
             "Memory limit", "Deadline limit", "Cancellation").forEach { DiagnosticRow(it, safeValues[it]) }
         // Permanent for a source the user accepted without an independent check.

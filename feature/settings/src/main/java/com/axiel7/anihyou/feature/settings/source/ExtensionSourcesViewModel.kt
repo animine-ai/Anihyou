@@ -60,6 +60,8 @@ interface ExtensionSourcesEvent {
     fun setReleaseNotificationsEnabled(enabled: Boolean) {}
     fun disableLegacyLane() {}
     fun refreshDiagnostics() {}
+    /** Asks the extension source for the release data right now, past the automatic hourly window. */
+    fun refreshReleasesNow() {}
     fun clearActionFailure()
 }
 
@@ -69,6 +71,7 @@ class ExtensionSourcesViewModel(
     private val diagnosticsRepository: com.axiel7.anihyou.release.core.source.ExtensionDiagnosticsRepository? = null,
     private val releasePreferencesRepository: com.axiel7.anihyou.release.core.api.ReleasePreferencesRepository? = null,
     private val releaseOutboxRepository: com.axiel7.anihyou.release.core.api.ReleaseOutboxRepository? = null,
+    private val releaseRefreshScheduler: com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler? = null,
 ) : ViewModel(), ExtensionSourcesEvent {
 
     private val _uiState = MutableStateFlow(
@@ -250,6 +253,11 @@ class ExtensionSourcesViewModel(
     override fun setProviderOrder(keys: List<ExtensionSelectionKey>) = performPolicyAction {
         AppLog.i("ui") { "user: provider order -> ${keys.map { it.extensionId }}" }
         productPolicyRepository?.setNavigationProviderOrder(keys)
+    }
+
+    override fun refreshReleasesNow() {
+        AppLog.i("ui") { "user: refresh releases now (scheduler present=${releaseRefreshScheduler != null})" }
+        releaseRefreshScheduler?.scheduleNow()
     }
 
     override fun refreshDiagnostics() = performAction {

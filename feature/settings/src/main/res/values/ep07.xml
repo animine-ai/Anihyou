@@ -106,4 +106,5 @@
     <string name="extension_legacy_lane_title">Old AniWorld data</string>
     <string name="extension_legacy_lane_switch">Use old AniWorld data</string>
     <string name="extension_legacy_lane_summary">Left over from earlier versions. It runs beside the sources and can decide what is behind. Switching it off leaves AniList or the active source.</string>
+    <string name="extension_releases_refresh_now">Fetch releases now</string>
 </resources>

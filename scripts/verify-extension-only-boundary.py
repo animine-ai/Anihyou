@@ -32,6 +32,8 @@ assert not re.search(r"(?i)(TEST_ANCHOR|TrustFixture|trustAvailable\s*=\s*true|T
 assert "test-pin" not in sources and "test-publisher" not in sources
 installer = (base / "extension/ExtensionInstallStore.kt").read_text()
 assert "verifier.verify" in installer and "rollbackBad" in installer
+# The view models default their presentation repository to an empty one; the plugin must still inject the real one.
+assert "skipDefaultValues = false" in (root / "app/build.gradle.kts").read_text()
 mapping = (base / "aniworld/AniWorldExtensionTargetSource.kt").read_text()
 assert "/anime/stream/" not in mapping and "providerUrl = null" in mapping
 result = {

@@ -207,6 +207,7 @@ class SingleSourceShadowRefreshCoordinator(
                     put("Last parse status", if (successful) "SUCCESS" else "PARTIAL_OR_FAILED")
                     put("Last sync outcome", if (successful) "COMMITTED" else "PARTIAL")
                     put("Last sync failure", if (successful) "NONE" else "ROLE_HEALTH_NOT_SUCCESSFUL")
+                    if (outcome.roleReports.isNotEmpty()) put("Role reports", outcome.roleReports)
                     put("Cancellation", "NOT_CANCELLED")
                     put("Transport status", "COORDINATOR_COMPLETED")
                     put("Sync duration", java.time.Duration.between(outcome.cycle.startedAt, outcome.cycle.completedAt).toMillis().toString() + " ms")
@@ -227,7 +228,8 @@ class SingleSourceShadowRefreshCoordinator(
                 navigationStore.record(selected, snapshot.releaseGeneration, pinned.packageDigest, emptyList(),
                     previous + mapOf("Last sync outcome" to "FAILED", "Last sync failure" to reason,
                         "Last parse status" to "NO_COMMITTED_PARSE", "Transport status" to "COORDINATOR_ABORTED",
-                        "Role health" to pinned.grantedRoles.sortedBy { it.name }.joinToString("; ") { it.name + ": ABORTED" }),
+                        "Role health" to pinned.grantedRoles.sortedBy { it.name }.joinToString("; ") { it.name + ": ABORTED" }) +
+                        (if (outcome.roleReports.isNotEmpty()) mapOf("Role reports" to outcome.roleReports) else emptyMap()),
                     pinned.packageGeneration)
             }
         }

@@ -278,6 +278,11 @@ baselineProfile {
 
 koinCompiler {
     compileSafety = false
+    // The view models default their release presentation repository (and clock, provider navigation) to an empty or
+    // system implementation for tests. With the plugin's default (skip parameters that have a default value) the app
+    // never injected the real repository: calendar, Behind, details and lists showed AniList only, whatever the
+    // extension had synced.
+    skipDefaultValues = false
 }
 
 dependencies {
