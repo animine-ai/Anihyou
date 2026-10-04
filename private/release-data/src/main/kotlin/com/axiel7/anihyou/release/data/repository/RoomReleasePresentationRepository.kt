@@ -136,8 +136,9 @@ private sealed interface ReleaseSelection {
 private fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity>.toExtensionCalendarItems(
     mappings: List<ExternalMappingEntity>,
     range: ClosedRange<LocalDate>,
-): List<ReleaseUiCalendarItem> =
-    mapNotNull { row ->
+): List<ReleaseUiCalendarItem> {
+    val lookup = MappingLookup(mappings)
+    return mapNotNull { row ->
         val state = runCatching { ReleaseReconciliationMapper.state(row) }.getOrNull()
             ?: return@mapNotNull null
         val identity = CanonicalReleaseIdentity.decode(row.projectionKey)
@@ -166,7 +167,7 @@ private fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEn
             is Installment.Special -> return@mapNotNull null
         }
         ReleaseUiCalendarItem(
-            mediaId = mappedAniListId(identity, state.navigationSeasons, mappings),
+            mediaId = lookup.aniListId(identity, state.navigationSeasons),
             stream = ReleaseStreamKey(
                 providerId = ProviderId("aniworld"),
                 stableSeriesKey = SourceSeriesKey(identity.seriesPath),
@@ -183,7 +184,8 @@ private fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEn
                 ReleaseUiAuthority.VALID
             },
             sourceDate = sourceDate,
-            sourceRoot = "https://aniworld.to" + identity.seriesPath,
+            // No consumer reads a source URL, and the extension path does not build provider URLs in the host.
+            sourceRoot = null,
             revision = state.revision,
         )
     }
@@ -194,27 +196,33 @@ private fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEn
                 .thenBy { it.stream.stableKey }
                 .thenBy { it.installment.stableKey },
         )
+}
 
-internal fun mappedAniListId(
-    identity: CanonicalReleaseIdentity,
-    navigationSeasons: Set<Int>,
-    mappings: List<ExternalMappingEntity>,
-): Int? {
-    val slug = identity.seriesPath.removePrefix("/anime/stream/")
-    val candidates = mappings.filter { row ->
-        row.siteSlug == slug && when (val installment = identity.installment) {
-            is Installment.Episode ->
-                row.subjectType == "SEASON" &&
-                    row.navigationSeason != null &&
-                    row.navigationSeason in navigationSeasons
-            is Installment.Film ->
-                row.subjectType == "FILM" && row.filmNumber == installment.number
-            is Installment.Special -> false
+/**
+ * The bindings of one emission, indexed by site slug. A row looks at the few bindings of its own series instead of at
+ * every binding the source has, which keeps a library with thousands of bindings from costing rows times bindings
+ * comparisons on every database change (measured in ExtensionMediaPresentationsTest.bindingLookupAgreesWithTheLinearScanAndItsCostIsMeasuredAtScale).
+ */
+internal class MappingLookup(mappings: List<ExternalMappingEntity>) {
+    private val bySlug: Map<String, List<ExternalMappingEntity>> = mappings.groupBy { it.siteSlug }
+
+    /** The AniList media this row is bound to, or null when no binding or more than one media matches. */
+    fun aniListId(identity: CanonicalReleaseIdentity, navigationSeasons: Set<Int>): Int? {
+        val candidates = bySlug[identity.seriesPath.removePrefix("/anime/stream/")].orEmpty().filter { row ->
+            when (val installment = identity.installment) {
+                is Installment.Episode ->
+                    row.subjectType == "SEASON" &&
+                        row.navigationSeason != null &&
+                        row.navigationSeason in navigationSeasons
+                is Installment.Film ->
+                    row.subjectType == "FILM" && row.filmNumber == installment.number
+                is Installment.Special -> false
+            }
         }
+        return candidates.mapNotNull { it.externalId?.toIntOrNull()?.takeIf { id -> id > 0 } }
+            .distinct()
+            .singleOrNull()
     }
-    return candidates.mapNotNull { it.externalId?.toIntOrNull()?.takeIf { id -> id > 0 } }
-        .distinct()
-        .singleOrNull()
 }
 
 private fun MediaReleaseProjection.toUiPresentation(): ReleaseUiPresentation =

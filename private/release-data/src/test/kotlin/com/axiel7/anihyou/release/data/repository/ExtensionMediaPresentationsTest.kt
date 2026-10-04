@@ -188,4 +188,62 @@ class ExtensionMediaPresentationsTest {
         val result = presented(listOf(corrupt, good), listOf(binding("series-a", 42)))
         assertEquals(10, result.getValue(42).single().confirmedThroughEpisode)
     }
+
+    /** The linear scan the lookup replaced; it stays here only as the reference for equivalence. */
+    private fun linearAniListId(
+        identity: CanonicalReleaseIdentity, navigationSeasons: Set<Int>, mappings: List<ExternalMappingEntity>,
+    ): Int? {
+        val slug = identity.seriesPath.removePrefix("/anime/stream/")
+        val candidates = mappings.filter { row ->
+            row.siteSlug == slug && when (val installment = identity.installment) {
+                is Installment.Episode ->
+                    row.subjectType == "SEASON" && row.navigationSeason != null && row.navigationSeason in navigationSeasons
+                is Installment.Film -> row.subjectType == "FILM" && row.filmNumber == installment.number
+                is Installment.Special -> false
+            }
+        }
+        return candidates.mapNotNull { it.externalId?.toIntOrNull()?.takeIf { id -> id > 0 } }.distinct().singleOrNull()
+    }
+
+    private inline fun medianMillis(runs: Int = 5, block: () -> Unit): Double {
+        block() // warm-up, not counted
+        val samples = DoubleArray(runs) {
+            val start = System.nanoTime()
+            block()
+            (System.nanoTime() - start) / 1_000_000.0
+        }
+        return samples.sorted()[runs / 2]
+    }
+
+    /**
+     * Synthetic scale measurement for the binding lookup of one emission: 100, 1,000 and 10,000 bindings against 1,000
+     * accepted rows (500 series, a confirmed and a planned row each). Nothing here asserts a time; the numbers are written
+     * to the log (MEASURE lines) and the test fails only when the lookup disagrees with the linear reference.
+     */
+    @Test fun bindingLookupAgreesWithTheLinearScanAndItsCostIsMeasuredAtScale() {
+        val seriesCount = 500
+        val rows = (0 until seriesCount).flatMap { index ->
+            val slug = "series-%05d".format(index)
+            listOf(released(slug, 5), planned(slug, 6, today3pm))
+        }
+        val identities = rows.map { requireNotNull(CanonicalReleaseIdentity.decode(it.projectionKey)) }
+        for (bindingCount in listOf(100, 1_000, 10_000)) {
+            // The first 100 bindings belong to the accepted series; the rest are other series of the library.
+            val mappings = (0 until bindingCount).map { index ->
+                binding(if (index < seriesCount) "series-%05d".format(index) else "library-%05d".format(index), 1_000 + index)
+            }
+            val lookup = MappingLookup(mappings)
+            identities.forEach { identity ->
+                assertEquals(linearAniListId(identity, setOf(1), mappings), lookup.aniListId(identity, setOf(1)))
+            }
+            val linearMs = medianMillis { identities.forEach { linearAniListId(it, setOf(1), mappings) } }
+            val indexedMs = medianMillis { val index = MappingLookup(mappings); identities.forEach { index.aniListId(it, setOf(1)) } }
+            val ids = (0 until minOf(bindingCount, seriesCount)).map { 1_000 + it }.toSet()
+            var presentedMedia = 0
+            val builderMs = medianMillis { presentedMedia = rows.toExtensionMediaPresentations(mappings, ids, defaults).size }
+            assertEquals("every requested bound media is presented once", ids.size, presentedMedia)
+            println("MEASURE bindings=$bindingCount rows=${rows.size} linearLookupMs=%.2f indexedLookupMs=%.2f fullBuilderMs=%.2f"
+                .format(linearMs, indexedMs, builderMs))
+        }
+    }
 }

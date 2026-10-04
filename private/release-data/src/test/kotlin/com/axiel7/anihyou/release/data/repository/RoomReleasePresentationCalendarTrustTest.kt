@@ -241,14 +241,14 @@ class RoomReleasePresentationCalendarTrustTest {
             seedAcceptedRow(db, series = "b-only-series", cycle = "b-cycle", baseline = false, source = keyB)
             val underB = presented(repository)
             assertEquals("only B's own row", 1, underB.size)
-            assertTrue(underB.single().sourceRoot?.endsWith("/b-only-series") == true)
+            assertTrue(underB.single().stream.stableSeriesKey.value.endsWith("/b-only-series"))
 
             // A is trusted again and active: only A's own row, B's lane is not presented as A's.
             sources.sources.value = listOf(source(keyA), source(keyB))
             policy.selectActiveSource(keyA)
             val underA = presented(repository)
             assertEquals(1, underA.size)
-            assertTrue(underA.single().sourceRoot?.endsWith("/trust-transition") == true)
+            assertTrue(underA.single().stream.stableSeriesKey.value.endsWith("/trust-transition"))
             // The provider-wide persisted history was never touched by any of this.
             assertEquals(2, db.reconciliationDao().projectionPage(10, 0).size)
         } finally { db.close() }

@@ -40,12 +40,13 @@ internal fun List<CanonicalReleaseProjectionEntity>.toExtensionMediaPresentation
 ): Map<Int, List<ReleaseUiPresentation>> {
     if (mediaIds.isEmpty()) return emptyMap()
     val enabledTracks = preferences.enabledTracks - "UNKNOWN"
+    val lookup = MappingLookup(mappings)
     val rows = mapNotNull { row ->
         val state = runCatching { ReleaseReconciliationMapper.state(row) }.getOrNull() ?: return@mapNotNull null
         val identity = CanonicalReleaseIdentity.decode(row.projectionKey) ?: return@mapNotNull null
         if (identity.track.name !in enabledTracks) return@mapNotNull null
         if (identity.installment is Installment.Special) return@mapNotNull null
-        val media = mappedAniListId(identity, state.navigationSeasons, mappings) ?: return@mapNotNull null
+        val media = lookup.aniListId(identity, state.navigationSeasons) ?: return@mapNotNull null
         if (media !in mediaIds) return@mapNotNull null
         MediaRow(media, identity, state)
     }
