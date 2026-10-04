@@ -103,7 +103,7 @@ private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresent
             mediaId = group.media, stream = stream, authority = ReleaseUiAuthority.AMBIGUOUS,
             confirmedThroughEpisode = null, confirmedInstallments = emptyList(), confirmedPending = 0,
             nextExpectedInstallment = null, nextForecast = null, freshness = ReleaseUiFreshness.UNKNOWN,
-            sourceRoot = SOURCE_ROOT + group.seriesPath, revision = items.maxOf { it.state.revision },
+            sourceRoot = null, revision = items.maxOf { it.state.revision },
         )
     }
     val nextForecast = next?.let { row ->
@@ -130,10 +130,10 @@ private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresent
         nextExpectedInstallment = next?.identity?.installment,
         nextForecast = nextForecast,
         freshness = ReleaseUiFreshness.UNKNOWN,
-        sourceRoot = SOURCE_ROOT + group.seriesPath,
+        // No consumer reads a source URL, and the host does not build provider URLs on the extension path.
+        sourceRoot = null,
         revision = items.maxOf { it.state.revision },
     )
 }
 
 private val PLANNED_PHASES = setOf(ReleasePhase.PREDICTED, ReleasePhase.EXPECTED, ReleasePhase.CONFIRMED)
-private const val SOURCE_ROOT = "https://aniworld.to"
