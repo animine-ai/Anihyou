@@ -36,6 +36,15 @@ internal suspend fun evaluateExtensionReleaseRefresh(
     return ExtensionReleaseRefreshEvaluation(decision, outcome)
 }
 
+/** One line for the log. A committed outcome carries the whole cycle, which must never be printed. */
+internal fun describeOutcome(outcome: ShadowRefreshOutcome): String = when (outcome) {
+    is ShadowRefreshOutcome.Committed ->
+        "Committed(freshRoles=${outcome.successfulRoles.map { it.name }}, sources=${outcome.cycle.sources.size}, " +
+            "evidence=${outcome.cycle.sources.sumOf { it.evidence.size }}, fullySucceeded=${outcome.refreshSucceeded})"
+    is ShadowRefreshOutcome.Skipped -> "Skipped(reason=${outcome.reason}, nextEligibleAt=${outcome.nextEligibleAt})"
+    is ShadowRefreshOutcome.Failed -> "Failed(reason=${outcome.reason}, retryable=${outcome.retryable})"
+}
+
 class ExtensionReleaseRefreshWorker(
     context: Context,
     parameters: WorkerParameters,
@@ -53,7 +62,7 @@ class ExtensionReleaseRefreshWorker(
         if (trigger == ExtensionRefreshTrigger.SCHEDULED_SLOT) scheduler.ensureSlotScheduled()
         val evaluation = evaluateExtensionReleaseRefresh(coordinator, "${id}_$runAttemptCount", trigger, runAttemptCount)
         val outcome = evaluation.outcome
-        AppLog.i("worker") { "release refresh decision=${evaluation.decision} outcome=$outcome" }
+        AppLog.i("worker") { "release refresh decision=${evaluation.decision} outcome=${describeOutcome(outcome)}" }
         if (outcome is ShadowRefreshOutcome.Skipped && outcome.reason == REASON_BUDGET_DEFERRED &&
             outcome.nextEligibleAt != null && chain < MAX_DEFERRED_CHAIN) {
             // Wait for the hard limit to lapse instead of retrying; the chain is short and then ends.
