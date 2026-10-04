@@ -342,7 +342,12 @@ class CalendarViewModel(
     private fun CalendarUiState.withTodayFirstItemIndex(): CalendarUiState {
         val index = presentationDays().filter { it.date < today }
             .sumOf { it.rows.size + 1 } // exactly the displayed rows plus their date header
-        return copy(todayFirstItemIndex = index, todayAnchorReady = true)
+        // The list starts at yesterday. Today is only a stable anchor once the days before it have arrived, otherwise the
+        // one-shot initial focus is spent on an index that still moves and the screen stays at the top.
+        return copy(
+            todayFirstItemIndex = index,
+            todayAnchorReady = isTodayAnchorStable(day.toLocalDate(), today, hasNextPage, error),
+        )
     }
 
     private fun List<ReleaseUiCalendarItem>.providerRowsByDate(
@@ -376,3 +381,7 @@ class CalendarViewModel(
 internal fun millisUntilNextLocalDay(now: ZonedDateTime): Long =
     Duration.between(now, now.toLocalDate().plusDays(1).atStartOfDay(now.zone)).toMillis()
         .coerceAtLeast(1_000L) + 500L
+
+/** The loaded request window has reached today, or nothing more will load (end of data, error). */
+internal fun isTodayAnchorStable(loadedDay: LocalDate, today: LocalDate, hasNextPage: Boolean, error: String?): Boolean =
+    loadedDay >= today || !hasNextPage || error != null

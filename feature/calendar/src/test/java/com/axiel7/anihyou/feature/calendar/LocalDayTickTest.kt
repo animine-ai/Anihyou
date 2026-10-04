@@ -29,3 +29,21 @@ class LocalDayTickTest {
         assertEquals(1_500L, millisUntilNextLocalDay(at("2026-10-04T23:59:59.900+02:00")))
     }
 }
+
+class TodayAnchorTest {
+    private val today = java.time.LocalDate.of(2026, 10, 4)
+
+    @Test fun yesterdayAloneIsNotAStableAnchorSoTheInitialFocusWaits() {
+        org.junit.Assert.assertFalse(isTodayAnchorStable(today.minusDays(1), today, hasNextPage = true, error = null))
+    }
+
+    @Test fun theAnchorIsStableOnceTheWindowReachesToday() {
+        org.junit.Assert.assertTrue(isTodayAnchorStable(today, today, hasNextPage = true, error = null))
+        org.junit.Assert.assertTrue(isTodayAnchorStable(today.plusDays(1), today, hasNextPage = true, error = null))
+    }
+
+    @Test fun anEmptyOrFailedLoadStillReleasesTheFocus() {
+        org.junit.Assert.assertTrue(isTodayAnchorStable(today.minusDays(1), today, hasNextPage = false, error = null))
+        org.junit.Assert.assertTrue(isTodayAnchorStable(today.minusDays(1), today, hasNextPage = true, error = "offline"))
+    }
+}

@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -467,11 +468,11 @@ private fun ListView(
                     onLongClick = { event?.refreshDay(day.date) },
                 )
             }
-            items(
+            itemsIndexed(
                 items = day.rows,
-                key = { it.key },
-                contentType = { if (it.releasePresentations.isEmpty()) "anilist-media" else "provider-event" },
-            ) { row ->
+                key = { _, row -> row.key },
+                contentType = { _, row -> if (row.releasePresentations.isEmpty()) "anilist-media" else "provider-event" },
+            ) { index, row ->
                 val item = row.media
                 CalendarAiringHorizontalItem(
                     title = item?.basicMediaDetails?.title?.userPreferred.orEmpty()
@@ -493,7 +494,8 @@ private fun ListView(
                             showEditSheetAction()
                         }
                     },
-                    modifier = Modifier.padding(bottom = 8.dp),
+                    // The first entry of a day keeps the same gap to the date banner as the entries keep among themselves.
+                    modifier = Modifier.padding(top = if (index == 0) 8.dp else 0.dp, bottom = 8.dp),
                 )
             }
         }
