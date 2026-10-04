@@ -292,29 +292,42 @@ class SourceSeriesMatchingService(
         var left = found.series
         var matched = 0
         var examined = 0
-        // The AniList entries of the current season first, matched locally; only what is still open asks for the last
-        // season and then for the next one (a series on the threshold between two seasons). Each pool is loaded once and
-        // cached. A single search is the last resort: it is slow, it mostly guesses, and it costs AniList requests.
-        val windows = CandidatePoolWindows.currentPreviousAndNext(today)
-        val pages = listOf(CURRENT_POOL_PAGES, PREVIOUS_POOL_PAGES, NEXT_POOL_PAGES)
+        // 1. The AniList airing calendar, as far ahead as it goes: the data the calendar tab shows without a release source.
+        //    It holds what airs now and what premieres soon, so the next season needs no search of its own. Day by day,
+        //    today first, and it stops as soon as nothing is open.
+        // 2. The current season, then the last one, as pools: for what does not air in these days.
+        // 3. A single search is the last resort: it is slow, it mostly guesses, and it costs AniList requests.
+        var firstRound = true
+        suspend fun round(via: String) {
+            val still = ArrayList<Pair<String, Int>>()
+            for ((slug, season) in left) {
+                when (tryBind(active, slug, season, pool.values.toList(), takenMedia, search = null, via = via)) {
+                    Bind.BOUND -> { matched++; if (firstRound) examined++ }
+                    Bind.SKIPPED -> Unit
+                    Bind.NONE -> { still += slug to season; if (firstRound) examined++ }
+                }
+            }
+            firstRound = false
+            left = still
+        }
+        for (offset in CALENDAR_DAY_OFFSETS) {
+            if (left.isEmpty()) break
+            val day = today.plusDays(offset.toLong())
+            val loaded = attempt { candidates.airingCandidates(day) }.orEmpty()
+            loaded.forEach { pool.putIfAbsent(it.mediaId, it) }
+            AppLog.i("matching") { "auto match: AniList calendar $day +${loaded.size} entries (pool ${pool.size}), ${left.size} series open" }
+            round("calendar $day")
+        }
+        val windows = CandidatePoolWindows.currentAndPrevious(today)
+        val pages = listOf(CURRENT_POOL_PAGES, PREVIOUS_POOL_PAGES)
         for ((index, window) in windows.withIndex()) {
             if (left.isEmpty()) break
             val loaded = attempt {
                 candidates.boundedSeasonPool(CandidatePoolRequest(window = window, maxPages = pages[index])).candidates
             }.orEmpty()
             loaded.forEach { pool.putIfAbsent(it.mediaId, it) }
-            AppLog.i("matching") {
-                "auto match: pool ${window.cacheKey} +${loaded.size} entries (pool ${pool.size}), ${left.size} series open"
-            }
-            val still = ArrayList<Pair<String, Int>>()
-            for ((slug, season) in left) {
-                when (tryBind(active, slug, season, pool.values.toList(), takenMedia, search = null, via = window.cacheKey)) {
-                    Bind.BOUND -> { matched++; if (index == 0) examined++ }
-                    Bind.SKIPPED -> Unit
-                    Bind.NONE -> { still += slug to season; if (index == 0) examined++ }
-                }
-            }
-            left = still
+            AppLog.i("matching") { "auto match: pool ${window.cacheKey} +${loaded.size} entries (pool ${pool.size}), ${left.size} series open" }
+            round(window.cacheKey)
         }
         var searches = 0
         for ((slug, season) in left) {
@@ -537,7 +550,8 @@ class SourceSeriesMatchingService(
         const val MATCHER_VERSION = "v3-season-strict-1"
         const val CURRENT_POOL_PAGES = 8
         const val PREVIOUS_POOL_PAGES = 6
-        const val NEXT_POOL_PAGES = 3
+        /** The calendar days asked for, in order: today, then the week ahead, then yesterday (the source lists recent releases too). */
+        val CALENDAR_DAY_OFFSETS = listOf(0, 1, 2, 3, 4, 5, 6, 7, -1)
         const val AUTO_SEARCH_PACE_MS = 1_100L
         val AUTO_FORMATS = setOf("TV", "TV_SHORT", "ONA", "OVA")
         /** A fuzzy hit is never accepted without the user. */

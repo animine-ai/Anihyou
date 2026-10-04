@@ -6,6 +6,13 @@ query AiringAnimes($page: Int, $perPage: Int, $sort: [AiringSort], $airingAtGrea
             airingAt
             media {
                 ...ExploreMedia
+                # Every title the matcher compares against; the fragment carries only the preferred one.
+                title {
+                    romaji
+                    english
+                    native
+                }
+                synonyms
             }
         }
         pageInfo {

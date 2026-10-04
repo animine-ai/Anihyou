@@ -31,7 +31,40 @@ class AniListIdentityCandidateSource(
     private val searchRepository: SearchRepository,
     private val cache: RoomIdentityCandidateStore,
     private val clock: Clock = Clock.systemUTC(),
+    private val mediaRepository: com.axiel7.anihyou.core.domain.repository.MediaRepository? = null,
 ) : IdentityCandidateSource {
+
+    override suspend fun airingCandidates(day: LocalDate): List<IdentityCandidate> {
+        val repository = mediaRepository ?: return emptyList()
+        val zone = java.time.ZoneId.systemDefault()
+        val from = day.atStartOfDay(zone).toEpochSecond()
+        val to = day.plusDays(1).atStartOfDay(zone).toEpochSecond() - 1
+        val byMedia = LinkedHashMap<Int, IdentityCandidate>()
+        var page = 1
+        while (page <= AIRING_DAY_MAX_PAGES) {
+            val result = runCatching {
+                repository.getCalendarAiringEventsPage(
+                    airingAtGreater = from, airingAtLesser = to, onMyList = null, isAdult = true,
+                    page = page, perPage = AIRING_PAGE_SIZE, fetchFromNetwork = false,
+                ).first { it !is PagedResult.Loading }
+            }.getOrNull() as? PagedResult.Success ?: break
+            result.list.forEach { event ->
+                val id = event.media.id
+                if (id > 0 && id !in byMedia) {
+                    byMedia[id] = IdentityCandidate(
+                        mediaId = id,
+                        titles = event.titles.ifEmpty { setOfNotNull(event.media.basicMediaDetails.title?.userPreferred) },
+                        format = event.media.basicMediaDetails.format?.name,
+                        // It airs on this day, which is what the recency rule of the season matching asks for.
+                        startDate = day,
+                    )
+                }
+            }
+            if (!result.hasNextPage) break
+            page++
+        }
+        return byMedia.values.filter { it.titles.isNotEmpty() }
+    }
 
     override suspend fun readTargetedLookupCursor(providerId: String): TargetedLookupCursor =
         cache.readTargetedLookupCursor(providerId)
@@ -213,6 +246,8 @@ class AniListIdentityCandidateSource(
     private companion object {
         const val MAX_TARGETED_RESULTS = 4
         const val SEASON_PAGE_SIZE = 50
+        const val AIRING_PAGE_SIZE = 50
+        const val AIRING_DAY_MAX_PAGES = 4
     }
 }
 

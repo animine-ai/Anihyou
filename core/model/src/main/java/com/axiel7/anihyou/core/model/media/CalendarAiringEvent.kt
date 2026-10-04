@@ -11,6 +11,8 @@ data class CalendarAiringEvent(
     val episode: Int,
     val airingAt: Int,
     val media: ExploreMedia,
+    /** Every title AniList knows for the media (romaji, English, native, synonyms); for the release matcher only. */
+    val titles: Set<String> = emptySet(),
 ) {
     fun localDate(zone: ZoneId = ZoneId.systemDefault()): LocalDate =
         Instant.ofEpochSecond(airingAt.toLong()).atZone(zone).toLocalDate()

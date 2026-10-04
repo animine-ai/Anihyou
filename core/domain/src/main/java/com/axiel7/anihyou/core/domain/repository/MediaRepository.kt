@@ -80,7 +80,12 @@ class MediaRepository(
                 null -> true
             }
             if (!eligible || !media.adultFilter(isAdult)) return@mapNotNull null
-            CalendarAiringEvent(schedule.id, schedule.episode, schedule.airingAt, media)
+            val titles = listOfNotNull(
+                schedule.media.title?.romaji, schedule.media.title?.english, schedule.media.title?.native,
+                media.basicMediaDetails.title?.userPreferred,
+            ) + schedule.media.synonyms.orEmpty().filterNotNull()
+            CalendarAiringEvent(schedule.id, schedule.episode, schedule.airingAt, media,
+                titles.map(String::trim).filter { it.isNotBlank() && it.length <= 512 }.toSet())
         }
     }
 

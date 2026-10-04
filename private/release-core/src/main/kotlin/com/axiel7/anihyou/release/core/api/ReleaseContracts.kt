@@ -113,6 +113,13 @@ interface IdentityCandidateSource {
     ) = Unit
 
     suspend fun targetedSearch(query: TargetedIdentityQuery): CandidateBatch
+
+    /**
+     * The AniList entries that air on [day] (device-local date), with every title. This is the same data the calendar tab
+     * shows without a release source, so it covers what airs now and what premieres soon without a search per series.
+     * The entries start no earlier than [day] by this contract's recency rule (they air then).
+     */
+    suspend fun airingCandidates(day: java.time.LocalDate): List<IdentityCandidate> = emptyList()
 }
 
 data class CandidateBatch(
