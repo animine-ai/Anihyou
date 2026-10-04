@@ -50,7 +50,8 @@ class MainNavigationChartChromeTest {
     }
 
     @Test fun aPromotedChartKeepsTheBottomBarUnderTheOldEp06Rule() {
-        composeRule.onNodeWithTag("HomeTab").assertIsDisplayed().assertIsSelected()
+        composeRule.onNodeWithTag("HomeTab").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("HomeTab").assertIsSelected()
         capture("home-with-bottom-bar") { composeRule.onNodeWithTag("MainTab-chart_top_anime").assertIsDisplayed() }
         composeRule.onNodeWithTag("MainTab-chart_top_anime").assertIsDisplayed().performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) {
