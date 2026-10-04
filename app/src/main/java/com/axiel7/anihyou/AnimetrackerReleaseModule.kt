@@ -72,8 +72,15 @@ import org.koin.dsl.module
 
 val animetrackerReleaseModule = module {
     single<Clock> { Clock.systemUTC() }
+    // Explicit first trust of a source the user accepted (private-test workaround). One store: the installer reads it, and
+    // the release Authority follows only from it, narrowly.
+    single {
+        com.axiel7.anihyou.release.data.extension.ManualExtensionTrustStore(
+            com.axiel7.anihyou.release.data.extension.ProductionExtensionSources.sourcesDirectory(androidApplication()))
+    }
     single<com.axiel7.anihyou.release.core.source.ExtensionSourceRepository> {
-        com.axiel7.anihyou.release.data.extension.ProductionExtensionSources.create(androidApplication(), get(), get(), reviewedExtensionConfiguration())
+        com.axiel7.anihyou.release.data.extension.ProductionExtensionSources.create(androidApplication(), get(), get(),
+            reviewedExtensionConfiguration(), get<com.axiel7.anihyou.release.data.extension.ManualExtensionTrustStore>())
     }
     single<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository> {
         requireNotNull(get<com.axiel7.anihyou.release.core.source.ExtensionSourceRepository>().productPolicy)
@@ -143,7 +150,8 @@ val animetrackerReleaseModule = module {
     single<ExtensionTargetSource> { AniWorldExtensionTargetSource(get<AniWorldShadowPollStore>(), get()) }
     single { RoomExtensionShadowGenerationStore(get(), get(), get()) }
     single {
-        ProductionExtensionHostBoundary.create(androidApplication(), reviewedExtensionConfiguration())
+        ProductionExtensionHostBoundary.create(androidApplication(), reviewedExtensionConfiguration(),
+            get<com.axiel7.anihyou.release.data.extension.ManualExtensionTrustStore>())
     }
     single<AniWorldShadowRefreshCoordinator> {
         com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator(

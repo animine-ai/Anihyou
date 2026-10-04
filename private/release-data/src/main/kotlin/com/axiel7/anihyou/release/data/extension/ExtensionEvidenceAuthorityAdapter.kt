@@ -41,8 +41,12 @@ data class ApprovedExtensionAuthorityTuple(
 }
 
 class ExtensionEvidenceAuthorityAdapter(
-    private val approved: Set<ApprovedExtensionAuthorityTuple>,
+    private val approvedFromBuild: Set<ApprovedExtensionAuthorityTuple>,
+    /** Narrow tuples that follow from a source the user explicitly accepted (temporary private-test workaround). */
+    private val approvedFromManualTrust: () -> Set<ApprovedExtensionAuthorityTuple> = { emptySet() },
 ) {
+    private val approved: Set<ApprovedExtensionAuthorityTuple> get() = approvedFromBuild + approvedFromManualTrust()
+
     fun observationPolicy(): ExtensionObservationPolicy = ExtensionObservationPolicy { extension, observation ->
         observation.extensionId == extension.extensionId &&
             observation.providerId == extension.providerId && approved.any { tuple ->

@@ -41,8 +41,11 @@ internal class FileExtensionSourceRepository(
     private val scheduler: ExtensionSourceScheduler,
     private val clock: Clock,
     private val runtimeSupported: Boolean,
+    /** Explicit first trust (private-test workaround). Null: only independently provisioned anchors authenticate. */
+    private val manualTrust: ManualExtensionTrustStore? = null,
 ) : ExtensionSourceRepository, InstalledExtensionAccess {
     private val registry = ExtensionSourceRegistry(directory)
+    private val trustDecision = Mutex()
     private val monitor = Any()
     private val publicationLock = Any()
     private val locks = HashMap<String, Mutex>()
@@ -124,10 +127,59 @@ internal class FileExtensionSourceRepository(
     override suspend fun add(url: String): AddExtensionSourceResult = withContext(Dispatchers.IO) {
         val address = runCatching { NormalizedExtensionSource.parse(url) }.getOrNull()
             ?: return@withContext AddExtensionSourceResult.InvalidUrl
-        val result = registry.add(address) ?: return@withContext AddExtensionSourceResult.LimitReached
+        // A source nothing can authenticate yet is not stored: it first shows exactly what was received, and waits for the
+        // user. Only bounded HTTPS metadata is read; no package is downloaded and no module is started before the decision.
+        if (manualTrust != null && bootstrap.authenticate(address) == null) {
+            val preview = receivePreview(address) ?: return@withContext AddExtensionSourceResult.PreviewFailed
+            return@withContext AddExtensionSourceResult.NeedsTrustConfirmation(preview.second)
+        }
+        register(address, refreshExisting = false)
+    }
+
+    override suspend fun confirmUnverifiedSource(preview: UnverifiedSourcePreview): AddExtensionSourceResult = withContext(Dispatchers.IO) {
+        val store = manualTrust ?: return@withContext AddExtensionSourceResult.InvalidUrl
+        val address = runCatching { NormalizedExtensionSource.parse(preview.url) }.getOrNull()
+            ?.takeIf { it.url == preview.url } ?: return@withContext AddExtensionSourceResult.InvalidUrl
+        // One decision at a time, and the acceptance is bound to this URL and the exact root that was shown. The root is read
+        // again: if it changed between the dialog and the tap, nothing is accepted and the user has to look again.
+        trustDecision.withLock {
+            val (received, current) = receivePreview(address) ?: return@withLock AddExtensionSourceResult.PreviewFailed
+            if (current != preview) return@withLock AddExtensionSourceResult.PreviewFailed
+            val hosts = received.root.publishers.flatMap { it.hosts }.toSet()
+            val authority = received.root.publishers.map { scope ->
+                ManualTrustAuthority(scope.publisherId, scope.keyId, scope.extensionId, scope.providerId,
+                    scope.roles.map { it.name }.toSet())
+            }
+            val accepted = store.accept(ManualTrustRecord(address.url, address.origin, received.repositoryId, received.sha256,
+                hosts, authority, clock.instant()))
+            if (!accepted) return@withLock AddExtensionSourceResult.LimitReached
+            val result = register(address, refreshExisting = true)
+            if (result is AddExtensionSourceResult.LimitReached) store.remove(address.url)
+            result
+        }
+    }
+
+    private suspend fun register(address: NormalizedExtensionSource, refreshExisting: Boolean): AddExtensionSourceResult {
+        val result = registry.add(address) ?: return AddExtensionSourceResult.LimitReached
         publish()
-        if (result.second) scheduler.scheduleRefresh()
-        if (result.second) AddExtensionSourceResult.Added(result.first.id) else AddExtensionSourceResult.Duplicate(result.first.id)
+        // A source that already existed (added before it could be authenticated) refreshes now as well after an acceptance.
+        if (result.second || refreshExisting) scheduler.scheduleRefresh()
+        return if (result.second) AddExtensionSourceResult.Added(result.first.id) else AddExtensionSourceResult.Duplicate(result.first.id)
+    }
+
+    /** The root exactly as received, shown to the user. Null when it cannot be loaded or does not verify against itself. */
+    private suspend fun receivePreview(address: NormalizedExtensionSource): Pair<ReceivedRoot, UnverifiedSourcePreview>? = try {
+        val bytes = transport.fetch(address.url + "/root.json", setOf(address.origin), 65536)
+        val received = receiveRoot(bytes, address.origin, clock.instant())
+        val publishers = received.root.publishers
+        received to UnverifiedSourcePreview(address.url, received.repositoryId, received.sha256,
+            publishers.map { it.publisherId }.distinct().sorted(),
+            publishers.flatMap { scope -> scope.roles.map { it.name } + scope.navigation.map { it.name } }.distinct().sorted(),
+            publishers.flatMap { it.hosts }.distinct().sorted())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
     }
 
     override suspend fun setEnabled(sourceId: String, enabled: Boolean) = changeLifecycle(sourceId, enabled, false)
@@ -174,6 +226,7 @@ internal class FileExtensionSourceRepository(
                 put("Publisher", key.publisherId); put("Repository", source.origin)
                 put("Trust status", if (verified != null) "TRUSTED" else source.extensions.firstOrNull { it.extensionId == key.extensionId }?.installedStatus?.name.orEmpty())
                 put("Repository status", source.status.name)
+                if (source.manuallyTrusted) put("Trust class", ManualTrustRecord.TRUST_CLASS + " (not independently verified)")
                 put("Version", receipt?.version ?: source.extensions.firstOrNull { it.extensionId == key.extensionId }?.installedVersion.orEmpty())
                 // Authenticated public metadata remains inspectable after revocation, without
                 // loading unusable WASM or granting the catalog any execution authority.
@@ -228,6 +281,8 @@ internal class FileExtensionSourceRepository(
             val old = registry.find(id)
             if (old != null && !old.removed) {
                 registry.update(id) { it.copy(enabled = enabled, removed = removed, epoch = it.epoch + 1) }
+                // Removing a source also removes the user's acceptance of it: adding it again asks again.
+                if (removed) manualTrust?.remove(old.address.url)
                 applied = true
             }
             synchronized(monitor) { if (lifecycleIntents[id] == intent) lifecycleIntents.remove(id) }
@@ -560,7 +615,8 @@ internal class FileExtensionSourceRepository(
             }
             ExtensionSource(source.id, source.address.url, source.address.origin, source.enabled, status,
                 snapshot?.root?.version, snapshot?.root?.digest, snapshot?.index?.sequence, snapshot?.index?.digest,
-                source.attemptedAt, source.succeededAt, source.failure, extensions)
+                source.attemptedAt, source.succeededAt, source.failure, extensions,
+                manuallyTrusted = manualTrust?.find(source.address.url) != null)
         }
     }
 

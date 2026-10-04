@@ -122,4 +122,17 @@
         <item quantity="other">Alle %1$d Stunden</item>
     </plurals>
     <string name="extension_center_schedule">Aktualisierungsplan</string>
+    <string name="extension_trust_title">Ungeprüfte Quelle verwenden?</string>
+    <string name="extension_trust_warning">Die Identität dieser Quelle wurde nicht unabhängig geprüft. Extensions dieser Quelle können Daten von erlaubten Webseiten abrufen und falsche Inhalte liefern. Verwende sie nur, wenn du dem Betreiber vertraust.</string>
+    <string name="extension_trust_url">Quelle: %1$s</string>
+    <string name="extension_trust_repository">Repository-ID: %1$s</string>
+    <string name="extension_trust_fingerprint">Root-Fingerabdruck (SHA-256): %1$s</string>
+    <string name="extension_trust_capabilities">Angeforderte Fähigkeiten: %1$s</string>
+    <string name="extension_trust_hosts">Erlaubte Webseiten: %1$s</string>
+    <string name="extension_trust_publishers">Herausgeber (Selbstauskunft, ungeprüft): %1$s</string>
+    <string name="extension_trust_confirm">Quelle trotzdem verwenden</string>
+    <string name="extension_trust_cancel">Abbrechen</string>
+    <string name="extension_sources_preview_failed">Die Quelle konnte nicht geprüft werden. Ihre Metadaten konnten nicht geladen werden oder sind ungültig.</string>
+    <string name="extension_manage_manual_trust">Manuell vertraut, nicht unabhängig geprüft</string>
+    <string name="extension_manage_diagnostic_trust_class">Vertrauensklasse</string>
 </resources>

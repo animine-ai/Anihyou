@@ -3,6 +3,7 @@ package com.axiel7.anihyou.feature.settings.source
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.release.core.source.AddExtensionSourceResult
+import com.axiel7.anihyou.release.core.source.UnverifiedSourcePreview
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicy
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
@@ -28,6 +29,8 @@ data class ExtensionSourcesUiState(
     val url: String = "",
     val isAdding: Boolean = false,
     val addResult: AddExtensionSourceResult? = null,
+    /** A source with no independently verified identity, waiting for the user's explicit decision. */
+    val trustPrompt: UnverifiedSourcePreview? = null,
     val actionFailed: Boolean = false,
     val busySourceIds: Set<String> = emptySet(),
     val diagnostics: Map<ExtensionSelectionKey, Map<String, String>> = emptyMap(),
@@ -36,6 +39,9 @@ data class ExtensionSourcesUiState(
 interface ExtensionSourcesEvent {
     fun onUrlChanged(value: String)
     fun addSource()
+    /** The user accepted exactly the source that the dialog showed. */
+    fun confirmTrust() {}
+    fun cancelTrust() {}
     fun setEnabled(sourceId: String, enabled: Boolean)
     fun removeSource(sourceId: String)
     fun refreshSource(sourceId: String)
@@ -96,7 +102,9 @@ class ExtensionSourcesViewModel(
                     it.copy(
                         url = if (result is AddExtensionSourceResult.Added) "" else it.url,
                         isAdding = false,
-                        addResult = result,
+                        // Nothing is stored yet: the dialog asks first, with what was actually received.
+                        trustPrompt = (result as? AddExtensionSourceResult.NeedsTrustConfirmation)?.preview,
+                        addResult = result.takeUnless { r -> r is AddExtensionSourceResult.NeedsTrustConfirmation },
                     )
                 }
                 // Foreground onboarding must not wait for constrained background work.
@@ -110,6 +118,36 @@ class ExtensionSourcesViewModel(
                 _uiState.update { it.copy(isAdding = false, actionFailed = true) }
             }
         }
+    }
+
+    override fun confirmTrust() {
+        val preview = uiState.value.trustPrompt ?: return
+        if (uiState.value.isAdding) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isAdding = true, addResult = null, actionFailed = false) }
+            try {
+                val result = repository.confirmUnverifiedSource(preview)
+                _uiState.update {
+                    it.copy(
+                        url = if (result is AddExtensionSourceResult.Added) "" else it.url,
+                        isAdding = false,
+                        trustPrompt = null,
+                        addResult = result,
+                    )
+                }
+                if (result is AddExtensionSourceResult.Added) {
+                    performSourceAction(result.sourceId) { repository.refresh(result.sourceId) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.update { it.copy(isAdding = false, trustPrompt = null, actionFailed = true) }
+            }
+        }
+    }
+
+    override fun cancelTrust() {
+        _uiState.update { it.copy(trustPrompt = null) }
     }
 
     override fun setEnabled(sourceId: String, enabled: Boolean) = performSourceAction(sourceId) {

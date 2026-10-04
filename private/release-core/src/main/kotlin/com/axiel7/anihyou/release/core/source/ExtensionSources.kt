@@ -53,6 +53,21 @@ data class ExtensionSource(
     val lastSuccessAt: Instant? = null,
     val lastFailure: ExtensionSourceFailure? = null,
     val extensions: List<SourceExtension> = emptyList(),
+    /** The user accepted this exact source without an independent identity check (explicit first trust, not verification). */
+    val manuallyTrusted: Boolean = false,
+)
+
+/**
+ * What a source shows before the user decides on it, derived from the root bytes that were actually received. The
+ * fingerprint is the SHA-256 of the canonical signed root. The publisher names are self-declared, not verified.
+ */
+data class UnverifiedSourcePreview(
+    val url: String,
+    val repositoryId: String,
+    val rootFingerprint: String,
+    val publisherIds: List<String>,
+    val capabilities: List<String>,
+    val hosts: List<String>,
 )
 
 sealed interface AddExtensionSourceResult {
@@ -60,6 +75,10 @@ sealed interface AddExtensionSourceResult {
     data class Duplicate(val sourceId: String) : AddExtensionSourceResult
     data object InvalidUrl : AddExtensionSourceResult
     data object LimitReached : AddExtensionSourceResult
+    /** No independently verified identity exists for this source: nothing is stored until the user accepts exactly this. */
+    data class NeedsTrustConfirmation(val preview: UnverifiedSourcePreview) : AddExtensionSourceResult
+    /** The metadata of the source could not be loaded or did not parse; nothing was stored. */
+    data object PreviewFailed : AddExtensionSourceResult
 }
 
 /** Provider-neutral surface. A displayed URL never authenticates a repository. */
@@ -72,6 +91,12 @@ interface ExtensionSourceRepository {
      */
     val trustAvailable: Boolean get() = true
     suspend fun add(url: String): AddExtensionSourceResult
+    /**
+     * Stores the explicit acceptance of exactly [preview] (the root is fetched again and must have the same fingerprint),
+     * then adds the source. Not a global switch: the acceptance belongs to this URL and this root.
+     */
+    suspend fun confirmUnverifiedSource(preview: UnverifiedSourcePreview): AddExtensionSourceResult =
+        AddExtensionSourceResult.InvalidUrl
     suspend fun setEnabled(sourceId: String, enabled: Boolean)
     suspend fun remove(sourceId: String)
     suspend fun refresh(sourceId: String)

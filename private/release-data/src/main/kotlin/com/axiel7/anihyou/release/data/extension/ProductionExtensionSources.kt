@@ -10,11 +10,16 @@ import kotlinx.coroutines.runBlocking
 
 /** Source addition stays explicit. Independently provisioned public pins reuse the existing strict verifier. */
 object ProductionExtensionSources {
+    /** The directory of the user-added sources; the explicit first-trust store lives next to their journals. */
+    fun sourcesDirectory(context: Context): java.io.File = context.filesDir.resolve("user-extension-sources")
+
     fun create(context: Context, scheduler: ExtensionSourceScheduler, clock: Clock,
-        configuration: ProductionExtensionHostConfiguration? = null): ExtensionSourceRepository =
+        configuration: ProductionExtensionHostConfiguration? = null,
+        manualTrust: ManualExtensionTrustStore = ManualExtensionTrustStore(sourcesDirectory(context))): ExtensionSourceRepository =
         FileExtensionSourceRepository(
-            directory = context.filesDir.resolve("user-extension-sources"),
-            bootstrap = reviewedSourceBootstrap(configuration),
+            directory = sourcesDirectory(context),
+            bootstrap = ManualTrustBootstrap(reviewedSourceBootstrap(configuration), manualTrust),
+            manualTrust = manualTrust,
             transport = ProductionExtensionRepositoryTransport(),
             storeFactory = ExtensionSourceStoreFactory { directory, anchor ->
                 val runtime = AndroidIsolatedExtensionRuntime(context)

@@ -122,4 +122,17 @@
         <item quantity="other">Every %1$d hours</item>
     </plurals>
     <string name="extension_center_schedule">Update schedule</string>
+    <string name="extension_trust_title">Use unverified source?</string>
+    <string name="extension_trust_warning">The identity of this source has not been independently verified. Extensions from this source can fetch data from the allowed websites and may deliver false content. Only use it if you trust the operator.</string>
+    <string name="extension_trust_url">Source: %1$s</string>
+    <string name="extension_trust_repository">Repository ID: %1$s</string>
+    <string name="extension_trust_fingerprint">Root fingerprint (SHA-256): %1$s</string>
+    <string name="extension_trust_capabilities">Requested capabilities: %1$s</string>
+    <string name="extension_trust_hosts">Allowed websites: %1$s</string>
+    <string name="extension_trust_publishers">Publisher (self-declared, not verified): %1$s</string>
+    <string name="extension_trust_confirm">Use source anyway</string>
+    <string name="extension_trust_cancel">Cancel</string>
+    <string name="extension_sources_preview_failed">The source could not be checked. Its metadata could not be loaded or is not valid.</string>
+    <string name="extension_manage_manual_trust">Manually trusted, not independently verified</string>
+    <string name="extension_manage_diagnostic_trust_class">Trust class</string>
 </resources>

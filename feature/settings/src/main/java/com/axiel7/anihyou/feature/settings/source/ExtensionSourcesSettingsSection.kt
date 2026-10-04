@@ -1,6 +1,8 @@
 package com.axiel7.anihyou.feature.settings.source
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Row
@@ -44,6 +46,7 @@ import com.axiel7.anihyou.core.ui.composables.PreferencesTitle
 import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.feature.settings.R
 import com.axiel7.anihyou.release.core.source.AddExtensionSourceResult
+import com.axiel7.anihyou.release.core.source.UnverifiedSourcePreview
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.core.source.ExtensionSource
@@ -129,19 +132,27 @@ private fun AddExtensionSourceForm(
         }
 
         uiState.addResult?.let { result ->
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = stringResource(
-                    when (result) {
-                        is AddExtensionSourceResult.Added -> R.string.extension_sources_added
-                        is AddExtensionSourceResult.Duplicate -> R.string.extension_sources_duplicate
-                        AddExtensionSourceResult.InvalidUrl -> R.string.extension_sources_invalid_url
-                        AddExtensionSourceResult.LimitReached -> R.string.extension_sources_limit_reached
-                    },
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.secondary,
-            )
+            val message = when (result) {
+                is AddExtensionSourceResult.Added -> R.string.extension_sources_added
+                is AddExtensionSourceResult.Duplicate -> R.string.extension_sources_duplicate
+                AddExtensionSourceResult.InvalidUrl -> R.string.extension_sources_invalid_url
+                AddExtensionSourceResult.LimitReached -> R.string.extension_sources_limit_reached
+                AddExtensionSourceResult.PreviewFailed -> R.string.extension_sources_preview_failed
+                // Shown as the decision dialog, never as a message line.
+                is AddExtensionSourceResult.NeedsTrustConfirmation -> null
+            }
+            if (message != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
+        }
+        uiState.trustPrompt?.let { preview ->
+            UnverifiedSourceDialog(preview, busy = uiState.isAdding,
+                onConfirm = event::confirmTrust, onCancel = event::cancelTrust)
         }
     }
 }
@@ -188,6 +199,15 @@ private fun ExtensionSourceCard(
                 modifier = Modifier.testTag("extension-source-status"),
                 style = MaterialTheme.typography.bodyMedium,
             )
+            if (source.manuallyTrusted) {
+                // Permanent, plain wording: this source was accepted by the user, nobody independently verified it.
+                Text(
+                    text = stringResource(R.string.extension_manage_manual_trust),
+                    modifier = Modifier.testTag("extension-source-manual-trust"),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             source.lastFailure?.let { failure ->
                 Text(
                     text = stringResource(
@@ -875,4 +895,51 @@ private fun sourceFailureString(failure: ExtensionSourceFailure): Int = when (fa
     ExtensionSourceFailure.INVALID_PACKAGE -> R.string.extension_sources_failure_package
     ExtensionSourceFailure.UNSUPPORTED_RUNTIME -> R.string.extension_sources_failure_runtime
     ExtensionSourceFailure.STORAGE -> R.string.extension_sources_failure_storage
+}
+
+/**
+ * Shown once for a source nothing could verify independently. It names what was actually received (URL, root fingerprint,
+ * requested capabilities, hosts); the publisher names are the source's own claim. Confirming stores this acceptance only.
+ */
+@Composable
+fun UnverifiedSourceDialog(
+    preview: UnverifiedSourcePreview,
+    busy: Boolean,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!busy) onCancel() },
+        modifier = Modifier.testTag("extension-trust-dialog"),
+        title = { Text(stringResource(R.string.extension_trust_title)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.extension_trust_warning), style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.extension_trust_url, preview.url), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.extension_trust_repository, preview.repositoryId), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    stringResource(R.string.extension_trust_fingerprint, preview.rootFingerprint.chunked(8).joinToString(" ")),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    modifier = Modifier.testTag("extension-trust-fingerprint"),
+                )
+                Text(stringResource(R.string.extension_trust_capabilities, preview.capabilities.joinToString(", ")),
+                    style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.extension_trust_hosts, preview.hosts.joinToString(", ")),
+                    style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.extension_trust_publishers, preview.publisherIds.joinToString(", ")),
+                    style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !busy, modifier = Modifier.testTag("extension-trust-confirm")) {
+                Text(stringResource(R.string.extension_trust_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel, enabled = !busy, modifier = Modifier.testTag("extension-trust-cancel")) {
+                Text(stringResource(R.string.extension_trust_cancel))
+            }
+        },
+    )
 }

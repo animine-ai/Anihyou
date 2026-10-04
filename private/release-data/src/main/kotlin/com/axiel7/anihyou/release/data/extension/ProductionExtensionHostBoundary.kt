@@ -60,8 +60,10 @@ class ProductionExtensionHostBoundary private constructor(
     }
 
     companion object {
-        fun create(context: Context, configuration: ProductionExtensionHostConfiguration?): ProductionExtensionHostBoundary {
-            val authority = ExtensionEvidenceAuthorityAdapter(configuration?.approvedAuthority.orEmpty())
+        fun create(context: Context, configuration: ProductionExtensionHostConfiguration?,
+            manualTrust: ManualExtensionTrustStore? = null): ProductionExtensionHostBoundary {
+            val authority = ExtensionEvidenceAuthorityAdapter(configuration?.approvedAuthority.orEmpty(),
+                manualTrust?.let { store -> { store.approvedAuthority() } } ?: { emptySet() })
             if (configuration == null) return ProductionExtensionHostBoundary(null, null, authority, null)
             val pin = AppTrustPin(configuration.repositoryId, configuration.initialRootSha256,
                 configuration.distributionOrigins)

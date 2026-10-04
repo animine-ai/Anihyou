@@ -49,6 +49,21 @@ internal data class IndexedPackage(
     val binding: VerifiedCatalogPackageBinding, val url: String, val revoked: Boolean,
 )
 
+/** The root as it was received, before anyone has decided to trust it. Identity is the digest of the canonical signed root. */
+internal data class ReceivedRoot(val repositoryId: String, val sha256: String, val root: TrustedRoot)
+
+/**
+ * Parses and verifies a root only against itself (its own 2-of-3 threshold and strict structure), so the user can be
+ * shown what exactly would be trusted. This proves consistency, never publisher identity.
+ */
+internal fun receiveRoot(bytes: ByteArray, origin: String, now: Instant): ReceivedRoot {
+    val signed = strict(bytes, 65536).obj("signed")
+    val repositoryId = signed.str("repositoryId", 128)
+    val digest = sha(jcs(signed))
+    val root = ExtensionTrustVerifier(AppTrustPin(repositoryId, digest, setOf(origin))).root(bytes, null, now)
+    return ReceivedRoot(repositoryId, digest, root)
+}
+
 /** Strict JCS envelopes. The caller durably commits the returned high-water state before activation. */
 internal class ExtensionTrustVerifier(private val pin: AppTrustPin) {
     fun root(bytes: ByteArray, previous: TrustedRoot?, now: Instant): TrustedRoot {

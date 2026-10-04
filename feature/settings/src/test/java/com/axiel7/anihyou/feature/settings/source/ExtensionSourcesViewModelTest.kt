@@ -1,6 +1,7 @@
 package com.axiel7.anihyou.feature.settings.source
 
 import com.axiel7.anihyou.release.core.source.AddExtensionSourceResult
+import com.axiel7.anihyou.release.core.source.UnverifiedSourcePreview
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicy
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
@@ -90,6 +91,34 @@ class ExtensionSourcesViewModelTest {
         assertEquals("", viewModel.uiState.value.url)
         assertEquals(AddExtensionSourceResult.Added("source-id"), viewModel.uiState.value.addResult)
         assertFalse(viewModel.uiState.value.isAdding)
+    }
+
+    @Test
+    fun anUnverifiedSourceWaitsForTheUsersDecisionAndOnlyThenIsConfirmed() = runTest {
+        val preview = UnverifiedSourcePreview("https://example.test/repository", "repo.id", "a".repeat(64),
+            listOf("publisher"), listOf("CALENDAR"), listOf("example.org"))
+        repository.addResult = AddExtensionSourceResult.NeedsTrustConfirmation(preview)
+        val viewModel = ExtensionSourcesViewModel(repository)
+        viewModel.onUrlChanged("https://example.test/repository")
+
+        viewModel.addSource()
+        assertEquals(preview, viewModel.uiState.value.trustPrompt)
+        assertNull("the dialog is the message, not a result line", viewModel.uiState.value.addResult)
+        assertTrue(repository.confirmedPreviews.isEmpty())
+        assertTrue(repository.refreshedSourceIds.isEmpty())
+
+        viewModel.cancelTrust()
+        assertNull(viewModel.uiState.value.trustPrompt)
+        assertTrue("cancelling confirms and refreshes nothing", repository.confirmedPreviews.isEmpty() && repository.refreshedSourceIds.isEmpty())
+
+        viewModel.addSource()
+        repository.confirmResult = AddExtensionSourceResult.Added("accepted-id")
+        viewModel.confirmTrust()
+        assertEquals(listOf(preview), repository.confirmedPreviews)
+        assertEquals(listOf("accepted-id"), repository.refreshedSourceIds)
+        assertNull(viewModel.uiState.value.trustPrompt)
+        assertEquals("", viewModel.uiState.value.url)
+        assertEquals(AddExtensionSourceResult.Added("accepted-id"), viewModel.uiState.value.addResult)
     }
 
     @Test
@@ -351,6 +380,13 @@ class ExtensionSourcesViewModelTest {
         override suspend fun add(url: String): AddExtensionSourceResult {
             addedUrls += url
             return addResult
+        }
+
+        val confirmedPreviews = mutableListOf<UnverifiedSourcePreview>()
+        var confirmResult: AddExtensionSourceResult = AddExtensionSourceResult.InvalidUrl
+        override suspend fun confirmUnverifiedSource(preview: UnverifiedSourcePreview): AddExtensionSourceResult {
+            confirmedPreviews += preview
+            return confirmResult
         }
 
         override suspend fun setEnabled(sourceId: String, enabled: Boolean) = Unit

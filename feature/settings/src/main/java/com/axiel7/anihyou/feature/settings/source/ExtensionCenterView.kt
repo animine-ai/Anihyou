@@ -354,6 +354,9 @@ fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
             "Last update at", "Capabilities", "Allowed Hosts", "Role health",
             "Last sync outcome", "Runtime", "Last parse status", "Last navigation status", "Fuel limit",
             "Memory limit", "Deadline limit", "Cancellation").forEach { DiagnosticRow(it, safeValues[it]) }
+        // Permanent for a source the user accepted without an independent check.
+        if (source.manuallyTrusted) DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_trust_class),
+            stringResource(R.string.extension_manage_manual_trust))
         DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_installed_version),
             safeValues["Current Version"]?.takeIf { it.isNotBlank() } ?: extension.installedVersion)
         DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_latest_version),
