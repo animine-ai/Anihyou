@@ -3,6 +3,16 @@ package com.axiel7.anihyou.release.data.repository
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.axiel7.anihyou.release.core.model.AbsencePolicySnapshot
+import com.axiel7.anihyou.release.core.model.AuthorityStatus
+import com.axiel7.anihyou.release.core.model.Freshness
+import com.axiel7.anihyou.release.core.model.FreshnessStatus
+import com.axiel7.anihyou.release.core.model.MediaReleaseProjection
+import com.axiel7.anihyou.release.core.model.ProviderId
+import com.axiel7.anihyou.release.core.model.ReleaseKind
+import com.axiel7.anihyou.release.core.model.ReleaseStreamKey
+import com.axiel7.anihyou.release.core.model.SourceSeriesKey
+import com.axiel7.anihyou.release.data.db.ExternalMappingEntity
+import com.axiel7.anihyou.release.data.db.toEntity
 import com.axiel7.anihyou.release.core.model.AniWorldSiteIdentifier
 import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
 import com.axiel7.anihyou.release.core.model.CompletedObservationCycle
@@ -283,6 +293,101 @@ class RoomReleasePresentationCalendarTrustTest {
             sources.sources.value = listOf(source(keyA, status = ExtensionSourceStatus.ERROR,
                 failure = ExtensionSourceFailure.NETWORK))
             assertEquals(1, presented(repository).size)
+        } finally { db.close() }
+    }
+
+    /** The effective binding of the seeded row (series "trust-transition", navigation season 4) to AniList media [media]. */
+    private suspend fun bindSeededRow(db: ReleaseDatabase, media: Int = 42, series: String = "trust-transition") =
+        db.releaseDao().upsertExternalMapping(ExternalMappingEntity(
+            mappingSubjectKey = "subject-$series-4", seriesStableKey = series, siteSlug = series, subjectType = "SEASON",
+            navigationSeason = 4, filmNumber = null, externalProvider = "anilist", externalId = media.toString(),
+            mappingSource = "MANUAL", mappingStatus = "ACTIVE", confidence = "EXACT", createdAt = observedAt.toString(),
+            validatedAt = observedAt.toString(), staleAt = null, provenance = "fixture", parserVersion = null,
+        ))
+
+    private fun legacyProjection(media: Int, confirmedThrough: Int) = MediaReleaseProjection(
+        mediaId = media,
+        stream = ReleaseStreamKey(ProviderId("aniworld"), SourceSeriesKey("/anime/stream/legacy-series"),
+            ReleaseKind.EPISODE, 1, LanguageTrack.DE_SUB),
+        authority = AuthorityStatus.VALID, confirmedThroughEpisode = confirmedThrough,
+        confirmedInstallments = emptyList(), nextForecast = null, pendingCount = 0,
+        freshness = Freshness(FreshnessStatus.FRESH, observedAt, observedAt, observedAt, "legacy", "hash"),
+        mapping = null, sourceRoot = "https://aniworld.to/anime/stream/legacy-series", revision = 1,
+    )
+
+    private suspend fun presentedForMedia(repository: RoomReleasePresentationRepository, ids: Set<Int> = setOf(42)) =
+        repository.observeForMedia(null, ids).first()
+
+    @Test fun perMediaPresentationFollowsTheSameTrustGateAsTheCalendar() = runBlocking {
+        val db = open()
+        try {
+            seedAcceptedRow(db)
+            bindSeededRow(db)
+            val sources = Sources(listOf(source(keyA)))
+            val repository = repository(db, Policy(ExtensionProductPolicy(activeReleaseSource = keyA)), sources)
+            val trusted = presentedForMedia(repository)
+            assertEquals("the accepted row reaches the per-media consumers as it reaches the calendar", 1, trusted.getValue(42).size)
+            assertEquals(1, presented(repository).size)
+            assertTrue(trusted.getValue(42).single().isAuthoritative)
+
+            sources.sources.value = listOf(source(keyA, extension(keyA, usable = false,
+                status = InstalledPackageStatus.REVOKED, revoked = true)))
+            assertTrue("a revoked source presents nothing to Home, lists and details either", presentedForMedia(repository).isEmpty())
+            assertTrue(presented(repository).isEmpty())
+
+            sources.sources.value = listOf(source(keyA))
+            assertEquals(trusted, presentedForMedia(repository))
+        } finally { db.close() }
+    }
+
+    @Test fun anActiveSourceOwnsThePerMediaFieldsOverTheOldProviderWideProjection() = runBlocking {
+        val db = open()
+        try {
+            seedAcceptedRow(db)
+            bindSeededRow(db)
+            db.releaseDao().upsertMediaProjections(listOf(legacyProjection(42, confirmedThrough = 7).toEntity(null)))
+            val sources = Sources(listOf(source(keyA)))
+            val policy = Policy(ExtensionProductPolicy())
+            val repository = repository(db, policy, sources)
+
+            assertEquals("no active source: the old projection stays", 7,
+                presentedForMedia(repository).getValue(42).single().confirmedThroughEpisode)
+
+            policy.selectActiveSource(keyA)
+            val owned = presentedForMedia(repository).getValue(42).single()
+            assertEquals("the active source's accepted row replaces it (a plan does not confirm)", null,
+                owned.confirmedThroughEpisode)
+            assertEquals(Installment.Episode(1), owned.nextExpectedInstallment)
+
+            sources.sources.value = listOf(source(keyA, extension(keyA, usable = false)))
+            assertTrue("an unusable active source must not fall back to the old projection",
+                presentedForMedia(repository).isEmpty())
+
+            policy.selectActiveSource(null)
+            assertEquals("deselected again: the old projection returns", 7,
+                presentedForMedia(repository).getValue(42).single().confirmedThroughEpisode)
+        } finally { db.close() }
+    }
+
+    @Test fun aSourceThatCommittedNothingPresentsNothingPerMediaEvenWhenAnotherCommitted() = runBlocking {
+        val db = open()
+        try {
+            seedAcceptedRow(db)
+            bindSeededRow(db)
+            val sources = Sources(listOf(source(keyA), source(keyB)))
+            assertTrue(presentedForMedia(repository(db, Policy(ExtensionProductPolicy(activeReleaseSource = keyB)), sources)).isEmpty())
+            assertEquals(1, presentedForMedia(repository(db, Policy(ExtensionProductPolicy(activeReleaseSource = keyA)), sources)).getValue(42).size)
+        } finally { db.close() }
+    }
+
+    @Test fun aMediaWithoutAnEffectiveBindingKeepsAniListInsteadOfAGuessedMedia() = runBlocking {
+        val db = open()
+        try {
+            seedAcceptedRow(db)
+            val sources = Sources(listOf(source(keyA)))
+            val repository = repository(db, Policy(ExtensionProductPolicy(activeReleaseSource = keyA)), sources)
+            assertTrue(presentedForMedia(repository).isEmpty())
+            assertTrue(presentedForMedia(repository, setOf(42, 43)).isEmpty())
         } finally { db.close() }
     }
 }

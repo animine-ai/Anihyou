@@ -8,6 +8,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import java.time.Clock
 
 @Composable
@@ -23,6 +24,7 @@ fun ReleaseCalendarScheduleText(
         return
     }
 
+    val now = rememberReleaseNow(clock, presentation.forecastAt?.takeUnless { presentation.confirmed })
     val label = releaseInstallmentLabel(
         installment = presentation.installment,
         releaseKind = presentation.stream.releaseKind,
@@ -30,13 +32,15 @@ fun ReleaseCalendarScheduleText(
     val text = if (presentation.confirmed) {
         stringResource(R.string.release_schedule_confirmed_installment, label)
     } else {
-        presentation.forecastAt?.let {
-            stringResource(
-                R.string.release_schedule_next_at,
-                label,
-                it.releaseRelativeText(clock.instant()),
-            )
-        } ?: stringResource(R.string.release_schedule_next, label)
+        presentation.forecastAt
+            ?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
+            ?.let {
+                stringResource(
+                    R.string.release_schedule_next_at,
+                    label,
+                    it.releaseRelativeText(now),
+                )
+            } ?: stringResource(R.string.release_schedule_next, label)
     }
 
     Text(

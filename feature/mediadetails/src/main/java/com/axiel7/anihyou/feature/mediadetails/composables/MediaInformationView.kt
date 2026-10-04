@@ -69,14 +69,18 @@ import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.formatted
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.minutesToLegibleText
 import com.axiel7.anihyou.core.ui.composables.media.releaseInstallmentLabel
+import com.axiel7.anihyou.core.ui.composables.media.rememberReleaseNow
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 import com.axiel7.anihyou.feature.mediadetails.MediaDetailsUiState
 import com.axiel7.anihyou.feature.mediadetails.MediaDetailsEvent
 import com.axiel7.anihyou.feature.mediadetails.EpisodeMappingSaveState
 import com.axiel7.anihyou.feature.mediadetails.isValidProviderSeriesKey
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
+import com.axiel7.anihyou.release.core.api.pendingFor
 import com.axiel7.anihyou.release.core.navigation.NavigationProvider
 import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import kotlinx.collections.immutable.persistentListOf
+import java.time.Clock
 import java.time.ZoneId
 
 private const val TagLimit = 10
@@ -101,45 +105,52 @@ fun MediaInformationView(
     ) {
         InfoTitle(text = stringResource(R.string.information))
 
-        val providerRelease = uiState.releasePresentations.firstOrNull { it.isAuthoritative }
-        if (providerRelease != null) {
-            val providerInfoParts = buildList {
-                providerRelease.confirmedThroughEpisode?.let {
-                    add(stringResource(R.string.release_schedule_confirmed_through, it))
+        // The same rows as the header of the details screen: every authoritative stream, never a stored pending count.
+        val providerReleases = ReleaseUiSelection.authoritative(uiState.releasePresentations)
+        if (providerReleases.isNotEmpty()) {
+            val progress = uiState.details?.mediaListEntry?.basicMediaListEntry?.progress
+            val now = rememberReleaseNow(
+                Clock.systemUTC(),
+                providerReleases.mapNotNull { it.nextForecastAt }.minOrNull(),
+            )
+            val providerInfoLines = providerReleases.map { providerRelease ->
+                val pending = providerRelease.pendingFor(progress)
+                val providerInfoParts = buildList {
+                    providerRelease.confirmedThroughEpisode?.let {
+                        add(stringResource(R.string.release_schedule_confirmed_through, it))
+                    }
+                    if (pending > 0) {
+                        add(pluralStringResource(R.plurals.release_schedule_pending, pending, pending))
+                    }
+                    providerRelease.nextExpectedInstallment?.let { installment ->
+                        val label = releaseInstallmentLabel(
+                            installment = installment,
+                            releaseKind = providerRelease.stream.releaseKind,
+                        )
+                        add(
+                            // A plan that passed without a confirmation stays a plan: no time.
+                            providerRelease.nextForecastAt
+                                ?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
+                                ?.let { forecastAt ->
+                                    stringResource(
+                                        R.string.release_schedule_next_at,
+                                        label,
+                                        forecastAt.atZone(ZoneId.systemDefault())
+                                            .toLocalDateTime()
+                                            .toLocalized()
+                                            .orEmpty(),
+                                    )
+                                } ?: stringResource(R.string.release_schedule_next, label),
+                        )
+                    }
                 }
-                if (providerRelease.confirmedPending > 0) {
-                    add(
-                        pluralStringResource(
-                            R.plurals.release_schedule_pending,
-                            providerRelease.confirmedPending,
-                            providerRelease.confirmedPending,
-                        ),
-                    )
-                }
-                providerRelease.nextExpectedInstallment?.let { installment ->
-                    val label = releaseInstallmentLabel(
-                        installment = installment,
-                        releaseKind = providerRelease.stream.releaseKind,
-                    )
-                    add(
-                        providerRelease.nextForecastAt?.let { forecastAt ->
-                            stringResource(
-                                R.string.release_schedule_next_at,
-                                label,
-                                forecastAt.atZone(ZoneId.systemDefault())
-                                    .toLocalDateTime()
-                                    .toLocalized()
-                                    .orEmpty(),
-                            )
-                        } ?: stringResource(R.string.release_schedule_next, label),
-                    )
-                }
+                providerInfoParts.ifEmpty {
+                    listOf(stringResource(R.string.release_schedule_available))
+                }.joinToString(" · ")
             }
             InfoItemView(
                 title = stringResource(R.string.airing),
-                info = providerInfoParts.ifEmpty {
-                    listOf(stringResource(R.string.release_schedule_available))
-                }.joinToString(" · "),
+                info = providerInfoLines.joinToString("\n"),
                 modifier = Modifier.defaultPlaceholder(visible = uiState.isLoading),
             )
         } else {

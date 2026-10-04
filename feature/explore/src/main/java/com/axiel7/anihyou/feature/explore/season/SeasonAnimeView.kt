@@ -45,6 +45,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.core.model.ListStyle
 import com.axiel7.anihyou.core.model.genre.SelectableGenre.Companion.genreTagLocalized
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
@@ -250,11 +251,12 @@ private fun SeasonalGrid(
                 subtitle = {
                     val releasePresentations = uiState.releaseByMediaId[item.id]
                         .orEmpty()
-                        .filter { it.isAuthoritative }
+                        .let(ReleaseUiSelection::authoritative)
                     if (releasePresentations.isNotEmpty()) {
                         releasePresentations.forEach { presentation ->
                             ReleaseScheduleText(
                                 presentation = presentation,
+                                progress = item.mediaListEntry?.basicMediaListEntry?.progress,
                                 fallback = {},
                             )
                         }
@@ -299,7 +301,7 @@ private fun SeasonalList(
         ) { item ->
             val releasePresentations = uiState.releaseByMediaId[item.id]
                 .orEmpty()
-                .filter { it.isAuthoritative }
+                .let(ReleaseUiSelection::authoritative)
             if (releasePresentations.isNotEmpty()) {
                 MediaItemHorizontal(
                     title = item.basicMediaDetails.title?.userPreferred.orEmpty(),
@@ -309,6 +311,7 @@ private fun SeasonalList(
                         releasePresentations.forEach { presentation ->
                             ReleaseScheduleText(
                                 presentation = presentation,
+                                progress = item.mediaListEntry?.basicMediaListEntry?.progress,
                                 fallback = {},
                             )
                         }

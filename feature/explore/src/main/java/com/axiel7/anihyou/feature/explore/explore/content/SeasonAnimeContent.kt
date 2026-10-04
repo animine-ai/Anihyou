@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.core.model.media.AnimeSeason
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
 import com.axiel7.anihyou.core.resources.R
@@ -57,11 +58,12 @@ fun SeasonAnimeContent(
                 subtitle = {
                     val releasePresentations = releaseByMediaId[item.id]
                         .orEmpty()
-                        .filter { it.isAuthoritative }
+                        .let(ReleaseUiSelection::authoritative)
                     if (releasePresentations.isNotEmpty()) {
                         releasePresentations.forEach { presentation ->
                             ReleaseScheduleText(
                                 presentation = presentation,
+                                progress = item.mediaListEntry?.basicMediaListEntry?.progress,
                                 fallback = {},
                             )
                         }

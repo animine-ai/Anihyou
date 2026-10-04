@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.axiel7.anihyou.core.common.utils.NumberUtils.isGreaterThanZero
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.core.model.media.exampleBasicMediaListEntry
 import com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry
 import com.axiel7.anihyou.core.model.media.isActive
@@ -66,11 +67,9 @@ fun CompactUserMediaListItem(
     val blurAdult = LocalBlurAdult.current
     val status = listStatus ?: item.basicMediaListEntry.status
     val priority = item.basicMediaListEntry.priority
-    val providerRows = if (releasePresentations.isNotEmpty()) {
-        releasePresentations.filter { it.isAuthoritative }
-    } else {
-        listOfNotNull(releasePresentation?.takeIf { it.isAuthoritative })
-    }
+    val providerRows = ReleaseUiSelection.authoritative(
+        releasePresentations.ifEmpty { listOfNotNull(releasePresentation) },
+    )
     val hasReleaseSchedule = providerRows.isNotEmpty() || item.media?.nextAiringEpisode != null
     val singleEpisode =
         item.media?.basicMediaDetails?.type == MediaType.ANIME && (item.media?.basicMediaDetails?.episodes == 1)
@@ -149,6 +148,7 @@ fun CompactUserMediaListItem(
                     providerRows.forEach { presentation ->
                         ReleaseScheduleText(
                             presentation = presentation,
+                            progress = item.basicMediaListEntry.progress,
                             fallback = {},
                         )
                     }

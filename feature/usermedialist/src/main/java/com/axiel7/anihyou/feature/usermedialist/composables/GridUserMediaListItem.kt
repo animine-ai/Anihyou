@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.axiel7.anihyou.core.common.utils.NumberUtils.isGreaterThanZero
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
 import com.axiel7.anihyou.core.network.type.MediaListStatus
@@ -61,11 +62,9 @@ fun GridUserMediaListItem(
     val blurAdult = LocalBlurAdult.current
     val status = listStatus ?: item.basicMediaListEntry.status
     val priority = item.basicMediaListEntry.priority
-    val providerRows = if (releasePresentations.isNotEmpty()) {
-        releasePresentations.filter { it.isAuthoritative }
-    } else {
-        listOfNotNull(releasePresentation?.takeIf { it.isAuthoritative })
-    }
+    val providerRows = ReleaseUiSelection.authoritative(
+        releasePresentations.ifEmpty { listOfNotNull(releasePresentation) },
+    )
     val hasProviderSchedule = providerRows.isNotEmpty()
     val nextAiringEpisode = if (hasProviderSchedule) null else item.media?.nextAiringEpisode
     val singleEpisode = item.media?.basicMediaDetails?.type == MediaType.ANIME && (item.media?.basicMediaDetails?.episodes == 1)
@@ -127,6 +126,7 @@ fun GridUserMediaListItem(
                                 providerRows.forEach { presentation ->
                                     ReleaseScheduleText(
                                         presentation = presentation,
+                                        progress = item.basicMediaListEntry.progress,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                         textAlign = TextAlign.Left,
                                         fallback = {},

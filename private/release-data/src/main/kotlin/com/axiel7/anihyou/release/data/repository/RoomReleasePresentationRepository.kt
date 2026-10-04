@@ -16,6 +16,7 @@ import com.axiel7.anihyou.release.core.model.ReleaseKind
 import com.axiel7.anihyou.release.core.model.ReleasePhase
 import com.axiel7.anihyou.release.core.model.ReleaseStreamKey
 import com.axiel7.anihyou.release.core.model.SourceSeriesKey
+import com.axiel7.anihyou.release.core.source.ExtensionPreferences
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
 import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
 import com.axiel7.anihyou.release.core.source.usableExtension
@@ -40,12 +41,24 @@ class RoomReleasePresentationRepository(
     override fun observeForMedia(
         accountId: Long?,
         mediaIds: Set<Int>,
-    ): Flow<Map<Int, List<ReleaseUiPresentation>>> =
-        projections.observeForMedia(accountId, mediaIds).map { rows ->
+    ): Flow<Map<Int, List<ReleaseUiPresentation>>> {
+        val legacy = projections.observeForMedia(accountId, mediaIds).map { rows ->
             rows.mapValues { (_, candidates) ->
                 candidates.map { it.toUiPresentation() }
             }
         }
+        val selection = selection() ?: return legacy
+        // Extension First, the same selection as the calendar: an active usable source owns the release fields of
+        // every entry point; without an active source the old provider-wide projection stays; an unusable one shows nothing.
+        return combine(legacy, selection) { legacyRows, chosen ->
+            when (chosen) {
+                is ReleaseSelection.Legacy -> legacyRows
+                is ReleaseSelection.None -> emptyMap()
+                is ReleaseSelection.Extension ->
+                    chosen.rows.toExtensionMediaPresentations(chosen.mappings, mediaIds, chosen.preferences)
+            }
+        }
+    }
 
     override fun observeCalendar(
         accountId: Long?,
@@ -54,43 +67,70 @@ class RoomReleasePresentationRepository(
         val legacy = projections.observeCalendar(accountId, range).map { rows ->
             rows.map { it.toUiCalendarItem() }
         }
-        val db = database ?: return legacy
-        val policy = productPolicy ?: return legacy
-        // R04: extension rows are folded per exact source, so only the active source's own rows are
-        // ever read; another source's accepted rows can never be presented as this source's.
-        val activeRows = policy.policy.map { it.activeReleaseSource }.distinctUntilChanged().flatMapLatest { active ->
-            if (active == null) kotlinx.coroutines.flow.flowOf(emptyList<com.axiel7.anihyou.release.data.db.SourceReleaseProjectionEntity>()) else
-                db.reconciliationDao().observeSourceProjections(
-                    active.sourceId, active.extensionId, active.publisherId, active.providerId)
-        }
-        return combine(
-            legacy,
-            activeRows,
-            // The bindings in force for exactly this source: its own accepted rows plus the old provider-wide rows
-            // of unknown origin that it has not reset or corrected itself (R04 / matching management).
-            policy.policy.map { it.activeReleaseSource }.distinctUntilChanged().flatMapLatest { active ->
-                if (active == null) kotlinx.coroutines.flow.flowOf(emptyList()) else
-                    db.matchingDao().observeEffectiveAniListMappings(active.sourceId, active.extensionId,
-                        active.publisherId, active.providerId, MappingEntryIds.sourceKey(active))
-            },
-            policy.policy,
-            extensionSources?.sources ?: kotlinx.coroutines.flow.flowOf(emptyList()),
-        ) { legacyRows, sourceRows, mappings, product, catalog ->
-            when (product.activeReleaseSource?.providerId) {
-                "aniworld" -> {
-                    val active = requireNotNull(product.activeReleaseSource)
-                    if (catalog.usableExtension(active) != null) {
-                        sourceRows.filter {
-                            it.sourceId == active.sourceId && it.extensionId == active.extensionId &&
-                                it.publisherId == active.publisherId && it.providerId == active.providerId
-                        }.map { it.asCanonical() }.toExtensionCalendarItems(mappings, range)
-                    } else emptyList()
-                }
-                null -> legacyRows
-                else -> emptyList()
+        val selection = selection() ?: return legacy
+        return combine(legacy, selection) { legacyRows, chosen ->
+            when (chosen) {
+                is ReleaseSelection.Legacy -> legacyRows
+                is ReleaseSelection.None -> emptyList()
+                is ReleaseSelection.Extension -> chosen.rows.toExtensionCalendarItems(chosen.mappings, range)
             }
         }
     }
+
+    /** Which release data every consumer presents right now. Null when the repository has no source-bound inputs. */
+    private fun selection(): Flow<ReleaseSelection>? {
+        val db = database ?: return null
+        val policy = productPolicy ?: return null
+        // R04: extension rows are folded per exact source, so only the active source's own rows are
+        // ever read; another source's accepted rows can never be presented as this source's.
+        val active = policy.policy.map { it.activeReleaseSource }.distinctUntilChanged()
+        val activeRows = active.flatMapLatest { selected ->
+            if (selected == null) kotlinx.coroutines.flow.flowOf(emptyList<com.axiel7.anihyou.release.data.db.SourceReleaseProjectionEntity>()) else
+                db.reconciliationDao().observeSourceProjections(
+                    selected.sourceId, selected.extensionId, selected.publisherId, selected.providerId)
+        }
+        // The bindings in force for exactly this source: its own accepted rows plus the old provider-wide rows
+        // of unknown origin that it has not reset or corrected itself (R04 / matching management).
+        val mappings = active.flatMapLatest { selected ->
+            if (selected == null) kotlinx.coroutines.flow.flowOf(emptyList()) else
+                db.matchingDao().observeEffectiveAniListMappings(selected.sourceId, selected.extensionId,
+                    selected.publisherId, selected.providerId, MappingEntryIds.sourceKey(selected))
+        }
+        return combine(
+            activeRows,
+            mappings,
+            policy.policy,
+            extensionSources?.sources ?: kotlinx.coroutines.flow.flowOf(emptyList()),
+        ) { sourceRows, bindings, product, catalog ->
+            when (product.activeReleaseSource?.providerId) {
+                "aniworld" -> {
+                    val selected = requireNotNull(product.activeReleaseSource)
+                    if (catalog.usableExtension(selected) != null) {
+                        ReleaseSelection.Extension(
+                            rows = sourceRows.filter {
+                                it.sourceId == selected.sourceId && it.extensionId == selected.extensionId &&
+                                    it.publisherId == selected.publisherId && it.providerId == selected.providerId
+                            }.map { it.asCanonical() },
+                            mappings = bindings,
+                            preferences = product.preferencesFor(selected),
+                        )
+                    } else ReleaseSelection.None
+                }
+                null -> ReleaseSelection.Legacy
+                else -> ReleaseSelection.None
+            }
+        }
+    }
+}
+
+private sealed interface ReleaseSelection {
+    data object Legacy : ReleaseSelection
+    data object None : ReleaseSelection
+    class Extension(
+        val rows: List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity>,
+        val mappings: List<ExternalMappingEntity>,
+        val preferences: ExtensionPreferences,
+    ) : ReleaseSelection
 }
 
 private fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity>.toExtensionCalendarItems(
@@ -155,7 +195,7 @@ private fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEn
                 .thenBy { it.installment.stableKey },
         )
 
-private fun mappedAniListId(
+internal fun mappedAniListId(
     identity: CanonicalReleaseIdentity,
     navigationSeasons: Set<Int>,
     mappings: List<ExternalMappingEntity>,

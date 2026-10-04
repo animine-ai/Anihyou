@@ -10,6 +10,8 @@ import com.axiel7.anihyou.core.common.viewmodel.UiStateViewModel
 import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
+import com.axiel7.anihyou.release.core.api.pendingFor
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaListRepository
 import com.axiel7.anihyou.core.model.CurrentListType
@@ -57,27 +59,24 @@ class CurrentViewModel(
     private val releaseMediaIds = MutableStateFlow<Set<Int>>(emptySet())
 
     private fun Map<Int, List<ReleaseUiPresentation>>.authoritativeFor(mediaId: Int): ReleaseUiPresentation? =
-        this[mediaId].orEmpty().firstOrNull { it.isAuthoritative }
+        ReleaseUiSelection.effective(this[mediaId].orEmpty())
 
+    /**
+     * Behind always means confirmed source installments the user has not watched, counted from the progress the
+     * entry has right now. A stored count would stay wrong after a progress change until the next source refresh.
+     */
     private fun isBehindForCurrent(
         entry: CommonMediaListEntry,
         presentations: Map<Int, List<ReleaseUiPresentation>>,
-    ): Boolean {
-        val release = presentations.authoritativeFor(entry.mediaId)
-        return if (release?.isAuthoritative == true) {
-            release.pendingCount > 0
-        } else {
-            entry.isBehind()
-        }
-    }
+    ): Boolean = providerAwareEpisodesBehind(entry, presentations) > 0
 
     private fun providerAwareEpisodesBehind(
         entry: CommonMediaListEntry,
         presentations: Map<Int, List<ReleaseUiPresentation>>,
     ): Int {
         val release = presentations.authoritativeFor(entry.mediaId)
-        return if (release?.isAuthoritative == true) {
-            release.pendingCount
+        return if (release != null) {
+            release.pendingFor(entry.basicMediaListEntry.progress)
         } else {
             entry.episodesBehind()
         }
@@ -88,7 +87,7 @@ class CurrentViewModel(
         presentations: Map<Int, List<ReleaseUiPresentation>>,
     ): Long? {
         val release = presentations.authoritativeFor(entry.mediaId)
-        return if (release?.isAuthoritative == true) {
+        return if (release != null) {
             release.nextForecastAt?.let { Duration.between(clock.instant(), it).toMillis() }
         } else {
             entry.media?.nextAiringEpisode?.timeUntilAiring?.toLong()?.times(1_000L)

@@ -75,6 +75,7 @@ fun AiringContent(
                         imageUrl = item.coverImage?.large,
                         score = item.averageScore,
                         status = item.mediaListEntry?.basicMediaListEntry?.status,
+                        progress = item.mediaListEntry?.basicMediaListEntry?.progress,
                         onClick = {
                             navigateToMediaDetails(item.id)
                         },
@@ -117,6 +118,7 @@ fun AiringContent(
                         imageUrl = item.coverImage?.large,
                         score = item.averageScore,
                         status = item.mediaListEntry?.basicMediaListEntry?.status,
+                        progress = item.mediaListEntry?.basicMediaListEntry?.progress,
                         onClick = { item.id.let(navigateToMediaDetails) },
                         onLongClick = {
                             onLongClickItem(
@@ -175,7 +177,7 @@ private fun ProviderOwnedAiringContent(
             !onMyList && media?.mediaListEntry != null -> null
             else -> ProviderAiringGroup(media = media, rows = listOf(row))
         }
-    }
+    }.distinctBy { it.rows.single().eventKey } // a repeated list key would crash the row
 
     DiscoverLazyRow(
         minHeight = MEDIA_POSTER_SMALL_HEIGHT.dp,

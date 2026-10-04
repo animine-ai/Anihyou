@@ -27,6 +27,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
 import com.axiel7.anihyou.core.model.media.icon
 import com.axiel7.anihyou.core.model.media.localized
@@ -49,6 +50,8 @@ fun AiringAnimeHorizontalItem(
     imageUrl: String?,
     score: Int? = null,
     status: MediaListStatus? = null,
+    /** The user's current AniList progress, so a pending count follows progress changes. */
+    progress: Int? = null,
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {},
 ) {
@@ -56,7 +59,7 @@ fun AiringAnimeHorizontalItem(
         releasePresentations
     } else {
         releasePresentation?.let(::listOf).orEmpty()
-    }).filter { it.isAuthoritative }
+    }).let(ReleaseUiSelection::authoritative)
     val calendarPresentations = releaseCalendarPresentations
         .filter { it.isAuthoritative }
 
@@ -130,6 +133,7 @@ fun AiringAnimeHorizontalItem(
                     presentations.isNotEmpty() -> presentations.forEach { presentation ->
                         ReleaseScheduleText(
                             presentation = presentation,
+                            progress = progress,
                             modifier = Modifier.padding(bottom = 4.dp),
                             fallback = {},
                         )

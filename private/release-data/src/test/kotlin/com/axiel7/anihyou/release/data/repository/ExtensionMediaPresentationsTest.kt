@@ -1,0 +1,191 @@
+package com.axiel7.anihyou.release.data.repository
+
+import com.axiel7.anihyou.release.core.api.ReleaseUiAuthority
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
+import com.axiel7.anihyou.release.core.api.pendingFor
+import com.axiel7.anihyou.release.core.model.AniWorldSiteIdentifier
+import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
+import com.axiel7.anihyou.release.core.model.CanonicalReleaseState
+import com.axiel7.anihyou.release.core.model.ConfidenceVector
+import com.axiel7.anihyou.release.core.model.Installment
+import com.axiel7.anihyou.release.core.model.LanguageTrack
+import com.axiel7.anihyou.release.core.model.ReleaseAuthority
+import com.axiel7.anihyou.release.core.model.ReleaseConflict
+import com.axiel7.anihyou.release.core.model.ReleaseConflictKind
+import com.axiel7.anihyou.release.core.model.ReleaseEvidence
+import com.axiel7.anihyou.release.core.model.ReleaseEvidenceType
+import com.axiel7.anihyou.release.core.model.ReleaseKind
+import com.axiel7.anihyou.release.core.model.ReleasePhase
+import com.axiel7.anihyou.release.core.model.ReleaseSourceType
+import com.axiel7.anihyou.release.core.source.ExtensionPreferences
+import com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity
+import com.axiel7.anihyou.release.data.db.ExternalMappingEntity
+import com.axiel7.anihyou.release.data.db.ReleaseReconciliationMapper
+import java.time.Instant
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+/**
+ * Extension First for the per-media consumers, on the accepted rows of the active source. Fixed clock
+ * 2026-10-04T12:00:00Z. The inputs contradict each other on purpose: AniList would name episode 12 for tomorrow;
+ * the accepted source confirms episode 10, plans episode 11 for today and the user has watched episode 8.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class ExtensionMediaPresentationsTest {
+    private val now = Instant.parse("2026-10-04T12:00:00Z")
+    private val today3pm = Instant.parse("2026-10-04T15:00:00Z")
+    private val defaults = ExtensionPreferences()
+
+    private fun identity(
+        slug: String, episode: Int, track: LanguageTrack = LanguageTrack.DE_SUB, season: Int = 1,
+    ): CanonicalReleaseIdentity {
+        val evidence = ReleaseEvidence(
+            id = "e-$slug-$episode-$track", sourceType = ReleaseSourceType.ANIWORLD_RECENT,
+            sourceUrl = "https://aniworld.to/anime/stream/$slug", sourceHash = "hash", parserVersion = "fixture",
+            observedAt = now, sourceReportedAt = null, approximateTime = false,
+            siteIdentifier = AniWorldSiteIdentifier(slug), sourceSeason = season, navigationSeason = season,
+            installment = Installment.Episode(episode), languageTrack = track,
+            evidenceType = ReleaseEvidenceType.CONFIRMATION, confidence = ConfidenceVector(1.0, 1.0, 1.0, 1.0, 1.0),
+        )
+        return requireNotNull(CanonicalReleaseIdentity.from(evidence))
+    }
+
+    private fun released(slug: String, episode: Int, track: LanguageTrack = LanguageTrack.DE_SUB, season: Int = 1) =
+        row(identity(slug, episode, track, season), ReleasePhase.RELEASED, ReleaseAuthority.ANIWORLD,
+            releaseAt = now.minusSeconds(86_400L * (12 - episode)))
+
+    private fun planned(
+        slug: String, episode: Int, at: Instant, track: LanguageTrack = LanguageTrack.DE_SUB, season: Int = 1,
+        phase: ReleasePhase = ReleasePhase.EXPECTED, conflict: Boolean = false,
+    ) = row(identity(slug, episode, track, season), phase, ReleaseAuthority.NONE, forecastAt = at, conflict = conflict)
+
+    private fun row(
+        identity: CanonicalReleaseIdentity, underlying: ReleasePhase, authority: ReleaseAuthority,
+        releaseAt: Instant? = null, forecastAt: Instant? = null, conflict: Boolean = false,
+    ): CanonicalReleaseProjectionEntity {
+        val conflicts = if (conflict) listOf(ReleaseConflict("c-${identity.key.hashCode()}",
+            ReleaseConflictKind.SCHEDULE_DISAGREEMENT, setOf("e1"), true)) else emptyList()
+        val state = CanonicalReleaseState(
+            key = identity.key, underlyingPhase = underlying,
+            phase = if (conflict) ReleasePhase.CONFLICT else underlying, authority = authority,
+            releaseAt = releaseAt, forecastAt = forecastAt, conflicts = conflicts, revision = 3,
+            navigationSeasons = setOf(identity.sourceSeason ?: 0), latestCompletedAt = now,
+        )
+        return ReleaseReconciliationMapper.projection(state, identity.bucketKey, 1)
+    }
+
+    private fun binding(slug: String, media: Int, season: Int = 1) = ExternalMappingEntity(
+        mappingSubjectKey = "subject-$slug-$season-$media", seriesStableKey = slug, siteSlug = slug,
+        subjectType = "SEASON", navigationSeason = season, filmNumber = null, externalProvider = "anilist",
+        externalId = media.toString(), mappingSource = "MANUAL", mappingStatus = "ACTIVE", confidence = "EXACT",
+        createdAt = now.toString(), validatedAt = now.toString(), staleAt = null, provenance = "fixture", parserVersion = null,
+    )
+
+    private fun presented(
+        rows: List<CanonicalReleaseProjectionEntity>, mappings: List<ExternalMappingEntity>,
+        ids: Set<Int> = setOf(42), preferences: ExtensionPreferences = defaults,
+    ) = rows.toExtensionMediaPresentations(mappings, ids, preferences)
+
+    @Test fun confirmedComesFromReleasedRowsAndAPlanNeverConfirms() {
+        val rows = listOf(
+            released("series-a", 9), released("series-a", 10),
+            planned("series-a", 11, today3pm), planned("series-a", 12, today3pm.plusSeconds(86_400)),
+        )
+        val release = presented(rows, listOf(binding("series-a", 42))).getValue(42).single()
+        assertEquals(ReleaseUiAuthority.VALID, release.authority)
+        assertEquals(42, release.mediaId)
+        assertEquals(10, release.confirmedThroughEpisode)
+        assertEquals(listOf(Installment.Episode(9), Installment.Episode(10)), release.confirmedInstallments)
+        assertEquals("the nearest plan after the confirmed state, not the later one", Installment.Episode(11),
+            release.nextExpectedInstallment)
+        assertEquals(today3pm, release.nextForecastAt)
+        assertEquals(ReleaseKind.EPISODE, release.stream.releaseKind)
+        // Two confirmed episodes are missing for progress 8; the plan for episode 11 adds nothing.
+        assertEquals(2, release.pendingFor(8))
+        assertEquals(0, release.pendingFor(10))
+        assertEquals(0, release.pendingFor(null))
+    }
+
+    @Test fun aPlanThatIsNotAfterTheConfirmedStateIsNeverTheNextOne() {
+        val rows = listOf(released("series-a", 10), planned("series-a", 10, today3pm), planned("series-a", 9, today3pm))
+        val release = presented(rows, listOf(binding("series-a", 42))).getValue(42).single()
+        assertNull(release.nextExpectedInstallment)
+        assertNull(release.nextForecast)
+        assertEquals(10, release.confirmedThroughEpisode)
+    }
+
+    @Test fun aRowInConflictIsNeverPresentedAsThePlanAndAnOnlyConflictStreamKeepsAniList() {
+        val withOk = presented(
+            listOf(released("series-a", 10), planned("series-a", 11, today3pm, conflict = true),
+                planned("series-a", 12, today3pm.plusSeconds(3_600))),
+            listOf(binding("series-a", 42)),
+        ).getValue(42).single()
+        assertEquals(Installment.Episode(12), withOk.nextExpectedInstallment)
+
+        val onlyConflict = presented(
+            listOf(planned("series-a", 11, today3pm, conflict = true)), listOf(binding("series-a", 42)),
+        ).getValue(42).single()
+        assertEquals(ReleaseUiAuthority.AMBIGUOUS, onlyConflict.authority)
+        assertTrue("an ambiguous stream never replaces AniList", ReleaseUiSelection.authoritative(listOf(onlyConflict)).isEmpty())
+        assertEquals(0, onlyConflict.pendingFor(0))
+    }
+
+    @Test fun anUnmappedOrAmbiguousBindingNeverGuessesAMedia() {
+        val rows = listOf(released("series-a", 10))
+        assertTrue("no binding at all", presented(rows, emptyList()).isEmpty())
+        assertTrue("two different media for one subject", presented(rows,
+            listOf(binding("series-a", 42), binding("series-a", 43)), ids = setOf(42, 43)).isEmpty())
+        assertTrue("a binding of another series", presented(rows, listOf(binding("series-b", 42))).isEmpty())
+        assertTrue("a binding of another season", presented(rows, listOf(binding("series-a", 42, season = 2))).isEmpty())
+    }
+
+    @Test fun onlyTheRequestedMediaArePresented() {
+        val rows = listOf(released("series-a", 10), released("series-b", 4))
+        val mappings = listOf(binding("series-a", 42), binding("series-b", 77))
+        assertEquals(setOf(42), presented(rows, mappings, ids = setOf(42)).keys)
+        assertEquals(setOf(42, 77), presented(rows, mappings, ids = setOf(42, 77)).keys)
+        assertTrue(presented(rows, mappings, ids = emptySet()).isEmpty())
+    }
+
+    @Test fun tracksFollowTheSourcePreferencesInOrderAndAreFilteredWhenDisabled() {
+        val rows = listOf(
+            released("series-a", 10, LanguageTrack.DE_SUB), released("series-a", 8, LanguageTrack.DE_DUB),
+        )
+        val mappings = listOf(binding("series-a", 42))
+        val subFirst = presented(rows, mappings).getValue(42)
+        assertEquals(listOf(LanguageTrack.DE_SUB, LanguageTrack.DE_DUB), subFirst.map { it.stream.languageTrack })
+        assertEquals(10, ReleaseUiSelection.effective(subFirst)?.confirmedThroughEpisode)
+
+        val dubFirst = presented(rows, mappings,
+            preferences = ExtensionPreferences(preferredTrackOrder = listOf("DE_DUB", "DE_SUB"))).getValue(42)
+        assertEquals(listOf(LanguageTrack.DE_DUB, LanguageTrack.DE_SUB), dubFirst.map { it.stream.languageTrack })
+        assertEquals("the preferred track decides counts", 8, ReleaseUiSelection.effective(dubFirst)?.confirmedThroughEpisode)
+
+        val onlyDub = presented(rows, mappings, preferences = ExtensionPreferences(enabledTracks = setOf("DE_DUB"),
+            preferredTrackOrder = listOf("DE_DUB"))).getValue(42)
+        assertEquals(listOf(LanguageTrack.DE_DUB), onlyDub.map { it.stream.languageTrack })
+    }
+
+    @Test fun separateSeasonsOfOneSeriesMapToTheirOwnMedia() {
+        val rows = listOf(released("series-a", 10, season = 1), released("series-a", 3, season = 2))
+        val mappings = listOf(binding("series-a", 42, season = 1), binding("series-a", 43, season = 2))
+        val result = presented(rows, mappings, ids = setOf(42, 43))
+        assertEquals(10, result.getValue(42).single().confirmedThroughEpisode)
+        assertEquals(3, result.getValue(43).single().confirmedThroughEpisode)
+        assertNotNull(result.getValue(43).single().stream.sourceSeason)
+    }
+
+    @Test fun aCorruptRowIsSkippedAndNeverBreaksTheOtherRows() {
+        val good = released("series-a", 10)
+        val corrupt = good.copy(projectionKey = "partial-v1:x", underlyingPhase = "NOT_A_PHASE")
+        val result = presented(listOf(corrupt, good), listOf(binding("series-a", 42)))
+        assertEquals(10, result.getValue(42).single().confirmedThroughEpisode)
+    }
+}

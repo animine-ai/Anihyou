@@ -128,6 +128,7 @@ import com.axiel7.anihyou.feature.mediadetails.composables.MediaRelationsView
 import com.axiel7.anihyou.feature.mediadetails.composables.MediaStatsView
 import com.axiel7.anihyou.feature.mediadetails.composables.ReviewThreadListView
 import com.axiel7.anihyou.feature.mediadetails.composables.ProviderWatchNextFloatingActionButton
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.release.core.navigation.WatchNextState
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamicColorScheme
@@ -469,13 +470,13 @@ private fun MediaDetailsContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val dividerHeight = 28
-                val providerReleases = uiState.releasePresentations
-                    .filter { it.isAuthoritative }
+                val providerReleases = ReleaseUiSelection.authoritative(uiState.releasePresentations)
                 if (providerReleases.isNotEmpty()) {
                     Column {
                         providerReleases.forEach { presentation ->
                             ReleaseScheduleText(
                                 presentation = presentation,
+                                progress = uiState.details?.mediaListEntry?.basicMediaListEntry?.progress,
                                 fallback = {},
                             )
                         }

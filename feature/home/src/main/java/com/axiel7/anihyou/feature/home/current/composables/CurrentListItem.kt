@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.axiel7.anihyou.core.common.utils.NumberUtils.isGreaterThanZero
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
 import com.axiel7.anihyou.core.network.type.MediaType
@@ -132,12 +133,14 @@ fun CurrentListItem(
                     maxLines = 2
                 )
                 
-                if (presentations.isEmpty()) {
+                val providerRows = ReleaseUiSelection.authoritative(presentations)
+                if (providerRows.isEmpty()) {
                     AiringScheduleText(item = item)
                 } else {
-                    presentations.forEach { presentation ->
+                    providerRows.forEach { presentation ->
                         ReleaseScheduleText(
                             presentation = presentation,
+                            progress = item.basicMediaListEntry.progress,
                             fallback = {},
                         )
                     }
