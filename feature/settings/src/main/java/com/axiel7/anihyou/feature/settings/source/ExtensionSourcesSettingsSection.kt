@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.axiel7.anihyou.core.ui.composables.PreferencesTitle
+import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.feature.settings.R
 import com.axiel7.anihyou.release.core.source.AddExtensionSourceResult
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
@@ -160,7 +162,12 @@ private fun ExtensionSourceCard(
         liveRegion = LiveRegionMode.Polite
         stateDescription = refreshLabel
     } else Modifier
-    Card(modifier = modifier.fillMaxWidth().testTag("extension-source-card")) {
+    // The rounded surfaceContainerHigh tile of the original settings rows and cards.
+    Card(
+        modifier = modifier.fillMaxWidth().testTag("extension-source-card"),
+        shape = singleShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

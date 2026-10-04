@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.feature.settings.source
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,18 +34,21 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
 import com.axiel7.anihyou.core.ui.common.navigation.Route
 import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithSmallTopAppBar
+import com.axiel7.anihyou.core.resources.R as CoreR
 import com.axiel7.anihyou.core.ui.composables.PlainPreference
+import com.axiel7.anihyou.core.ui.composables.preferenceShape
+import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.feature.settings.R
 import com.axiel7.anihyou.release.core.source.*
 import org.koin.compose.viewmodel.koinViewModel
 
-enum class ExtensionCenterPage(val id: String, val title: Int) {
-    MANAGE("manage", R.string.extension_center_manage),
-    SOURCE("source", R.string.extension_center_source),
-    PROVIDERS("providers", R.string.extension_center_providers),
-    STATISTICS("statistics", R.string.extension_center_statistics),
-    DIAGNOSTICS("diagnostics", R.string.extension_center_diagnostics),
+enum class ExtensionCenterPage(val id: String, val title: Int, @DrawableRes val icon: Int) {
+    MANAGE("manage", R.string.extension_center_manage, CoreR.drawable.settings_24),
+    SOURCE("source", R.string.extension_center_source, CoreR.drawable.rss_feed_24),
+    PROVIDERS("providers", R.string.extension_center_providers, CoreR.drawable.play_circle_24),
+    STATISTICS("statistics", R.string.extension_center_statistics, CoreR.drawable.bar_chart_24),
+    DIAGNOSTICS("diagnostics", R.string.extension_center_diagnostics, CoreR.drawable.info_24),
 }
 
 @Composable
@@ -66,6 +70,7 @@ fun ExtensionCenterView() {
 fun ExtensionTrustUnavailableNotice(modifier: Modifier = Modifier) {
     Card(
         modifier = modifier.fillMaxWidth().padding(bottom = 12.dp).testTag("extension-trust-unavailable"),
+        shape = singleShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {
         Column(Modifier.padding(16.dp)) {
@@ -85,8 +90,10 @@ fun ExtensionTrustUnavailableNotice(modifier: Modifier = Modifier) {
 
 @Composable
 fun ExtensionCenterMenu(onPage: (ExtensionCenterPage) -> Unit) {
-    ExtensionCenterPage.entries.forEach { page ->
-        PlainPreference(title = stringResource(page.title),
+    // The grouped rounded rows with icons of the original settings pages.
+    ExtensionCenterPage.entries.forEachIndexed { index, page ->
+        PlainPreference(title = stringResource(page.title), icon = page.icon,
+            shape = preferenceShape(index, ExtensionCenterPage.entries.size),
             modifier = Modifier.testTag("extension-center-" + page.id),
             onClick = { onPage(page) })
     }
@@ -144,9 +151,11 @@ internal fun installedEntries(state: ExtensionSourcesUiState): List<Pair<Extensi
 @Composable
 fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: ExtensionSourcesEvent) {
     val nav = LocalNavActionManager.current
-    PlainPreference(title = stringResource(R.string.matching_title), modifier = Modifier.testTag("extension-source-matching"),
+    PlainPreference(title = stringResource(R.string.matching_title), icon = CoreR.drawable.link_24,
+        shape = preferenceShape(0, 2), modifier = Modifier.testTag("extension-source-matching"),
         onClick = { nav.navigate(Route.ExtensionCenterPage("matching")) })
-    PlainPreference(title = stringResource(R.string.extension_center_schedule), modifier = Modifier.testTag("extension-source-schedule"),
+    PlainPreference(title = stringResource(R.string.extension_center_schedule), icon = CoreR.drawable.schedule_24,
+        shape = preferenceShape(1, 2), modifier = Modifier.testTag("extension-source-schedule"),
         onClick = { nav.navigate(Route.ExtensionCenterPage("schedule")) })
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     val entries = installedEntries(state)

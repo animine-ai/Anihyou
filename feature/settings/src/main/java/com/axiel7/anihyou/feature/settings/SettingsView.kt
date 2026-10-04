@@ -103,11 +103,13 @@ fun SettingsView() {
         extensionSourcesContent = {
             PlainPreference(
                 title = stringResource(com.axiel7.anihyou.feature.settings.R.string.main_navigation_title),
+                icon = R.drawable.explore_24,
                 onClick = { navActionManager.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.MainNavigationSettings) },
                 shape = topShape,
             )
             PlainPreference(
                 title = stringResource(com.axiel7.anihyou.feature.settings.R.string.extension_center_title),
+                icon = R.drawable.link_24,
                 onClick = { navActionManager.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.ExtensionCenter) },
                 shape = bottomShape,
             )

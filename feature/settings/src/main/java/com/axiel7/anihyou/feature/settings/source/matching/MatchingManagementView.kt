@@ -3,10 +3,13 @@ package com.axiel7.anihyou.feature.settings.source.matching
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -18,7 +21,15 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.axiel7.anihyou.core.domain.repository.SearchRepository
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
 import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithSmallTopAppBar
+import com.axiel7.anihyou.core.ui.composables.ListPreference
+import com.axiel7.anihyou.core.ui.composables.PlainPreference
+import com.axiel7.anihyou.core.ui.composables.PreferencesTitle
+import com.axiel7.anihyou.core.ui.composables.preferenceShape
+import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
+import com.axiel7.anihyou.core.ui.composables.common.SearchPillField
+import com.axiel7.anihyou.core.resources.R as CoreR
+import kotlinx.collections.immutable.toImmutableList
 import com.axiel7.anihyou.feature.settings.R
 import com.axiel7.anihyou.release.core.api.*
 import org.koin.compose.koinInject
@@ -54,58 +65,78 @@ private fun MatchingManagementUnavailable() {
 @Composable
 fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingManagementEvent) {
     val nav = LocalNavActionManager.current
+    // The page uses the language of the rest of the app: the pill search field of the anime and explore tabs, the grouped
+    // rounded preference rows of the settings, chips for filters and 24 dp cards for the entries.
     DefaultScaffoldWithSmallTopAppBar(title = stringResource(R.string.matching_title),
         navigationIcon = { BackIconButton(nav::goBack) }, scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize().testTag("matching-list"),
-            contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                OutlinedTextField(state.query.text, event::search, modifier = Modifier.fillMaxWidth().testTag("matching-search"),
-                    singleLine = true, label = { Text(stringResource(R.string.matching_search)) }, enabled = !state.busy)
-                SourceFilter(state, event)
-                Text(stringResource(R.string.matching_count, state.page.total, state.selected.size))
-                state.notice?.let { Text(stringResource(noticeText(it)), modifier = Modifier.testTag("matching-notice")) }
-                if (state.loading || state.preparing) LinearProgressIndicator(Modifier.fillMaxWidth())
-                if (state.busy) {
-                    state.progress?.let { Text(stringResource(R.string.matching_progress, it.completed, it.total)) }
-                    TextButton(onClick = event::cancel, modifier = Modifier.testTag("matching-cancel")) {
-                        Text(stringResource(R.string.matching_cancel))
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SearchPillField(value = state.query.text, onValueChange = event::search,
+                        placeholder = stringResource(R.string.matching_search), enabled = !state.busy,
+                        modifier = Modifier.testTag("matching-search"))
+                    SourceFilter(state, event)
+                    Text(stringResource(R.string.matching_count, state.page.total, state.selected.size),
+                        style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp))
+                    state.notice?.let {
+                        Surface(shape = singleShape, color = MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(noticeText(it)), style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(16.dp).testTag("matching-notice"))
+                        }
+                    }
+                    if (state.loading || state.preparing) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (state.busy) {
+                        state.progress?.let { Text(stringResource(R.string.matching_progress, it.completed, it.total),
+                            style = MaterialTheme.typography.bodyMedium) }
+                        OutlinedButton(onClick = event::cancel, modifier = Modifier.testTag("matching-cancel")) {
+                            Text(stringResource(R.string.matching_cancel))
+                        }
                     }
                 }
             }
             item {
                 val enabled = !state.busy && !state.preparing && state.confirmation == null
-                if (state.selected.isNotEmpty()) {
-                    ScopeActions(stringResource(R.string.matching_scope_selected, state.selected.size), enabled,
-                        scope = MappingScope.Entries(state.selected.mapValues { it.value.revision }), event = event, tag = "selection")
-                    TextButton(onClick = event::clearSelection, enabled = enabled) { Text(stringResource(R.string.matching_clear_selection)) }
+                Column {
+                    if (state.selected.isNotEmpty()) {
+                        ScopeActions(stringResource(R.string.matching_scope_selected, state.selected.size), enabled,
+                            scope = MappingScope.Entries(state.selected.mapValues { it.value.revision }), event = event, tag = "selection",
+                            onClear = event::clearSelection)
+                    }
+                    state.query.source?.let { key ->
+                        val facet = state.page.sources.singleOrNull { it.key == key }
+                        ScopeActions(stringResource(R.string.matching_scope_source, "${facet?.label ?: key.sourceId} · ${key.sourceId} / ${key.extensionId}"), enabled,
+                            scope = MappingScope.Source(key), event = event, tag = "source")
+                    }
+                    ScopeActions(stringResource(R.string.matching_scope_all), enabled,
+                        scope = MappingScope.All, event = event, tag = "all")
                 }
-                state.query.source?.let { key ->
-                    val facet = state.page.sources.singleOrNull { it.key == key }
-                    ScopeActions(stringResource(R.string.matching_scope_source, "${facet?.label ?: key.sourceId} · ${key.sourceId} / ${key.extensionId}"), enabled,
-                        scope = MappingScope.Source(key), event = event, tag = "source")
-                }
-                ScopeActions(stringResource(R.string.matching_scope_all), enabled,
-                    scope = MappingScope.All, event = event, tag = "all")
             }
             if (!state.loading && state.page.entries.isEmpty()) item {
-                Text(stringResource(R.string.matching_empty), modifier = Modifier.testTag("matching-empty"))
+                Text(stringResource(R.string.matching_empty), style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).testTag("matching-empty"))
             }
             items(state.page.entries, key = { it.id }) { entry ->
                 Card(onClick = { event.open(entry) }, enabled = !state.busy && !state.preparing,
-                    modifier = Modifier.fillMaxWidth().testTag("mapping-row-${entry.id}")) {
-                    Row(Modifier.padding(12.dp)) {
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().testTag("mapping-row-${entry.id}")) {
+                    Row(Modifier.padding(horizontal = 8.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         val selectionLabel = stringResource(R.string.matching_select_entry,
                             entry.sourceTitle?.takeIf { it.isNotBlank() } ?: entry.sourceIdentity,
                             entry.sourceLabel, entry.partLabel)
                         Checkbox(checked = entry.id in state.selected,
                             onCheckedChange = { event.select(entry, it) }, enabled = !state.busy && !state.preparing,
                             modifier = Modifier.testTag("mapping-select-${entry.id}").semantics { contentDescription = selectionLabel })
-                        Column(Modifier.weight(1f)) { MappingIdentity(entry) }
+                        Column(Modifier.weight(1f).padding(end = 8.dp)) { MappingIdentity(entry) }
                     }
                 }
             }
             item {
-                Row {
+                Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = { event.page(state.query.offset - state.query.limit) },
                         enabled = state.query.offset > 0 && !state.busy && !state.loading,
                         modifier = Modifier.testTag("matching-previous")) { Text(stringResource(R.string.matching_previous)) }
@@ -115,26 +146,33 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                 }
             }
             if (state.recentResults.isNotEmpty()) item {
-                Text(stringResource(R.string.matching_results), style = MaterialTheme.typography.titleSmall)
-                state.recentResults.forEach { result ->
-                    Text("${result.entryId}: ${stringResource(outcomeText(result.outcome))}", style = MaterialTheme.typography.bodySmall)
+                Column(Modifier.padding(horizontal = 24.dp)) {
+                    Text(stringResource(R.string.matching_results), style = MaterialTheme.typography.titleSmall)
+                    state.recentResults.forEach { result ->
+                        Text("${result.entryId}: ${stringResource(outcomeText(result.outcome))}", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             item {
-                HorizontalDivider()
-                Text(stringResource(R.string.matching_configuration), style = MaterialTheme.typography.titleMedium)
-                if (state.options.isEmpty()) Text(stringResource(R.string.matching_no_options))
-                state.options.forEach { option ->
-                    Text(option.label)
-                    option.choices.forEach { choice ->
-                        Row {
-                            RadioButton(selected = choice == option.value, onClick = { event.setOption(option.key, choice) }, enabled = !state.busy)
-                            Text(choice, Modifier.padding(top = 12.dp))
-                        }
+                Column {
+                    PreferencesTitle(stringResource(R.string.matching_configuration))
+                    if (state.options.isEmpty()) {
+                        Text(stringResource(R.string.matching_no_options), style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
                     }
+                    val optionCount = state.options.size + if (state.options.isNotEmpty()) 1 else 0
+                    state.options.forEachIndexed { index, option ->
+                        ListPreference(title = option.label, values = option.choices.toImmutableList(),
+                            preferenceValue = option.value, onValueChange = { event.setOption(option.key, it) },
+                            shape = preferenceShape(index, optionCount))
+                    }
+                    if (state.options.isNotEmpty()) PlainPreference(title = stringResource(R.string.matching_reset_configuration),
+                        icon = CoreR.drawable.refresh_24, enabled = !state.busy, onClick = event::askConfigurationReset,
+                        shape = preferenceShape(optionCount - 1, optionCount),
+                        modifier = Modifier.testTag("matching-reset-configuration"))
                 }
-                if (state.options.isNotEmpty()) TextButton(onClick = event::askConfigurationReset, enabled = !state.busy,
-                    modifier = Modifier.testTag("matching-reset-configuration")) { Text(stringResource(R.string.matching_reset_configuration)) }
             }
         }
     }
@@ -167,7 +205,12 @@ private fun SourceFilter(state: MatchingManagementState, event: MatchingManageme
     Box {
         val label = state.page.sources.singleOrNull { it.key == state.query.source }?.label
             ?: state.query.source?.sourceId ?: stringResource(R.string.matching_all_sources)
-        TextButton(onClick = { expanded = true }, enabled = !state.busy, modifier = Modifier.testTag("matching-source-filter")) { Text(label) }
+        AssistChip(onClick = { expanded = true }, enabled = !state.busy, modifier = Modifier.testTag("matching-source-filter"),
+            label = { Text(label) },
+            leadingIcon = { Icon(painterResource(CoreR.drawable.filter_list_24), contentDescription = null,
+                modifier = Modifier.size(AssistChipDefaults.IconSize)) },
+            trailingIcon = { Icon(painterResource(CoreR.drawable.arrow_drop_down_24), contentDescription = null,
+                modifier = Modifier.size(AssistChipDefaults.IconSize)) })
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text(stringResource(R.string.matching_all_sources)) }, onClick = { expanded = false; event.filter(null) })
             state.page.sources.forEach { facet ->
@@ -179,25 +222,35 @@ private fun SourceFilter(state: MatchingManagementState, event: MatchingManageme
 
 @Composable
 private fun MappingIdentity(entry: ManagedMapping) {
+    val secondary = MaterialTheme.colorScheme.onSurfaceVariant
     Text(entry.sourceTitle?.takeIf { it.isNotBlank() } ?: stringResource(R.string.matching_source_id, entry.sourceIdentity),
         style = MaterialTheme.typography.titleMedium)
-    Text(entry.sourceLabel.ifBlank { stringResource(R.string.matching_unknown_source) }, style = MaterialTheme.typography.bodySmall)
-    if (entry.partLabel.isNotBlank()) Text(entry.partLabel, style = MaterialTheme.typography.bodySmall)
+    Text(entry.sourceLabel.ifBlank { stringResource(R.string.matching_unknown_source) }, style = MaterialTheme.typography.bodySmall, color = secondary)
+    if (entry.partLabel.isNotBlank()) Text(entry.partLabel, style = MaterialTheme.typography.bodySmall, color = secondary)
     val target = entry.targetTitle?.takeIf { it.isNotBlank() }?.let { "$it · AniList #${entry.mediaId}" } ?: "AniList #${entry.mediaId}"
     Text(target, style = MaterialTheme.typography.bodyMedium)
-    Text(stringResource(if (entry.manual) R.string.matching_manual else R.string.matching_automatic), style = MaterialTheme.typography.bodySmall)
+    Text(stringResource(if (entry.manual) R.string.matching_manual else R.string.matching_automatic),
+        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ScopeActions(label: String, enabled: Boolean, scope: MappingScope, event: MatchingManagementEvent, tag: String) {
-    Text(label, style = MaterialTheme.typography.labelLarge)
-    FlowRow {
-        TextButton(onClick = { event.prepare(MappingAction.REMATCH, scope) }, enabled = enabled,
-            modifier = Modifier.testTag("matching-rematch-$tag")) { Text(stringResource(R.string.matching_rematch)) }
-        TextButton(onClick = { event.prepare(MappingAction.RESET, scope) }, enabled = enabled,
-            modifier = Modifier.testTag("matching-reset-$tag")) { Text(stringResource(R.string.matching_reset)) }
-    }
+private fun ScopeActions(
+    label: String, enabled: Boolean, scope: MappingScope, event: MatchingManagementEvent, tag: String,
+    onClear: (() -> Unit)? = null,
+) {
+    // Grouped rounded rows like the original settings pages; removing is marked by the error tint of its icon only.
+    val count = if (onClear != null) 3 else 2
+    PreferencesTitle(label)
+    PlainPreference(title = stringResource(R.string.matching_rematch), icon = CoreR.drawable.refresh_24, enabled = enabled,
+        onClick = { event.prepare(MappingAction.REMATCH, scope) }, shape = preferenceShape(0, count),
+        modifier = Modifier.testTag("matching-rematch-$tag"))
+    PlainPreference(title = stringResource(R.string.matching_reset), icon = CoreR.drawable.delete_24,
+        iconTint = MaterialTheme.colorScheme.error, enabled = enabled,
+        onClick = { event.prepare(MappingAction.RESET, scope) }, shape = preferenceShape(1, count),
+        modifier = Modifier.testTag("matching-reset-$tag"))
+    if (onClear != null) PlainPreference(title = stringResource(R.string.matching_clear_selection), icon = CoreR.drawable.close_24,
+        enabled = enabled, onClick = onClear, shape = preferenceShape(2, count),
+        modifier = Modifier.testTag("matching-clear-selection"))
 }
 
 @Composable
@@ -209,9 +262,10 @@ private fun MappingEditor(state: MatchingManagementState, entry: ManagedMapping,
                 item {
                     MappingIdentity(entry)
                     Text(entry.sourceIdentity, style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(state.targetQuery, event::targetQuery, enabled = !state.busy,
-                        label = { Text(stringResource(R.string.matching_target_search)) }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("matching-target-search"))
+                    SearchPillField(value = state.targetQuery, onValueChange = event::targetQuery, enabled = !state.busy,
+                        placeholder = stringResource(R.string.matching_target_search),
+                        onSearch = { if (state.targetQuery.isNotBlank()) event.findTargets(false) },
+                        modifier = Modifier.testTag("matching-target-search"))
                     TextButton(onClick = { event.findTargets(false) }, enabled = !state.busy && !state.targetLoading && state.targetQuery.isNotBlank(),
                         modifier = Modifier.testTag("matching-find-targets")) { Text(stringResource(R.string.matching_find)) }
                     if (state.targetLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
