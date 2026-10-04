@@ -49,7 +49,7 @@ class AniListCalendarEventComposeTest {
         lateinit var navigation: NavigationState
         lateinit var navigator: Navigator
         rule.setContent {
-            navigation = rememberNavigationState(Route.Calendar, MainNavigationResolver.allRoutes)
+            navigation = rememberNavigationState(Route.Home, MainNavigationResolver.allRoutes)
             navigator = remember(navigation) { Navigator(navigation) }
             CompositionLocalProvider(LocalNavActionManager provides NavActionManager(navigator)) {
                 AniHyouTheme(darkTheme = false, dynamicColor = false) { CalendarViewContent(false, CalendarUiState(today = third.localDate(), day = third.localDate().atStartOfDay(),
