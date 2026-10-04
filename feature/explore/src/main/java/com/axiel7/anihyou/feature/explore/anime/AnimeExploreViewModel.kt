@@ -20,7 +20,6 @@ import com.axiel7.anihyou.core.network.type.MediaSort
 import com.axiel7.anihyou.core.network.type.MediaType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
@@ -41,7 +40,9 @@ class AnimeExploreViewModel(
 ) : UiStateViewModel<AnimeExploreUiState>(), AnimeExploreEvent {
 
     private val now = LocalDateTime.ofInstant(clock.instant(), ZoneId.systemDefault())
-    private val myUserId = defaultPreferencesRepository.userId.filterNotNull()
+    // Nullable on purpose: the release facts of the active source do not need an account, a logged-out explore shows them
+    // too (the user's progress stays unknown then and nothing is claimed as pending), and a logout drops the old account.
+    private val myUserId = defaultPreferencesRepository.userId.distinctUntilChanged()
 
     override val initialState =
         AnimeExploreUiState(
@@ -265,7 +266,7 @@ class AnimeExploreViewModel(
             .distinctUntilChanged()
             .flatMapLatest { ids ->
                 myUserId.flatMapLatest { accountId ->
-                    releasePresentationRepository.observeForMedia(accountId.toLong(), ids)
+                    releasePresentationRepository.observeForMedia(accountId?.toLong(), ids)
                 }
             }
             .onEach { rows ->
@@ -280,7 +281,7 @@ class AnimeExploreViewModel(
                     ReleaseSourceTimePolicy.ANI_WORLD_ZONE,
                 )
                 releasePresentationRepository.observeCalendar(
-                    accountId = accountId.toLong(),
+                    accountId = accountId?.toLong(),
                     range = start..start.plusDays(14),
                 )
             }

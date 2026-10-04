@@ -74,7 +74,8 @@ class RoomReleasePresentationRepository(
             when (chosen) {
                 is ReleaseSelection.Legacy -> legacyRows
                 is ReleaseSelection.None -> emptyList()
-                is ReleaseSelection.Extension -> chosen.rows.toExtensionCalendarItems(chosen.mappings, range)
+                is ReleaseSelection.Extension ->
+                    chosen.rows.toExtensionCalendarItems(chosen.mappings, range, chosen.preferences)
             }
         }.offMain()
     }
@@ -142,16 +143,21 @@ private sealed interface ReleaseSelection {
     ) : ReleaseSelection
 }
 
-private fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity>.toExtensionCalendarItems(
+internal fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity>.toExtensionCalendarItems(
     mappings: List<ExternalMappingEntity>,
     range: ClosedRange<LocalDate>,
+    preferences: ExtensionPreferences = ExtensionPreferences(),
 ): List<ReleaseUiCalendarItem> {
     val lookup = MappingLookup(mappings)
+    // The same track switches as the per-media fold: a language track the user turned off is not presented by any entry
+    // point (the calendar also feeds the widget and the explore airing rows).
+    val enabledTracks = preferences.enabledTracks - "UNKNOWN"
     return mapNotNull { row ->
         val state = runCatching { ReleaseReconciliationMapper.state(row) }.getOrNull()
             ?: return@mapNotNull null
         val identity = CanonicalReleaseIdentity.decode(row.projectionKey)
             ?: return@mapNotNull null
+        if (identity.track.name !in enabledTracks) return@mapNotNull null
         if (state.underlyingPhase !in setOf(
                 ReleasePhase.PREDICTED,
                 ReleasePhase.EXPECTED,
@@ -187,7 +193,10 @@ private fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEn
             installment = identity.installment,
             forecastAt = presentationAt,
             confirmed = confirmed,
-            authority = if (state.conflicts.any { it.open } || state.phase == ReleasePhase.CONFLICT) {
+            // The effective phase already encodes the monotonic release contract (ReleaseConflictPolicy.effectivePhase): an
+            // open conflict makes a planned row CONFLICT, a released episode stays RELEASED. The per-media fold reads the same
+            // state, so one released episode has one authority in every entry point.
+            authority = if (state.phase == ReleasePhase.CONFLICT) {
                 ReleaseUiAuthority.AMBIGUOUS
             } else {
                 ReleaseUiAuthority.VALID

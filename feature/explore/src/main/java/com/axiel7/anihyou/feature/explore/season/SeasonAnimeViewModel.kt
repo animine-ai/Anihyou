@@ -18,7 +18,6 @@ import com.axiel7.anihyou.core.ui.common.navigation.Route.SeasonAnime
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flatMapLatest
@@ -92,8 +91,9 @@ class SeasonAnimeViewModel(
             .map { it.animeSeasonal.mapTo(mutableSetOf()) { item -> item.id } }
             .distinctUntilChanged()
             .flatMapLatest { ids ->
-                defaultPreferencesRepository.userId.filterNotNull().flatMapLatest { accountId ->
-                    releasePresentationRepository.observeForMedia(accountId.toLong(), ids)
+                defaultPreferencesRepository.userId.distinctUntilChanged().flatMapLatest { accountId ->
+                    // Nullable on purpose, see AnimeExploreViewModel: source release facts need no account.
+                    releasePresentationRepository.observeForMedia(accountId?.toLong(), ids)
                 }
             }
             .onEach { rows ->

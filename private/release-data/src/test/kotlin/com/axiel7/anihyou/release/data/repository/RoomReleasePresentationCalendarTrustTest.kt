@@ -394,6 +394,31 @@ class RoomReleasePresentationCalendarTrustTest {
         } finally { db.close() }
     }
 
+    /** F02 of the independent review, through the real Room flows: a switched-off track leaves every entry point together. */
+    @Test fun aTrackTheUserTurnsOffLeavesTheCalendarAndThePerMediaFlowTogetherWithoutDeletingTheRow() = runBlocking {
+        val db = open()
+        try {
+            seedAcceptedRow(db) // DE_SUB
+            bindSeededRow(db)
+            val policy = Policy(ExtensionProductPolicy(activeReleaseSource = keyA))
+            val repository = repository(db, policy, Sources(listOf(source(keyA))))
+            assertEquals(1, presented(repository).size)
+            assertEquals(1, presentedForMedia(repository).getValue(42).size)
+
+            fun only(vararg tracks: String) = ExtensionProductPolicy(
+                activeReleaseSource = keyA,
+                preferences = mapOf(keyA to ExtensionPreferences(enabledTracks = tracks.toSet(), preferredTrackOrder = tracks.toList())),
+            )
+            policy.policy.value = only("DE_DUB")
+            assertTrue("the calendar (and so the widget and the explore rows) no longer shows the switched-off track", presented(repository).isEmpty())
+            assertTrue("Home, lists and details do not either", presentedForMedia(repository).isEmpty())
+
+            policy.policy.value = only("DE_SUB")
+            assertEquals("switching it on again shows the accepted row, nothing was deleted", 1, presented(repository).size)
+            assertEquals(1, presentedForMedia(repository).getValue(42).size)
+        } finally { db.close() }
+    }
+
     /**
      * A planned time moves from 13:00 to 14:00 UTC with a later refresh of the same source. The collectors of the per-media
      * and the calendar flow stay open the whole time: both see the new time without being restarted, so no entry point keeps

@@ -22,6 +22,7 @@ import com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionEntity
 import com.axiel7.anihyou.release.data.db.ExternalMappingEntity
 import com.axiel7.anihyou.release.data.db.ReleaseReconciliationMapper
 import java.time.Instant
+import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -213,6 +214,65 @@ class ExtensionMediaPresentationsTest {
             (System.nanoTime() - start) / 1_000_000.0
         }
         return samples.sorted()[runs / 2]
+    }
+
+    private val week = LocalDate.parse("2026-10-01")..LocalDate.parse("2026-10-07")
+
+    private fun calendar(
+        rows: List<CanonicalReleaseProjectionEntity>, mappings: List<ExternalMappingEntity>,
+        preferences: ExtensionPreferences = defaults,
+    ) = rows.toExtensionCalendarItems(mappings, week, preferences)
+
+    /** A released episode whose publication time two observations disagree on: the monotonic contract keeps it RELEASED. */
+    private fun releasedWithAnOpenConflict(slug: String, episode: Int): CanonicalReleaseProjectionEntity {
+        val identity = identity(slug, episode)
+        val state = CanonicalReleaseState(
+            key = identity.key, underlyingPhase = ReleasePhase.RELEASED, phase = ReleasePhase.RELEASED,
+            authority = ReleaseAuthority.ANIWORLD, releaseAt = now.minusSeconds(3_600),
+            conflicts = listOf(ReleaseConflict("c-publication-$episode", ReleaseConflictKind.PUBLICATION_TIME_DISAGREEMENT,
+                setOf("e1", "e2"), true)),
+            revision = 3, navigationSeasons = setOf(1), latestCompletedAt = now,
+        )
+        return ReleaseReconciliationMapper.projection(state, identity.bucketKey, 1)
+    }
+
+    /** F02 of the independent review: a track switched off in the settings must leave every entry point, not only some. */
+    @Test fun aTrackTheUserTurnedOffIsPresentedByNeitherTheCalendarNorThePerMediaFold() {
+        val rows = listOf(
+            released("series-a", 10, LanguageTrack.DE_SUB), planned("series-a", 11, today3pm, LanguageTrack.DE_SUB),
+            released("series-a", 10, LanguageTrack.DE_DUB), planned("series-a", 11, today3pm, LanguageTrack.DE_DUB),
+        )
+        val mappings = listOf(binding("series-a", 42))
+        fun tracksOf(preferences: ExtensionPreferences) = Pair(
+            presented(rows, mappings, preferences = preferences)[42].orEmpty().map { it.stream.languageTrack }.toSet(),
+            calendar(rows, mappings, preferences).map { it.stream.languageTrack }.toSet(),
+        )
+        val both = setOf(LanguageTrack.DE_SUB, LanguageTrack.DE_DUB)
+        assertEquals(Pair(both, both), tracksOf(defaults))
+        val dubOnly = ExtensionPreferences(enabledTracks = setOf("DE_DUB"), preferredTrackOrder = listOf("DE_DUB"))
+        assertEquals(Pair(setOf(LanguageTrack.DE_DUB), setOf(LanguageTrack.DE_DUB)), tracksOf(dubOnly))
+        val subOnly = ExtensionPreferences(enabledTracks = setOf("DE_SUB"), preferredTrackOrder = listOf("DE_SUB"))
+        assertEquals(Pair(setOf(LanguageTrack.DE_SUB), setOf(LanguageTrack.DE_SUB)), tracksOf(subOnly))
+        val none = ExtensionPreferences(enabledTracks = emptySet(), preferredTrackOrder = emptyList())
+        assertEquals(Pair(emptySet<LanguageTrack>(), emptySet<LanguageTrack>()), tracksOf(none))
+    }
+
+    /** F03 of the independent review: one released episode with an open conflict has one authority in every entry point. */
+    @Test fun aReleasedEpisodeWithAnOpenConflictHasTheSameAuthorityInTheCalendarAndThePerMediaFold() {
+        val rows = listOf(releasedWithAnOpenConflict("series-a", 10))
+        val mappings = listOf(binding("series-a", 42))
+        val perMedia = presented(rows, mappings).getValue(42).single()
+        val inCalendar = calendar(rows, mappings).single()
+        assertEquals("the released episode stays valid (ReleaseConflictPolicy.effectivePhase is monotonic)",
+            ReleaseUiAuthority.VALID, perMedia.authority)
+        assertEquals(perMedia.authority, inCalendar.authority)
+        assertTrue(inCalendar.confirmed)
+        assertEquals(10, perMedia.confirmedThroughEpisode)
+
+        // A planned row in conflict is not a fact in either fold.
+        val plannedInConflict = listOf(planned("series-a", 11, today3pm, conflict = true))
+        assertEquals(ReleaseUiAuthority.AMBIGUOUS, presented(plannedInConflict, mappings).getValue(42).single().authority)
+        assertEquals(ReleaseUiAuthority.AMBIGUOUS, calendar(plannedInConflict, mappings).single().authority)
     }
 
     /**
