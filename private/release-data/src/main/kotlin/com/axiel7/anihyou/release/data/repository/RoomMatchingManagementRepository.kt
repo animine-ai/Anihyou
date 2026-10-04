@@ -14,6 +14,7 @@ import com.axiel7.anihyou.release.core.api.MappingScope
 import com.axiel7.anihyou.release.core.api.MappingSourceFacet
 import com.axiel7.anihyou.release.core.api.MatcherOption
 import com.axiel7.anihyou.release.core.api.MatchingManagementRepository
+import com.axiel7.anihyou.release.core.api.UnmatchedSeries
 import com.axiel7.anihyou.release.core.matching.SearchTitleFolding
 import com.axiel7.anihyou.release.core.model.MappingConfidence
 import com.axiel7.anihyou.release.core.model.MappingOrigin
@@ -41,6 +42,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -443,6 +445,24 @@ class RoomMatchingManagementRepository(
             MappingRematchOutcome.UNAVAILABLE
         }
     }
+
+    // --- unbound series of the active source ---------------------------------------------------------------------------
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override fun observeUnmatched(): Flow<List<UnmatchedSeries>> = service.activeSource.flatMapLatest { active ->
+        if (active == null) flowOf(emptyList()) else combine(
+            dao.observeSourceMappingTrigger(), dao.observeLabelTrigger(), dao.observeLegacyV3Trigger(),
+            database.reconciliationDao().observeSourceProjections(active.sourceId, active.extensionId,
+                active.publisherId, active.providerId).map { it.size },
+        ) { _, _, _, _ -> 0 }.mapLatest { service.unmatched(active) }
+    }.distinctUntilChanged().flowOn(Dispatchers.IO)
+
+    override suspend fun matchUnmatchedNow(): Int = withContext(Dispatchers.IO) {
+        AppLog.i("matching") { "user: match unbound series now" }
+        service.autoMatchPending().matched
+    }
+
+    override suspend fun assignUnmatched(series: UnmatchedSeries, mediaId: Int): MappingMutationResult =
+        withContext(Dispatchers.IO) { mutation.withLock { service.assign(series, mediaId) } }
 
     // --- detail entry -----------------------------------------------------------------------------------------------
     override suspend fun ensureDetailMapping(mediaId: Int) =

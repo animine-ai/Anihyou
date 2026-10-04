@@ -5,7 +5,9 @@ import androidx.room.withTransaction
 import com.axiel7.anihyou.release.core.api.DetailMappingRequest
 import com.axiel7.anihyou.release.core.api.IdentityCandidate
 import com.axiel7.anihyou.release.core.api.IdentityCandidateSource
+import com.axiel7.anihyou.release.core.api.MappingMutationResult
 import com.axiel7.anihyou.release.core.api.MappingRematchOutcome
+import com.axiel7.anihyou.release.core.api.UnmatchedSeries
 import com.axiel7.anihyou.release.core.api.TargetedIdentityQuery
 import com.axiel7.anihyou.release.core.matching.MatchDecision
 import com.axiel7.anihyou.release.core.matching.MatchTier
@@ -45,7 +47,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -130,14 +134,31 @@ class SourceSeriesMatchingService(
 
         val hits = mutableListOf<SourceSeriesLabelEntity>()
         var offset = 0
+        var scanned = 0
+        val wantedTokens = wantedBases.flatMap { it.split(' ') }.filter { it.length > 2 }.toSet()
+        val closest = ArrayList<Pair<Int, String>>()
         while (offset < MAX_LABELS) {
             val page = dao.labelsOf(active.sourceId, active.extensionId, active.publisherId, active.providerId, PAGE, offset)
-            page.forEach { label -> if (names(label).any { TitleNormalizer.normalize(it).base in wantedBases }) hits += label }
+            scanned += page.size
+            page.forEach { label ->
+                if (names(label).any { TitleNormalizer.normalize(it).base in wantedBases }) hits += label
+                else if (AppLog.enabled) {
+                    val overlap = names(label).maxOf { name ->
+                        TitleNormalizer.normalize(name).base.split(' ').count { it in wantedTokens }
+                    }
+                    if (overlap > 0) closest += overlap to label.title
+                }
+            }
             if (page.size < PAGE) break
             offset += PAGE
         }
         // Exactly one source series may fit; two are ambiguous and stay unmatched.
-        AppLog.i("matching") { "media=$media season=$season label hits=${hits.size} for bases=$wantedBases" }
+        AppLog.i("matching") {
+            "media=$media season=$season label hits=${hits.size} of $scanned source series for bases=$wantedBases" +
+                if (hits.isEmpty() && closest.isNotEmpty())
+                    " | closest source titles: " + closest.sortedByDescending { it.first }.take(3).joinToString { "'${it.second}'" }
+                else ""
+        }
         val label = hits.singleOrNull() ?: return
         val subject = runCatching {
             AniWorldMappingSubject.Season(AniWorldSiteIdentifier(label.providerSeriesKey), season)
@@ -174,9 +195,10 @@ class SourceSeriesMatchingService(
      * at most [maxSearches] AniList searches (the lookup cache answers a repeated title without the network), nearest
      * releases first, so the series the user looks at are bound first and the rest follow with the next refresh.
      */
-    suspend fun autoMatchPending(maxSearches: Int = AUTO_SEARCHES_PER_RUN): AutoMatchReport {
-        val active = policy.policy.value.activeReleaseSource ?: return AutoMatchReport()
-        val sourceKey = MappingEntryIds.sourceKey(active)
+    /** The unbound (series, season) pairs of this source's rows, nearest releases first, plus what is already taken. */
+    private class Pending(val subjects: Int, val bound: Int, val series: List<Pair<String, Int>>, val takenMedia: Set<Int>)
+
+    private suspend fun findPending(active: ExtensionSelectionKey): Pending {
         val now = clock.instant()
         val rows = database.reconciliationDao()
             .observeSourceProjections(active.sourceId, active.extensionId, active.publisherId, active.providerId).first()
@@ -196,13 +218,53 @@ class SourceSeriesMatchingService(
             }
         }
         val bindings = dao.observeEffectiveAniListMappings(active.sourceId, active.extensionId, active.publisherId,
-            active.providerId, sourceKey).first()
+            active.providerId, MappingEntryIds.sourceKey(active)).first()
         val bound = bindings.filter { it.subjectType == "SEASON" && it.navigationSeason != null }
             .map { it.siteSlug to it.navigationSeason!! }.toSet()
-        val takenMedia = bindings.mapNotNull { it.externalId?.toIntOrNull() }.toMutableSet()
-        val pending = subjects.entries.filter { it.key !in bound }.sortedBy { it.value }.map { it.key }
+        return Pending(subjects.size, bound.size,
+            subjects.entries.filter { it.key !in bound }.sortedBy { it.value }.map { it.key },
+            bindings.mapNotNull { it.externalId?.toIntOrNull() }.toSet())
+    }
+
+    /** The active source (null without one), for the management list. */
+    val activeSource: kotlinx.coroutines.flow.Flow<ExtensionSelectionKey?> =
+        policy.policy.map { it.activeReleaseSource }.distinctUntilChanged()
+
+    /** The series of the active source that no binding covers, with the title the source gave them. Local reads only. */
+    suspend fun unmatched(active: ExtensionSelectionKey): List<UnmatchedSeries> = findPending(active).series.map { (slug, season) ->
+        val label = dao.label(active.sourceId, active.extensionId, active.publisherId, active.providerId, slug)
+        UnmatchedSeries(active, slug, season, label?.title ?: slug.replace(Regex("[-_]+"), " ").trim())
+    }
+
+    /**
+     * The user's own choice for one unbound series. An existing binding (also one of the older provider-wide rows) is
+     * never overwritten here; the correction of a binding has its own path.
+     */
+    suspend fun assign(series: UnmatchedSeries, mediaId: Int): MappingMutationResult {
+        val active = policy.policy.value.activeReleaseSource?.takeIf { it == series.source } ?: return MappingMutationResult.STALE
+        if (mediaId <= 0 || series.season !in 1..99) return MappingMutationResult.UNAVAILABLE
+        val subject = runCatching { AniWorldMappingSubject.Season(AniWorldSiteIdentifier(series.seriesKey), series.season) }
+            .getOrNull() ?: return MappingMutationResult.UNAVAILABLE
+        return database.withTransaction {
+            if (alreadyAccepted(active, subject)) return@withTransaction MappingMutationResult.STALE
+            val now = clock.instant()
+            val domain = ExternalMapping(subject, ExternalProvider.ANILIST, mediaId.toString(), MappingSource.MANUAL,
+                MappingConfidence.EXACT, now, now, MappingStatus.ACTIVE, provenance = "settings-assign",
+                parserVersion = "manual-v1")
+            dao.upsertSourceMapping(domain.toEntity().forSource(active, now))
+            AppLog.i("matching") { "user: assigned series=${series.seriesKey} season=${series.season} -> media=$mediaId" }
+            MappingMutationResult.APPLIED
+        }
+    }
+
+    suspend fun autoMatchPending(maxSearches: Int = AUTO_SEARCHES_PER_RUN): AutoMatchReport {
+        val active = policy.policy.value.activeReleaseSource ?: return AutoMatchReport()
+        val sourceKey = MappingEntryIds.sourceKey(active)
+        val found = findPending(active)
+        val takenMedia = found.takenMedia.toMutableSet()
+        val pending = found.series
         AppLog.i("matching") {
-            "auto match start: series seasons=${subjects.size} bound=${bound.size} pending=${pending.size} budget=$maxSearches"
+            "auto match start: series seasons=${found.subjects} bound=${found.bound} pending=${pending.size} budget=$maxSearches"
         }
         var examined = 0
         var matched = 0

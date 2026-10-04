@@ -107,4 +107,11 @@
     <string name="extension_legacy_lane_switch">Alte AniWorld-Daten verwenden</string>
     <string name="extension_legacy_lane_summary">Überbleibsel früherer Versionen. Sie laufen neben den Quellen und können mitbestimmen, was im Rückstand ist. Ausschalten lässt AniList oder die aktive Quelle übrig.</string>
     <string name="extension_releases_refresh_now">Releases jetzt abrufen</string>
+    <string name="matching_unmatched_title">Nicht zugeordnet (%1$d)</string>
+    <string name="matching_match_now">Jetzt automatisch zuordnen</string>
+    <string name="matching_unmatched_empty">Alle Serien der aktiven Quelle sind zugeordnet.</string>
+    <string name="matching_unmatched_season">Staffel %1$d</string>
+    <string name="matching_matched_now">Neu zugeordnet: %1$d</string>
+    <string name="matching_assign">Zuordnen</string>
+    <string name="matching_assign_title">AniList-Eintrag wählen</string>
 </resources>

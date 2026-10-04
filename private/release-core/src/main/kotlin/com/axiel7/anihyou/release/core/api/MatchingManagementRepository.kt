@@ -52,7 +52,17 @@ data class DetailMappingRequest(val mediaId: Int, val titles: Set<String>,
     init { require(mediaId > 0 && titles.size <= 64 && titles.all { it.isNotBlank() && it.length <= 512 }) }
 }
 
+/** A series of the active source that has no AniList binding yet, per season; [title] is what the source calls it. */
+data class UnmatchedSeries(val source: ExtensionSelectionKey, val seriesKey: String, val season: Int, val title: String)
+
 interface MatchingManagementRepository {
+    /** The series of the active source without a binding, nearest releases first. Local reads only. */
+    fun observeUnmatched(): Flow<List<UnmatchedSeries>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    /** Runs the automatic matching for the unbound series now; returns how many it bound. Spends bounded AniList searches. */
+    suspend fun matchUnmatchedNow(): Int = 0
+    /** The user's own choice for one unbound series. Never overwrites an existing binding. */
+    suspend fun assignUnmatched(series: UnmatchedSeries, mediaId: Int): MappingMutationResult = MappingMutationResult.UNAVAILABLE
+
     /** Bounded persistent query; no network metadata hydration and no automatic matching. */
     fun observePage(query: MappingQuery): Flow<MappingPage>
     /** Freeze identities AND revisions for the confirmation dialog; reject changed revisions later. */

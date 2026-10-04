@@ -114,6 +114,36 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                         scope = MappingScope.All, event = event, tag = "all")
                 }
             }
+            item {
+                Column {
+                    PreferencesTitle(stringResource(R.string.matching_unmatched_title, state.unmatched.size))
+                    PlainPreference(title = stringResource(R.string.matching_match_now), icon = CoreR.drawable.refresh_24,
+                        enabled = !state.busy && !state.preparing && state.confirmation == null, isLoading = state.busy,
+                        onClick = event::matchNow, shape = singleShape,
+                        modifier = Modifier.testTag("matching-match-now"))
+                    state.lastMatched?.let {
+                        Text(stringResource(R.string.matching_matched_now, it), style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp).testTag("matching-matched-now"))
+                    }
+                    if (state.unmatched.isEmpty()) Text(stringResource(R.string.matching_unmatched_empty),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp).testTag("matching-unmatched-empty"))
+                }
+            }
+            items(state.unmatched.take(UNMATCHED_SHOWN), key = { "unmatched-${it.seriesKey}-${it.season}" }) { series ->
+                Card(onClick = { event.openUnmatched(series) }, enabled = !state.busy && !state.preparing,
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()
+                        .testTag("unmatched-row-${series.seriesKey}-${series.season}")) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(series.title, style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.matching_unmatched_season, series.season),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
             if (!state.loading && state.page.entries.isEmpty()) item {
                 Text(stringResource(R.string.matching_empty), style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -178,6 +208,7 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
         }
     }
     state.editor?.let { MappingEditor(state, it, event) }
+    state.unmatchedEditor?.let { UnmatchedEditor(state, it, event) }
     state.confirmation?.let { confirmation ->
         AlertDialog(onDismissRequest = event::dismissConfirmation,
             title = { Text(stringResource(if (confirmation.action == MappingAction.RESET) R.string.matching_reset else R.string.matching_rematch)) },
@@ -289,6 +320,44 @@ private fun MappingEditor(state: MatchingManagementState, entry: ManagedMapping,
             modifier = Modifier.testTag("matching-save-target")) { Text(stringResource(R.string.matching_save_target)) } },
         dismissButton = { TextButton(onClick = event::closeEditor, enabled = !state.busy) { Text(stringResource(R.string.matching_close)) } })
 }
+
+@Composable
+private fun UnmatchedEditor(state: MatchingManagementState, series: UnmatchedSeries, event: MatchingManagementEvent) {
+    AlertDialog(onDismissRequest = event::closeUnmatched, modifier = Modifier.testTag("unmatched-editor"),
+        title = { Text(stringResource(R.string.matching_assign_title)) },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.heightIn(max = 440.dp)) {
+                item {
+                    Text(series.title, style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.matching_unmatched_season, series.season),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SearchPillField(value = state.targetQuery, onValueChange = event::targetQuery, enabled = !state.busy,
+                        placeholder = stringResource(R.string.matching_target_search),
+                        onSearch = { if (state.targetQuery.isNotBlank()) event.findTargets(false) },
+                        modifier = Modifier.testTag("matching-target-search"))
+                    TextButton(onClick = { event.findTargets(false) }, enabled = !state.busy && !state.targetLoading && state.targetQuery.isNotBlank(),
+                        modifier = Modifier.testTag("matching-find-targets")) { Text(stringResource(R.string.matching_find)) }
+                    if (state.targetLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    state.notice?.let { Text(stringResource(noticeText(it))) }
+                }
+                items(state.targets, key = { it.id }) { target ->
+                    TextButton(onClick = { event.choose(target) }, enabled = !state.busy,
+                        modifier = Modifier.testTag("mapping-target-${target.id}")) {
+                        Text("${if (state.chosenTarget == target) "✓ " else ""}${target.title} · #${target.id}")
+                    }
+                }
+                if (state.hasMoreTargets) item {
+                    TextButton(onClick = { event.findTargets(true) }, enabled = !state.busy && !state.targetLoading) { Text(stringResource(R.string.matching_next)) }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = event::assign, enabled = !state.busy && state.chosenTarget != null,
+            modifier = Modifier.testTag("matching-assign-target")) { Text(stringResource(R.string.matching_assign)) } },
+        dismissButton = { TextButton(onClick = event::closeUnmatched, enabled = !state.busy) { Text(stringResource(R.string.matching_close)) } })
+}
+
+/** The list stays a bounded read; the rest follows as the automatic matching or the user binds series. */
+private const val UNMATCHED_SHOWN = 150
 
 @Composable
 private fun scopeText(scope: MappingScope, state: MatchingManagementState): String = when (scope) {

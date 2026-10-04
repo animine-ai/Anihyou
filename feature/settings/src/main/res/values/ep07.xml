@@ -107,4 +107,11 @@
     <string name="extension_legacy_lane_switch">Use old AniWorld data</string>
     <string name="extension_legacy_lane_summary">Left over from earlier versions. It runs beside the sources and can decide what is behind. Switching it off leaves AniList or the active source.</string>
     <string name="extension_releases_refresh_now">Fetch releases now</string>
+    <string name="matching_unmatched_title">Not matched (%1$d)</string>
+    <string name="matching_match_now">Match automatically now</string>
+    <string name="matching_unmatched_empty">Every series of the active source is matched.</string>
+    <string name="matching_unmatched_season">Season %1$d</string>
+    <string name="matching_matched_now">Newly matched: %1$d</string>
+    <string name="matching_assign">Assign</string>
+    <string name="matching_assign_title">Choose the AniList entry</string>
 </resources>

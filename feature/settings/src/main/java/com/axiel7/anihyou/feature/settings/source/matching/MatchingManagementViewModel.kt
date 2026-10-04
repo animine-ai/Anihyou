@@ -32,6 +32,11 @@ data class MatchingManagementState(
     val notice: MatchingNotice? = null,
     val options: List<MatcherOption> = emptyList(),
     val confirmConfigurationReset: Boolean = false,
+    /** The series of the active source that no binding covers yet. */
+    val unmatched: List<UnmatchedSeries> = emptyList(),
+    val unmatchedEditor: UnmatchedSeries? = null,
+    /** How many series the last "match now" bound; null before the first run. */
+    val lastMatched: Int? = null,
 )
 
 interface MatchingManagementEvent {
@@ -54,6 +59,12 @@ interface MatchingManagementEvent {
     fun askConfigurationReset()
     fun dismissConfigurationReset()
     fun resetConfiguration()
+    /** Matches the unbound series of the active source automatically, now. */
+    fun matchNow() {}
+    fun openUnmatched(series: UnmatchedSeries) {}
+    fun closeUnmatched() {}
+    /** Binds the open unbound series to the chosen AniList entry. */
+    fun assign() {}
 }
 
 /** Membership and revisions are captured before confirmation, never reconstructed from live filters. */
@@ -84,6 +95,11 @@ class MatchingManagementViewModel(
                         notice = MatchingNotice.FAILED) }
                 }
             }
+        }
+        viewModelScope.launch {
+            try { repository.observeUnmatched().collect { list -> mutable.update { it.copy(unmatched = list) } } }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { mutable.update { it.copy(unmatched = emptyList()) } }
         }
         viewModelScope.launch {
             try { repository.observeMatcherOptions().collect { options ->
@@ -136,7 +152,8 @@ class MatchingManagementViewModel(
     }
     override fun findTargets(next: Boolean) {
         val snapshot = state.value
-        if (snapshot.editor == null || snapshot.busy || snapshot.targetLoading || snapshot.targetQuery.isBlank()) return
+        if ((snapshot.editor == null && snapshot.unmatchedEditor == null) || snapshot.busy || snapshot.targetLoading ||
+            snapshot.targetQuery.isBlank()) return
         if (next && !snapshot.hasMoreTargets) return
         val page = if (next) snapshot.targetPage + 1 else 1
         val generation = ++searchGeneration
@@ -156,6 +173,36 @@ class MatchingManagementViewModel(
     }
     override fun choose(target: MappingTarget) {
         if (!state.value.busy && target in state.value.targets) mutable.update { it.copy(chosenTarget = target) }
+    }
+    override fun matchNow() {
+        if (state.value.busy || state.value.preparing) return
+        mutate {
+            val bound = repository.matchUnmatchedNow()
+            mutable.update { it.copy(lastMatched = bound, notice = MatchingNotice.FINISHED) }
+        }
+    }
+    override fun openUnmatched(series: UnmatchedSeries) {
+        if (state.value.busy || state.value.preparing) return
+        searchJob?.cancel(); searchGeneration++
+        // The search starts from the title the source gave the series; the user only has to press find.
+        mutable.update { it.copy(unmatchedEditor = series, editor = null, targetQuery = series.title.take(256), targets = emptyList(),
+            targetPage = 1, chosenTarget = null, hasMoreTargets = false, targetLoading = false, notice = null) }
+    }
+    override fun closeUnmatched() {
+        if (state.value.busy) return
+        searchJob?.cancel(); searchGeneration++
+        mutable.update { it.copy(unmatchedEditor = null, targets = emptyList(), targetLoading = false, chosenTarget = null) }
+    }
+    override fun assign() {
+        val snapshot = state.value
+        val series = snapshot.unmatchedEditor ?: return
+        val target = snapshot.chosenTarget ?: return
+        if (snapshot.busy || snapshot.preparing) return
+        mutate {
+            val result = repository.assignUnmatched(series, target.id)
+            mutable.update { it.copy(notice = result.notice(),
+                unmatchedEditor = if (result == MappingMutationResult.APPLIED) null else it.unmatchedEditor) }
+        }
     }
     override fun correct() {
         val snapshot = state.value

@@ -476,6 +476,26 @@ class RoomMatchingManagementRepositoryTest {
             subject("aot", 1).stableKey, "anilist")!!.revision)
     }
 
+    @Test fun unmatchedListsTheSeriesWithoutBindingAndAssignWritesAManualBindingOnce() = runBlocking {
+        val rig = Rig()
+        listOf("aot" to "Attack on Titan", "bleach" to "Bleach").forEach { (slug, title) ->
+            rig.dao.upsertLabel(label(keyA, slug, title))
+            rig.database.reconciliationDao().upsertSourceProjection(forecastRow(keyA, slug, 1, t0.plusSeconds(3_600)))
+        }
+        rig.dao.upsertSourceMapping(sourceRow(keyA, "bleach", 1, 5))
+        val list = rig.repository.observeUnmatched().first()
+        assertEquals(listOf("aot"), list.map { it.seriesKey })
+        assertEquals("Attack on Titan", list.single().title)
+        assertEquals(MappingMutationResult.APPLIED, rig.repository.assignUnmatched(list.single(), 7))
+        val row = rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("aot", 1).stableKey, "anilist")!!
+        assertEquals("7", row.externalId)
+        assertEquals(MappingSource.MANUAL.name, row.mappingSource)
+        assertEquals("an existing binding is never overwritten here", MappingMutationResult.STALE,
+            rig.repository.assignUnmatched(list.single(), 8))
+        assertTrue(rig.repository.observeUnmatched().first().isEmpty())
+    }
+
     @Test fun autoMatchNeverBindsTwoSeriesToOneAniListEntry() = runBlocking {
         val rig = Rig()
         listOf("aot", "aot-copy").forEach { slug ->
