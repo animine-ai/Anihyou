@@ -44,6 +44,9 @@ fun MainBottomNavBar(
         enter = slideInVertically(initialOffsetY = { it }),
         exit = slideOutVertically(targetOffsetY = { it })
     ) {
+        // A promoted chart carries its media type in the label ("Anime · Top 100") and wraps to two lines on a phone. When one
+        // is in the bar, every label reserves two lines so the five icons stay on one line instead of one sitting higher.
+        val reserveTwoLines = destinations.any { it.route is Route.ChartMain }
         NavigationBar {
             destinations.forEach { dest ->
                 key(dest.stableId) {
@@ -70,7 +73,8 @@ fun MainBottomNavBar(
                     label = {
                         Text(
                             text = dest.displayTitle(),
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            minLines = if (reserveTwoLines) 2 else 1,
                         )
                     },
                     selected = isSelected,
