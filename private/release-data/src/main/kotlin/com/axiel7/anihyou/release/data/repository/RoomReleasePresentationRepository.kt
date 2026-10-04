@@ -271,12 +271,15 @@ internal class MappingLookup(mappings: List<ExternalMappingEntity>) {
 
     /** The AniList media this row is bound to, or null when no binding or more than one media matches. */
     fun aniListId(identity: CanonicalReleaseIdentity, navigationSeasons: Set<Int>): Int? {
+        // A forecast-only row (the calendar page links the series, not an episode) proves no navigation season; its source
+        // season then stands in, which is the season the series is bound under in the common case.
+        val seasons = navigationSeasons.ifEmpty { setOfNotNull(identity.sourceSeason) }
         val candidates = bySlug[identity.seriesPath.removePrefix("/anime/stream/")].orEmpty().filter { row ->
             when (val installment = identity.installment) {
                 is Installment.Episode ->
                     row.subjectType == "SEASON" &&
                         row.navigationSeason != null &&
-                        row.navigationSeason in navigationSeasons
+                        row.navigationSeason in seasons
                 is Installment.Film ->
                     row.subjectType == "FILM" && row.filmNumber == installment.number
                 is Installment.Special -> false

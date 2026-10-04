@@ -14,6 +14,7 @@ import com.axiel7.anihyou.release.core.matching.ReleaseMatcher
 import com.axiel7.anihyou.release.core.matching.TitleNormalizer
 import com.axiel7.anihyou.release.core.model.AniWorldMappingSubject
 import com.axiel7.anihyou.release.core.model.AniWorldSiteIdentifier
+import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
 import com.axiel7.anihyou.release.core.model.ExternalMapping
 import com.axiel7.anihyou.release.core.model.ExternalProvider
 import com.axiel7.anihyou.release.core.model.Installment
@@ -30,6 +31,7 @@ import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.data.db.SourceMappingEntity
+import com.axiel7.anihyou.release.data.db.ReleaseReconciliationMapper
 import com.axiel7.anihyou.release.data.db.SourceSeriesLabelEntity
 import com.axiel7.anihyou.release.data.db.toDomainOrNull
 import com.axiel7.anihyou.release.data.db.toEntity
@@ -43,6 +45,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -162,6 +165,93 @@ class SourceSeriesMatchingService(
         }
         AppLog.i("matching") { "media=$media: automatic mapping written tier=${matched.tier} series=${label.providerSeriesKey}" }
         writeAuto(active, subject, matched, epoch)
+    }
+
+    /**
+     * Binds the series of the active source's rows that have no binding yet to AniList entries, so that the calendar,
+     * Behind and the details present them with AniList metadata. It uses the same matcher and the same automatic tiers
+     * as [resolve]; a fuzzy hit is never written, and a series the user reset or corrected is left alone. One run spends
+     * at most [maxSearches] AniList searches (the lookup cache answers a repeated title without the network), nearest
+     * releases first, so the series the user looks at are bound first and the rest follow with the next refresh.
+     */
+    suspend fun autoMatchPending(maxSearches: Int = AUTO_SEARCHES_PER_RUN): AutoMatchReport {
+        val active = policy.policy.value.activeReleaseSource ?: return AutoMatchReport()
+        val sourceKey = MappingEntryIds.sourceKey(active)
+        val now = clock.instant()
+        val rows = database.reconciliationDao()
+            .observeSourceProjections(active.sourceId, active.extensionId, active.publisherId, active.providerId).first()
+        // (series, season) -> days between now and the nearest release or forecast of that series.
+        val subjects = LinkedHashMap<Pair<String, Int>, Long>()
+        rows.forEach { source ->
+            val row = source.asCanonical()
+            val identity = CanonicalReleaseIdentity.decode(row.projectionKey) ?: return@forEach
+            if (identity.installment !is Installment.Episode) return@forEach
+            val state = runCatching { ReleaseReconciliationMapper.state(row) }.getOrNull() ?: return@forEach
+            val slug = identity.seriesPath.removePrefix("/anime/stream/")
+            val at = state.releaseAt ?: state.forecastAt
+            val distance = at?.let { kotlin.math.abs(java.time.Duration.between(now, it).toDays()) } ?: Long.MAX_VALUE
+            // A forecast row proves no navigation season, so its source season stands in (see MappingLookup).
+            state.navigationSeasons.ifEmpty { setOfNotNull(identity.sourceSeason) }.filter { it in 1..99 }.forEach { season ->
+                subjects.merge(slug to season, distance) { a, b -> minOf(a, b) }
+            }
+        }
+        val bindings = dao.observeEffectiveAniListMappings(active.sourceId, active.extensionId, active.publisherId,
+            active.providerId, sourceKey).first()
+        val bound = bindings.filter { it.subjectType == "SEASON" && it.navigationSeason != null }
+            .map { it.siteSlug to it.navigationSeason!! }.toSet()
+        val takenMedia = bindings.mapNotNull { it.externalId?.toIntOrNull() }.toMutableSet()
+        val pending = subjects.entries.filter { it.key !in bound }.sortedBy { it.value }.map { it.key }
+        AppLog.i("matching") {
+            "auto match start: series seasons=${subjects.size} bound=${bound.size} pending=${pending.size} budget=$maxSearches"
+        }
+        var examined = 0
+        var matched = 0
+        var searches = 0
+        for ((slug, season) in pending) {
+            if (searches >= maxSearches) break
+            val subject = runCatching { AniWorldMappingSubject.Season(AniWorldSiteIdentifier(slug), season) }.getOrNull()
+                ?: continue
+            // A reset or corrected entry is the user's decision; the automatic pass never brings it back.
+            if (dao.fence(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}") != null) continue
+            if (alreadyAccepted(active, subject)) continue
+            val label = dao.label(active.sourceId, active.extensionId, active.publisherId, active.providerId, slug)
+            val title = label?.title ?: slug.replace(Regex("[-_]+"), " ").trim().ifBlank { continue }
+            val identity = sourceIdentity(active.providerId, slug, season)
+            val request = ReleaseMatchRequest(identity, title,
+                aliases = label?.let { names(it).toSet() - it.title }.orEmpty(), season = season)
+            val epoch = fence.epoch(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}")
+            examined++
+            val local = attempt { candidates.localCandidates(setOf(identity)).candidates }.orEmpty()
+            var decision = matcher.match(request, local)
+            val localHit = decision as? MatchDecision.Matched
+            if (localHit == null || localHit.tier !in AUTO_TIERS) {
+                val started = System.nanoTime()
+                val found = attempt {
+                    candidates.targetedSearch(TargetedIdentityQuery(identity, title, AUTO_FORMATS,
+                        signature = "auto-match|${identity.stableKey}|$title")).candidates
+                }.orEmpty()
+                // A cached answer is instant; only a real request counts against the budget and is paced.
+                if ((System.nanoTime() - started) / 1_000_000 > 150) {
+                    searches++
+                    delay(AUTO_SEARCH_PACE_MS)
+                }
+                decision = matcher.match(request, (local + found).distinctBy { it.mediaId })
+            }
+            val accepted = decision as? MatchDecision.Matched
+            if (accepted == null || accepted.tier !in AUTO_TIERS) {
+                AppLog.d("matching") { "auto: series=$slug season=$season title='$title' -> no automatic match (${decision.javaClass.simpleName})" }
+                continue
+            }
+            if (!takenMedia.add(accepted.mediaId)) {
+                AppLog.i("matching") { "auto: series=$slug season=$season -> media=${accepted.mediaId} is already bound to another series, left for the user" }
+                continue
+            }
+            AppLog.i("matching") { "auto: series=$slug season=$season title='$title' -> media=${accepted.mediaId} tier=${accepted.tier}" }
+            writeAuto(active, subject, accepted, epoch)
+            matched++
+        }
+        AppLog.i("matching") { "auto match done: examined=$examined matched=$matched searches=$searches pendingLeft=${pending.size - matched}" }
+        return AutoMatchReport(pending.size, examined, matched, searches)
     }
 
     /**
@@ -302,10 +392,17 @@ class SourceSeriesMatchingService(
         const val MAX_LABELS = 20_000
         /** Spacing between two network searches of one explicit rematch run. */
         const val SEARCH_PACE_MS = 700L
+        /** AniList answers about 90 requests a minute; the automatic pass stays far below it and spreads over refreshes. */
+        const val AUTO_SEARCHES_PER_RUN = 30
+        const val AUTO_SEARCH_PACE_MS = 1_100L
+        val AUTO_FORMATS = setOf("TV", "TV_SHORT", "ONA", "OVA")
         /** A fuzzy hit is never accepted without the user. */
         val AUTO_TIERS = setOf(MatchTier.EXACT_NORMALIZED, MatchTier.EXACT_BASE_SEASON, MatchTier.ALIAS)
     }
 }
+
+/** What one automatic matching pass saw and did; for the log and the tests. */
+data class AutoMatchReport(val pending: Int = 0, val examined: Int = 0, val matched: Int = 0, val searches: Int = 0)
 
 /** The AniList searches one explicit rematch run may still spend; local candidates never cost any. */
 internal class SearchBudget(var remaining: Int)

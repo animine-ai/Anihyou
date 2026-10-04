@@ -138,6 +138,22 @@ class ExtensionMediaPresentationsTest {
         assertEquals(0, onlyConflict.pendingFor(0))
     }
 
+    @Test fun aForecastOnlyRowWithoutNavigationSeasonUsesItsSourceSeasonForTheBinding() {
+        val identity = identity("series-f", 3, season = 2)
+        val state = CanonicalReleaseState(
+            key = identity.key, underlyingPhase = ReleasePhase.EXPECTED, phase = ReleasePhase.EXPECTED,
+            authority = ReleaseAuthority.NONE, forecastAt = today3pm, conflicts = emptyList(), revision = 3,
+            navigationSeasons = emptySet(), latestCompletedAt = now,
+        )
+        val rows = listOf(ReleaseReconciliationMapper.projection(state, identity.bucketKey, 1))
+        val items = rows.toExtensionCalendarItems(listOf(binding("series-f", 42, season = 2)),
+            LocalDate.of(2026, 10, 1)..LocalDate.of(2026, 10, 10))
+        assertEquals(listOf(42), items.map { it.mediaId })
+        val other = rows.toExtensionCalendarItems(listOf(binding("series-f", 42, season = 3)),
+            LocalDate.of(2026, 10, 1)..LocalDate.of(2026, 10, 10))
+        assertEquals("another season is another entry", listOf<Int?>(null), other.map { it.mediaId })
+    }
+
     @Test fun anUnmappedOrAmbiguousBindingNeverGuessesAMedia() {
         val rows = listOf(released("series-a", 10))
         assertTrue("no binding at all", presented(rows, emptyList()).isEmpty())

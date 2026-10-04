@@ -177,6 +177,7 @@ val animetrackerReleaseModule = module {
         com.axiel7.anihyou.release.data.repository.ProductionExtensionReleaseRefreshCoordinator(
             sources = get(),
             delegate = get<com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator>(),
+            afterRefresh = { get<com.axiel7.anihyou.release.data.repository.SourceSeriesMatchingService>().autoMatchPending() },
         )
     }
     single<com.axiel7.anihyou.release.core.api.ExtensionRefreshScheduleRepository> {

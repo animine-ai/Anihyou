@@ -31,6 +31,18 @@ import com.axiel7.anihyou.release.core.source.ExtensionSource
 import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
 import com.axiel7.anihyou.release.core.source.ExtensionSourceStatus
 import com.axiel7.anihyou.release.core.source.SourceExtension
+import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
+import com.axiel7.anihyou.release.core.model.CanonicalReleaseState
+import com.axiel7.anihyou.release.core.model.ConfidenceVector
+import com.axiel7.anihyou.release.core.model.Installment
+import com.axiel7.anihyou.release.core.model.LanguageTrack
+import com.axiel7.anihyou.release.core.model.ReleaseAuthority
+import com.axiel7.anihyou.release.core.model.ReleaseEvidence
+import com.axiel7.anihyou.release.core.model.ReleaseEvidenceType
+import com.axiel7.anihyou.release.core.model.ReleasePhase
+import com.axiel7.anihyou.release.core.model.ReleaseSourceType
+import com.axiel7.anihyou.release.data.db.ReleaseReconciliationMapper
+import com.axiel7.anihyou.release.data.db.forSource
 import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.data.db.ReleaseMappingEntity
 import com.axiel7.anihyou.release.data.db.SourceMappingEntity
@@ -416,6 +428,63 @@ class RoomMatchingManagementRepositoryTest {
         assertTrue("resolved after the reset", writer.put(domain("gamma", 1, 31, MappingSource.MALSYNC, t0.plusSeconds(61))))
         assertTrue("an explicit manual binding is never blocked",
             writer.put(domain("gamma", 1, 32, MappingSource.MANUAL, t0.plusSeconds(1))))
+    }
+
+    /** A calendar row: forecast only, so it proves no navigation season. */
+    private fun forecastRow(key: ExtensionSelectionKey, slug: String, season: Int, at: Instant) = run {
+        val evidence = ReleaseEvidence(
+            id = "e-$slug", sourceType = ReleaseSourceType.ANIWORLD_RECENT,
+            sourceUrl = "https://aniworld.to/anime/stream/$slug", sourceHash = "hash", parserVersion = "fixture",
+            observedAt = t0, sourceReportedAt = null, approximateTime = false,
+            siteIdentifier = AniWorldSiteIdentifier(slug), sourceSeason = season, navigationSeason = season,
+            installment = Installment.Episode(3), languageTrack = LanguageTrack.DE_SUB,
+            evidenceType = ReleaseEvidenceType.CONFIRMATION, confidence = ConfidenceVector(1.0, 1.0, 1.0, 1.0, 1.0),
+        )
+        val identity = requireNotNull(CanonicalReleaseIdentity.from(evidence))
+        val state = CanonicalReleaseState(key = identity.key, underlyingPhase = ReleasePhase.EXPECTED,
+            phase = ReleasePhase.EXPECTED, authority = ReleaseAuthority.NONE, releaseAt = null, forecastAt = at,
+            conflicts = emptyList(), revision = 1, navigationSeasons = emptySet(), latestCompletedAt = t0)
+        ReleaseReconciliationMapper.projection(state, identity.bucketKey, 1)
+            .forSource(key.sourceId, key.extensionId, key.publisherId, key.providerId)
+    }
+
+    @Test fun autoMatchBindsTheForecastSeriesOfTheActiveSourceAndLeavesAmbiguousFencedAndTakenOnesAlone() = runBlocking {
+        val rig = Rig()
+        listOf("aot" to "Attack on Titan", "mystery" to "Some Unknown Show", "reset-by-user" to "Attack on Titan Reset")
+            .forEach { (slug, title) ->
+                rig.dao.upsertLabel(label(keyA, slug, title))
+                rig.database.reconciliationDao().upsertSourceProjection(forecastRow(keyA, slug, 1, t0.plusSeconds(3_600)))
+            }
+        // The user reset this series before; the automatic pass never brings it back.
+        rig.fence.bump(MappingEntryRef.FENCE_V3_SOURCE,
+            "${MappingEntryIds.sourceKey(keyA)}|${subject("reset-by-user", 1).stableKey}|anilist", t0)
+        rig.candidates.targeted = listOf(IdentityCandidate(7, setOf("Attack on Titan"), "TV", java.time.LocalDate.of(2013, 4, 7)))
+        val report = rig.service.autoMatchPending(maxSearches = 10)
+        assertEquals(2, report.examined)
+        assertEquals(1, report.matched)
+        val bound = rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("aot", 1).stableKey, "anilist")!!
+        assertEquals("7", bound.externalId)
+        assertNull(rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("mystery", 1).stableKey, "anilist"))
+        assertNull(rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("reset-by-user", 1).stableKey, "anilist"))
+        // A second run finds nothing new to bind and does not touch the accepted binding.
+        val again = rig.service.autoMatchPending(maxSearches = 10)
+        assertEquals(0, again.matched)
+        assertEquals(1L, rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("aot", 1).stableKey, "anilist")!!.revision)
+    }
+
+    @Test fun autoMatchNeverBindsTwoSeriesToOneAniListEntry() = runBlocking {
+        val rig = Rig()
+        listOf("aot", "aot-copy").forEach { slug ->
+            rig.dao.upsertLabel(label(keyA, slug, "Attack on Titan"))
+            rig.database.reconciliationDao().upsertSourceProjection(forecastRow(keyA, slug, 1, t0.plusSeconds(3_600)))
+        }
+        rig.candidates.targeted = listOf(IdentityCandidate(7, setOf("Attack on Titan"), "TV", java.time.LocalDate.of(2013, 4, 7)))
+        val report = rig.service.autoMatchPending(maxSearches = 10)
+        assertEquals("only the first series takes the entry", 1, report.matched)
     }
 
     @Test fun detailEntryRunsNoMatcherWhenABindingAlreadyExists() = runBlocking {
