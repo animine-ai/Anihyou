@@ -86,7 +86,7 @@ class NativeSettingsGroupsComposeTest {
     @Test fun emptySourcesDisableSelectionAndKeepMatchingAndScheduleRoutes() {
         lateinit var navigation: NavigationState
         val context = germanBlackContent {
-            navigation = rememberNavigationState(Route.ExtensionCenterPage("source"), MainNavigationResolver.allRoutes)
+            navigation = rememberNavigationState(Route.Home, MainNavigationResolver.allRoutes)
             val nav = remember(navigation) { Navigator(navigation) }
             CompositionLocalProvider(LocalNavActionManager provides NavActionManager(nav)) {
                 ExtensionDataSourcePreferences(ExtensionSourcesUiState(canEditProductPolicy = false), noSourceEvent)
