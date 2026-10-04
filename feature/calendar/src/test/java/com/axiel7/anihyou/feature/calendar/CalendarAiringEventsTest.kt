@@ -71,7 +71,7 @@ class CalendarAiringEventsTest {
         assertEquals(listOf(2), updated.getValue(day.plusDays(7)).map { it.scheduleId })
     }
 
-    @Test fun activeSourceReplacesOnlyItsMappedMediaAndRemovingItRestoresOriginalSchedules() {
+    @Test fun activeSourceOwnsTheCalendarWithAniListExtrasOptInAndRemovingItRestoresOriginalSchedules() {
         val first = event(1, 1, mediaId = 7)
         val other = event(2, 1, mediaId = 8)
         val source = ReleaseUiCalendarItem(mediaId = 7,
@@ -81,8 +81,11 @@ class CalendarAiringEventsTest {
             authority = ReleaseUiAuthority.VALID, sourceDate = day.plusDays(1), sourceRoot = null, revision = 1)
         val original = CalendarUiState(today = day, weeklyAnime = mutableMapOf(day to listOf(first, other)))
         val active = original.copy(providerRowsByDate = mapOf(day.plusDays(1) to listOf(source)))
-        assertEquals(listOf(8), active.presentationDays().first().rows.map { it.media!!.id })
+        assertTrue("the source is main: AniList entries without its match stay out", active.presentationDays().first().rows.isEmpty())
         assertEquals(listOf(7), active.presentationDays().last().rows.map { it.media!!.id })
+        val withExtras = active.copy(showAniListExtras = true)
+        assertEquals(listOf(8), withExtras.presentationDays().first().rows.map { it.media!!.id })
+        assertEquals(listOf(7), withExtras.presentationDays().last().rows.map { it.media!!.id })
         assertEquals(listOf(7, 8), original.presentationDays().single().rows.map { it.media!!.id })
     }
 
