@@ -66,23 +66,26 @@ jobs:
         run: python3 .github/scripts/verify-extension-native-packaging.py
       - name: Assemble Foss debug APK
         run: ./gradlew --console=plain --stacktrace :app:assembleFossDebug
-      - name: Name the APK after the commit and record its digest
+      - name: Name every APK after the commit and record the digests
         run: |
           set -eu
           mkdir -p out
-          apk="$(ls app/build/outputs/apk/foss/debug/*.apk | head -n 1)"
-          name="AniHyou-debug-${GITHUB_SHA::8}.apk"
-          cp "$apk" "out/$name"
-          digest="$(sha256sum "out/$name" | cut -d' ' -f1)"
+          ls -l app/build/outputs/apk/foss/debug/
+          for apk in app/build/outputs/apk/foss/debug/*.apk; do
+            cp "$apk" "out/AniHyou-${GITHUB_SHA::8}-$(basename "$apk")"
+          done
+          (cd out && sha256sum *.apk > SHA256.txt)
           {
-            echo "## Debug APK"
+            echo "## Debug APKs"
             echo ""
             echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- File: \`$name\`"
-            echo "- APK SHA-256: \`$digest\`"
+            echo "- Install the \`arm64-v8a\` file on a current phone (or the \`universal\` one)."
             echo "- Signed with the debug key. Not a gate: no tests, lint or emulator ran in this workflow."
+            echo ""
+            echo '```'
+            cat out/SHA256.txt
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "$digest  $name" > out/SHA256.txt
       - name: Verify the native runtime is packaged in the debug APK
         run: |
           python3 .github/scripts/verify-extension-native-packaging.py \
