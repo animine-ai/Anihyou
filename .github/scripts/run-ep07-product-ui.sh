@@ -48,6 +48,7 @@ adb pull /sdcard/Android/data/com.axiel7.anihyou.debug/files/ep07-guard/. "$out/
   python3 "$(dirname "$0")/embed-screenshots-in-log.py" "$api" "$out/guard"
   python3 "$(dirname "$0")/embed-screenshots-in-log.py" "$api" "$out/guard/matching-ui"
   python3 "$(dirname "$0")/embed-screenshots-in-log.py" "$api" "$out/guard/schedule-ui"
+  python3 "$(dirname "$0")/embed-screenshots-in-log.py" "$api" "$out/guard/navigation-ui"
 } || echo 'EP07 screenshot listing or review copies could not be produced'
 sha256sum "${product_apks[0]}" "${test_apks[0]}" > "$out/apk.sha256"
 git rev-parse HEAD > "$out/source-commit.txt"
@@ -106,10 +107,22 @@ schedule_fields=dict(line.split('=',1) for line in schedule_report.splitlines() 
 assert schedule_fields['name']=='schedule-default', schedule_report
 assert schedule_fields['activeWindowPackageBefore']==schedule_fields['expectedPackage']==schedule_fields['activeWindowPackageAfter'], schedule_report
 assert schedule_fields['activityResumed']=='true/true', schedule_report
+navigation_dir=out/'guard'/'navigation-ui'
+navigation_expected={'home-with-bottom-bar','chart-without-bottom-bar'}
+navigation_shots={p.stem for p in navigation_dir.glob('*.png')}
+assert navigation_shots==navigation_expected, ('navigation UI screenshot set differs',
+    sorted(navigation_expected-navigation_shots), sorted(navigation_shots-navigation_expected))
+for name in sorted(navigation_expected):
+    nav_report=(navigation_dir/f'{name}.capture.txt').read_text()
+    nav_fields=dict(line.split('=',1) for line in nav_report.splitlines() if '=' in line)
+    assert nav_fields['name']==name, nav_report
+    assert nav_fields['activeWindowPackageBefore']==nav_fields['expectedPackage']==nav_fields['activeWindowPackageAfter'], nav_report
+    assert nav_fields['activityResumed']=='true/true', nav_report
 report={'status':'PASS','api':int(sys.argv[2]),'tests':int(match[1]),'failures':0,'skips':0,
         'requiredSuites':sorted(required),'screenshots':sorted(p.name for p in shots),
         'matchingUiScreenshots':sorted(f'{name}.png' for name in matching_expected),
-        'scheduleUiScreenshots':['schedule-default.png']}
+        'scheduleUiScreenshots':['schedule-default.png'],
+        'navigationUiScreenshots':sorted(f'{name}.png' for name in navigation_expected)}
 (out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
 print('EP07 PRODUCT UI VERIFIED',json.dumps(report,separators=(',',':')))
 PY

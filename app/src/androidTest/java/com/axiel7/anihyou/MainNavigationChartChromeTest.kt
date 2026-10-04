@@ -9,10 +9,12 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.axiel7.anihyou.core.ui.common.navigation.MainNavigationConfig
 import com.axiel7.anihyou.core.ui.common.navigation.MainNavigationConfigStore
 import com.axiel7.anihyou.ui.screens.main.MainActivity
+import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -42,13 +44,21 @@ class MainNavigationChartChromeTest {
 
     @get:Rule val rules: RuleChain = RuleChain.outerRule(promotedChart).around(composeRule)
 
+    private fun capture(name: String, check: () -> Unit) {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        composeRule.storeVerifiedScreenshot(composeRule.activity,
+            File(requireNotNull(context.getExternalFilesDir(null)), "ep07-guard/navigation-ui"), name, check)
+    }
+
     @Test fun aPromotedChartHidesTheBottomBarAndBackLeadsToHomeWithTheBar() {
         composeRule.onNodeWithTag("HomeTab").assertIsDisplayed().assertIsSelected()
+        capture("home-with-bottom-bar") { composeRule.onNodeWithTag("MainTab-chart_top_anime").assertIsDisplayed() }
         composeRule.onNodeWithTag("MainTab-chart_top_anime").assertIsDisplayed().performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) {
             composeRule.onAllNodesWithTag("HomeTab").fetchSemanticsNodes().isEmpty()
         }
         composeRule.onNodeWithTag("MainTab-chart_top_anime").assertDoesNotExist()
+        capture("chart-without-bottom-bar") { composeRule.onNodeWithTag("HomeTab").assertDoesNotExist() }
         composeRule.runOnUiThread { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitUntil(timeoutMillis = 10_000) {
             composeRule.onAllNodesWithTag("HomeTab").fetchSemanticsNodes().isNotEmpty()
