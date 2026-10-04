@@ -87,6 +87,7 @@
     <string name="matching_reset_help">Nur diese Zuordnungen werden entfernt. Quellen- und AniList-Daten bleiben erhalten. Dies startet kein Matching.</string>
     <string name="matching_rematch_help">Begrenzten Matchingauftrag für diese Einträge starten. Akzeptierte Zuordnungen bleiben bis zu einem gültigen Ersatz erhalten.</string>
     <string name="matching_start">Bestätigen und starten</string>
+    <string name="matching_confirm">Bestätigen</string>
     <string name="matching_cancel">Abbrechen</string>
     <string name="matching_close">Schließen</string>
     <string name="matching_previous">Vorherige Seite</string>
@@ -108,7 +109,7 @@
     <string name="matching_select_entry">%1$s · %2$s · %3$s auswählen</string>
     <string name="matching_unavailable">Die Matchingverwaltung ist derzeit nicht verfügbar.</string>
     <string name="extension_schedule_title">Aktualisierungsplan</string>
-    <string name="extension_schedule_explanation">Wann die aktive Quelle im Hintergrund vollständig aktualisiert wird. Beim Öffnen der App werden die Listen zusätzlich höchstens einmal pro Stunde aktualisiert, und eine kürzlich aktualisierte Rolle wird nicht erneut angefragt.</string>
+    <string name="extension_schedule_explanation">Die aktive Quelle wird in diesem Abstand im Hintergrund vollständig aktualisiert. Beim Öffnen der App werden die Listen zusätzlich höchstens einmal pro Stunde aktualisiert, und eine kürzlich aktualisierte Rolle wird nicht erneut angefragt.</string>
     <string name="extension_schedule_interval">Intervall</string>
     <string name="extension_schedule_start">Startzeit</string>
     <string name="extension_schedule_next">Nächster geplanter Lauf: %1$s</string>
@@ -116,6 +117,9 @@
     <string name="extension_schedule_confirm">OK</string>
     <string name="extension_schedule_cancel">Abbrechen</string>
     <string name="extension_schedule_every_minutes">Alle %1$d Minuten</string>
-    <string name="extension_schedule_every_hours">Alle %1$d Stunden</string>
+    <plurals name="extension_schedule_every_hours">
+        <item quantity="one">Jede Stunde</item>
+        <item quantity="other">Alle %1$d Stunden</item>
+    </plurals>
     <string name="extension_center_schedule">Aktualisierungsplan</string>
 </resources>

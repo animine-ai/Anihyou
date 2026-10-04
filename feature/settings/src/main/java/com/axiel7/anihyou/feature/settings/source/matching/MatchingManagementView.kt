@@ -148,13 +148,16 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                 Text(stringResource(if (confirmation.action == MappingAction.RESET) R.string.matching_reset_help else R.string.matching_rematch_help))
             } },
             confirmButton = { TextButton(onClick = event::confirm, enabled = confirmation.token.count > 0,
-                modifier = Modifier.testTag("matching-confirm-action")) { Text(stringResource(R.string.matching_start)) } },
+                modifier = Modifier.testTag("matching-confirm-action")) {
+                // Only matching starts something; removing mappings and resetting the options just apply.
+                Text(stringResource(if (confirmation.action == MappingAction.REMATCH) R.string.matching_start else R.string.matching_confirm))
+            } },
             dismissButton = { TextButton(onClick = event::dismissConfirmation) { Text(stringResource(R.string.matching_cancel)) } })
     }
     if (state.confirmConfigurationReset) AlertDialog(onDismissRequest = event::dismissConfigurationReset,
         title = { Text(stringResource(R.string.matching_reset_configuration)) },
         text = { Text(stringResource(R.string.matching_configuration_reset_help)) },
-        confirmButton = { TextButton(onClick = event::resetConfiguration) { Text(stringResource(R.string.matching_start)) } },
+        confirmButton = { TextButton(onClick = event::resetConfiguration) { Text(stringResource(R.string.matching_confirm)) } },
         dismissButton = { TextButton(onClick = event::dismissConfigurationReset) { Text(stringResource(R.string.matching_cancel)) } })
 }
 

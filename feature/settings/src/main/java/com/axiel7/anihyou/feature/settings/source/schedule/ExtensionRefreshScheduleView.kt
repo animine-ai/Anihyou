@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -29,9 +30,12 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
 import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithSmallTopAppBar
+import com.axiel7.anihyou.core.ui.composables.ListPreference
+import com.axiel7.anihyou.core.ui.composables.PlainPreference
+import com.axiel7.anihyou.core.ui.composables.preferenceShape
+import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.feature.settings.R
-import com.axiel7.anihyou.feature.settings.source.SelectionOption
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshInterval
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshSchedule
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshScheduleRepository
@@ -39,6 +43,7 @@ import com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler
 import java.time.Clock
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.collections.immutable.toImmutableList
 import org.koin.compose.koinInject
 
 @Composable
@@ -59,25 +64,38 @@ fun ExtensionRefreshScheduleScreen(schedule: ExtensionRefreshSchedule, event: Ex
     var picking by remember { mutableStateOf(false) }
     DefaultScaffoldWithSmallTopAppBar(title = stringResource(R.string.extension_schedule_title),
         navigationIcon = { BackIconButton(nav::goBack) }, scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
-        Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
-            Text(stringResource(R.string.extension_schedule_explanation), style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(16.dp))
-            Text(stringResource(R.string.extension_schedule_interval), style = MaterialTheme.typography.titleSmall)
-            ExtensionRefreshInterval.entries.forEach { interval ->
-                SelectionOption(intervalLabel(interval), schedule.interval == interval, true,
-                    { event.setInterval(interval) }, "extension-schedule-interval-${interval.minutes}")
-            }
-            Spacer(Modifier.height(16.dp))
-            Text(stringResource(R.string.extension_schedule_start), style = MaterialTheme.typography.titleSmall)
-            TextButton(onClick = { picking = true }, modifier = Modifier.testTag("extension-schedule-start")) {
-                Text(timeLabel(schedule.anchorMinuteOfDay))
-            }
+        // The same grouped, rounded preference rows as the original settings pages.
+        Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+            Text(stringResource(R.string.extension_schedule_explanation), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
+            ListPreference(
+                title = stringResource(R.string.extension_schedule_interval),
+                values = ExtensionRefreshInterval.entries.toImmutableList(),
+                labelForValue = { intervalLabel(it) },
+                preferenceValue = schedule.interval,
+                onValueChange = event::setInterval,
+                shape = preferenceShape(0, 2),
+                modifier = Modifier.testTag("extension-schedule-interval"),
+            )
+            PlainPreference(
+                title = stringResource(R.string.extension_schedule_start),
+                subtitle = timeLabel(schedule.anchorMinuteOfDay),
+                onClick = { picking = true },
+                shape = preferenceShape(1, 2),
+                modifier = Modifier.testTag("extension-schedule-start"),
+            )
             Text(stringResource(R.string.extension_schedule_next, nextSlotLabel(schedule)),
-                style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("extension-schedule-next"))
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).testTag("extension-schedule-next"))
             Spacer(Modifier.height(8.dp))
-            TextButton(onClick = event::reset, modifier = Modifier.testTag("extension-schedule-reset")) {
-                Text(stringResource(R.string.extension_schedule_reset))
-            }
+            PlainPreference(
+                title = stringResource(R.string.extension_schedule_reset),
+                titleTint = MaterialTheme.colorScheme.primary,
+                onClick = event::reset,
+                shape = singleShape,
+                modifier = Modifier.testTag("extension-schedule-reset"),
+            )
         }
     }
     if (picking) StartTimeDialog(schedule.anchorMinuteOfDay, { picking = false }) { minute ->
@@ -100,10 +118,11 @@ private fun StartTimeDialog(anchorMinute: Int, onDismiss: () -> Unit, onConfirm:
         text = { TimePicker(state) })
 }
 
+/** The label of an interval; the hour label has a singular so that one hour never reads "1 hours". */
 @Composable
-private fun intervalLabel(interval: ExtensionRefreshInterval): String = when (interval.minutes) {
+internal fun intervalLabel(interval: ExtensionRefreshInterval): String = when (interval.minutes) {
     30 -> stringResource(R.string.extension_schedule_every_minutes, 30)
-    else -> stringResource(R.string.extension_schedule_every_hours, interval.minutes / 60)
+    else -> pluralStringResource(R.plurals.extension_schedule_every_hours, interval.minutes / 60, interval.minutes / 60)
 }
 
 private val timeFormat = DateTimeFormatter.ofPattern("HH:mm")

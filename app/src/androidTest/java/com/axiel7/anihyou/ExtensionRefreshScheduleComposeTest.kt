@@ -3,10 +3,10 @@ package com.axiel7.anihyou
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -46,22 +46,37 @@ class ExtensionRefreshScheduleComposeTest {
             File(requireNotNull(context.getExternalFilesDir(null)), "ep07-guard/schedule-ui"), name, check)
     }
 
+    private fun hours(count: Int) = composeRule.activity.resources.getQuantityString(
+        com.axiel7.anihyou.feature.settings.R.plurals.extension_schedule_every_hours, count, count)
+
     @Test fun defaultIsDailyAtOneWithANextRunAndNoFiveHourChoice() {
         show(ExtensionRefreshSchedule())
-        composeRule.onNodeWithTag("extension-schedule-interval-1440").assertIsSelected()
-        composeRule.onNodeWithTag("extension-schedule-start").assertTextEquals("01:00")
+        composeRule.onNodeWithTag("extension-schedule-interval").assertTextContains(hours(24), substring = true)
+        composeRule.onNodeWithTag("extension-schedule-start").assertTextContains("01:00", substring = true)
         composeRule.onNodeWithTag("extension-schedule-next").assertIsDisplayed()
-        // Five hours does not repeat on a fixed daily grid and is deliberately not offered.
-        composeRule.onNodeWithTag("extension-schedule-interval-300").assertDoesNotExist()
         capture("schedule-default") { composeRule.onNodeWithTag("extension-schedule-next").assertIsDisplayed() }
+        // Five hours does not repeat on a fixed daily grid and is deliberately not offered.
+        composeRule.onNodeWithTag("extension-schedule-interval").performClick()
+        composeRule.onNodeWithText(hours(5)).assertDoesNotExist()
+        composeRule.onNodeWithText(hours(6)).assertIsDisplayed()
         assertEquals(emptyList<ExtensionRefreshInterval>(), event.intervals)
+    }
+
+    @Test fun oneHourReadsInTheSingularNotAsOneHours() {
+        show(ExtensionRefreshSchedule(interval = ExtensionRefreshInterval.HOURS_1))
+        val label = hours(1)
+        assertEquals(false, label.contains("1"))
+        composeRule.onNodeWithTag("extension-schedule-interval").assertTextContains(label, substring = true)
     }
 
     @Test fun choosingAnIntervalAndResettingAreReportedWithoutChangingAnythingElse() {
         show(ExtensionRefreshSchedule(anchorMinuteOfDay = 7 * 60 + 30, interval = ExtensionRefreshInterval.HOURS_6))
-        composeRule.onNodeWithTag("extension-schedule-interval-360").assertIsSelected()
-        composeRule.onNodeWithTag("extension-schedule-start").assertTextEquals("07:30")
-        composeRule.onNodeWithTag("extension-schedule-interval-120").performScrollTo().performClick()
+        composeRule.onNodeWithTag("extension-schedule-interval").assertTextContains(hours(6), substring = true)
+        composeRule.onNodeWithTag("extension-schedule-start").assertTextContains("07:30", substring = true)
+        composeRule.onNodeWithTag("extension-schedule-interval").performClick()
+        composeRule.onNodeWithText(hours(2)).performClick()
+        composeRule.onNodeWithText(composeRule.activity.getString(
+            com.axiel7.anihyou.core.resources.R.string.close)).performClick()
         composeRule.onNodeWithTag("extension-schedule-reset").performScrollTo().performClick()
         assertEquals(listOf(ExtensionRefreshInterval.HOURS_2), event.intervals)
         assertEquals(1, event.resets)

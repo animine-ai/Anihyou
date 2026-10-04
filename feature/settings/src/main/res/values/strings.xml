@@ -87,6 +87,7 @@
     <string name="matching_reset_help">Only these mappings are removed. Source data and AniList data remain. This does not start matching.</string>
     <string name="matching_rematch_help">Start a bounded matching request for these entries. Existing accepted mappings remain until a valid replacement is saved.</string>
     <string name="matching_start">Confirm and start</string>
+    <string name="matching_confirm">Confirm</string>
     <string name="matching_cancel">Cancel</string>
     <string name="matching_close">Close</string>
     <string name="matching_previous">Previous page</string>
@@ -108,7 +109,7 @@
     <string name="matching_select_entry">Select %1$s · %2$s · %3$s</string>
     <string name="matching_unavailable">Matching management is currently unavailable.</string>
     <string name="extension_schedule_title">Update schedule</string>
-    <string name="extension_schedule_explanation">When the active source is refreshed completely in the background. Opening the app also refreshes the lists, at most once per hour, and a role that was refreshed recently is not requested again.</string>
+    <string name="extension_schedule_explanation">The active source is refreshed completely in the background at this interval. Opening the app also refreshes the lists, at most once per hour, and a role that was refreshed recently is not requested again.</string>
     <string name="extension_schedule_interval">Interval</string>
     <string name="extension_schedule_start">Start time</string>
     <string name="extension_schedule_next">Next planned run: %1$s</string>
@@ -116,6 +117,9 @@
     <string name="extension_schedule_confirm">OK</string>
     <string name="extension_schedule_cancel">Cancel</string>
     <string name="extension_schedule_every_minutes">Every %1$d minutes</string>
-    <string name="extension_schedule_every_hours">Every %1$d hours</string>
+    <plurals name="extension_schedule_every_hours">
+        <item quantity="one">Every hour</item>
+        <item quantity="other">Every %1$d hours</item>
+    </plurals>
     <string name="extension_center_schedule">Update schedule</string>
 </resources>
