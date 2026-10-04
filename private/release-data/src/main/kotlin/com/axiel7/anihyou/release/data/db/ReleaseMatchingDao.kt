@@ -49,6 +49,12 @@ interface ReleaseMatchingDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertLabel(row: SourceSeriesLabelEntity)
 
+    /** The series that carry this folded title, at most two: one is a match, two are ambiguous. */
+    @Query("SELECT * FROM v3_source_series_label WHERE sourceId=:sourceId AND extensionId=:extensionId " +
+        "AND publisherId=:publisherId AND providerId=:providerId AND titleNormalized=:normalized LIMIT 2")
+    suspend fun labelsByTitle(sourceId: String, extensionId: String, publisherId: String, providerId: String,
+                              normalized: String): List<SourceSeriesLabelEntity>
+
     @Query("SELECT * FROM v3_source_series_label WHERE sourceId=:sourceId AND extensionId=:extensionId " +
         "AND publisherId=:publisherId AND providerId=:providerId ORDER BY titleNormalized, providerSeriesKey " +
         "LIMIT :limit OFFSET :offset")

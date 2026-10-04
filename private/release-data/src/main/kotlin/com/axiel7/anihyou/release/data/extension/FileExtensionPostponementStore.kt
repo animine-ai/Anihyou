@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -64,9 +65,14 @@ class FileExtensionPostponementStore(
         val effective = if (source == null) flowOf(emptyList()) else database.matchingDao().observeEffectiveAniListMappings(
             source.sourceId, source.extensionId, source.publisherId, source.providerId,
             com.axiel7.anihyou.release.data.repository.MappingEntryIds.sourceKey(source))
-        effective.map { mappings ->
+        val titles = if (source == null) flowOf("") else database.matchingDao().observeLabelTrigger()
+        kotlinx.coroutines.flow.combine(effective, titles) { mappings, _ -> mappings }.mapLatest { mappings ->
             value.copy(notices = value.notices.map { notice ->
-                notice.copy(mediaId = mappedAniListId(value.source, notice, mappings))
+                // The notices of the real page carry only a title and coordinates, no series key. The title of a series the
+                // source listed elsewhere (calendar, recent) names it, and the binding of that series (made by the matcher
+                // or by the user, never a title guess here) gives the media.
+                val media = mappedAniListId(value.source, notice, mappings) ?: byTitle(value.source, notice)
+                notice.copy(mediaId = media)
             })
         }
     }
@@ -127,6 +133,23 @@ class FileExtensionPostponementStore(
                 mutableSnapshot.value = incremental
             }
         }
+    }
+
+    private suspend fun byTitle(source: ExtensionSelectionKey?, notice: ExtensionPostponementNotice): Int? {
+        if (source?.providerId != "aniworld" || notice.providerSeriesKey != null) return null
+        if (notice.installmentKind != ObservationInstallmentKind.EPISODE) return null
+        val season = notice.navigationSeason ?: notice.sourceSeason ?: return null
+        val dao = database.matchingDao()
+        val label = dao.labelsByTitle(source.sourceId, source.extensionId, source.publisherId, source.providerId,
+            com.axiel7.anihyou.release.core.matching.SearchTitleFolding.fold(notice.title)).singleOrNull() ?: return null
+        val subject = runCatching {
+            AniWorldMappingSubject.Season(AniWorldSiteIdentifier(label.providerSeriesKey), season)
+        }.getOrNull() ?: return null
+        val row = dao.sourceMapping(source.sourceId, source.extensionId, source.publisherId, source.providerId,
+            subject.stableKey, "anilist") ?: return null
+        if (row.mappingStatus != "ACTIVE" || row.confidence !in setOf("EXACT", "HIGH") ||
+            row.validatedAt == null || row.staleAt != null) return null
+        return row.externalId?.toIntOrNull()?.takeIf { it > 0 }
     }
 
     private fun mappedAniListId(

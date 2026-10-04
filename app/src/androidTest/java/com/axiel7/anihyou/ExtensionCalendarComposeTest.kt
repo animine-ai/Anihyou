@@ -110,8 +110,8 @@ class ExtensionCalendarComposeTest {
             assertEquals(Route.MediaDetails(id = 7), navigation.getCurrentRoute())
             navigator.goBack()
         }
-        composeRule.onNodeWithText(composeRule.activity.getString(R.string.postponements_unassigned)).assertIsDisplayed()
-        composeRule.onNodeWithText("Unassigned provider title").assertIsDisplayed().assertIsNotEnabled().performClick()
+        // Every notice stays listed; one without a binding shows the source title and opens nothing.
+        composeRule.onNodeWithText("Unassigned provider title").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertEquals(Route.Home, navigation.getCurrentRoute()) }
         capture("postponements-safe-and-unassigned") {
             composeRule.onNodeWithText("Verified anime title").assertIsDisplayed()

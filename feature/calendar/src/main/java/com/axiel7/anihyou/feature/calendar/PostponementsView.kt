@@ -107,8 +107,10 @@ fun PostponementsViewContent(
                     )
                 }
             } else {
+                // Every notice of the source is listed; the ones with an AniList binding show its cover and open its details,
+                // the others show the source title only.
                 items(
-                    items = state.notices.filter { it.mediaId != null },
+                    items = state.notices,
                     key = { it.presentationKey },
                 ) { notice ->
                     val details = notice.mediaId?.let(state.metadata::get)
@@ -125,19 +127,6 @@ fun PostponementsViewContent(
                             subtitle2 = { notice.rawText?.let { Text(it) } },
                             onClick = { notice.mediaId?.let(nav::toMediaDetails) },
                         )
-                    }
-                }
-                val unassigned = state.notices.filter { it.mediaId == null }
-                if (unassigned.isNotEmpty()) {
-                    item(key = "postponements-unassigned") {
-                        Text(
-                            stringResource(R.string.postponements_unassigned),
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
-                        )
-                    }
-                    items(unassigned, key = { it.presentationKey }) { notice ->
-                        PostponementRow(notice, onClick = null)
                     }
                 }
             }
