@@ -116,7 +116,8 @@ sealed class BottomDestination(
          * - Every nested page (details, settings, dialogs): hidden, as before.
          * A wide layout keeps its navigation rail for every main destination; only the bottom bar follows this rule.
          */
-        fun NavKey.showsBottomBar() = isBottomDestination() && this !is Route.ChartMain && this !is Route.SeasonMain
+        // CHECK BRANCH ONLY: the EP06 contract before the rule change (the bar stays on every promoted destination).
+        fun NavKey.showsBottomBar() = isBottomDestination()
 
         val BottomDestination.testTag
             get() = when (this) {

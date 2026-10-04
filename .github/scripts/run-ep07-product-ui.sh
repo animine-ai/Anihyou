@@ -108,7 +108,7 @@ assert schedule_fields['name']=='schedule-default', schedule_report
 assert schedule_fields['activeWindowPackageBefore']==schedule_fields['expectedPackage']==schedule_fields['activeWindowPackageAfter'], schedule_report
 assert schedule_fields['activityResumed']=='true/true', schedule_report
 navigation_dir=out/'guard'/'navigation-ui'
-navigation_expected={'home-with-bottom-bar','chart-without-bottom-bar'}
+navigation_expected={'home-with-bottom-bar','chart-with-bottom-bar-before'}
 navigation_shots={p.stem for p in navigation_dir.glob('*.png')}
 assert navigation_shots==navigation_expected, ('navigation UI screenshot set differs',
     sorted(navigation_expected-navigation_shots), sorted(navigation_shots-navigation_expected))

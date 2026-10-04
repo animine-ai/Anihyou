@@ -49,19 +49,14 @@ class MainNavigationChartChromeTest {
             File(requireNotNull(context.getExternalFilesDir(null)), "ep07-guard/navigation-ui"), name, check)
     }
 
-    @Test fun aPromotedChartHidesTheBottomBarAndBackLeadsToHomeWithTheBar() {
+    @Test fun aPromotedChartKeepsTheBottomBarUnderTheOldEp06Rule() {
         composeRule.onNodeWithTag("HomeTab").assertIsDisplayed().assertIsSelected()
         capture("home-with-bottom-bar") { composeRule.onNodeWithTag("MainTab-chart_top_anime").assertIsDisplayed() }
         composeRule.onNodeWithTag("MainTab-chart_top_anime").assertIsDisplayed().performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.onAllNodesWithTag("HomeTab").fetchSemanticsNodes().isEmpty()
+            composeRule.onAllNodesWithTag("MainTab-chart_top_anime").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("MainTab-chart_top_anime").assertDoesNotExist()
-        capture("chart-without-bottom-bar") { composeRule.onNodeWithTag("HomeTab").assertDoesNotExist() }
-        composeRule.runOnUiThread { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
-        composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.onAllNodesWithTag("HomeTab").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithTag("HomeTab").assertIsDisplayed().assertIsSelected()
+        composeRule.onNodeWithTag("MainTab-chart_top_anime").assertIsDisplayed().assertIsSelected()
+        capture("chart-with-bottom-bar-before") { composeRule.onNodeWithTag("HomeTab").assertIsDisplayed() }
     }
 }
