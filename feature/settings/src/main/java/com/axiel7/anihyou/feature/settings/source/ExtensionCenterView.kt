@@ -180,6 +180,7 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
         com.axiel7.anihyou.release.core.extension.SourceRole.entries.any { it.name == cap }
     } }
     val active = state.productPolicy.activeReleaseSource
+    PreferencesTitle(text = stringResource(R.string.extension_sources_data_source_heading))
     SelectionOption(stringResource(R.string.extension_sources_no_active_source),
         active !in releaseEntries.map { it.first }, canEdit,
         { event.selectActiveSource(null) }, "extension-product-active-none")
@@ -189,7 +190,7 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
     }
     entries.forEach { (key, extension) ->
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-        Text(extension.displayName)
+        PreferencesTitle(text = extension.displayName)
         ExtensionTrackPreferences(key, extension,
             state.productPolicy.preferences[key] ?: ExtensionPreferences().withGenericDefaults(extension),
             canEdit, canShowInProviderField = false, event = event)

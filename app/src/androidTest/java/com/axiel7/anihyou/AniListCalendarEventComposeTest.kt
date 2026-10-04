@@ -1,7 +1,7 @@
 package com.axiel7.anihyou
 
 import androidx.activity.ComponentActivity
-import androidx.compose.material3.MaterialTheme
+import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -51,7 +51,7 @@ class AniListCalendarEventComposeTest {
             navigation = rememberNavigationState(Route.Calendar, MainNavigationResolver.allRoutes)
             val nav = remember(navigation) { Navigator(navigation) }
             CompositionLocalProvider(LocalNavActionManager provides NavActionManager(nav)) {
-                MaterialTheme { CalendarViewContent(false, CalendarUiState(today = day, day = day.atStartOfDay(),
+                AniHyouTheme(darkTheme = false, dynamicColor = false) { CalendarViewContent(false, CalendarUiState(today = day, day = day.atStartOfDay(),
                     weeklyAnime = mutableMapOf(day to listOf(first, second, second), third.localDate() to listOf(third)),
                     listStyle = style, isLoading = false, autoScrollToToday = false), null) }
             }

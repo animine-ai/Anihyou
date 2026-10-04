@@ -2,23 +2,35 @@ package com.axiel7.anihyou
 
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
 import com.axiel7.anihyou.core.ui.common.navigation.*
+import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.feature.settings.*
 import com.axiel7.anihyou.feature.settings.R as SettingsR
 import com.axiel7.anihyou.feature.settings.source.*
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import java.io.File
+import java.util.Locale
+import android.content.res.Configuration
+import android.content.Context
+import com.axiel7.anihyou.release.core.source.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,7 +46,7 @@ class NativeSettingsGroupsComposeTest {
             val state = rememberNavigationState(Route.Settings, MainNavigationResolver.allRoutes)
             val nav = remember(state) { Navigator(state) }
             CompositionLocalProvider(LocalNavActionManager provides NavActionManager(nav)) {
-                MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+                AniHyouTheme(darkTheme = dark, dynamicColor = false) {
                     SettingsViewContent(SettingsUiState(isLoggedIn = loggedIn), null, null)
                 }
             }
@@ -50,7 +62,7 @@ class NativeSettingsGroupsComposeTest {
         }
     }
     @Test fun centerSeparatesManagementFromDiagnostics() {
-        rule.setContent { MaterialTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+        rule.setContent { AniHyouTheme(darkTheme = false, dynamicColor = false) { Column(Modifier.verticalScroll(rememberScrollState())) {
             ExtensionCenterMenu { }
         } } }
         rule.onNodeWithText(rule.activity.getString(SettingsR.string.extension_center_management_section)).assertIsDisplayed()
@@ -59,5 +71,77 @@ class NativeSettingsGroupsComposeTest {
             rule.onNodeWithTag("extension-center-manage").assertIsDisplayed()
             rule.onNodeWithTag("extension-center-diagnostics").assertIsDisplayed()
         }
+    }
+
+    @Test fun centerWithLargeGermanTextUsesTheOriginalBlackTheme() {
+        val context = germanBlackContent { ExtensionCenterMenu { } }
+        rule.onNodeWithTag("extension-center-diagnostics").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText(context.getString(SettingsR.string.extension_center_diagnostics_section)).assertIsDisplayed()
+        rule.storeVerifiedScreenshot(rule.activity, File(rule.activity.getExternalFilesDir(null), "ep07-ui"),
+            "native-center-german-black-large") {
+            rule.onNodeWithTag("extension-center-diagnostics").assertIsDisplayed()
+        }
+    }
+
+    @Test fun emptySourcesDisableSelectionAndKeepMatchingAndScheduleRoutes() {
+        lateinit var navigation: NavigationState
+        val context = germanBlackContent {
+            navigation = rememberNavigationState(Route.ExtensionCenterPage("source"), MainNavigationResolver.allRoutes)
+            val nav = remember(navigation) { Navigator(navigation) }
+            CompositionLocalProvider(LocalNavActionManager provides NavActionManager(nav)) {
+                ExtensionDataSourcePreferences(ExtensionSourcesUiState(canEditProductPolicy = false), noSourceEvent)
+            }
+        }
+        rule.onNodeWithTag("extension-product-active-none").assertIsNotEnabled()
+        rule.onNodeWithText(context.getString(SettingsR.string.extension_sources_no_active_source)).assertIsDisplayed()
+        rule.storeVerifiedScreenshot(rule.activity, File(rule.activity.getExternalFilesDir(null), "ep07-ui"),
+            "native-sources-empty-german-black-large") {
+            rule.onNodeWithTag("extension-source-matching").assertIsDisplayed()
+            rule.onNodeWithTag("extension-product-active-none").assertIsNotEnabled()
+        }
+        rule.onNodeWithTag("extension-source-matching").performClick()
+        rule.runOnIdle { org.junit.Assert.assertEquals(Route.ExtensionCenterPage("matching"), navigation.getCurrentRoute()) }
+    }
+
+    @Test fun emptyProvidersExplainTheStateWithLargeGermanText() {
+        val context = germanBlackContent { ExtensionProviderDisplay(ExtensionSourcesUiState(), noSourceEvent) }
+        rule.onNodeWithText(context.getString(SettingsR.string.extension_provider_empty)).assertIsDisplayed()
+        rule.storeVerifiedScreenshot(rule.activity, File(rule.activity.getExternalFilesDir(null), "ep07-ui"),
+            "native-providers-empty-german-black-large") {
+            rule.onNodeWithText(context.getString(SettingsR.string.extension_provider_empty)).assertIsDisplayed()
+        }
+    }
+
+    private fun germanBlackContent(content: @Composable () -> Unit): Context {
+        val context = rule.activity.createConfigurationContext(Configuration(rule.activity.resources.configuration).apply {
+            setLocale(Locale.GERMAN)
+        })
+        rule.setContent {
+            CompositionLocalProvider(LocalContext provides context, LocalConfiguration provides context.resources.configuration,
+                LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.5f)) {
+                AniHyouTheme(darkTheme = true, dynamicColor = false, blackColors = true) {
+                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        Box { Column(Modifier.width(320.dp).verticalScroll(rememberScrollState())) { content() } }
+                    }
+                }
+            }
+        }
+        return context
+    }
+
+    private val noSourceEvent = object : ExtensionSourcesEvent {
+        override fun onUrlChanged(value: String) = Unit
+        override fun addSource() = Unit
+        override fun setEnabled(sourceId: String, enabled: Boolean) = Unit
+        override fun removeSource(sourceId: String) = Unit
+        override fun refreshSource(sourceId: String) = Unit
+        override fun activate(sourceId: String, extensionId: String) = Unit
+        override fun selectActiveSource(key: ExtensionSelectionKey?) = Unit
+        override fun selectNavigationProvider(key: ExtensionSelectionKey?) = Unit
+        override fun setPreferences(key: ExtensionSelectionKey, preferences: ExtensionPreferences) = Unit
+        override fun removeExtension(sourceId: String, extensionId: String) = Unit
+        override fun rollback(sourceId: String, extensionId: String, expectedGeneration: Long, targetDigest: String) = Unit
+        override fun setProviderOrder(keys: List<ExtensionSelectionKey>) = Unit
+        override fun clearActionFailure() = Unit
     }
 }

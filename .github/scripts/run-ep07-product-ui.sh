@@ -75,6 +75,8 @@ expected|={'postponements-safe-and-unassigned','rollback-confirmation','manage-o
            'trust-unavailable-manage','trust-unavailable-notice','manage-installed-version-withdrawn'}
 expected|={'anilist-events-standard','anilist-events-grid','native-root-guest-light',
            'native-root-account-dark','native-center-groups','providers-both-visible','providers-one-disabled'}
+expected|={'native-center-german-black-large','native-sources-empty-german-black-large',
+           'native-providers-empty-german-black-large'}
 names={p.stem for p in shots}
 assert names==expected, ('screenshot set differs', sorted(expected-names), sorted(names-expected))
 # Every stored picture carries the foreground facts that were verified before and after its capture.
