@@ -185,6 +185,19 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
             onValueChange = event::setReleaseNotificationsEnabled,
         )
     }
+    if (state.legacyLaneEnabled) {
+        // Left over from earlier builds: it runs beside the sources and decides Behind and countdowns. Off only.
+        PreferencesTitle(text = stringResource(R.string.extension_legacy_lane_title))
+        SwitchPreference(
+            title = stringResource(R.string.extension_legacy_lane_switch),
+            subtitle = stringResource(R.string.extension_legacy_lane_summary),
+            preferenceValue = true,
+            icon = CoreR.drawable.info_24,
+            shape = singleShape,
+            modifier = Modifier.testTag("extension-legacy-lane"),
+            onValueChange = { if (!it) event.disableLegacyLane() },
+        )
+    }
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     val entries = installedEntries(state)
     val canEdit = state.canEditProductPolicy && !state.hasSourceOperationInFlight()

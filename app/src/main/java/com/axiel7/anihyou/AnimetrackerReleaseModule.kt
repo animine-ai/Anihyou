@@ -1,5 +1,7 @@
 package com.axiel7.anihyou
 
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.room.Room
 import com.axiel7.anihyou.release.core.api.IdentityCandidateSource
 import com.axiel7.anihyou.release.core.api.AniWorldShadowPollStore
@@ -232,7 +234,11 @@ val animetrackerReleaseModule = module {
     }
     single { RoomReleaseProjectionRepository(get(), get(), get()) }
     // Extension rows are folded per exact release source (Room v14), so no receipt gate is needed here.
-    single { RoomReleasePresentationRepository(get(), get(), get(), get(), get()) }
+    single {
+        RoomReleasePresentationRepository(get(), get(), get(), get(), get(),
+            legacyLaneEnabled = get<ReleasePreferencesRepository>().releasePreferences
+                .map { it.selectedProvider != null }.distinctUntilChanged())
+    }
     single<ReleasePresentationRepository> { get<RoomReleasePresentationRepository>() }
     single { RoomReleaseMappingRepository(get(), get()) }
     single<ReleaseMappingRepository> { get<RoomReleaseMappingRepository>() }

@@ -45,6 +45,12 @@ class RoomReleasePresentationRepository(
     private val productPolicy: ExtensionProductPolicyRepository? = null,
     private val extensionSources: ExtensionSourceRepository? = null,
     private val navigationStore: FileProviderNavigationStateStore? = null,
+    /**
+     * Whether the old provider-wide lane may present anything. Null keeps it always on (tests, tools). The product passes
+     * the user's old AniWorld setting: a lane nobody switched on must not decide Behind, countdowns or the calendar, so
+     * without an active source AniList is the only data, as in the original app.
+     */
+    private val legacyLaneEnabled: Flow<Boolean>? = null,
 ) : ReleasePresentationRepository {
     override fun observeForMedia(
         accountId: Long?,
@@ -57,16 +63,17 @@ class RoomReleasePresentationRepository(
         }
         val selection = selection() ?: return legacy.offMain()
         // Extension First, the same selection as the calendar: an active usable source owns the release fields of
-        // every entry point; without an active source the old provider-wide projection stays; an unusable one shows nothing.
-        return combine(legacy, selection) { legacyRows, chosen ->
+        // every entry point; without an active source the old provider-wide projection stays (when its lane is on);
+        // an unusable one shows nothing.
+        return combine(legacy, selection, legacyLaneEnabled ?: kotlinx.coroutines.flow.flowOf(true)) { legacyRows, chosen, legacyOn ->
             val result = when (chosen) {
-                is ReleaseSelection.Legacy -> legacyRows
+                is ReleaseSelection.Legacy -> if (legacyOn) legacyRows else emptyMap()
                 is ReleaseSelection.None -> emptyMap()
                 is ReleaseSelection.Extension ->
                     chosen.rows.toExtensionMediaPresentations(chosen.mappings, mediaIds, chosen.preferences, chosen.source, chosen.segments)
             }
             AppLog.i("presentation") {
-                "media request=${mediaIds.size} legacyMedia=${legacyRows.size} mode=${chosen.javaClass.simpleName} " +
+                "media request=${mediaIds.size} legacyMedia=${legacyRows.size} legacyLaneOn=$legacyOn mode=${chosen.javaClass.simpleName} " +
                     "presented=${result.size} authoritative=${result.values.count { list -> list.any { it.isAuthoritative } }}"
             }
             result
@@ -81,15 +88,15 @@ class RoomReleasePresentationRepository(
             rows.map { it.toUiCalendarItem() }
         }
         val selection = selection() ?: return legacy.offMain()
-        return combine(legacy, selection) { legacyRows, chosen ->
+        return combine(legacy, selection, legacyLaneEnabled ?: kotlinx.coroutines.flow.flowOf(true)) { legacyRows, chosen, legacyOn ->
             val result = when (chosen) {
-                is ReleaseSelection.Legacy -> legacyRows
+                is ReleaseSelection.Legacy -> if (legacyOn) legacyRows else emptyList()
                 is ReleaseSelection.None -> emptyList()
                 is ReleaseSelection.Extension ->
                     chosen.rows.toExtensionCalendarItems(chosen.mappings, range, chosen.preferences, chosen.source, chosen.segments)
             }
             AppLog.i("presentation") {
-                "calendar range=$range legacy=${legacyRows.size} mode=${chosen.javaClass.simpleName} items=${result.size} " +
+                "calendar range=$range legacy=${legacyRows.size} legacyLaneOn=$legacyOn mode=${chosen.javaClass.simpleName} items=${result.size} " +
                     "authoritative=${result.count { it.isAuthoritative }} days=${result.mapNotNull { it.sourceDate }.distinct().size}"
             }
             result

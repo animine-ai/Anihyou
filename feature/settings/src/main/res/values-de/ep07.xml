@@ -103,4 +103,7 @@
     <string name="extension_manage_active_title">Aktive Erweiterungen</string>
     <string name="extension_manage_available_title">Verfügbare Erweiterungen</string>
     <string name="extension_manage_technical_title">Technische Angaben</string>
+    <string name="extension_legacy_lane_title">Alte AniWorld-Daten</string>
+    <string name="extension_legacy_lane_switch">Alte AniWorld-Daten verwenden</string>
+    <string name="extension_legacy_lane_summary">Überbleibsel früherer Versionen. Sie laufen neben den Quellen und können mitbestimmen, was im Rückstand ist. Ausschalten lässt AniList oder die aktive Quelle übrig.</string>
 </resources>

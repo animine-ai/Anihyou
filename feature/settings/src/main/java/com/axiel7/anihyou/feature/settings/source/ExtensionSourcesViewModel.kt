@@ -27,6 +27,8 @@ data class ExtensionSourcesUiState(
     val canEditProductPolicy: Boolean = false,
     /** The release notification switch of the extension data path; null when this build has no such setting. */
     val releaseNotificationsEnabled: Boolean? = null,
+    /** True only while the old AniWorld lane of earlier builds is still switched on; it can be switched off here, never on. */
+    val legacyLaneEnabled: Boolean = false,
     /** False when this build cannot authenticate any source; mutating repository actions are then not offered. */
     val trustAvailable: Boolean = true,
     val url: String = "",
@@ -56,6 +58,7 @@ interface ExtensionSourcesEvent {
     fun rollback(sourceId: String, extensionId: String, expectedGeneration: Long, targetDigest: String) {}
     fun setProviderOrder(keys: List<ExtensionSelectionKey>) {}
     fun setReleaseNotificationsEnabled(enabled: Boolean) {}
+    fun disableLegacyLane() {}
     fun refreshDiagnostics() {}
     fun clearActionFailure()
 }
@@ -92,11 +95,22 @@ class ExtensionSourcesViewModel(
         releasePreferencesRepository?.let { preferences ->
             viewModelScope.launch {
                 preferences.releasePreferences.collect { value ->
-                    _uiState.update { it.copy(releaseNotificationsEnabled = value.notificationsEnabled) }
+                    _uiState.update {
+                        it.copy(releaseNotificationsEnabled = value.notificationsEnabled, legacyLaneEnabled = value.selectedProvider != null)
+                    }
                 }
             }
         }
         performAction { repository.restoreInstalled() }
+    }
+
+    override fun disableLegacyLane() {
+        AppLog.i("ui") { "user: old AniWorld lane switched off" }
+        val preferences = releasePreferencesRepository ?: return
+        viewModelScope.launch {
+            preferences.setProviderEnabled(false)
+            releaseOutboxRepository?.cancelPending("legacy AniWorld lane disabled", java.time.Instant.now())
+        }
     }
 
     override fun setReleaseNotificationsEnabled(enabled: Boolean) {
