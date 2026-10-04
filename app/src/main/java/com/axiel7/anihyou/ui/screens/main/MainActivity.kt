@@ -57,7 +57,7 @@ import com.axiel7.anihyou.core.resources.light_scrim
 import com.axiel7.anihyou.core.ui.common.navigation.MainNavigationConfigStore
 import com.axiel7.anihyou.core.ui.common.navigation.MainNavigationResolver
 import com.axiel7.anihyou.core.ui.common.BottomDestination
-import com.axiel7.anihyou.core.ui.common.BottomDestination.Companion.isBottomDestination
+import com.axiel7.anihyou.core.ui.common.BottomDestination.Companion.showsBottomBar
 import com.axiel7.anihyou.core.ui.common.BottomDestination.Companion.toBottomDestinationRoute
 import com.axiel7.anihyou.core.ui.common.LocalBlurAdult
 import com.axiel7.anihyou.core.ui.common.LocalHideScores
@@ -266,8 +266,9 @@ fun MainView(
     LaunchedEffect(mainConfig) {
         navigationState.topLevelRoute = MainNavigationResolver.visibleRoot(navigationState.topLevelRoute, mainConfig)
     }
+    // The bottom bar follows one rule (promoted charts and seasons own the full height, see showsBottomBar).
     val isBottomDestination by remember {
-        derivedStateOf { navigationState.getCurrentRoute()?.isBottomDestination() == true }
+        derivedStateOf { navigationState.getCurrentRoute()?.showsBottomBar() == true }
     }
     val navActionManager = remember { NavActionManager(navigator) }
     val isCompactScreen = windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact

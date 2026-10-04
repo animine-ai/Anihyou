@@ -108,6 +108,16 @@ sealed class BottomDestination(
 
         fun NavKey.isBottomDestination() = catalog.any { it.route == this }
 
+        /**
+         * Whether the bottom main navigation bar is shown for the route that is on screen.
+         * - Original roots (Home, Anime, Manga, Explore, Profile) and the promoted Calendar and current lists: shown.
+         * - Promoted chart and season destinations (Top 100, popular, upcoming, season, next season, ...): hidden, they
+         *   own the full height like their nested form. Back and predictive back lead to Home, where the bar is shown.
+         * - Every nested page (details, settings, dialogs): hidden, as before.
+         * A wide layout keeps its navigation rail for every main destination; only the bottom bar follows this rule.
+         */
+        fun NavKey.showsBottomBar() = isBottomDestination() && this !is Route.ChartMain && this !is Route.SeasonMain
+
         val BottomDestination.testTag
             get() = when (this) {
                 is Home -> "HomeTab"
