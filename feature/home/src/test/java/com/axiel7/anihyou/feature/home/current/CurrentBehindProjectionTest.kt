@@ -117,5 +117,11 @@ class CurrentBehindProjectionTest {
         advanceUntilIdle()
         assertEquals(listOf(9), viewModel.uiState.value.behindList.map { it.mediaId })
         assertEquals(listOf(7, 8), viewModel.uiState.value.airingList.map { it.mediaId }.sorted())
+
+        // Undo (or another device sets it back to 8): the same two unseen episodes are behind again, no source refresh.
+        lastUpdated.value = behind.basicMediaListEntry.copy(progress = 8)
+        advanceUntilIdle()
+        assertEquals(listOf(9, 7), viewModel.uiState.value.behindList.map { it.mediaId })
+        assertEquals(listOf(8), viewModel.uiState.value.airingList.map { it.mediaId })
     }
 }
