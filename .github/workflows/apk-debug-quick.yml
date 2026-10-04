@@ -1,0 +1,91 @@
+name: Debug APK only (quick)
+# Builds only the installable Foss debug APK for a device test: no tests, no lint, no R8 release, no emulator.
+# It proves nothing about the product gates; the V3 evidence workflow stays the gate. Run it from any branch.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-debug-quick-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-runtime:
+    name: Pinned Wasmtime product native runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Build accepted production native runtime
+        run: bash tools/ep02-android/build-native.sh
+      - name: Verify ELF, JNI exports and portable native checksums
+        run: |
+          git rev-parse HEAD > tools/ep02-android/results/native/source-commit.txt
+          python3 .github/scripts/verify-extension-native-packaging.py \
+            --write-checksums \
+            --readelf "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
+            --report tools/ep02-android/results/native/product-native-verification.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: quick-native-runtime
+          path: tools/ep02-android/native-out/
+          if-no-files-found: error
+          retention-days: 3
+
+  debug-apk:
+    name: Foss debug APK
+    needs: native-runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Install compile SDK 37
+        run: android sdk install platforms/android-37.0
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+      - name: Stage pinned native runtime
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: quick-native-runtime
+          path: tools/ep02-android/native-out
+      - name: Verify staged native checksums
+        run: python3 .github/scripts/verify-extension-native-packaging.py
+      - name: Assemble Foss debug APK
+        run: ./gradlew --console=plain --stacktrace :app:assembleFossDebug
+      - name: Name the APK after the commit and record its digest
+        run: |
+          set -eu
+          mkdir -p out
+          apk="$(ls app/build/outputs/apk/foss/debug/*.apk | head -n 1)"
+          name="AniHyou-debug-${GITHUB_SHA::8}.apk"
+          cp "$apk" "out/$name"
+          digest="$(sha256sum "out/$name" | cut -d' ' -f1)"
+          {
+            echo "## Debug APK"
+            echo ""
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- File: \`$name\`"
+            echo "- APK SHA-256: \`$digest\`"
+            echo "- Signed with the debug key. Not a gate: no tests, lint or emulator ran in this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$digest  $name" > out/SHA256.txt
+      - name: Verify the native runtime is packaged in the debug APK
+        run: |
+          python3 .github/scripts/verify-extension-native-packaging.py \
+            --apk-dir app/build/outputs/apk/foss/debug \
+            --report out/apk-native-verification.json
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: debug-apk-${{ github.sha }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
