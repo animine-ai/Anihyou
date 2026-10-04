@@ -36,6 +36,8 @@ adb pull /sdcard/Android/data/com.axiel7.anihyou.debug/files/ep07-guard/. "$out/
   sha256sum "$out"/screenshots/*.png
   echo "== EP07 SCREENSHOT REVIEW COPIES api=$api (reduced JPEG, base64 in log) =="
   python3 "$(dirname "$0")/embed-screenshots-in-log.py" "$api" "$out/screenshots"
+  echo "== EP07 GUARD SCREENSHOT REVIEW COPIES api=$api (matching, schedule) =="
+  python3 "$(dirname "$0")/embed-screenshots-in-log.py" "$api" "$out/guard"
 } || echo 'EP07 screenshot listing or review copies could not be produced'
 sha256sum "${product_apks[0]}" "${test_apks[0]}" > "$out/apk.sha256"
 git rev-parse HEAD > "$out/source-commit.txt"
