@@ -34,6 +34,38 @@ class CalendarPresentationTest {
         assertEquals(keys, updated.presentationDays().single().rows.map { it.key })
     }
 
+    @Test fun theSameAniListMediaTwiceOnOneDayKeepsBothRowsWithDistinctKeys() {
+        val rows = listOf(
+            CalendarRow("2026-10-03-anilist-187402", null, emptyList()),
+            CalendarRow("2026-10-03-anilist-5", null, emptyList()),
+            CalendarRow("2026-10-03-anilist-187402", null, emptyList()),
+            CalendarRow("2026-10-03-anilist-187402", null, emptyList()),
+        ).withUniqueKeys()
+        assertEquals(4, rows.size)
+        assertEquals(4, rows.map { it.key }.toSet().size)
+        assertEquals("2026-10-03-anilist-187402", rows[0].key)
+        assertEquals("2026-10-03-anilist-5", rows[1].key)
+        assertEquals(listOf("2026-10-03-anilist-187402#2", "2026-10-03-anilist-187402#3"), rows.drop(2).map { it.key })
+    }
+
+    @Test fun aSuffixedKeyNeverCollidesWithAnExistingKey() {
+        val rows = listOf(
+            CalendarRow("k", null, emptyList()),
+            CalendarRow("k#2", null, emptyList()),
+            CalendarRow("k", null, emptyList()),
+        ).withUniqueKeys()
+        assertEquals(3, rows.map { it.key }.toSet().size)
+        assertEquals(listOf("k", "k#2", "k#3"), rows.map { it.key })
+    }
+
+    @Test fun repeatedProviderEventKeysDoNotReachTheListAsDuplicates() {
+        val one = row(today)
+        val state = CalendarUiState(today = today, providerRowsByDate = mapOf(today to listOf(one, one)))
+        val keys = state.presentationDays().single().rows.map { it.key }
+        assertEquals(2, keys.size)
+        assertEquals(2, keys.toSet().size)
+    }
+
     private fun row(date: LocalDate) = ReleaseUiCalendarItem(
         mediaId = 7,
         stream = ReleaseStreamKey(ProviderId("aniworld"), SourceSeriesKey("/anime/stream/example"),

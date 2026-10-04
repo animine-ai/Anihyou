@@ -354,6 +354,24 @@ internal data class CalendarDay(
     val rows: List<CalendarRow>,
 )
 
+/**
+ * A lazy list crashes on a repeated key. AniList may list one media twice for a day (two episodes the same day, pages that
+ * overlap) and the upstream list simply showed both rows, so the rows stay and only a repeated key gets an occurrence suffix.
+ * The first row keeps its plain key, which keeps keys stable across a refresh.
+ */
+internal fun List<CalendarRow>.withUniqueKeys(): List<CalendarRow> {
+    val used = HashSet<String>(size)
+    return map { row ->
+        var key = row.key
+        var occurrence = 1
+        while (!used.add(key)) {
+            occurrence += 1
+            key = "${row.key}#$occurrence"
+        }
+        if (key == row.key) row else row.copy(key = key)
+    }
+}
+
 internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
     val metadataByMediaId = weeklyAnime.values.asSequence().flatten().associateBy { it.id }
     return (weeklyAnime.keys + providerRowsByDate.keys + providerOnlyByDate.keys + today)
@@ -387,7 +405,7 @@ internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
                     )
                 }
             }
-            if (rows.isNotEmpty() || date == today) CalendarDay(date, rows) else null
+            if (rows.isNotEmpty() || date == today) CalendarDay(date, rows.withUniqueKeys()) else null
         }
 }
 
