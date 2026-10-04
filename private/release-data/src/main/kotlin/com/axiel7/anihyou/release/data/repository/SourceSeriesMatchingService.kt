@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.data.repository
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import androidx.room.withTransaction
 import com.axiel7.anihyou.release.core.api.DetailMappingRequest
 import com.axiel7.anihyou.release.core.api.IdentityCandidate
@@ -91,19 +92,38 @@ class SourceSeriesMatchingService(
 
     private suspend fun resolve(active: ExtensionSelectionKey, request: DetailMappingRequest) {
         val sourceKey = MappingEntryIds.sourceKey(active)
+        val media = request.mediaId
         if (dao.effectiveOverviewMappings(active.sourceId, active.extensionId, active.publisherId, active.providerId,
-                sourceKey, request.mediaId.toString()).isNotEmpty()) return
-        if (navigation.state.value.segments.any { it.key == active && it.mediaId == request.mediaId }) return
-        if (request.format == "MOVIE") return
+                sourceKey, request.mediaId.toString()).isNotEmpty()) {
+            AppLog.d("matching") { "media=$media: a persisted mapping exists, no matcher run" }
+            return
+        }
+        if (navigation.state.value.segments.any { it.key == active && it.mediaId == request.mediaId }) {
+            AppLog.d("matching") { "media=$media: navigation segments already bind it" }
+            return
+        }
+        if (request.format == "MOVIE") {
+            AppLog.d("matching") { "media=$media: a movie is left to the explicit settings" }
+            return
+        }
 
         val titles = request.titles.ifEmpty { cachedTitles(request.mediaId) }
-        if (titles.isEmpty()) return
+        if (titles.isEmpty()) {
+            AppLog.d("matching") { "media=$media: no titles known" }
+            return
+        }
         val wanted = titles.map(TitleNormalizer::normalize)
         // A cour or part cannot be told apart by a season subject, so it is left to the explicit settings.
-        if (wanted.any { it.part != null }) return
+        if (wanted.any { it.part != null }) {
+            AppLog.d("matching") { "media=$media: a cour/part title is left to the explicit settings" }
+            return
+        }
         val season = wanted.firstNotNullOfOrNull { it.season } ?: 1
         val wantedBases = wanted.map { it.base }.filter { it.isNotBlank() }.toSet()
-        if (wantedBases.isEmpty()) return
+        if (wantedBases.isEmpty()) {
+            AppLog.d("matching") { "media=$media: titles normalise to nothing" }
+            return
+        }
 
         val hits = mutableListOf<SourceSeriesLabelEntity>()
         var offset = 0
@@ -114,11 +134,15 @@ class SourceSeriesMatchingService(
             offset += PAGE
         }
         // Exactly one source series may fit; two are ambiguous and stay unmatched.
+        AppLog.i("matching") { "media=$media season=$season label hits=${hits.size} for bases=$wantedBases" }
         val label = hits.singleOrNull() ?: return
         val subject = runCatching {
             AniWorldMappingSubject.Season(AniWorldSiteIdentifier(label.providerSeriesKey), season)
         }.getOrNull() ?: return
-        if (alreadyAccepted(active, subject)) return
+        if (alreadyAccepted(active, subject)) {
+            AppLog.d("matching") { "media=$media: the source series is already accepted for another entry" }
+            return
+        }
         // The writer epoch of this exact entry when the work begins; a reset or correction later raises it.
         val epoch = fence.epoch(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}")
 
@@ -128,8 +152,15 @@ class SourceSeriesMatchingService(
             listOf(IdentityCandidate(request.mediaId, titles, request.format,
                 request.startYear?.let { runCatching { LocalDate.of(it, 1, 1) }.getOrNull() })),
         )
-        val matched = decision as? MatchDecision.Matched ?: return
-        if (matched.mediaId != request.mediaId || matched.tier !in AUTO_TIERS) return
+        val matched = decision as? MatchDecision.Matched ?: run {
+            AppLog.i("matching") { "media=$media: matcher did not accept (${decision.javaClass.simpleName})" }
+            return
+        }
+        if (matched.mediaId != request.mediaId || matched.tier !in AUTO_TIERS) {
+            AppLog.i("matching") { "media=$media: matcher result media=${matched.mediaId} tier=${matched.tier} is not an automatic accept" }
+            return
+        }
+        AppLog.i("matching") { "media=$media: automatic mapping written tier=${matched.tier} series=${label.providerSeriesKey}" }
         writeAuto(active, subject, matched, epoch)
     }
 

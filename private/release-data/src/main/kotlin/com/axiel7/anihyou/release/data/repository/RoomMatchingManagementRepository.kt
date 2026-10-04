@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.data.repository
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import androidx.room.withTransaction
 import com.axiel7.anihyou.release.core.api.DetailMappingRequest
 import com.axiel7.anihyou.release.core.api.ManagedMapping
@@ -254,6 +255,7 @@ class RoomMatchingManagementRepository(
     private class Abort(val result: MappingMutationResult) : RuntimeException(null, null, false, false)
 
     override suspend fun reset(token: MappingActionToken): MappingMutationResult = withContext(Dispatchers.IO) {
+        AppLog.i("matching") { "user: reset mappings of a captured scope" }
         mutation.withLock {
             val action = dao.action(token.value) ?: return@withLock MappingMutationResult.UNAVAILABLE
             if (action.consumedAt != null) return@withLock MappingMutationResult.UNAVAILABLE
@@ -345,6 +347,7 @@ class RoomMatchingManagementRepository(
 
     override suspend fun correct(id: String, revision: String, mediaId: Int): MappingMutationResult =
         withContext(Dispatchers.IO) {
+            AppLog.i("matching") { "user: correct mapping to media=$mediaId" }
             if (mediaId <= 0) return@withContext MappingMutationResult.UNAVAILABLE
             val ref = MappingEntryIds.decode(id) ?: return@withContext MappingMutationResult.UNAVAILABLE
             mutation.withLock { correctLocked(ref, revision, mediaId) }

@@ -1,5 +1,7 @@
 package com.axiel7.anihyou.release.data.extension
 
+import android.os.Build
+import com.axiel7.anihyou.release.core.log.AppLog
 import android.app.Service
 import android.content.ComponentName
 import android.content.Context
@@ -85,6 +87,9 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
     private val lateResultRejections = AtomicLong(0)
 
     @Volatile private var session: Session? = null
+    /** Why the isolated service could not be reached in the last call; null when it was reached. */
+    @Volatile var lastStartFailure: String? = null
+        private set
     @Volatile private var activeToken: Long = 0
     @Volatile private var lastFenced: FencedInvocation? = null
     @Volatile var lastDiagnostics: ExtensionRuntimeCallDiagnostics? = null
@@ -125,11 +130,19 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         }
 
         val logicalStartedAt = System.nanoTime()
+        lastStartFailure = null
+        AppLog.d("runtime") { "execute $exportName digest=${AppLog.short(moduleDigest)} module=${moduleBytes.size}B input=${inputUtf8.size}B deadline=${limits.deadlineMillis}ms fuel=${limits.fuel}" }
         val acquisition = try {
             acquireSession()
-        } catch (_: Exception) {
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            lastStartFailure = error.message ?: error.javaClass.simpleName
+            AppLog.e("runtime", error) { "isolated service not reachable: $lastStartFailure" }
+            logRecentProcessExits()
             return@withLock ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
         }
+        AppLog.d("runtime") { "service ready bind=${acquisition.bindMicros} us generation=${acquisition.session.generation}" }
         val activeSession = acquisition.session
         var sendModule = !activeSession.knownDigests.contains(moduleDigest)
 
@@ -147,6 +160,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
             )) {
                 is RuntimeAttempt.Success -> {
                     activeSession.knownDigests += moduleDigest
+                    AppLog.d("runtime") { "execute ok $exportName output=${attempt.output.size}B total=${(System.nanoTime() - logicalStartedAt) / 1_000} us" }
                     return@withLock ExtensionRuntimeResult.Success(attempt.output)
                 }
                 RuntimeAttempt.ModuleMiss -> {
@@ -156,7 +170,10 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
                     }
                     sendModule = true
                 }
-                is RuntimeAttempt.Failure -> return@withLock attempt.result
+                is RuntimeAttempt.Failure -> {
+                    AppLog.w("runtime") { "execute failed $exportName result=${attempt.result} total=${(System.nanoTime() - logicalStartedAt) / 1_000} us" }
+                    return@withLock attempt.result
+                }
             }
         }
         ExtensionRuntimeResult.Failure(ExtensionRuntimeErrorCode.TRAP)
@@ -407,7 +424,9 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
             return@withLock SessionAcquisition(it, bindMicros = 0)
         }
         val startedAt = System.nanoTime()
-        val created = bind()
+        AppLog.i("runtime") { "binding isolated service (timeout ${BIND_TIMEOUT_MILLIS} ms)" }
+        val created = withTimeoutOrNull(BIND_TIMEOUT_MILLIS) { bind() }
+            ?: throw IllegalStateException("isolated service did not connect within ${BIND_TIMEOUT_MILLIS} ms")
         session = created
         SessionAcquisition(
             session = created,
@@ -421,6 +440,7 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
                 val created = Session(generation, service, connection)
+                AppLog.i("runtime") { "isolated service connected generation=$generation" }
                 try {
                     service.linkToDeath({ onBinderDeath(created) }, 0)
                 } catch (_: RemoteException) {
@@ -435,11 +455,24 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
             }
 
             override fun onServiceDisconnected(name: ComponentName) {
+                AppLog.w("runtime") { "isolated service disconnected" }
                 session?.takeIf { it.connection === connection }?.let(::onBinderDeath)
             }
 
             override fun onBindingDied(name: ComponentName) {
+                AppLog.w("runtime") { "isolated service binding died" }
                 session?.takeIf { it.connection === connection }?.let(::onBinderDeath)
+                // A binding that dies before it ever connected would otherwise leave the caller waiting forever.
+                if (continuation.isActive) {
+                    continuation.resumeWithException(IllegalStateException("isolated service binding died before it connected"))
+                }
+            }
+
+            override fun onNullBinding(name: ComponentName) {
+                AppLog.w("runtime") { "isolated service returned no binder" }
+                if (continuation.isActive) {
+                    continuation.resumeWithException(IllegalStateException("isolated service returned no binder"))
+                }
             }
         }
         val bound = appContext.bindService(
@@ -450,6 +483,20 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         if (!bound) continuation.resumeWithException(IllegalStateException("unable to bind isolated runtime"))
         continuation.invokeOnCancellation {
             if (bound) runCatching { appContext.unbindService(connection) }
+        }
+    }
+
+    /** The isolated process cannot write to our logcat filter, so the system's own exit record is the evidence. */
+    private fun logRecentProcessExits() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        runCatching {
+            val manager = appContext.getSystemService(android.app.ActivityManager::class.java) ?: return
+            manager.getHistoricalProcessExitReasons(appContext.packageName, 0, 6).forEach { exit ->
+                AppLog.w("runtime") {
+                    "process exit name=${exit.processName} reason=${exit.reason} status=${exit.status} " +
+                        "importance=${exit.importance} at=${exit.timestamp} description=${exit.description}"
+                }
+            }
         }
     }
 
@@ -643,6 +690,8 @@ class AndroidIsolatedExtensionRuntime(context: Context) : ExtensionRuntime, Auto
         const val MAX_MEMORY_BYTES = 32 * 1024 * 1024
         const val MAX_DEADLINE_MILLIS = 60_000L
         const val HOST_DEADLINE_GRACE_MILLIS = 750L
+        /** Starting an isolated process takes well under a second; a service that is not up by now will not come. */
+        const val BIND_TIMEOUT_MILLIS = 15_000L
         const val INLINE_PAYLOAD_BYTES = 48 * 1024
         val SHA256 = Regex("[0-9a-f]{64}")
         val ALLOWED_EXPORTS = setOf("plan_requests", "parse_responses", "plan_navigation", "parse_navigation")

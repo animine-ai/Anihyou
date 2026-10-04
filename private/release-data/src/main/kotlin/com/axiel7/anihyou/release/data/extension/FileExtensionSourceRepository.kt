@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.data.extension
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import com.axiel7.anihyou.release.core.source.*
 import java.io.File
 import java.io.IOException
@@ -46,6 +47,11 @@ internal class FileExtensionSourceRepository(
 ) : ExtensionSourceRepository, InstalledExtensionAccess {
     private val registry = ExtensionSourceRegistry(directory)
     private val trustDecision = Mutex()
+    /**
+     * Installs and updates outlive the screen that started them. Leaving the menu is not a cancellation: it used to stop the
+     * install half way and leave "update interrupted" behind. A source change (disable, remove) still cancels through [jobs].
+     */
+    private val detachedOperations = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val monitor = Any()
     private val publicationLock = Any()
     private val locks = HashMap<String, Mutex>()
@@ -126,11 +132,16 @@ internal class FileExtensionSourceRepository(
 
     override suspend fun add(url: String): AddExtensionSourceResult = withContext(Dispatchers.IO) {
         val address = runCatching { NormalizedExtensionSource.parse(url) }.getOrNull()
-            ?: return@withContext AddExtensionSourceResult.InvalidUrl
+            ?: return@withContext AddExtensionSourceResult.InvalidUrl.also { AppLog.w("source") { "add rejected: not a valid https source url" } }
+        AppLog.i("source") { "add ${address.url}" }
         // A source nothing can authenticate yet is not stored: it first shows exactly what was received, and waits for the
         // user. Only bounded HTTPS metadata is read; no package is downloaded and no module is started before the decision.
         if (manualTrust != null && bootstrap.authenticate(address) == null) {
             val preview = receivePreview(address) ?: return@withContext AddExtensionSourceResult.PreviewFailed
+            AppLog.i("source") {
+                "needs trust decision ${address.url} repo=${preview.second.repositoryId} root=${AppLog.short(preview.second.rootFingerprint)} " +
+                    "capabilities=${preview.second.capabilities} hosts=${preview.second.hosts}"
+            }
             return@withContext AddExtensionSourceResult.NeedsTrustConfirmation(preview.second)
         }
         register(address, refreshExisting = false)
@@ -144,7 +155,10 @@ internal class FileExtensionSourceRepository(
         // again: if it changed between the dialog and the tap, nothing is accepted and the user has to look again.
         trustDecision.withLock {
             val (received, current) = receivePreview(address) ?: return@withLock AddExtensionSourceResult.PreviewFailed
-            if (current != preview) return@withLock AddExtensionSourceResult.PreviewFailed
+            if (current != preview) {
+                AppLog.w("source") { "trust refused: root changed between dialog and confirmation ${address.url}" }
+                return@withLock AddExtensionSourceResult.PreviewFailed
+            }
             val hosts = received.root.publishers.flatMap { it.hosts }.toSet()
             val authority = received.root.publishers.map { scope ->
                 ManualTrustAuthority(scope.publisherId, scope.keyId, scope.extensionId, scope.providerId,
@@ -153,6 +167,7 @@ internal class FileExtensionSourceRepository(
             val accepted = store.accept(ManualTrustRecord(address.url, address.origin, received.repositoryId, received.sha256,
                 hosts, authority, clock.instant()))
             if (!accepted) return@withLock AddExtensionSourceResult.LimitReached
+            AppLog.i("source") { "trust accepted ${address.url} repo=${received.repositoryId} root=${AppLog.short(received.sha256)} hosts=$hosts" }
             val result = register(address, refreshExisting = true)
             if (result is AddExtensionSourceResult.LimitReached) store.remove(address.url)
             result
@@ -161,6 +176,7 @@ internal class FileExtensionSourceRepository(
 
     private suspend fun register(address: NormalizedExtensionSource, refreshExisting: Boolean): AddExtensionSourceResult {
         val result = registry.add(address) ?: return AddExtensionSourceResult.LimitReached
+        AppLog.i("source") { "registered ${address.url} id=${result.first.id} new=${result.second} epoch=${result.first.epoch}" }
         publish()
         // A source that already existed (added before it could be authenticated) refreshes now as well after an acceptance.
         if (result.second || refreshExisting) scheduler.scheduleRefresh()
@@ -178,7 +194,8 @@ internal class FileExtensionSourceRepository(
             publishers.flatMap { it.hosts }.distinct().sorted())
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (_: Exception) {
+    } catch (error: Exception) {
+        AppLog.w("source", error) { "preview failed ${address.url}: ${error.javaClass.simpleName}" }
         null
     }
 
@@ -274,6 +291,7 @@ internal class FileExtensionSourceRepository(
             jobs[id]?.cancel()
             token
         }
+        AppLog.i("source") { "lifecycle id=$id enabled=$enabled removed=$removed" }
         if (!enabled || removed) productPolicy.invalidateSource(id)
         var applied = false
         lock(id).withLock {
@@ -304,8 +322,9 @@ internal class FileExtensionSourceRepository(
     }
 
     override suspend fun activate(sourceId: String, extensionId: String) {
+        AppLog.i("source") { "activate requested source=$sourceId extension=$extensionId" }
         try { operate(sourceId, deduplicate = true, phase = ExtensionUpdateState.CHECKING,
-            failureClassification = ExtensionSourceFailure.INVALID_PACKAGE) { source ->
+            failureClassification = ExtensionSourceFailure.INVALID_PACKAGE, detached = true) { source ->
             val existing = synchronized(monitor) { stores[source.id] }
             existing?.beginOperation(extensionId, ExtensionUpdateState.CHECKING, "", clock.instant())
             var store = existing
@@ -319,6 +338,11 @@ internal class FileExtensionSourceRepository(
                     ?.maxByOrNull { it.binding.releaseSequence } ?: error("no eligible signed extension")
                 require(!candidate.revoked) { "latest signed extension revoked" }
                 val installed = snapshot.generations[extensionId]?.active
+                AppLog.i("source") {
+                    "activate candidate ext=$extensionId version=${candidate.binding.version} seq=${candidate.binding.releaseSequence} " +
+                        "digest=${AppLog.short(candidate.binding.archiveSha256)} bytes=${candidate.binding.archiveBytes} " +
+                        "installed=${installed?.version ?: "none"} yanked=${candidate.binding.yanked} revoked=${candidate.revoked}"
+                }
                 if (installed?.digest == candidate.binding.archiveSha256) {
                     // D1: a yank of the release that is already installed and healthy does not stop it. The package
                     // must still be usable under every trust rule, and revocation was rejected above.
@@ -336,7 +360,9 @@ internal class FileExtensionSourceRepository(
                 store.beginOperation(extensionId, ExtensionUpdateState.CHECKING, candidate.binding.archiveSha256, clock.instant())
                 val anchor = synchronized(monitor) { anchors.getValue(source.id) }
                 progress(source.id, ExtensionUpdateState.DOWNLOADING)
+                val downloadStartedAt = System.nanoTime()
                 val bytes = transport.fetch(candidate.url, anchor.pin.distributionOrigins, 8 * 1024 * 1024)
+                AppLog.i("source") { "downloaded ext=$extensionId ${bytes.size} bytes from ${AppLog.host(candidate.url)} in ${(System.nanoTime() - downloadStartedAt) / 1_000_000} ms" }
                 currentCoroutineContext().ensureActive()
                 fence(source)
                 val staged = File.createTempFile("download-", ".arex", directory)
@@ -393,6 +419,7 @@ internal class FileExtensionSourceRepository(
     private fun classifyUpdate(error: Exception, sourceId: String): ExtensionUpdateFailure = when (error) {
         is CancellationException -> ExtensionUpdateFailure.CANCELLED
         is IOException -> ExtensionUpdateFailure.NETWORK
+        is ExtensionRuntimeUnavailableException -> ExtensionUpdateFailure.RUNTIME
         is ExtensionSmokeException -> ExtensionUpdateFailure.SMOKE
         is ExtensionPackageVerificationException -> when (error.failure) {
             ExtensionPackageFailure.DIGEST_MISMATCH -> ExtensionUpdateFailure.DIGEST
@@ -412,12 +439,14 @@ internal class FileExtensionSourceRepository(
     private fun technicalFailureCode(error: Exception): String = when (error) {
         is ExtensionPackageVerificationException -> error.failure.name
         is SourceOperationFailure -> error.classification.name
+        is ExtensionRuntimeUnavailableException -> "RUNTIME_UNAVAILABLE"
         is ExtensionSmokeException -> "SMOKE_" + (error.cause?.javaClass?.simpleName ?: "FAILED")
         else -> error.javaClass.simpleName
     }.replace(Regex("[^A-Za-z0-9_]"), "_").take(128).ifEmpty { "OPERATION_FAILED" }
 
     /** Journal-held callbacks cannot wait for publication, which may wait for that journal. */
     private fun progress(sourceId: String, state: ExtensionUpdateState) = synchronized(monitor) {
+        AppLog.i("source") { "stage $state source=$sourceId" }
         phases[sourceId] = state
         mutableSources.value = mutableSources.value.map { source ->
             if (source.id == sourceId) source.copy(extensions = source.extensions.map { it.copy(updateState = state) }) else source
@@ -468,13 +497,16 @@ internal class FileExtensionSourceRepository(
         val root = transport.fetch(source.address.url + "/root.json", anchor.pin.distributionOrigins, 65536)
         currentCoroutineContext().ensureActive()
         fence(source)
+        AppLog.d("source") { "root received ${root.size} bytes for ${source.address.url}" }
         store.acceptRoot(root, clock.instant())
         // A newly authenticated root can revoke the installed package even if index HTTP fails.
         store.snapshot().generations.keys.forEach { store.loadUsableExtension(it) }
         val index = transport.fetch(source.address.url + "/index.json", anchor.pin.distributionOrigins, 262144)
         currentCoroutineContext().ensureActive()
         fence(source)
+        AppLog.d("source") { "index received ${index.size} bytes for ${source.address.url}" }
         store.acceptIndex(index, clock.instant())
+        AppLog.i("source") { "metadata ok ${source.address.url} extensions=${store.snapshot().index?.packages?.map { it.binding.extensionId }?.distinct()}" }
         store.snapshot().generations.keys.forEach { store.loadUsableExtension(it) }
         registry.update(source.id) { it.copy(succeededAt = clock.instant(), failure = null) }
         return store
@@ -482,31 +514,46 @@ internal class FileExtensionSourceRepository(
 
     private suspend fun operate(id: String, deduplicate: Boolean, phase: ExtensionUpdateState = ExtensionUpdateState.CHECKING,
         failureClassification: ExtensionSourceFailure = ExtensionSourceFailure.INVALID_METADATA,
-        action: suspend (RegisteredExtensionSource) -> Unit) =
-        withContext(Dispatchers.IO) {
+        detached: Boolean = false,
+        action: suspend (RegisteredExtensionSource) -> Unit) {
+        val body: suspend CoroutineScope.() -> Unit = {
+            val startedAt = System.nanoTime()
+            AppLog.d("source") { "operation start id=$id phase=$phase detached=$detached dedupe=$deduplicate" }
             coroutineScope {
                 val mutex = lock(id)
-                if (deduplicate) { if (!mutex.tryLock()) return@coroutineScope }
-                else mutex.lock()
+                if (deduplicate) {
+                    if (!mutex.tryLock()) {
+                        AppLog.d("source") { "operation skipped id=$id: another operation holds the source" }
+                        return@coroutineScope
+                    }
+                } else mutex.lock()
                 try {
                     val source = registry.find(id)?.takeIf { it.enabled && !it.removed } ?: return@coroutineScope
                     val operationJob = currentCoroutineContext()[Job]!!
                     val accepted = synchronized(monitor) {
                         if (id in lifecycleIntents) false else { jobs[id] = operationJob; true }
                     }
-                    if (!accepted) return@coroutineScope
+                    if (!accepted) {
+                        AppLog.d("source") { "operation refused id=$id: lifecycle change pending" }
+                        return@coroutineScope
+                    }
                     progress(id, phase)
                     try {
                         withContext(ExtensionSourceRuntimeCancellation.job.asContextElement(operationJob)) {
                             action(source)
                         }
+                        AppLog.d("source") { "operation done id=$id phase=$phase in ${(System.nanoTime() - startedAt) / 1_000_000} ms" }
                     } catch (cancelled: CancellationException) {
+                        AppLog.w("source") { "operation cancelled id=$id phase=$phase in ${(System.nanoTime() - startedAt) / 1_000_000} ms" }
                         throw cancelled
-                    } catch (_: IOException) {
+                    } catch (error: IOException) {
+                        AppLog.w("source", error) { "operation network failure id=$id phase=$phase: ${error.javaClass.simpleName}" }
                         registry.update(id) { it.copy(failure = ExtensionSourceFailure.NETWORK) }
                     } catch (classified: SourceOperationFailure) {
+                        AppLog.w("source", classified) { "operation failed id=$id phase=$phase classification=${classified.classification}" }
                         registry.update(id) { it.copy(failure = classified.classification) }
-                    } catch (_: Exception) {
+                    } catch (error: Exception) {
+                        AppLog.e("source", error) { "operation failed id=$id phase=$phase: ${error.javaClass.simpleName}: ${error.message}" }
                         registry.update(id) { it.copy(failure = failureClassification) }
                     } finally {
                         synchronized(monitor) { jobs.remove(id); phases.remove(id) }
@@ -515,6 +562,13 @@ internal class FileExtensionSourceRepository(
                 } finally { mutex.unlock() }
             }
         }
+        if (detached) {
+            // The caller may leave (a screen closes) while the operation continues; only the wait is cancelled.
+            detachedOperations.async { body() }.await()
+        } else {
+            withContext(Dispatchers.IO) { body() }
+        }
+    }
 
     private fun lock(id: String): Mutex = synchronized(monitor) { locks.getOrPut(id) { Mutex() } }
     private fun fence(source: RegisteredExtensionSource) {

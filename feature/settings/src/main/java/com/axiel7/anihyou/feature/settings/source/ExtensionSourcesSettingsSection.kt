@@ -18,7 +18,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -62,13 +61,17 @@ fun ExtensionSourcesSettingsSection(
     uiState: ExtensionSourcesUiState,
     event: ExtensionSourcesEvent,
 ) {
-    PreferencesTitle(text = stringResource(R.string.extension_sources_title))
+    val entries = uiState.sources.flatMap { source -> source.extensions.map { extension -> source to extension } }
+    // Installed extensions are the active ones; everything a source offers that is not installed yet is available.
+    val active = entries.filter { (_, extension) -> extension.installedDigest != null }
+    val available = entries.filter { (_, extension) -> extension.installedDigest == null }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
     ) {
+        Spacer(Modifier.height(8.dp))
         if (uiState.trustAvailable) AddExtensionSourceForm(uiState, event)
         if (uiState.actionFailed) {
             Spacer(Modifier.height(8.dp))
@@ -76,24 +79,71 @@ fun ExtensionSourcesSettingsSection(
                 Text(stringResource(R.string.extension_sources_action_failed))
             }
         }
+    }
 
+    if (active.isNotEmpty()) {
+        PreferencesTitle(text = stringResource(R.string.extension_manage_active_title))
+        ExtensionCards(active, uiState, event)
+    }
+    if (available.isNotEmpty()) {
+        PreferencesTitle(text = stringResource(R.string.extension_manage_available_title))
+        ExtensionCards(available, uiState, event)
+    }
+
+    PreferencesTitle(text = stringResource(R.string.extension_sources_title))
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+    ) {
         if (uiState.sources.isEmpty()) {
-            Spacer(Modifier.height(8.dp))
             Text(
                 text = stringResource(R.string.extension_sources_empty),
                 style = MaterialTheme.typography.bodyMedium,
             )
         } else {
-            Spacer(Modifier.height(16.dp))
             uiState.sources.forEach { source ->
                 ExtensionSourceCard(
                     source = source,
-                    diagnostics = uiState.diagnostics,
                     busySourceIds = uiState.busySourceIds,
                     trustAvailable = uiState.trustAvailable,
                     event = event,
                     modifier = Modifier.padding(vertical = 6.dp),
                 )
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun ExtensionCards(
+    entries: List<Pair<ExtensionSource, SourceExtension>>,
+    uiState: ExtensionSourcesUiState,
+    event: ExtensionSourcesEvent,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+    ) {
+        entries.forEach { (source, extension) ->
+            val sourceBusy = source.id in uiState.busySourceIds || source.extensions.any { it.updateState.isInFlight() }
+            // The rounded surfaceContainerHigh tile of the original settings rows and cards.
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).testTag("extension-card"),
+                shape = singleShape,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    SourceExtensionInfo(
+                        source = source,
+                        extension = extension,
+                        sourceBusy = sourceBusy,
+                        diagnostics = source.selectionKey(extension)?.let { uiState.diagnostics[it] }.orEmpty(),
+                        event = event,
+                    )
+                }
             }
         }
     }
@@ -105,16 +155,12 @@ private fun AddExtensionSourceForm(
     event: ExtensionSourcesEvent,
 ) {
     Column {
-        Text(
-            text = stringResource(R.string.extension_sources_auth_explanation),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = uiState.url,
             onValueChange = event::onUrlChanged,
             modifier = Modifier.fillMaxWidth().testTag("extension-source-url"),
             label = { Text(stringResource(R.string.extension_sources_url)) },
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
             singleLine = true,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Uri,
@@ -160,7 +206,6 @@ private fun AddExtensionSourceForm(
 @Composable
 private fun ExtensionSourceCard(
     source: ExtensionSource,
-    diagnostics: Map<ExtensionSelectionKey, Map<String, String>>,
     busySourceIds: Set<String>,
     trustAvailable: Boolean,
     event: ExtensionSourcesEvent,
@@ -186,9 +231,11 @@ private fun ExtensionSourceCard(
         ) {
             Text(repositoryHost(source.url) ?: stringResource(R.string.extension_manage_unknown_repository),
                 style = MaterialTheme.typography.titleMedium)
+            // The full address tells two repositories of one host apart; the internal id is not for the user.
             Text(
-                text = stringResource(R.string.extension_manage_repository_summary, source.id, source.origin),
+                text = source.url,
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(4.dp))
             Text(
@@ -235,16 +282,6 @@ private fun ExtensionSourceCard(
                 ) {
                     Text(stringResource(R.string.extension_sources_remove))
                 }
-            }
-            source.extensions.forEach { extension ->
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                SourceExtensionInfo(
-                    source = source,
-                    extension = extension,
-                    sourceBusy = sourceBusy,
-                    diagnostics = source.selectionKey(extension)?.let { diagnostics[it] }.orEmpty(),
-                    event = event,
-                )
             }
         }
     }
@@ -295,11 +332,13 @@ private fun SourceExtensionInfo(
     val lastUpdateFailure = extension.lastUpdateFailure
 
     Text(stringResource(R.string.extension_manage_signed_name, extension.displayName),
-        style = MaterialTheme.typography.titleSmall)
+        style = MaterialTheme.typography.titleMedium)
     Text(
-        text = stringResource(R.string.extension_manage_signed_id, extension.extensionId),
+        text = repositoryHost(source.url) ?: stringResource(R.string.extension_manage_unknown_repository),
         style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    Spacer(Modifier.height(4.dp))
     Text(
         text = stringResource(R.string.extension_manage_installed_version,
             extension.installedVersion ?: stringResource(R.string.extension_manage_not_installed)),
@@ -318,20 +357,7 @@ private fun SourceExtensionInfo(
         modifier = Modifier.testTag("extension-installed-status-${extension.extensionId}"),
     )
     val digest = extension.installedDigest
-    if (digest != null) {
-        Text(
-            text = stringResource(R.string.extension_manage_package_summary,
-                extension.packageGeneration, digest.take(12)),
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
     val repoTrust = diagnostics["Trust status"]
-    if (repoTrust != null) {
-        Text(
-            text = stringResource(R.string.extension_manage_authenticated_trust, repoTrust),
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
     if (lastUpdateFailure != null) {
         Text(
             text = stringResource(R.string.extension_manage_update_failure,
@@ -434,7 +460,7 @@ private fun SourceExtensionInfo(
         }
     }
     if (dialog == ExtensionManageDialog.CAPABILITIES) {
-        ExtensionCapabilityDialog(extension, onDismiss = { dialog = null })
+        ExtensionCapabilityDialog(extension, repoTrust, onDismiss = { dialog = null })
     } else if (dialog == ExtensionManageDialog.REMOVE_EXTENSION) {
         AlertDialog(
             onDismissRequest = { dialog = null },
@@ -533,7 +559,7 @@ private data class RollbackRequest(
 )
 
 @Composable
-private fun ExtensionCapabilityDialog(extension: SourceExtension, onDismiss: () -> Unit) {
+private fun ExtensionCapabilityDialog(extension: SourceExtension, repositoryTrust: String?, onDismiss: () -> Unit) {
     val releaseCapabilities = extension.capabilities.filter { it in setOf("CALENDAR", "RECENT", "DIRECT", "POSTPONEMENT") }
     val navigationCapabilities = extension.capabilities.filter { it in setOf("OVERVIEW_NAVIGATION", "EPISODE_NAVIGATION") }
     val otherCapabilities = extension.capabilities.filterNot { it in releaseCapabilities || it in navigationCapabilities }
@@ -553,6 +579,19 @@ private fun ExtensionCapabilityDialog(extension: SourceExtension, onDismiss: () 
                     Text(stringResource(R.string.extension_manage_other_capabilities),
                         style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
                     Text(otherCapabilities.joinToString())
+                }
+                // Identity and package facts a user rarely needs, kept out of the list.
+                Text(stringResource(R.string.extension_manage_technical_title),
+                    style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                Text(stringResource(R.string.extension_manage_signed_id, extension.extensionId),
+                    style = MaterialTheme.typography.bodySmall)
+                extension.installedDigest?.let { installed ->
+                    Text(stringResource(R.string.extension_manage_package_summary, extension.packageGeneration, installed.take(12)),
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                repositoryTrust?.let { trust ->
+                    Text(stringResource(R.string.extension_manage_authenticated_trust, trust),
+                        style = MaterialTheme.typography.bodySmall)
                 }
             }
         },

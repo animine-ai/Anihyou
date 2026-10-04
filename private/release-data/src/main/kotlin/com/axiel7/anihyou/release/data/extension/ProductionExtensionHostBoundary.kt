@@ -91,7 +91,10 @@ class ProductionExtensionHostBoundary private constructor(
                         runtime.execute(extension.moduleDigest, extension.moduleBytes, "plan_requests", input, limits)
                     }
                     val output = result as? com.axiel7.anihyou.release.core.extension.ExtensionRuntimeResult.Success
-                        ?: error("isolated extension smoke failed")
+                        ?: run {
+                            runtime.lastStartFailure?.let { throw ExtensionRuntimeUnavailableException(it) }
+                            error("isolated extension smoke failed")
+                        }
                     ExtensionWireCodec.decodePlanOutput(output.outputUtf8, contextV1)
                 })
             val dispatch = ProductionExtensionDispatches.create(store, runtime,

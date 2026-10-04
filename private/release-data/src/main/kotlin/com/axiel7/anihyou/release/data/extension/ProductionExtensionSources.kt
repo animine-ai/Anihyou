@@ -35,7 +35,10 @@ object ProductionExtensionSources {
                             runtime.execute(extension.moduleDigest, extension.moduleBytes, "plan_requests", input,
                                 ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000))
                         }
-                        val success = result as? ExtensionRuntimeResult.Success ?: error("isolated extension smoke failed")
+                        val success = result as? ExtensionRuntimeResult.Success ?: run {
+                            runtime.lastStartFailure?.let { throw ExtensionRuntimeUnavailableException(it) }
+                            error("isolated extension smoke failed")
+                        }
                         ExtensionWireCodec.decodePlanOutput(success.outputUtf8, extensionContext)
                     })
             },

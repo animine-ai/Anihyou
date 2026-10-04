@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.feature.calendar
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.common.utils.DateUtils.toTimestamp
@@ -67,6 +68,7 @@ class CalendarViewModel(
     }
 
     override fun onShowAniListExtrasChanged(value: Boolean) {
+        AppLog.i("calendar") { "AniList entries without a source match: $value" }
         viewModelScope.launch {
             defaultPreferencesRepository.setCalendarShowAniListExtras(value)
         }
@@ -116,6 +118,7 @@ class CalendarViewModel(
     }
 
     override fun nextDay() {
+        AppLog.d("calendar") { "load next day after ${uiState.value.day.toLocalDate()}" }
         mutableUiState.update {
             it.copy(
                 day = it.day.plusDays(1),
@@ -127,6 +130,7 @@ class CalendarViewModel(
     }
 
     override fun refresh() {
+        AppLog.i("calendar") { "pull to refresh: AniList days reset, extension refresh scheduled=${extensionRefreshScheduler != null}" }
         extensionRefreshScheduler?.scheduleNow()
         mutableUiState.update {
             it.copy(
@@ -232,6 +236,10 @@ class CalendarViewModel(
             .onEach { rows ->
                 mutableUiState.update { state ->
                     val authoritativeRows = rows.filter { it.isAuthoritative }
+                    AppLog.i("calendar") {
+                        "extension rows received=${rows.size} authoritative=${authoritativeRows.size} " +
+                            "days=${authoritativeRows.mapNotNull { it.sourceDate }.distinct().size} -> source is main: ${authoritativeRows.isNotEmpty()}"
+                    }
                     val byMedia = authoritativeRows
                         .mapNotNull { it.mediaId }
                         .distinct()
@@ -316,6 +324,10 @@ class CalendarViewModel(
                             requestedDate, replaceDay = requestedPage == 1, events = result.list,
                         )
 
+                        AppLog.i("calendar") {
+                            "AniList page day=$requestedDate page=$requestedPage got=${result.list.size} hasNext=${result.hasNextPage} " +
+                                "replaceDay=${requestedPage == 1} days=${updatedMap.size} events=${updatedMap.values.sumOf { it.size }}"
+                        }
                         state.copy(
                             weeklyAnime = updatedMap,
                             providerOnlyByDate = state.releaseCalendarRows.providerOnlyByDate(
@@ -337,6 +349,7 @@ class CalendarViewModel(
                         mutableUiState.update { it.copy(isLoading = true) }
                     }
                 } else if (result is PagedResult.Error) {
+                    AppLog.w("calendar") { "AniList page day=$requestedDate page=$requestedPage failed: ${result.message}" }
                     mutableUiState.update {
                         it.copy(
                             error = result.message,
@@ -354,9 +367,14 @@ class CalendarViewModel(
             .sumOf { it.rows.size + 1 } // exactly the displayed rows plus their date header
         // The list starts at yesterday. Today is only a stable anchor once the days before it have arrived, otherwise the
         // one-shot initial focus is spent on an index that still moves and the screen stays at the top.
+        val ready = isTodayAnchorStable(day.toLocalDate(), today, hasNextPage, error)
+        AppLog.d("calendar") {
+            "today anchor index=$index ready=$ready loadedDay=${day.toLocalDate()} today=$today hasNext=$hasNextPage " +
+                "autoFocus=$autoScrollToToday days=${presentationDays().size}"
+        }
         return copy(
             todayFirstItemIndex = index,
-            todayAnchorReady = isTodayAnchorStable(day.toLocalDate(), today, hasNextPage, error),
+            todayAnchorReady = ready,
         )
     }
 

@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.feature.worker
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -34,12 +35,15 @@ class ExtensionSourceRefreshWorker(
     params: WorkerParameters,
     private val repository: ExtensionSourceRepository,
 ) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result = when (
-        evaluateExtensionSourceRefresh(repository, runAttemptCount)
-    ) {
-        ExtensionSourceRefreshDecision.SUCCESS -> Result.success()
-        ExtensionSourceRefreshDecision.RETRY -> Result.retry()
-        ExtensionSourceRefreshDecision.FAILURE -> Result.failure()
+    override suspend fun doWork(): Result {
+        AppLog.i("worker") { "source refresh start attempt=$runAttemptCount" }
+        val decision = evaluateExtensionSourceRefresh(repository, runAttemptCount)
+        AppLog.i("worker") { "source refresh decision=$decision attempt=$runAttemptCount" }
+        return when (decision) {
+            ExtensionSourceRefreshDecision.SUCCESS -> Result.success()
+            ExtensionSourceRefreshDecision.RETRY -> Result.retry()
+            ExtensionSourceRefreshDecision.FAILURE -> Result.failure()
+        }
     }
 
     companion object {

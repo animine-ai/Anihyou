@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.feature.calendar
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -474,10 +476,21 @@ private fun ListView(
     listState.OnBottomReached(buffer = 1, debounceDuration = 500.milliseconds) {
         event?.onLoadMore()
     }
+    // The first screen is today. The index of today moves while the days before it are still arriving (more AniList
+    // pages, extension rows), so the focus is renewed on every change until the user takes over by dragging. A single
+    // animated scroll that then marked itself done left the list on whatever day was at that index at that moment.
     LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex) {
         if (uiState.todayAnchorReady && uiState.autoScrollToToday) {
-            listState.animateScrollToItem(uiState.todayFirstItemIndex)
-            event?.onAutoScrolled()
+            AppLog.d("calendar") { "focus today: scroll list to item ${uiState.todayFirstItemIndex}" }
+            listState.scrollToItem(uiState.todayFirstItemIndex)
+        }
+    }
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                AppLog.d("calendar") { "user took over the scroll position" }
+                event?.onAutoScrolled()
+            }
         }
     }
 
@@ -551,10 +564,19 @@ private fun GridView(
     gridState.OnBottomReached(buffer = 1, debounceDuration = 500.milliseconds) {
         event?.onLoadMore()
     }
+    // Same focus rule as the list view: renewed on every change of today's index until the user drags.
     LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex) {
         if (uiState.todayAnchorReady && uiState.autoScrollToToday) {
-            gridState.animateScrollToItem(uiState.todayFirstItemIndex)
-            event?.onAutoScrolled()
+            AppLog.d("calendar") { "focus today: scroll grid to item ${uiState.todayFirstItemIndex}" }
+            gridState.scrollToItem(uiState.todayFirstItemIndex)
+        }
+    }
+    LaunchedEffect(gridState) {
+        gridState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                AppLog.d("calendar") { "user took over the scroll position" }
+                event?.onAutoScrolled()
+            }
         }
     }
 

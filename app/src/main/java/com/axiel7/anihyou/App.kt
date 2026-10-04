@@ -43,6 +43,11 @@ class App : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        // The Wasm runtime service runs in an isolated process that has no access to the app's files, accounts or
+        // network. Starting the whole app there (Koin, stores, schedulers) crashed that process on its first
+        // uncaught exception, so the service never connected and an install waited on it indefinitely.
+        if (isIsolatedProcess()) return
+        if (BuildConfig.DEBUG) installDebugLog()
 
         val koinApplication = startKoin {
             if (BuildConfig.DEBUG) {
@@ -139,4 +144,28 @@ internal object AniWorldShadowDebugActivation {
 
     internal fun isEnabled(debugBuild: Boolean, canaryProperty: Boolean): Boolean =
         debugBuild && canaryProperty
+
+}
+
+/** Isolated processes run under a uid in the 99000..99999 range of their user. */
+private fun isIsolatedProcess(): Boolean = (android.os.Process.myUid() % 100000) in 99000..99999
+
+/** The debug build prints every data decision to logcat under "AniHyou.<area>"; a release build prints nothing. */
+private fun installDebugLog() {
+    com.axiel7.anihyou.release.core.log.AppLog.sink =
+        com.axiel7.anihyou.release.core.log.AppLog.Sink { level, area, message, error ->
+            val tag = "AniHyou.$area"
+            // Logcat truncates a line near 4 KB; longer messages are split so no decision is cut off.
+            message.chunked(3500).forEach { part ->
+                when (level) {
+                    com.axiel7.anihyou.release.core.log.AppLog.Level.DEBUG -> android.util.Log.d(tag, part)
+                    com.axiel7.anihyou.release.core.log.AppLog.Level.INFO -> android.util.Log.i(tag, part)
+                    com.axiel7.anihyou.release.core.log.AppLog.Level.WARN -> android.util.Log.w(tag, part, error)
+                    com.axiel7.anihyou.release.core.log.AppLog.Level.ERROR -> android.util.Log.e(tag, part, error)
+                }
+            }
+        }
+    com.axiel7.anihyou.release.core.log.AppLog.i("app") {
+        "debug log on, version=${BuildConfig.VERSION_NAME} code=${BuildConfig.VERSION_CODE} sdk=${android.os.Build.VERSION.SDK_INT}"
+    }
 }

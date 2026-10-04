@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.data.repository
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleaseUiAuthority
 import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
@@ -58,12 +59,17 @@ class RoomReleasePresentationRepository(
         // Extension First, the same selection as the calendar: an active usable source owns the release fields of
         // every entry point; without an active source the old provider-wide projection stays; an unusable one shows nothing.
         return combine(legacy, selection) { legacyRows, chosen ->
-            when (chosen) {
+            val result = when (chosen) {
                 is ReleaseSelection.Legacy -> legacyRows
                 is ReleaseSelection.None -> emptyMap()
                 is ReleaseSelection.Extension ->
                     chosen.rows.toExtensionMediaPresentations(chosen.mappings, mediaIds, chosen.preferences, chosen.source, chosen.segments)
             }
+            AppLog.i("presentation") {
+                "media request=${mediaIds.size} legacyMedia=${legacyRows.size} mode=${chosen.javaClass.simpleName} " +
+                    "presented=${result.size} authoritative=${result.values.count { list -> list.any { it.isAuthoritative } }}"
+            }
+            result
         }.offMain()
     }
 
@@ -76,12 +82,17 @@ class RoomReleasePresentationRepository(
         }
         val selection = selection() ?: return legacy.offMain()
         return combine(legacy, selection) { legacyRows, chosen ->
-            when (chosen) {
+            val result = when (chosen) {
                 is ReleaseSelection.Legacy -> legacyRows
                 is ReleaseSelection.None -> emptyList()
                 is ReleaseSelection.Extension ->
                     chosen.rows.toExtensionCalendarItems(chosen.mappings, range, chosen.preferences, chosen.source, chosen.segments)
             }
+            AppLog.i("presentation") {
+                "calendar range=$range legacy=${legacyRows.size} mode=${chosen.javaClass.simpleName} items=${result.size} " +
+                    "authoritative=${result.count { it.isAuthoritative }} days=${result.mapNotNull { it.sourceDate }.distinct().size}"
+            }
+            result
         }.offMain()
     }
 
@@ -122,6 +133,10 @@ class RoomReleasePresentationRepository(
                 "aniworld" -> {
                     val selected = requireNotNull(product.activeReleaseSource)
                     if (catalog.usableExtension(selected) != null) {
+                        AppLog.d("selection") {
+                            "mode=EXTENSION ext=${selected.extensionId} source=${selected.sourceId.take(8)} rows=${sourceRows.size} mappings=${bindings.size} " +
+                                "tracks=${product.preferencesFor(selected).enabledTracks.sorted()}"
+                        }
                         ReleaseSelection.Extension(
                             rows = sourceRows.filter {
                                 it.sourceId == selected.sourceId && it.extensionId == selected.extensionId &&
@@ -131,10 +146,19 @@ class RoomReleasePresentationRepository(
                             preferences = product.preferencesFor(selected),
                             source = selected, segments = navigation.segments,
                         )
-                    } else ReleaseSelection.None
+                    } else {
+                        AppLog.w("selection") { "mode=NONE: active source ${selected.extensionId} is not usable (not installed, revoked or disabled)" }
+                        ReleaseSelection.None
+                    }
                 }
-                null -> ReleaseSelection.Legacy
-                else -> ReleaseSelection.None
+                null -> {
+                    AppLog.d("selection") { "mode=LEGACY (no active extension source) -> AniList / old provider lane" }
+                    ReleaseSelection.Legacy
+                }
+                else -> {
+                    AppLog.w("selection") { "mode=NONE: unsupported provider ${product.activeReleaseSource?.providerId}" }
+                    ReleaseSelection.None
+                }
             }
         }
     }

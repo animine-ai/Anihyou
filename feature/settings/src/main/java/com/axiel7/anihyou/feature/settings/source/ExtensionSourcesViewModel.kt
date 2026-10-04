@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.feature.settings.source
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.release.core.source.AddExtensionSourceResult
@@ -99,6 +100,7 @@ class ExtensionSourcesViewModel(
     }
 
     override fun setReleaseNotificationsEnabled(enabled: Boolean) {
+        AppLog.i("ui") { "user: release notifications enabled=$enabled" }
         val preferences = releasePreferencesRepository ?: return
         viewModelScope.launch {
             preferences.setNotificationsEnabled(enabled)
@@ -113,6 +115,7 @@ class ExtensionSourcesViewModel(
     }
 
     override fun addSource() {
+        AppLog.i("ui") { "user: add source" }
         val url = uiState.value.url.trim()
         if (url.isEmpty() || uiState.value.isAdding) return
 
@@ -143,6 +146,7 @@ class ExtensionSourcesViewModel(
     }
 
     override fun confirmTrust() {
+        AppLog.i("ui") { "user: confirmed the trust dialog" }
         val preview = uiState.value.trustPrompt ?: return
         if (uiState.value.isAdding) return
         viewModelScope.launch {
@@ -169,26 +173,32 @@ class ExtensionSourcesViewModel(
     }
 
     override fun cancelTrust() {
+        AppLog.i("ui") { "user: cancelled the trust dialog" }
         _uiState.update { it.copy(trustPrompt = null) }
     }
 
     override fun setEnabled(sourceId: String, enabled: Boolean) = performSourceAction(sourceId) {
+        AppLog.i("ui") { "user: source $sourceId enabled=$enabled" }
         repository.setEnabled(sourceId, enabled)
     }
 
     override fun removeSource(sourceId: String) = performSourceAction(sourceId) {
+        AppLog.i("ui") { "user: remove source $sourceId" }
         repository.remove(sourceId)
     }
 
     override fun refreshSource(sourceId: String) = performSourceAction(sourceId) {
+        AppLog.i("ui") { "user: refresh source $sourceId" }
         repository.refresh(sourceId)
     }
 
     override fun activate(sourceId: String, extensionId: String) = performSourceAction(sourceId) {
+        AppLog.i("ui") { "user: install/update extension $extensionId from source $sourceId" }
         repository.activate(sourceId, extensionId)
     }
 
     override fun selectActiveSource(key: ExtensionSelectionKey?) = performPolicyAction {
+        AppLog.i("ui") { "user: active release source -> ${key?.extensionId ?: "none"}" }
         if (key == null || isUsableEnabledExtension(key)) {
             productPolicyRepository?.selectActiveSource(key)
         } else {
@@ -197,6 +207,7 @@ class ExtensionSourcesViewModel(
     }
 
     override fun selectNavigationProvider(key: ExtensionSelectionKey?) = performPolicyAction {
+        AppLog.i("ui") { "user: preferred navigation provider -> ${key?.extensionId ?: "none"}" }
         if (key == null || isUsableNavigationProvider(key)) {
             productPolicyRepository?.selectNavigationProvider(key)
         } else {
@@ -213,6 +224,7 @@ class ExtensionSourcesViewModel(
         }
 
     override fun removeExtension(sourceId: String, extensionId: String) = performSourceAction(sourceId) {
+        AppLog.i("ui") { "user: remove extension $extensionId" }
         repository.removeExtension(sourceId, extensionId)
     }
 
@@ -222,6 +234,7 @@ class ExtensionSourcesViewModel(
         }
 
     override fun setProviderOrder(keys: List<ExtensionSelectionKey>) = performPolicyAction {
+        AppLog.i("ui") { "user: provider order -> ${keys.map { it.extensionId }}" }
         productPolicyRepository?.setNavigationProviderOrder(keys)
     }
 

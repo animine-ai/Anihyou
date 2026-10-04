@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.data.repository
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
 import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.extension.ExtensionReportOutcome
@@ -73,12 +74,18 @@ class ExtensionShadowSyncOrchestrator(
             }
             val lease = checkNotNull(token)
             val targets = targetSource.targets()
+            AppLog.i("sync") { "refresh run work=${workId.take(8)} provider=${providerId.value} roles=${sourceRoles.map { it.name }} targets=${targets.size}" }
+            val syncStartedAt = System.nanoTime()
             val result = coordinator.execute(ExtensionRunRequest(
                 providerId = providerId,
                 generationId = lease.executionGenerationId,
                 sourceRoles = sourceRoles,
                 targets = targets.map { it.target },
             ))
+            AppLog.i("sync") {
+                "host result ${result.javaClass.simpleName}" + ((result as? ExtensionHostResult.Failed)?.let { " code=${it.code}" } ?: "") +
+                    " in ${(System.nanoTime() - syncStartedAt) / 1_000_000} ms"
+            }
             when (result) {
                 is ExtensionHostResult.Failed -> {
                     val now = clock.instant()
@@ -93,6 +100,9 @@ class ExtensionShadowSyncOrchestrator(
                 is ExtensionHostResult.Completed -> {
                     check(result.receipt.generationId == lease.executionGenerationId)
                     val evidence = authority.project(result).filter { it.languageTrack?.name in enabledTracks }
+                    AppLog.i("sync") {
+                        "evidence projected=${evidence.size} tracks=${enabledTracks} roles ok=${succeededRoles(result).map { it.name }}"
+                    }
                     val started = Instant.parse(result.receipt.startedAt)
                     val completed = Instant.parse(result.receipt.completedAt)
                     val succeeded = succeededRoles(result)

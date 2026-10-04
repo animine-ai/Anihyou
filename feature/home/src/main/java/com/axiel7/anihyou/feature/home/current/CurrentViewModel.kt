@@ -12,6 +12,7 @@ import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.release.core.api.pendingFor
+import com.axiel7.anihyou.release.core.log.AppLog
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaListRepository
 import com.axiel7.anihyou.core.model.CurrentListType
@@ -28,7 +29,9 @@ import com.axiel7.anihyou.core.network.type.MediaStatus
 import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.ScoreFormat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -48,7 +51,7 @@ import java.time.ZoneId
 @OptIn(ExperimentalCoroutinesApi::class)
 class CurrentViewModel(
     private val mediaListRepository: MediaListRepository,
-    defaultPreferencesRepository: DefaultPreferencesRepository,
+    private val defaultPreferencesRepository: DefaultPreferencesRepository,
     private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
     private val clock: Clock = Clock.systemUTC(),
 ) : UiStateViewModel<CurrentUiState>(), CurrentEvent {
@@ -57,6 +60,50 @@ class CurrentViewModel(
 
     private val myUserId = defaultPreferencesRepository.userId.filterNotNull()
     private val releaseMediaIds = MutableStateFlow<Set<Int>>(emptySet())
+
+    /**
+     * The whole CURRENT/REPEATING list of one media type. AniList answers a list query with one page only (25 entries
+     * unless a size is given), and the list is sorted by last update, so the entries a user is behind on (the ones not
+     * touched for a while) were exactly the ones cut off. Pages are read until AniList reports no further page.
+     */
+    private fun allCurrentPages(
+        mediaType: MediaType,
+        fetchFromNetwork: Boolean,
+    ): Flow<PagedResult<CommonMediaListEntry>> = flow {
+        val userId = myUserId.first()
+        val scoreFormat = defaultPreferencesRepository.scoreFormat.first() ?: ScoreFormat.POINT_10_DECIMAL
+        val all = mutableListOf<CommonMediaListEntry>()
+        var page = 1
+        emit(PagedResult.Loading)
+        while (page <= MAX_CURRENT_PAGES) {
+            // The first answer of a page decides it; a source that keeps emitting (a live cache) must not hold the loop.
+            val result = mediaListRepository.getUserMediaList(
+                userId = userId,
+                mediaType = mediaType,
+                statusIn = listOf(MediaListStatus.CURRENT, MediaListStatus.REPEATING),
+                sort = listOf(MediaListSort.UPDATED_TIME_DESC),
+                scoreFormat = scoreFormat,
+                fetchFromNetwork = fetchFromNetwork,
+                page = page,
+                perPage = CURRENT_PAGE_SIZE,
+            ).first { it !is PagedResult.Loading }
+            val pageResult = result as? PagedResult.Success
+            val failure = (result as? PagedResult.Error)?.message
+            if (failure != null || pageResult == null) {
+                AppLog.w("current") { "list $mediaType page=$page failed: ${failure ?: "no result"}; loaded so far=${all.size}" }
+                emit(PagedResult.Error(failure ?: "no result"))
+                return@flow
+            }
+            all += pageResult.list
+            AppLog.d("current") {
+                "list $mediaType page=$page got=${pageResult.list.size} total=${all.size} hasNext=${pageResult.hasNextPage} network=$fetchFromNetwork"
+            }
+            if (!pageResult.hasNextPage) break
+            page++
+        }
+        AppLog.i("current") { "list $mediaType complete entries=${all.size} pages=$page" }
+        emit(PagedResult.Success(all.distinctBy { it.mediaId }, currentPage = page, hasNextPage = false))
+    }
 
     private fun Map<Int, List<ReleaseUiPresentation>>.authoritativeFor(mediaId: Int): ReleaseUiPresentation? =
         ReleaseUiSelection.effective(this[mediaId].orEmpty())
@@ -79,6 +126,36 @@ class CurrentViewModel(
             release.pendingFor(entry.basicMediaListEntry.progress)
         } else {
             entry.episodesBehind()
+        }
+    }
+
+    /** One summary line per classification and one line per entry the source decided differently from AniList. */
+    private fun logClassification(
+        reason: String,
+        entries: List<CommonMediaListEntry>,
+        presentations: Map<Int, List<ReleaseUiPresentation>>,
+    ) {
+        if (!AppLog.enabled) return
+        val behind = entries.filter { isBehindForCurrent(it, presentations) }
+        AppLog.i("current") {
+            "classify $reason releasing=${entries.size} behind=${behind.size} airing=${entries.size - behind.size} " +
+                "withSource=${entries.count { presentations.authoritativeFor(it.mediaId) != null }}"
+        }
+        entries.forEach { entry ->
+            val release = presentations.authoritativeFor(entry.mediaId)
+            val progress = entry.basicMediaListEntry.progress
+            val anilist = entry.episodesBehind()
+            if (release != null) {
+                val source = release.pendingFor(progress)
+                if ((anilist > 0) != (source > 0)) {
+                    AppLog.i("current") {
+                        "source decides media=${entry.mediaId} progress=$progress anilistBehind=$anilist sourcePending=$source " +
+                            "confirmedThrough=${release.confirmedThroughEpisode} -> ${if (source > 0) "behind" else "not behind"}"
+                    }
+                }
+            } else if (anilist > 0) {
+                AppLog.d("current") { "anilist decides media=${entry.mediaId} progress=$progress behind=$anilist next=${entry.media?.nextAiringEpisode?.episode}" }
+            }
         }
     }
 
@@ -108,6 +185,7 @@ class CurrentViewModel(
                 compareByDescending<CommonMediaListEntry> { it.basicMediaListEntry.priority }
                     .thenByDescending { providerAwareEpisodesBehind(it, presentations) }
             )
+        logClassification("release update", currentEntries, presentations)
         state.airingList.clear()
         state.airingList.addAll(airing)
         state.behindList.clear()
@@ -290,16 +368,7 @@ class CurrentViewModel(
                 !new.fetchFromNetwork
             }
             .flatMapLatest { uiState ->
-                mediaListRepository.getUserMediaList(
-                    userId = myUserId.first(),
-                    mediaType = MediaType.ANIME,
-                    statusIn = listOf(MediaListStatus.CURRENT, MediaListStatus.REPEATING),
-                    sort = listOf(MediaListSort.UPDATED_TIME_DESC),
-                    scoreFormat = defaultPreferencesRepository.scoreFormat.first() ?: ScoreFormat.POINT_10_DECIMAL,
-                    fetchFromNetwork = uiState.fetchFromNetwork,
-                    page = null,
-                    perPage = null,
-                )
+                allCurrentPages(MediaType.ANIME, uiState.fetchFromNetwork)
             }
             .onEach { result ->
                 mutableUiState.update { uiState ->
@@ -330,6 +399,10 @@ class CurrentViewModel(
                                 )
                             val animeList = result.list
                                 .filter { it.media?.status != MediaStatus.RELEASING }
+                            AppLog.i("current") {
+                                "anime list loaded total=${result.list.size} releasing=${currentEntries.size} other=${animeList.size}"
+                            }
+                            logClassification("list load", currentEntries, uiState.releaseByMediaId)
                             uiState.airingList.clear()
                             uiState.airingList.addAll(airingList)
                             uiState.behindList.clear()
@@ -363,15 +436,7 @@ class CurrentViewModel(
                 !new.fetchFromNetwork
             }
             .flatMapLatest { uiState ->
-                mediaListRepository.getUserMediaList(
-                    userId = myUserId.first(),
-                    mediaType = MediaType.MANGA,
-                    statusIn = listOf(MediaListStatus.CURRENT, MediaListStatus.REPEATING),
-                    sort = listOf(MediaListSort.UPDATED_TIME_DESC),
-                    scoreFormat = defaultPreferencesRepository.scoreFormat.first() ?: ScoreFormat.POINT_10_DECIMAL,
-                    fetchFromNetwork = uiState.fetchFromNetwork,
-                    page = 1
-                )
+                allCurrentPages(MediaType.MANGA, uiState.fetchFromNetwork)
             }
             .onEach { result ->
                 mutableUiState.update { uiState ->
@@ -507,5 +572,12 @@ class CurrentViewModel(
                 }
             }
             .launchIn(viewModelScope)
+    }
+
+    private companion object {
+        /** AniList's maximum page size. */
+        const val CURRENT_PAGE_SIZE = 50
+        /** 50 pages of 50 entries; a bound against a runaway "next page" flag. */
+        const val MAX_CURRENT_PAGES = 50
     }
 }

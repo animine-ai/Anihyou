@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.data.extension
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import com.axiel7.anihyou.release.core.source.*
 import java.io.File
 import java.io.FileOutputStream
@@ -86,6 +87,13 @@ class FileExtensionProductPolicyRepository(
             Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
             ExtensionFileDurability.syncDirectory(directory)
             state.value = next
+            AppLog.i("policy") {
+                "policy generation=${next.generation} releaseGeneration=${next.releaseGeneration} " +
+                    (if (changed.activeReleaseSource != old.activeReleaseSource) "activeSource ${old.activeReleaseSource?.extensionId ?: "none"} -> ${next.activeReleaseSource?.extensionId ?: "none"} " else "") +
+                    (if (changed.preferredNavigationProvider != old.preferredNavigationProvider) "preferredProvider ${old.preferredNavigationProvider?.extensionId ?: "none"} -> ${next.preferredNavigationProvider?.extensionId ?: "none"} " else "") +
+                    (if (changed.navigationProviderOrder != old.navigationProviderOrder) "providerOrder=${next.navigationProviderOrder.map { it.extensionId }} " else "") +
+                    (if (changed.preferences != old.preferences) "preferences changed for ${(changed.preferences.keys.filter { changed.preferences[it] != old.preferences[it] }).map { it.extensionId }}" else "")
+            }
         }
     }
 

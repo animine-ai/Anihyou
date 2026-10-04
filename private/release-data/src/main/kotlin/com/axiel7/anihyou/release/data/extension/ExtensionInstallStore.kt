@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.data.extension
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import com.axiel7.anihyou.release.core.extension.ProviderId
 import com.axiel7.anihyou.release.core.extension.SourceRole
 import com.axiel7.anihyou.release.core.source.*
@@ -27,6 +28,8 @@ internal data class ExtensionInstallOperation(
     val completedAt: Instant? = null, val failure: ExtensionUpdateFailure? = null, val technicalCode: String? = null,
 )
 internal class ExtensionSmokeException(cause: Exception) : Exception("isolated runtime smoke failed", cause)
+/** The isolated runtime could not be started or reached. That says nothing about the package, so it is never quarantined. */
+internal class ExtensionRuntimeUnavailableException(detail: String) : Exception("isolated runtime unavailable: $detail")
 
 internal data class ExtensionGenerationSnapshot(
     val active: InstallReceipt?, val knownGood: InstallReceipt?,
@@ -135,13 +138,20 @@ internal class ExtensionInstallStore(
                 output.fd.sync()
             } }
             failure.at(InstallBoundary.STAGED)
+            AppLog.i("install") { "stage VERIFYING ext=$extensionId digest=${AppLog.short(binding.archiveSha256)} bytes=${source.length()}" }
             onProgress(ExtensionUpdateState.VERIFYING)
             val packageKey = trust.publisher(root, candidate, effective)
             val verified = verifier.verify(temp, binding, packageKey, hostRoles, hostHosts,
                 policyVersion, runtimeVersion, effective)
             failure.at(InstallBoundary.VERIFIED)
+            AppLog.i("install") { "smoke start ext=$extensionId digest=${AppLog.short(binding.archiveSha256)}" }
+            val smokeStartedAt = System.nanoTime()
             try { smoke(verified) } catch (error: Exception) {
                 if (error is java.util.concurrent.CancellationException) throw error
+                AppLog.w("install", error) {
+                    "smoke failed ext=$extensionId digest=${AppLog.short(binding.archiveSha256)} after ${(System.nanoTime() - smokeStartedAt) / 1_000_000} ms"
+                }
+                if (error is ExtensionRuntimeUnavailableException) throw error
                 // Only a fully signature/binding-verified candidate can be quarantined by smoke.
                 commit(state.copy(quarantine = state.quarantine + binding.archiveSha256, clock = effective))
                 throw ExtensionSmokeException(error)
@@ -156,6 +166,7 @@ internal class ExtensionInstallStore(
             val receipt = InstallReceipt(binding.archiveSha256, binding.canonicalManifestSha256,
                 binding.extensionId, binding.providerId, binding.keyId, binding.releaseSequence,
                 root.version, current.sequence, effective, binding.version)
+            AppLog.i("install") { "stage ACTIVATING ext=$extensionId digest=${AppLog.short(binding.archiveSha256)} seq=${binding.releaseSequence}" }
             onProgress(ExtensionUpdateState.ACTIVATING)
             failure.at(InstallBoundary.BEFORE_ACTIVE)
             val generation = state.generations[extensionId] ?: GenerationState()
@@ -291,6 +302,7 @@ internal class ExtensionInstallStore(
         val verified = freshRollbackPackage(target, now) ?: error("previous good current trust verification failed")
         try { smoke(verified) } catch (error: Exception) {
             if (error is java.util.concurrent.CancellationException) throw error
+            if (error is ExtensionRuntimeUnavailableException) throw error
             commit(state.copy(quarantine = state.quarantine + target.digest, clock = effectiveTime(now)))
             throw ExtensionSmokeException(error)
         }

@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.feature.worker
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -47,10 +48,12 @@ class ExtensionReleaseRefreshWorker(
             // Work enqueued by an earlier build only knows the force flag.
             ?: if (inputData.getBoolean(INPUT_FORCE, false)) ExtensionRefreshTrigger.MANUAL else ExtensionRefreshTrigger.PROCESS_START
         val chain = inputData.getInt(INPUT_CHAIN, 0)
+        AppLog.i("worker") { "release refresh start trigger=$trigger chain=$chain attempt=$runAttemptCount" }
         // The successor is scheduled before the run, under its own name: a crash or retry cannot end the chain.
         if (trigger == ExtensionRefreshTrigger.SCHEDULED_SLOT) scheduler.ensureSlotScheduled()
         val evaluation = evaluateExtensionReleaseRefresh(coordinator, "${id}_$runAttemptCount", trigger, runAttemptCount)
         val outcome = evaluation.outcome
+        AppLog.i("worker") { "release refresh decision=${evaluation.decision} outcome=$outcome" }
         if (outcome is ShadowRefreshOutcome.Skipped && outcome.reason == REASON_BUDGET_DEFERRED &&
             outcome.nextEligibleAt != null && chain < MAX_DEFERRED_CHAIN) {
             // Wait for the hard limit to lapse instead of retrying; the chain is short and then ends.

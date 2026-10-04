@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.data.extension
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import com.axiel7.anihyou.release.core.extension.SourceRole
 import java.io.File
 import java.io.FileOutputStream
@@ -45,11 +46,15 @@ class ManualExtensionTrustStore(private val directory: File) {
     internal fun accept(record: ManualTrustRecord): Boolean = synchronized(lock) {
         if (records.none { it.url == record.url } && records.size >= MAX_RECORDS) return@synchronized false
         persist(records.filterNot { it.url == record.url } + record)
+        AppLog.i("trust") { "manual trust stored url=${record.url} repo=${record.repositoryId} root=${AppLog.short(record.rootSha256)} hosts=${record.hosts}" }
         true
     }
 
     internal fun remove(url: String) = synchronized(lock) {
-        if (records.any { it.url == url }) persist(records.filterNot { it.url == url })
+        if (records.any { it.url == url }) {
+            persist(records.filterNot { it.url == url })
+            AppLog.i("trust") { "manual trust removed url=$url" }
+        }
     }
 
     /**

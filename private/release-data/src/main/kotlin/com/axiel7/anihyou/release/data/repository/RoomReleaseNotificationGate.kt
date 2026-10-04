@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.data.repository
 
+import com.axiel7.anihyou.release.core.log.AppLog
 import com.axiel7.anihyou.release.core.api.ReleaseAccountContextProvider
 import com.axiel7.anihyou.release.core.api.ReleaseNotificationGate
 import com.axiel7.anihyou.release.core.api.ReleaseDeliveryDecision
@@ -30,7 +31,7 @@ class RoomReleaseNotificationGate(
     ): Boolean {
         if (accountId <= 0L || mediaId <= 0 || episode <= 0) return false
         if (!providerEnabled()) return false
-        return database.releaseDao()
+        val suppress = database.releaseDao()
             .getValidMediaProjectionsForAccount(accountId, mediaId)
             .asSequence()
             .mapNotNull { it.toDomainOrNull() }
@@ -41,6 +42,8 @@ class RoomReleaseNotificationGate(
                         .filterIsInstance<Installment.Episode>()
                         .any { it.fraction == null && it.number == episode }
             }
+        AppLog.i("notification") { "AniList airing media=$mediaId episode=$episode suppressed by the release lane: $suppress" }
+        return suppress
     }
 
     override suspend fun allowReleaseDelivery(
@@ -48,6 +51,16 @@ class RoomReleaseNotificationGate(
     ): Boolean = evaluateReleaseDelivery(accountId, mediaId, identityKey, installment) == ReleaseDeliveryDecision.ALLOW
 
     override suspend fun evaluateReleaseDelivery(
+        accountId: Long, mediaId: Int, identityKey: String, installment: Installment?,
+    ): ReleaseDeliveryDecision {
+        val decision = decideReleaseDelivery(accountId, mediaId, identityKey, installment)
+        AppLog.i("notification") {
+            "release delivery media=$mediaId identity=${AppLog.short(identityKey)} installment=$installment -> $decision"
+        }
+        return decision
+    }
+
+    private suspend fun decideReleaseDelivery(
         accountId: Long, mediaId: Int, identityKey: String, installment: Installment?,
     ): ReleaseDeliveryDecision {
         if (accountId <= 0L || mediaId <= 0 || identityKey.isBlank()) return ReleaseDeliveryDecision.INELIGIBLE
