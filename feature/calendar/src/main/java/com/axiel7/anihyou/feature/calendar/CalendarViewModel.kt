@@ -14,6 +14,7 @@ import com.axiel7.anihyou.core.model.ListStyle
 import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -26,9 +27,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import java.time.Clock
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CalendarViewModel(
@@ -52,7 +55,8 @@ class CalendarViewModel(
     private val myUserId = defaultPreferencesRepository.userId
     private val displayAdult = defaultPreferencesRepository.displayAdult
 
-    private val today = nowLocalDateTime().toLocalDate()
+    /** The device-local date. It follows the clock: a screen that stays open across midnight must not keep yesterday. */
+    private var today = nowLocalDateTime().toLocalDate()
 
     override fun onMyListChanged(value: Boolean?) {
         viewModelScope.launch {
@@ -200,6 +204,17 @@ class CalendarViewModel(
     }
 
     init {
+        // Midnight: re-anchor Today and the request window, without moving what the user is looking at.
+        viewModelScope.launch {
+            while (true) {
+                delay(millisUntilNextLocalDay(ZonedDateTime.ofInstant(clock.instant(), ZoneId.systemDefault())))
+                val date = nowLocalDateTime().toLocalDate()
+                if (date != today) {
+                    today = date
+                    mutableUiState.update { it.copy(today = date, autoScrollToToday = false).withTodayFirstItemIndex() }
+                }
+            }
+        }
         mutableUiState
             .map { state ->
                 maxOf(today.plusDays(14), state.day.toLocalDate().plusDays(14))
@@ -374,3 +389,8 @@ class CalendarViewModel(
         )
 
 }
+
+/** The wait until the device-local date changes, DST days included (a local day is 23 to 25 hours long). */
+internal fun millisUntilNextLocalDay(now: ZonedDateTime): Long =
+    Duration.between(now, now.toLocalDate().plusDays(1).atStartOfDay(now.zone)).toMillis()
+        .coerceAtLeast(1_000L) + 500L
