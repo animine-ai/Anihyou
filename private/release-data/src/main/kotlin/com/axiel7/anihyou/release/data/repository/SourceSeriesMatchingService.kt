@@ -273,10 +273,13 @@ class SourceSeriesMatchingService(
      * One run at a time: a refresh, a button and the details may ask together, and a second run only waits and then finds
      * nothing left to do instead of spending the same AniList requests again.
      */
-    suspend fun autoMatchPending(maxSearches: Int = AUTO_SEARCHES_PER_RUN): AutoMatchReport =
-        runLock.withLock { autoMatchLocked(maxSearches) }
+    suspend fun autoMatchPending(maxSearches: Int = AUTO_SEARCHES_PER_RUN, force: Boolean = false): AutoMatchReport =
+        runLock.withLock { autoMatchLocked(maxSearches, force) }
 
-    private suspend fun autoMatchLocked(maxSearches: Int): AutoMatchReport {
+    /** When a series was last tried without a result, so the automatic runs after a refresh do not try it again and again. */
+    private val lastTried = java.util.concurrent.ConcurrentHashMap<String, java.time.Instant>()
+
+    private suspend fun autoMatchLocked(maxSearches: Int, force: Boolean): AutoMatchReport {
         val active = policy.policy.value.activeReleaseSource ?: return AutoMatchReport()
         // Decisions of an earlier matcher version are taken again: the first one matched later seasons to the first season.
         val dropped = dao.deleteAutoMappingsOtherThan(active.sourceId, active.extensionId, active.publisherId,
@@ -284,12 +287,20 @@ class SourceSeriesMatchingService(
         if (dropped > 0) AppLog.i("matching") { "auto match: $dropped automatic bindings of an earlier matcher version dropped" }
         val found = findPending(active)
         val takenMedia = found.takenMedia.toMutableSet()
-        AppLog.i("matching") {
-            "auto match start: series seasons=${found.subjects} bound=${found.bound} pending=${found.series.size} single-search budget=$maxSearches"
+        // A series is matched once, as an anime (series and season), and the binding stays. Only the ones without a binding
+        // are looked at, and one that found nothing is tried again after a few hours at the earliest (or by the button).
+        val now = clock.instant()
+        val retryAfter = now.minus(RETRY_AFTER)
+        val open = if (force) found.series else found.series.filter { (slug, season) ->
+            lastTried["${MappingEntryIds.sourceKey(active)}|$slug|$season"]?.isBefore(retryAfter) ?: true
         }
-        val today = clock.instant().atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate()
+        AppLog.i("matching") {
+            "auto match start: series seasons=${found.subjects} bound=${found.bound} unbound=${found.series.size} " +
+                "tried=${open.size} (rest tried within ${RETRY_AFTER.toHours()} h) single-search budget=$maxSearches"
+        }
+        val today = now.atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate()
         val pool = LinkedHashMap<Int, IdentityCandidate>()
-        var left = found.series
+        var left = open
         var matched = 0
         var examined = 0
         // 1. The AniList airing calendar, as far ahead as it goes: the data the calendar tab shows without a release source.
@@ -336,7 +347,8 @@ class SourceSeriesMatchingService(
                 search = { searches++ }, via = "single search")
             if (result == Bind.BOUND) matched++
         }
-        AppLog.i("matching") { "auto match done: examined=$examined matched=$matched single searches=$searches open=${left.size - 0}" }
+        left.forEach { (slug, season) -> lastTried["${MappingEntryIds.sourceKey(active)}|$slug|$season"] = now }
+        AppLog.i("matching") { "auto match done: examined=$examined matched=$matched single searches=$searches open=${left.size}" }
         return AutoMatchReport(found.series.size, examined, matched, searches)
     }
 
@@ -546,6 +558,7 @@ class SourceSeriesMatchingService(
         const val SEARCH_PACE_MS = 700L
         /** AniList answers about 90 requests a minute; the automatic pass stays far below it and spreads over refreshes. */
         const val AUTO_SEARCHES_PER_RUN = 6
+        val RETRY_AFTER: java.time.Duration = java.time.Duration.ofHours(6)
         /** Bumped with every change of the rules; automatic bindings of another version are decided again. */
         const val MATCHER_VERSION = "v3-season-strict-1"
         const val CURRENT_POOL_PAGES = 8
