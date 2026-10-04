@@ -4,6 +4,12 @@ name: Debug APK only (quick)
 
 on:
   workflow_dispatch:
+  # Registers the workflow for manual dispatch from this branch; it only runs on a push that changes this file.
+  push:
+    branches:
+      - ep07/product-audit-candidate
+    paths:
+      - ".github/workflows/apk-debug-quick.yml"
 
 permissions:
   contents: read
