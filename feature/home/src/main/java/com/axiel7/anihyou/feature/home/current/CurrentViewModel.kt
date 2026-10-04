@@ -207,6 +207,17 @@ class CurrentViewModel(
                                         airingList.removeAll { it.mediaId == updatedValue.mediaId }
                                         airingList.add(updatedValue)
                                         list.removeAt(index)
+                                    } else if (
+                                        type == CurrentListType.AIRING &&
+                                        isBehindForCurrent(
+                                            updatedValue,
+                                            mutableUiState.value.releaseByMediaId,
+                                        )
+                                    ) {
+                                        // A lowered progress (undo, correction in the details) puts the entry behind again.
+                                        behindList.removeAll { it.mediaId == updatedValue.mediaId }
+                                        behindList.add(updatedValue)
+                                        list.removeAt(index)
                                     }
                                 }
                             }
