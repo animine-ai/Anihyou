@@ -61,7 +61,7 @@ assert 'FAILURES!!!' not in text and 'INSTRUMENTATION_FAILED' not in text and 'P
 match=re.search(r'OK \((\d+) tests?\)',text)
 assert match and int(match[1])>0 and 'INSTRUMENTATION_CODE: -1' in text, text[-20000:]
 required={'ExtensionCalendarComposeTest','ExtensionUpdateComposeTest','ExtensionSourcesUserFlowTest',
-          'MainNavigationProductComposeTest','MainNavigationChartChromeTest','MediaDetailsNavigationComposeTest','MatchingManagementComposeTest',
+          'MainNavigationProductComposeTest','MainNavigationChartChromeTest','ReleaseScheduleTextComposeTest','MediaDetailsNavigationComposeTest','MatchingManagementComposeTest',
           'ExtensionRefreshScheduleComposeTest','ScreenshotCaptureGuardTest'}
 for name in required:
     assert name in text, (name,text[-20000:])
