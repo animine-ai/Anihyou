@@ -1,5 +1,6 @@
 import java.util.Properties
 import java.security.MessageDigest
+import java.net.URI
 
 plugins {
     alias(libs.plugins.android.application)
@@ -39,7 +40,7 @@ if (extensionBuildProfile == "reviewed") {
     }
     val origins = extensionPublicFields.getValue("extensionDistributionOrigins").split(',')
     require(origins.distinct().size == origins.size && origins.all { origin ->
-        val uri = java.net.URI(origin)
+        val uri = URI(origin)
         uri.scheme == "https" && uri.host != null && uri.rawAuthority == uri.host &&
             uri.path.isEmpty() && uri.rawQuery == null && uri.rawFragment == null
     }) { "Distribution origins must be unique canonical HTTPS origins without credentials/path/query" }
