@@ -19,6 +19,14 @@ adb logcat -c
 instrumentation_status=0
 timeout 600 adb shell am instrument -w -r com.axiel7.anihyou.debug.test/androidx.test.runner.AndroidJUnitRunner | tee "$out/instrumentation.txt" || instrumentation_status=$?
 adb logcat -d > "$out/logcat.txt"
+# A system crash of the emulator ends the instrumentation without any app stack; keep what the log knows about it.
+if grep -q -E "INSTRUMENTATION_ABORTED|Process crashed" "$out/instrumentation.txt"; then
+  echo "== PRODUCT UI DIAG: instrumentation aborted =="
+  adb get-state || true
+  grep -E "FATAL EXCEPTION|Fatal signal|system_server|Watchdog|lowmemorykiller|Out of memory|has died|ANR in|DeadSystem" "$out/logcat.txt" | cut -c1-240 | tail -80 || true
+  adb shell "head -6 /proc/meminfo" || true
+  echo "== PRODUCT UI DIAG end =="
+fi
 if [ "$instrumentation_status" -ne 0 ]; then
   echo "== PRODUCT UI DIAG: instrumentation exit $instrumentation_status =="
   grep -E -A 14 "FATAL EXCEPTION IN SYSTEM PROCESS|FATAL EXCEPTION" "$out/logcat.txt" | cut -c1-220 | tail -60 || true
@@ -36,6 +44,10 @@ adb pull /sdcard/Android/data/com.axiel7.anihyou.debug/files/ep07-guard/. "$out/
   sha256sum "$out"/screenshots/*.png
   echo "== EP07 SCREENSHOT REVIEW COPIES api=$api (reduced JPEG, base64 in log) =="
   python3 "$(dirname "$0")/embed-screenshots-in-log.py" "$api" "$out/screenshots"
+  echo "== EP07 GUARD SCREENSHOT REVIEW COPIES api=$api (matching, schedule) =="
+  python3 "$(dirname "$0")/embed-screenshots-in-log.py" "$api" "$out/guard"
+  python3 "$(dirname "$0")/embed-screenshots-in-log.py" "$api" "$out/guard/matching-ui"
+  python3 "$(dirname "$0")/embed-screenshots-in-log.py" "$api" "$out/guard/schedule-ui"
 } || echo 'EP07 screenshot listing or review copies could not be produced'
 sha256sum "${product_apks[0]}" "${test_apks[0]}" > "$out/apk.sha256"
 git rev-parse HEAD > "$out/source-commit.txt"

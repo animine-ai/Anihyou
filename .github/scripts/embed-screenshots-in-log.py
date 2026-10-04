@@ -24,11 +24,19 @@ def reduce(png: Path):
     try:
         from PIL import Image
     except ImportError:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "--break-system-packages", "pillow"],
-            check=False,
+        install = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--break-system-packages", "pillow"],
+            check=False, capture_output=True, text=True,
         )
-        from PIL import Image
+        try:
+            from PIL import Image
+        except ImportError:
+            # pip may be missing on the runner image; the distribution package gives the same module.
+            print("pip install pillow failed: " + (install.stdout + install.stderr)[-300:], file=sys.stderr)
+            subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", "python3-pil"], check=False)
+            import importlib
+            importlib.invalidate_caches()
+            from PIL import Image
     with Image.open(png) as image:
         original = image.size
         rgb = image.convert("RGB")
