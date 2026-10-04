@@ -6,16 +6,16 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
-import com.axiel7.anihyou.release.core.api.AniWorldShadowScheduler
+import com.axiel7.anihyou.release.core.api.ShadowCanaryScheduler
 
 internal fun aniworldShadowCanaryConstraints(): Constraints =
     Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
 
-class WorkManagerAniWorldShadowScheduler(
+class WorkManagerShadowCanaryScheduler(
     private val workManager: WorkManager,
-) : AniWorldShadowScheduler {
+) : ShadowCanaryScheduler {
     override fun scheduleCanaryNow() {
         val request = OneTimeWorkRequestBuilder<AniWorldShadowWorker>()
             .setConstraints(aniworldShadowCanaryConstraints())

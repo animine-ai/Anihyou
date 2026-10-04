@@ -1,6 +1,6 @@
 package com.axiel7.anihyou.release.data.aniworld
 
-import com.axiel7.anihyou.release.core.api.AniWorldShadowPollStore
+import com.axiel7.anihyou.release.core.api.ShadowPollStore
 import com.axiel7.anihyou.release.core.api.ShadowGenerationManifest
 import com.axiel7.anihyou.release.core.api.ShadowGenerationSnapshot
 import com.axiel7.anihyou.release.core.api.ShadowGenerationToken
@@ -118,7 +118,7 @@ class AniWorldExtensionTargetSourceTest {
         }
     }
 
-    private class PollStore(private val candidates: List<DirectTargetCandidate>) : AniWorldShadowPollStore {
+    private class PollStore(private val candidates: List<DirectTargetCandidate>) : ShadowPollStore {
         constructor(candidate: DirectTargetCandidate) : this(listOf(candidate))
         override suspend fun eligibleDirectTargets(now: Instant): List<DirectTargetCandidate> = error("legacy route path must not run")
         override suspend fun eligibleMappedDirectTargets(now: Instant) = candidates

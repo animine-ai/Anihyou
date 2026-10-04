@@ -5,7 +5,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.Operation
 import androidx.work.WorkManager
-import com.axiel7.anihyou.release.core.api.AniWorldShadowRefreshCoordinator
+import com.axiel7.anihyou.release.core.api.ShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
 import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
 import io.mockk.every
@@ -17,7 +17,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class WorkManagerAniWorldShadowSchedulerTest {
+class WorkManagerShadowCanarySchedulerTest {
     @Test
     fun schedulesUniqueConnectedOneShotWithKeepPolicy() {
         val workManager = mockk<WorkManager>()
@@ -25,19 +25,19 @@ class WorkManagerAniWorldShadowSchedulerTest {
         val request = slot<OneTimeWorkRequest>()
         every {
             workManager.enqueueUniqueWork(
-                WorkManagerAniWorldShadowScheduler.WORK_NAME,
+                WorkManagerShadowCanaryScheduler.WORK_NAME,
                 ExistingWorkPolicy.KEEP,
                 capture(request),
             )
         } returns operation
 
-        val scheduler = WorkManagerAniWorldShadowScheduler(workManager)
+        val scheduler = WorkManagerShadowCanaryScheduler(workManager)
         scheduler.scheduleCanaryNow()
         scheduler.scheduleCanaryNow()
 
         verify(exactly = 2) {
             workManager.enqueueUniqueWork(
-                WorkManagerAniWorldShadowScheduler.WORK_NAME,
+                WorkManagerShadowCanaryScheduler.WORK_NAME,
                 ExistingWorkPolicy.KEEP,
                 any<OneTimeWorkRequest>(),
             )
@@ -49,7 +49,7 @@ class WorkManagerAniWorldShadowSchedulerTest {
     @Test
     fun workerInvokesTheExistingCoordinatorOnce() = runBlocking {
         var calls = 0
-        val coordinator = AniWorldShadowRefreshCoordinator {
+        val coordinator = ShadowRefreshCoordinator {
             calls += 1
             ShadowRefreshOutcome.Skipped("test")
         }
@@ -63,7 +63,7 @@ class WorkManagerAniWorldShadowSchedulerTest {
 
     @Test
     fun canaryFailureDoesNotScheduleAutomaticRetry() = runBlocking {
-        val coordinator = AniWorldShadowRefreshCoordinator {
+        val coordinator = ShadowRefreshCoordinator {
             ShadowRefreshOutcome.Failed("bounded-test", retryable = true)
         }
 

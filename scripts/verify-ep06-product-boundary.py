@@ -36,7 +36,7 @@ assert "store.upsertSegment(segment)" in navigation
 assert "withCurrentGeneration" in navigation and "packageValue.packageGeneration" in navigation
 assert "generations.commit" not in navigation and "authority.project" not in navigation
 composition = (root / "app/src/main/java/com/axiel7/anihyou/AnimetrackerReleaseModule.kt").read_text()
-product_binding = composition.split("single<AniWorldShadowRefreshCoordinator>")[1].split("single { AniWorldClient")[0]
+product_binding = composition.split("single<ShadowRefreshCoordinator>")[1].split("single { AniWorldClient")[0]
 assert "SingleSourceShadowRefreshCoordinator(" in product_binding
 assert "ExtensionShadowSyncOrchestrator(" not in product_binding
 resolver = (core / "navigation/ProviderNavigation.kt").read_text()

@@ -19,8 +19,8 @@ val workerModule = module {
     }
     single<ReleaseOutboxScheduler> { WorkManagerReleaseOutboxScheduler(get()) }
     single<ReleaseForecastRecheckScheduler> { WorkManagerReleaseForecastRecheckScheduler(get()) }
-    single<com.axiel7.anihyou.release.core.api.AniWorldShadowScheduler> {
-        WorkManagerAniWorldShadowScheduler(get())
+    single<com.axiel7.anihyou.release.core.api.ShadowCanaryScheduler> {
+        WorkManagerShadowCanaryScheduler(get())
     }
     single<com.axiel7.anihyou.release.core.source.ExtensionSourceScheduler> {
         WorkManagerExtensionSourceScheduler(get())

@@ -1,6 +1,6 @@
 package com.axiel7.anihyou.release.data.aniworld
 
-import com.axiel7.anihyou.release.core.api.AniWorldShadowPollStore
+import com.axiel7.anihyou.release.core.api.ShadowPollStore
 import com.axiel7.anihyou.release.core.api.ShadowGenerationManifest
 import com.axiel7.anihyou.release.core.api.ShadowRequestOutcome
 import java.net.SocketTimeoutException
@@ -21,7 +21,7 @@ class AniWorldRequestBudgetDeniedException(message: String) : IllegalStateExcept
 /** Reserves durable budget before every network hop, including redirects. */
 class BudgetedAniWorldHttpTransport(
     private val delegate: AniWorldHttpTransport,
-    private val store: AniWorldShadowPollStore,
+    private val store: ShadowPollStore,
     private val manifest: ShadowGenerationManifest,
     private val clock: Clock = Clock.systemUTC(),
     private val permits: Semaphore = GLOBAL_V3_PERMITS,

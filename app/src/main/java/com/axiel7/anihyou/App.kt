@@ -19,7 +19,7 @@ import com.axiel7.anihyou.core.domain.repositoryModule
 import com.axiel7.anihyou.core.network.apiModule
 import com.axiel7.anihyou.core.network.networkModule
 import com.axiel7.anihyou.feature.worker.workerModule
-import com.axiel7.anihyou.release.core.api.AniWorldShadowScheduler
+import com.axiel7.anihyou.release.core.api.ShadowCanaryScheduler
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.androidx.workmanager.koin.workManagerFactory
@@ -68,8 +68,8 @@ class App : Application(), SingletonImageLoader.Factory {
                 workerModule,
             )
         }
-        if (AniWorldShadowDebugActivation.enabledForInternalTest) {
-            koinApplication.koin.get<AniWorldShadowScheduler>().scheduleCanaryNow()
+        if (ShadowCanaryDebugActivation.enabledForInternalTest) {
+            koinApplication.koin.get<ShadowCanaryScheduler>().scheduleCanaryNow()
         }
         startupScope.launch {
             // Registry IO and scheduling never block startup. An empty install schedules no work.
@@ -133,7 +133,7 @@ class App : Application(), SingletonImageLoader.Factory {
 }
 
 /** Internal instrumentation/debug hook; no product setting enables shadow traffic. */
-internal object AniWorldShadowDebugActivation {
+internal object ShadowCanaryDebugActivation {
     val enabledForInternalTest: Boolean =
         isEnabled(BuildConfig.DEBUG, BuildConfig.ANIWORLD_SHADOW_CANARY)
 

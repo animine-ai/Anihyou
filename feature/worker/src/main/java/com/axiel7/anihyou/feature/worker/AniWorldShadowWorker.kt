@@ -4,14 +4,14 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
-import com.axiel7.anihyou.release.core.api.AniWorldShadowRefreshCoordinator
+import com.axiel7.anihyou.release.core.api.ShadowRefreshCoordinator
 import com.axiel7.anihyou.release.core.api.ShadowRefreshOutcome
 import com.axiel7.anihyou.release.core.api.WorkScopedShadowRefreshCoordinator
 
 enum class AniWorldShadowWorkerDecision { SUCCESS, RETRY, FAILURE }
 
 internal suspend fun evaluateAniWorldShadowWorker(
-    coordinator: AniWorldShadowRefreshCoordinator,
+    coordinator: ShadowRefreshCoordinator,
     oneShotCanary: Boolean,
     workId: String? = null,
 ): AniWorldShadowWorkerDecision = when (val outcome =
@@ -30,7 +30,7 @@ internal suspend fun evaluateAniWorldShadowWorker(
 class AniWorldShadowWorker(
     context: Context,
     params: WorkerParameters,
-    private val coordinator: AniWorldShadowRefreshCoordinator,
+    private val coordinator: ShadowRefreshCoordinator,
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): ListenableWorker.Result =
         when (evaluateAniWorldShadowWorker(

@@ -2,9 +2,9 @@ package com.axiel7.anihyou
 
 import androidx.room.Room
 import com.axiel7.anihyou.release.core.api.IdentityCandidateSource
-import com.axiel7.anihyou.release.core.api.AniWorldShadowPollStore
-import com.axiel7.anihyou.release.core.api.AniWorldShadowRefreshCoordinator
-import com.axiel7.anihyou.release.core.api.AniWorldShadowScheduler
+import com.axiel7.anihyou.release.core.api.ShadowPollStore
+import com.axiel7.anihyou.release.core.api.ShadowRefreshCoordinator
+import com.axiel7.anihyou.release.core.api.ShadowCanaryScheduler
 import com.axiel7.anihyou.release.core.api.ReleaseAuthorityReducer
 import com.axiel7.anihyou.release.core.api.ReleaseDecisionRepository
 import com.axiel7.anihyou.release.core.api.ReleaseEvidenceRepository
@@ -139,8 +139,8 @@ val animetrackerReleaseModule = module {
     single<SourceHealthRepository> { RoomSourceHealthRepository(get()) }
     single { RoomReleaseIntelligencePersistence(get(), get()) }
     single { RoomReleaseReconciliationRepository(get()) }
-    single<AniWorldShadowPollStore> { RoomAniWorldPollStore(get(), get(), get()) }
-    single<ExtensionTargetSource> { AniWorldExtensionTargetSource(get<AniWorldShadowPollStore>(), get()) }
+    single<ShadowPollStore> { RoomAniWorldPollStore(get(), get(), get()) }
+    single<ExtensionTargetSource> { AniWorldExtensionTargetSource(get<ShadowPollStore>(), get()) }
     single { RoomExtensionShadowGenerationStore(get(), get(), get()) }
     single {
         val rootDigest = BuildConfig.EXTENSION_ROOT_SHA256
@@ -158,7 +158,7 @@ val animetrackerReleaseModule = module {
         )
         ProductionExtensionHostBoundary.create(androidApplication(), config)
     }
-    single<AniWorldShadowRefreshCoordinator> {
+    single<ShadowRefreshCoordinator> {
         com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator(
             policy = get(),
             installed = get(),
@@ -174,7 +174,7 @@ val animetrackerReleaseModule = module {
         )
     }
     single<com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator> {
-        get<AniWorldShadowRefreshCoordinator>() as com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator
+        get<ShadowRefreshCoordinator>() as com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator
     }
     single<com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshCoordinator> {
         com.axiel7.anihyou.release.data.repository.ProductionExtensionReleaseRefreshCoordinator(

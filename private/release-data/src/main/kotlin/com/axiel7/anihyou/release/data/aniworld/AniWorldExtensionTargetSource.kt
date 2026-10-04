@@ -1,6 +1,6 @@
 package com.axiel7.anihyou.release.data.aniworld
 
-import com.axiel7.anihyou.release.core.api.AniWorldShadowPollStore
+import com.axiel7.anihyou.release.core.api.ShadowPollStore
 import com.axiel7.anihyou.release.core.extension.ExtensionTargetV1
 import com.axiel7.anihyou.release.core.extension.InstallmentV1
 import com.axiel7.anihyou.release.core.extension.ObservationInstallmentKind
@@ -20,7 +20,7 @@ import java.time.Clock
  * The host does not pass a provider URL: de.aniworld owns exact route construction and validation.
  */
 class AniWorldExtensionTargetSource(
-    private val pollStore: AniWorldShadowPollStore,
+    private val pollStore: ShadowPollStore,
     private val clock: Clock = Clock.systemUTC(),
 ) : ExtensionTargetSource {
     override suspend fun targets(): List<ExtensionAcquisitionTarget> {

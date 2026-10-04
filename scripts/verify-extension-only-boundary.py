@@ -24,10 +24,11 @@ assert "test-pin" not in sources and "test-publisher" not in sources
 installer = (base / "extension/ExtensionInstallStore.kt").read_text()
 assert "verifier.verify" in installer and "rollbackBad" in installer
 # EP08: the generic refresh contracts stay provider neutral; provider-named canary interfaces live elsewhere.
-contracts = (root / "private/release-core/src/main/kotlin/com/axiel7/anihyou/release/core/api/ReleaseRefreshContracts.kt").read_text()
-# The persisted source type names (ANIWORLD_*) are compatibility values and stay; no other provider mention is allowed.
-contracts_without_persisted_names = re.sub(r'"ANIWORLD_[A-Z_]+"', '""', contracts)
-assert not re.search(r"aniworld", contracts_without_persisted_names, re.IGNORECASE), "ReleaseRefreshContracts.kt must stay provider neutral"
+for contract_name in ("ReleaseRefreshContracts.kt", "ShadowRefreshPorts.kt"):
+    contracts = (root / "private/release-core/src/main/kotlin/com/axiel7/anihyou/release/core/api" / contract_name).read_text()
+    # The persisted source type names (ANIWORLD_*) are compatibility values and stay; no other provider mention is allowed.
+    contracts_without_persisted_names = re.sub(r'"ANIWORLD_[A-Z_]+"', '""', contracts)
+    assert not re.search(r"aniworld", contracts_without_persisted_names, re.IGNORECASE), contract_name + " must stay provider neutral"
 mapping = (base / "aniworld/AniWorldExtensionTargetSource.kt").read_text()
 assert "/anime/stream/" not in mapping and "providerUrl = null" in mapping
 result = {

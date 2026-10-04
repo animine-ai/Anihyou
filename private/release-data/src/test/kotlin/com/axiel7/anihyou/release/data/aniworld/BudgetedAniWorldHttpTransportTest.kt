@@ -1,6 +1,6 @@
 package com.axiel7.anihyou.release.data.aniworld
 
-import com.axiel7.anihyou.release.core.api.AniWorldShadowPollStore
+import com.axiel7.anihyou.release.core.api.ShadowPollStore
 import com.axiel7.anihyou.release.core.api.ShadowGenerationManifest
 import com.axiel7.anihyou.release.core.api.ShadowGenerationSnapshot
 import com.axiel7.anihyou.release.core.api.ShadowGenerationState
@@ -30,7 +30,7 @@ class BudgetedAniWorldHttpTransportTest {
     private class RecordingStore(
         private val manifest: ShadowGenerationManifest,
         private val allowOrdinal: (Int) -> Boolean = { true },
-    ) : AniWorldShadowPollStore {
+    ) : ShadowPollStore {
         val reservations = mutableListOf<ShadowRequestReservation>()
         val reservationCalls = mutableListOf<Pair<String, String>>()
         val outcomes = mutableListOf<ShadowRequestOutcome>()

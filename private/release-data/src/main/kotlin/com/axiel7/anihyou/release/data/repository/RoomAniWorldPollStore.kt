@@ -28,7 +28,7 @@ class RoomAniWorldPollStore(
     private val database: ReleaseDatabase,
     private val reconciliation: RoomReleaseReconciliationRepository,
     private val clock: Clock = Clock.systemUTC(),
-) : AniWorldShadowPollStore {
+) : ShadowPollStore {
     private val poll = database.aniworldPollDao()
     private val reconciliationDao = database.reconciliationDao()
     private val releaseDao = database.releaseDao()

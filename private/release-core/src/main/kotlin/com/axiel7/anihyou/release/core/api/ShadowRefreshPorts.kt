@@ -10,7 +10,7 @@ import com.axiel7.anihyou.release.core.state.ShadowComparison
 import java.time.Duration
 import java.time.Instant
 
-interface AniWorldShadowPollStore {
+interface ShadowPollStore {
     suspend fun eligibleDirectTargets(now: Instant): List<DirectTargetCandidate>
     /** Extension ingress selects mapped coordinates and never invokes legacy route construction. */
     suspend fun eligibleMappedDirectTargets(now: Instant): List<DirectTargetCandidate> = emptyList()
@@ -25,9 +25,9 @@ interface AniWorldShadowPollStore {
     suspend fun abortGeneration(token: ShadowGenerationToken, reason: String, now: Instant, metrics: ShadowRunMetrics)
 }
 
-fun interface AniWorldShadowRefreshCoordinator { suspend fun refresh(): ShadowRefreshOutcome }
+fun interface ShadowRefreshCoordinator { suspend fun refresh(): ShadowRefreshOutcome }
 /** WorkManager passes its stable work ID so a retry cannot mint a second Room cycle. */
-interface WorkScopedShadowRefreshCoordinator : AniWorldShadowRefreshCoordinator {
+interface WorkScopedShadowRefreshCoordinator : ShadowRefreshCoordinator {
     suspend fun refreshForWork(workId: String): ShadowRefreshOutcome
 }
-fun interface AniWorldShadowScheduler { fun scheduleCanaryNow() }
+fun interface ShadowCanaryScheduler { fun scheduleCanaryNow() }
