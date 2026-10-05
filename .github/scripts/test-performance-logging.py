@@ -24,6 +24,18 @@ class PerformanceLoggingRulesTest(unittest.TestCase):
         """
         self.assertEqual(3, len(logging.verify_assumptions(rules)))
 
+    def test_exact_compose_animation_visual_debug_rule_is_allowed_without_allowing_logs(self):
+        safe = "-assumenosideeffects class * { static androidx.compose.animation.LookaheadAnimationVisualDebugConfig *(...) return null; }"
+        self.assertEqual(["*:androidx.compose.animation.LookaheadAnimationVisualDebugConfig"], logging.verify_assumptions(safe))
+        for unsafe in (
+            safe.replace("; }", "; public static int d(...); }"),
+            safe.replace("LookaheadAnimationVisualDebugConfig", "**"),
+            safe.replace("assumenosideeffects", "assumevalues"),
+            safe.replace("return null", "return false"),
+        ):
+            with self.subTest(unsafe=unsafe), self.assertRaisesRegex(ValueError, "diagnostic data"):
+                logging.verify_assumptions(unsafe)
+
     def test_explicit_wildcard_and_indirect_app_log_removal_are_rejected(self):
         for owner in ("android.util.Log", "android.util.L*", "**", "*", "com.axiel7.anihyou.**",
                       "**.AppLog", "**.SourceSeriesMatchingService",

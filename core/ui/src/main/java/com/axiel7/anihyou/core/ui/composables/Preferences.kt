@@ -90,7 +90,7 @@ fun PlainPreference(
     subtitle: String? = null,
     @DrawableRes icon: Int? = null,
     iconTint: Color = MaterialTheme.colorScheme.primary,
-    iconPadding: PaddingValues = PaddingValues(16.dp),
+    iconPadding: PaddingValues = PaddingValues(12.dp),
     showIconSpacer: Boolean = true,
     enabled: Boolean = true,
     isLoading: Boolean = false,
@@ -115,6 +115,7 @@ fun PlainPreference(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
+                modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -138,9 +139,7 @@ fun PlainPreference(
                 }
 
                 Column(
-                    modifier = if (subtitle != null)
-                        Modifier.padding(16.dp)
-                    else Modifier.padding(horizontal = 16.dp)
+                    modifier = Modifier.weight(1f).padding(start = 4.dp, end = 16.dp)
                 ) {
                     Text(
                         text = title,

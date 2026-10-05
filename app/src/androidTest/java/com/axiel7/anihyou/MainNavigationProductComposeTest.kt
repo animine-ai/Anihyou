@@ -166,7 +166,7 @@ class MainNavigationProductComposeTest {
         }
     }
 
-    @Test fun configPersistsAndExtensionCenterContainsOnlySourceAndDiagnostics() {
+    @Test fun configPersistsAndExtensionCenterContainsOnlyStatisticsAndDiagnostics() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val store = MainNavigationConfigStore.get(context)
         try {
@@ -175,11 +175,11 @@ class MainNavigationProductComposeTest {
             assertEquals(store.config.value, MainNavigationConfigCodec.decode(persisted))
             var selected: ExtensionCenterPage? = null
             composeRule.setContent { MaterialTheme { Column { ExtensionCenterMenu { selected = it } } } }
-            for (page in listOf(ExtensionCenterPage.SOURCE, ExtensionCenterPage.STATISTICS, ExtensionCenterPage.DIAGNOSTICS)) {
+            for (page in listOf(ExtensionCenterPage.STATISTICS, ExtensionCenterPage.DIAGNOSTICS)) {
                 composeRule.onNodeWithTag("extension-center-" + page.id).assertIsDisplayed().performClick()
                 composeRule.runOnIdle { assertEquals(page, selected) }
             }
-            listOf("manage", "matching", "providers").forEach { composeRule.onNodeWithTag("extension-center-$it").assertDoesNotExist() }
+            listOf("manage", "source", "matching", "providers").forEach { composeRule.onNodeWithTag("extension-center-$it").assertDoesNotExist() }
         } finally { store.update { MainNavigationConfig() } }
     }
 

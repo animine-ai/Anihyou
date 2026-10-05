@@ -35,7 +35,14 @@ def verify_assumptions(rules):
         header = rule.group(2).split("{", 1)[0]
         match = re.search(r"\b(?:class|interface|enum)\s+([^\s{]+)", header)
         require(match is not None, "Unrecognized assumption rule: " + header.strip())
-        # Treat wildcards conservatively, including negated filters or backreferences.
+        # Compose animation 1.10 scopes this wildcard to one exact visual-debug return type.
+        # AppLog, its sink and Android Log have no such methods. Reject every broader/member-added variant.
+        body = rule.group(2).split("{", 1)[1].rsplit("}", 1)[0].strip() if "{" in rule.group(2) else ""
+        if (rule.group(1) == "assumenosideeffects" and header.strip() == "class *" and
+                re.fullmatch(r"static\s+androidx\.compose\.animation\.LookaheadAnimationVisualDebugConfig\s+\*\(\.\.\.\)\s+return\s+null\s*;", body)):
+            owners.append("*:androidx.compose.animation.LookaheadAnimationVisualDebugConfig")
+            continue
+        # Treat all other wildcards conservatively, including negated filters or backreferences.
         for owner in match.group(1).split(","):
             require(owner and not owner.startswith("!") and "<" not in owner,
                     "Unsupported assumption filter: " + owner)

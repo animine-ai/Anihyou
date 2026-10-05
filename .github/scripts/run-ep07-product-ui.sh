@@ -75,6 +75,7 @@ expected|={'postponements-safe-and-unassigned','rollback-confirmation','manage-o
            'trust-unavailable-manage','trust-unavailable-notice','manage-installed-version-withdrawn'}
 expected|={'anilist-events-standard','anilist-events-grid','native-root-guest-light',
            'native-root-account-dark','native-center-groups','providers-both-visible','providers-one-disabled'}
+expected|={'native-source-notifications-german-large','native-source-priorities-german-large'}
 expected|={'native-center-german-black-large','native-sources-empty-german-black-large',
            'native-providers-empty-german-black-large'}
 expected|={'anilist-next-day-standard','anilist-next-day-grid'}

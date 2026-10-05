@@ -91,6 +91,8 @@ class NativeSettingsGroupsComposeTest {
         val navigationTitle = rule.activity.getString(SettingsR.string.settings_navigation_section)
         rule.onNodeWithText(sourceTitle).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText(navigationTitle).assertIsDisplayed()
+        rule.onNodeWithTag("extension-center-root").performScrollTo()
+        rule.onNodeWithTag("extension-center-source").assertIsDisplayed()
         rule.storeVerifiedScreenshot(rule.activity, File(rule.activity.getExternalFilesDir(null), "ep07-ui"),
             "native-root-${if(loggedIn) "account" else "guest"}-${if(dark) "dark" else "light"}") {
             rule.onNodeWithText(sourceTitle).assertIsDisplayed()
@@ -168,6 +170,38 @@ class NativeSettingsGroupsComposeTest {
         } } }
         rule.onNodeWithTag("extension-preference-release-notifications").performScrollTo().assertIsDisplayed().performClick()
         rule.runOnIdle { org.junit.Assert.assertEquals(true, changed) }
+    }
+
+    @Test fun populatedSourcePreferencesHaveReadableGermanRowsAndSeparateControls() {
+        val key = ExtensionSelectionKey("layout-source", "layout-extension", "layout-publisher", "aniworld")
+        val source = ExtensionSource(key.sourceId, "https://layout.example/repo", "fixture", true,
+            ExtensionSourceStatus.CURRENT, extensions = listOf(SourceExtension(key.extensionId, "AniWorld", "1.0", "digest", 1,
+                listOf("CALENDAR"), installedDigest = "digest", activationAllowed = true, installedUsable = true,
+                publisherId = key.publisherId, providerId = key.providerId)))
+        val state = ExtensionSourcesUiState(sources = listOf(source), canEditProductPolicy = true,
+            releaseNotificationsEnabled = true, productPolicy = ExtensionProductPolicy(activeReleaseSource = key))
+        var sourceChanged: ExtensionSelectionKey? = key
+        val event = object : ExtensionSourcesEvent by noSourceEvent {
+            override fun selectActiveSource(value: ExtensionSelectionKey?) { sourceChanged = value }
+        }
+        val context = germanBlackContent { ExtensionDataSourcePreferences(state, event) }
+        val directory = File(rule.activity.getExternalFilesDir(null), "ep07-ui")
+        rule.onNodeWithTag("extension-preference-release-notifications").performScrollTo().assertIsDisplayed()
+        val title = rule.onNodeWithText(context.getString(CoreR.string.release_notifications_enabled), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val summary = rule.onNodeWithText(context.getString(CoreR.string.release_notifications_enabled_summary), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val toggle = rule.onNodeWithTag("extension-preference-release-notifications").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("title and summary stay left of the switch", title.right <= toggle.left && summary.right <= toggle.left)
+        org.junit.Assert.assertTrue("title and description must not overlap", title.bottom <= summary.top)
+        rule.storeVerifiedScreenshot(rule.activity, directory, "native-source-notifications-german-large") {
+            rule.onNodeWithTag("extension-preference-release-notifications").assertIsDisplayed()
+        }
+        rule.onNodeWithTag("extension-product-active-none").performScrollTo().assertHeightIsAtLeast(56.dp).performClick()
+        rule.runOnIdle { org.junit.Assert.assertNull(sourceChanged) }
+        val priority = "extension-preference-priority-dub-only-" + listOf(key.sourceId, key.extensionId, key.publisherId, key.providerId).joinToString("-")
+        rule.onNodeWithTag(priority).performScrollTo().assertHeightIsAtLeast(56.dp)
+        rule.storeVerifiedScreenshot(rule.activity, directory, "native-source-priorities-german-large") {
+            rule.onNodeWithTag(priority).assertIsDisplayed()
+        }
     }
 
     @Test fun emptyProvidersExplainTheStateWithLargeGermanText() {

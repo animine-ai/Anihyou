@@ -108,7 +108,7 @@
     <string name="matching_selection_limit">Bis zu 500 Einträge auswählen. Für größere Umfänge die ausdrückliche Quellen- oder Alle-Aktion verwenden.</string>
     <string name="matching_select_entry">%1$s · %2$s · %3$s auswählen</string>
     <string name="matching_unavailable">Die Matchingverwaltung ist derzeit nicht verfügbar.</string>
-    <string name="extension_schedule_title">Aktualisierungsplan</string>
+    <string name="extension_schedule_title">Aktualisierung</string>
     <string name="extension_schedule_explanation">Die aktive Quelle wird in diesem Abstand im Hintergrund vollständig aktualisiert. Beim Öffnen der App werden die Listen zusätzlich höchstens einmal pro Stunde aktualisiert, und eine kürzlich aktualisierte Rolle wird nicht erneut angefragt.</string>
     <string name="extension_schedule_interval">Intervall</string>
     <string name="extension_schedule_start">Startzeit</string>
@@ -121,7 +121,7 @@
         <item quantity="one">Jede Stunde</item>
         <item quantity="other">Alle %1$d Stunden</item>
     </plurals>
-    <string name="extension_center_schedule">Aktualisierungsplan</string>
+    <string name="extension_center_schedule">Aktualisierung</string>
     <string name="extension_trust_title">Ungeprüfte Quelle verwenden?</string>
     <string name="extension_trust_warning">Die Identität dieser Quelle wurde nicht unabhängig geprüft. Extensions dieser Quelle können Daten von erlaubten Webseiten abrufen und falsche Inhalte liefern. Verwende sie nur, wenn du dem Betreiber vertraust.</string>
     <string name="extension_trust_url">Quelle: %1$s</string>

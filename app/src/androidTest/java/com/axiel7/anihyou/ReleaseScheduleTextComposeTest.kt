@@ -140,10 +140,14 @@ class ReleaseScheduleTextComposeTest {
         composeRule.mainClock.advanceTimeBy(61_000)
         composeRule.onNodeWithText(nextEpisode, substring = true).assertIsDisplayed()
 
-        // ... and past that grace the plan stays a plan: no time, no invented release, the fallback shows.
+        // Past grace a valid source must not invent an AniList count or display an elapsed countdown.
         clock.now = plan.plusSeconds(2 * 3_600L + 1)
         composeRule.mainClock.advanceTimeBy(61_000)
-        composeRule.onNodeWithText("anilist-fallback").assertIsDisplayed()
+        composeRule.onNodeWithText("anilist-fallback").assertDoesNotExist()
+        composeRule.onNodeWithText(nextEpisode, substring = true).assertDoesNotExist()
+        // Progress still reprojects from confirmed source facts while the plan is overdue.
+        composeRule.runOnIdle { progress = 8 }
+        composeRule.onNodeWithText(behind(2), substring = true).assertIsDisplayed()
 
         // A presentation that is not valid never replaces the AniList text.
         composeRule.runOnIdle { progress = 8; clock.now = start; authority = ReleaseUiAuthority.STALE }
