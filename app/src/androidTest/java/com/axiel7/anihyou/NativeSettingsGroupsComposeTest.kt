@@ -158,6 +158,30 @@ class NativeSettingsGroupsComposeTest {
         }
     }
 
+    @Test fun userStatisticsStayReadableInGermanBlackLargeText() {
+        val key = ExtensionSelectionKey("stats", "stats-extension", "stats-publisher", "stats-provider")
+        val source = ExtensionSource(key.sourceId, "https://stats.example/repo", "fixture", true,
+            ExtensionSourceStatus.CURRENT, extensions = listOf(SourceExtension(key.extensionId, "Anbieter", "1.0", "digest", 1,
+                listOf("CALENDAR"), installedDigest = "digest", activationAllowed = true,
+                publisherId = key.publisherId, providerId = key.providerId)))
+        val state = ExtensionSourcesUiState(sources = listOf(source),
+            productPolicy = ExtensionProductPolicy(activeReleaseSource = key),
+            statistics = mapOf(key to ExtensionUserStatistics(ExtensionMatchingStatistics(73, 65, 8),
+                java.time.Instant.parse("2026-10-05T09:00:00Z"), ExtensionDataUpdateStatus.PARTIAL)))
+        val context = germanBlackContent { ExtensionStatistics(state) }
+        rule.onNodeWithTag("extension-stat-found").performScrollTo().assertTextContains("73")
+        rule.onNodeWithTag("extension-stat-matched").performScrollTo().assertTextContains("65")
+        rule.onNodeWithTag("extension-stat-unmatched").performScrollTo().assertTextContains("8")
+        rule.onNodeWithTag("extension-stat-errors").performScrollTo()
+            .assertTextContains(context.getString(SettingsR.string.extension_stats_errors_partial))
+        rule.onNodeWithTag("extension-stat-updated").performScrollTo().assertTextContains("2026", substring = true)
+        rule.storeVerifiedScreenshot(rule.activity, File(rule.activity.getExternalFilesDir(null), "ep07-ui"),
+            "statistics-user-german-black-large") {
+            rule.onNodeWithTag("extension-stat-updated").assertIsDisplayed()
+            rule.onAllNodesWithText("Package SHA", substring = true).assertCountEquals(0)
+        }
+    }
+
     private fun germanBlackContent(content: @Composable () -> Unit): Context {
         val context = rule.activity.createConfigurationContext(Configuration(rule.activity.resources.configuration).apply {
             setLocale(Locale.GERMAN)

@@ -131,11 +131,11 @@ fun ExtensionCenterPageView(pageId: String) {
     val model: ExtensionSourcesViewModel = koinViewModel()
     val state by model.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(state.sources, state.productPolicy.generation) {
-        if (page == ExtensionCenterPage.STATISTICS || page == ExtensionCenterPage.DIAGNOSTICS) model.refreshDiagnostics()
+        if (page == ExtensionCenterPage.DIAGNOSTICS) model.refreshDiagnostics()
     }
     ExtensionCenterScaffold(stringResource(page.title)) {
         if (!state.trustAvailable) ExtensionTrustUnavailableNotice()
-        if (page == ExtensionCenterPage.STATISTICS || page == ExtensionCenterPage.DIAGNOSTICS) {
+        if (page == ExtensionCenterPage.DIAGNOSTICS) {
             TextButton(onClick = model::refreshDiagnostics, modifier = Modifier.testTag("extension-details-refresh")) {
                 Text(stringResource(R.string.extension_details_refresh))
             }
@@ -148,7 +148,7 @@ fun ExtensionCenterPageView(pageId: String) {
             ExtensionCenterPage.MANAGE -> ExtensionSourcesSettingsSection(state, model)
             ExtensionCenterPage.SOURCE -> ExtensionDataSourcePreferences(state, model)
             ExtensionCenterPage.PROVIDERS -> ExtensionProviderDisplay(state, model)
-            ExtensionCenterPage.STATISTICS -> ExtensionStatistics(state)
+            ExtensionCenterPage.STATISTICS -> ExtensionStatistics(state, model::refreshReleasesNow)
             ExtensionCenterPage.DIAGNOSTICS -> ExtensionDiagnostics(state)
         }
     }
@@ -232,39 +232,6 @@ fun ExtensionProviderDisplay(state: ExtensionSourcesUiState, event: ExtensionSou
 }
 
 @Composable
-fun ExtensionStatistics(state: ExtensionSourcesUiState) {
-    val key = state.productPolicy.activeReleaseSource
-    val extension = installedEntries(state).singleOrNull { it.first == key }?.second
-    if (key == null || extension == null) {
-        Text(stringResource(R.string.extension_statistics_empty)); return
-    }
-    PreferencesTitle(extension.displayName)
-    val values = state.diagnostics[key].orEmpty()
-    val source = state.sources.singleOrNull { it.id == key.sourceId }
-    val rows = listOf(
-        stringResource(R.string.extension_manage_diagnostic_installed_version) to (extension.installedVersion),
-        stringResource(R.string.extension_manage_diagnostic_latest_version) to (extension.latestAvailableVersion),
-        stringResource(R.string.extension_manage_diagnostic_update_state) to (stringResource(extensionUpdateStateLabel(extension.updateState))),
-        stringResource(R.string.extension_manage_diagnostic_package_status) to (stringResource(installedPackageStatusLabel(extension))),
-        stringResource(R.string.extension_manage_diagnostic_package_generation) to (extension.packageGeneration.toString()),
-        stringResource(R.string.extension_manage_diagnostic_release_sequence) to (extension.installedReleaseSequence?.toString()),
-        stringResource(R.string.extension_manage_diagnostic_metadata) to (stringResource(if (extension.metadataFresh) R.string.extension_manage_diagnostic_fresh
-            else R.string.extension_manage_diagnostic_stale)),
-        stringResource(R.string.extension_manage_diagnostic_yanked) to (stringResource(if (extension.candidateYanked) R.string.extension_manage_diagnostic_yes
-            else R.string.extension_manage_diagnostic_no)),
-        stringResource(R.string.extension_manage_diagnostic_last_update) to (values["Last Update Check"]?.takeIf { it.isNotBlank() } ?: source?.lastAttemptAt?.toString()),
-        stringResource(R.string.extension_manage_diagnostic_update_result) to (extension.lastUpdateResult),
-        stringResource(R.string.extension_manage_diagnostic_update_failure) to (extension.lastUpdateFailure?.let { stringResource(updateFailureLabel(it)) }),
-        stringResource(R.string.extension_manage_diagnostic_previous_good) to (extension.rollbackTarget?.let { "${it.version} · ${it.trustState} · ${it.digest.take(12)}" }),
-        stringResource(R.string.extension_manage_diagnostic_failure_code) to (values["Last Update Failure Code"]?.takeIf(::isSafeTechnicalCode)
-            ?: extension.lastUpdateTechnicalCode?.takeIf(::isSafeTechnicalCode)),
-        stringResource(R.string.extension_manage_diagnostic_last_successful_update) to (values["Last Successful Update"]),
-        stringResource(R.string.extension_manage_diagnostic_last_metadata_success) to (values["Last metadata success"])
-    ) + listOf("Last successful sync", "Last committed sync", "Freshness", "Release count", "Tracks", "Role health", "Role reports", "Last sync outcome", "Sync duration", "Runtime", "Last parse status", "Last navigation status").map { it to values[it] }
-    DiagnosticRows(rows)
-}
-
-@Composable
 fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
     val clipboard = LocalClipboardManager.current
     state.sources.flatMap { source -> source.extensions.mapNotNull { extension ->
@@ -306,12 +273,12 @@ fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
             state.diagnostics[key].orEmpty()
         val safeValues = safeDiagnosticEntries(values).toMap()
         PreferencesTitle(extension.displayName)
-        val identityRows = listOf("Extension ID", "Provider ID", "Signed displayName", "Repository", "Publisher",
+        val identityKeys = listOf("Extension ID", "Provider ID", "Signed displayName", "Repository", "Publisher",
             "Key ID", "Trust status", "Package SHA", "WASM SHA", "Active selection generation",
             "Last update at", "Capabilities", "Allowed Hosts", "Role health", "Role reports",
             "Last committed sync", "Last sync outcome", "Runtime", "Last parse status", "Last navigation status", "Fuel limit",
-            "Memory limit", "Deadline limit", "Cancellation").map { it to safeValues[it] }
-        DiagnosticRows(identityRows)
+            "Memory limit", "Deadline limit", "Cancellation")
+        DiagnosticRows(identityKeys.map { it to safeValues[it] })
         PreferencesTitle(stringResource(R.string.extension_manage_diagnostic_package_status))
         val statusRows = (if (source.manuallyTrusted) listOf(stringResource(R.string.extension_manage_diagnostic_trust_class) to
             stringResource(R.string.extension_manage_manual_trust)) else emptyList()) + listOf(
@@ -339,6 +306,17 @@ fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
                 else R.string.extension_manage_diagnostic_no))
         )
         DiagnosticRows(statusRows)
+        val packageKeys = setOf("Version", "Latest authenticated version", "Installed package status", "Update state",
+            "Package generation", "Metadata fresh", "Candidate yanked", "Last update result", "Last update failure",
+            "Previous Good", "Current Version", "Latest Available", "Release Sequence", "Active package generation",
+            "Known Good", "Previous Good Version", "Last Update Check", "Last Update Result", "Last Update Failure",
+            "Last Update Failure Code", "Last Successful Update", "Rollback Available", "Revocation",
+            "Repository metadata freshness", "Last metadata success", "Yanked candidate")
+        val otherRows = safeValues.filterKeys { it !in identityKeys && it !in packageKeys }.toSortedMap()
+        if (otherRows.isNotEmpty()) {
+            PreferencesTitle(stringResource(R.string.extension_diagnostics_processing))
+            DiagnosticRows(otherRows.map { it.key to it.value })
+        }
         TextButton(onClick = { clipboard.setText(AnnotatedString(
             safeDiagnosticEntries(values).joinToString("\n") { (name, value) -> "$name: $value" })) },
             modifier = Modifier.testTag("diagnostics-copy-" + key.testTagPart())) {

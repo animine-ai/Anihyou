@@ -12,6 +12,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsNotSelected
@@ -197,7 +200,11 @@ class ExtensionProductSettingsComposeTest {
             "Fuel limit" to "bounded", "Quarantine" to "Active package: false; digests: ")
         val state = mutableStateOf(ExtensionSourcesUiState(sources = listOf(source(key, "Signed Provider Alpha")),
             productPolicy = com.axiel7.anihyou.release.core.source.ExtensionProductPolicy(activeReleaseSource = key),
-            diagnostics = mapOf(key to metadata)))
+            diagnostics = mapOf(key to metadata),
+            statistics = mapOf(key to com.axiel7.anihyou.release.core.source.ExtensionUserStatistics(
+                com.axiel7.anihyou.release.core.source.ExtensionMatchingStatistics(73, 65, 8),
+                java.time.Instant.parse("2026-10-01T12:00:00Z"),
+                com.axiel7.anihyou.release.core.source.ExtensionDataUpdateStatus.SUCCESS))))
         val diagnostics = mutableStateOf(false)
         composeRule.setContent {
             MaterialTheme {
@@ -206,12 +213,14 @@ class ExtensionProductSettingsComposeTest {
                 }
             }
         }
-        composeRule.onNodeWithText("Last successful sync: 2026-10-01T12:00:00Z").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Role health: CALENDAR: HEALTHY/SUCCESS").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("extension-stat-found").assertTextContains("73")
+        composeRule.onNodeWithTag("extension-stat-unmatched").assertTextContains("8")
+        composeRule.onAllNodesWithText("Role health:", substring = true).assertCountEquals(0)
         composeRule.runOnIdle { state.value = state.value.copy(productPolicy = state.value.productPolicy.copy(activeReleaseSource = null)) }
         composeRule.onNodeWithText(composeRule.activity.getString(
             com.axiel7.anihyou.feature.settings.R.string.extension_statistics_empty)).assertIsDisplayed()
         composeRule.runOnIdle { diagnostics.value = true }
+        composeRule.onNodeWithText("Role health: CALENDAR: HEALTHY/SUCCESS").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Key ID: fixture-public-key-id").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Trust status: REVOKED").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("diagnostics-copy-" + key.testTagPart()).performScrollTo().performClick()

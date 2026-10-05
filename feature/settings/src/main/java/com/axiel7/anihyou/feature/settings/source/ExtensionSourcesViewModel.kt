@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 data class ExtensionSourcesUiState(
@@ -39,6 +41,7 @@ data class ExtensionSourcesUiState(
     val actionFailed: Boolean = false,
     val busySourceIds: Set<String> = emptySet(),
     val diagnostics: Map<ExtensionSelectionKey, Map<String, String>> = emptyMap(),
+    val statistics: Map<ExtensionSelectionKey, com.axiel7.anihyou.release.core.source.ExtensionUserStatistics> = emptyMap(),
 )
 
 interface ExtensionSourcesEvent {
@@ -74,6 +77,7 @@ class ExtensionSourcesViewModel(
     private val releasePreferencesRepository: com.axiel7.anihyou.release.core.api.ReleasePreferencesRepository? = null,
     private val releaseOutboxRepository: com.axiel7.anihyou.release.core.api.ReleaseOutboxRepository? = null,
     private val releaseRefreshScheduler: com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler? = null,
+    private val statisticsRepository: com.axiel7.anihyou.release.core.source.ExtensionStatisticsRepository? = null,
 ) : ViewModel(), ExtensionSourcesEvent {
 
     private val _uiState = MutableStateFlow(
@@ -86,14 +90,16 @@ class ExtensionSourcesViewModel(
         viewModelScope.launch {
             repository.sources.collect { sources ->
                 _uiState.update { it.copy(sources = sources,
-                    diagnostics = if (it.sources == sources) it.diagnostics else emptyMap()) }
+                    diagnostics = if (it.sources == sources) it.diagnostics else emptyMap(),
+                    statistics = if (it.sources == sources) it.statistics else emptyMap()) }
             }
         }
         productPolicyRepository?.let { policyRepository ->
             viewModelScope.launch {
                 policyRepository.policy.collect { policy ->
                     _uiState.update { it.copy(productPolicy = policy,
-                        diagnostics = if (it.productPolicy == policy) it.diagnostics else emptyMap()) }
+                        diagnostics = if (it.productPolicy == policy) it.diagnostics else emptyMap(),
+                        statistics = if (it.productPolicy == policy) it.statistics else emptyMap()) }
                 }
             }
         }
@@ -107,6 +113,25 @@ class ExtensionSourcesViewModel(
             }
         }
         performAction { repository.restoreInstalled() }
+        observeStatistics()
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun observeStatistics() {
+        val statistics = statisticsRepository ?: return
+        val policy = productPolicyRepository ?: return
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(repository.sources, policy.policy) { sources, selection -> sources to selection }
+                .flatMapLatest { (sources, selection) ->
+                    val key = selection.activeReleaseSource
+                    if (key == null) kotlinx.coroutines.flow.flowOf(Triple(sources, selection, emptyMap<ExtensionSelectionKey,
+                        com.axiel7.anihyou.release.core.source.ExtensionUserStatistics>()))
+                    else statistics.observe(key).map { value -> Triple(sources, selection, mapOf(key to value)) }
+                }.collect { (sources, selection, values) ->
+                    _uiState.update { if (it.sources == sources && it.productPolicy == selection)
+                        it.copy(statistics = values) else it }
+                }
+        }
     }
 
     override fun disableLegacyLane() {

@@ -513,6 +513,42 @@ class RoomMatchingManagementRepositoryTest {
         assertTrue(rig.repository.observeUnmatched().first().isEmpty())
     }
 
+    @Test fun statisticsCountCurrentSeriesSeasonsWithoutHistoricalBindingsOrNetwork() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("show", "Show", 1), Triple("show", "Show", 2), Triple("open", "Open", 1))
+        rig.dao.upsertSourceMapping(sourceRow(keyA, "show", 1, 7))
+        rig.dao.upsertSourceMapping(sourceRow(keyA, "not-in-source-data", 1, 8))
+        rig.dao.upsertSourceMapping(sourceRow(keyB, "open", 1, 9))
+        val counts = rig.service.matchingStatistics(keyA)
+        assertEquals(com.axiel7.anihyou.release.core.source.ExtensionMatchingStatistics(3, 1, 2), counts)
+        assertEquals(counts, rig.service.observeStatistics(keyA).first())
+        assertEquals(0, rig.candidates.localCalls)
+        assertEquals(0, rig.candidates.targetedCalls)
+        assertTrue(rig.candidates.dayRequests.isEmpty() && rig.candidates.poolRequests.isEmpty())
+    }
+
+    @Test fun statisticsHideReceiptsFromAnotherSelectionOrPackage() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("show", "Show", 1))
+        val digest = "d".repeat(64)
+        rig.sources.sources.value = rig.sources.sources.value.map { source -> source.copy(extensions = source.extensions.map {
+            it.copy(installedVersion = "1", installedDigest = digest, installedUsable = true, packageGeneration = 9)
+        }) }
+        val repo = com.axiel7.anihyou.release.data.extension.ExtensionCenterStatisticsRepository(
+            rig.sources, rig.policy, rig.navigation, rig.service)
+        assertNull(repo.observe(keyA).first().matching)
+        rig.navigation.record(keyA, rig.policy.policy.value.releaseGeneration, digest, emptyList(),
+            mapOf("Last sync outcome" to "COMMITTED", "Last committed sync" to t0.toString()), 9, rowsCommitted = true)
+        assertEquals(1, repo.observe(keyA).first().matching?.found)
+        rig.policy.selectActiveSource(keyB)
+        assertNull(repo.observe(keyA).first().matching)
+        rig.policy.selectActiveSource(keyA)
+        rig.sources.sources.value = rig.sources.sources.value.map { source -> source.copy(extensions = source.extensions.map {
+            it.copy(packageGeneration = 10)
+        }) }
+        assertNull(repo.observe(keyA).first().matching)
+    }
+
     private suspend fun Rig.seedSeries(vararg series: Triple<String, String, Int>) = series.forEach { (slug, title, season) ->
         dao.upsertLabel(label(keyA, slug, title))
         database.reconciliationDao().upsertSourceProjection(forecastRow(keyA, slug, season, t0.plusSeconds(3_600)))

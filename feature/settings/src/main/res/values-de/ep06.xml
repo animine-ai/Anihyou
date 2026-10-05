@@ -30,4 +30,19 @@
     <string name="extension_provider_order_section">Reihenfolge der Anbieter</string>
     <string name="extension_provider_empty">Installiere eine benutzbare Extension mit Streaming-Navigation, um sie hier anzuzeigen.</string>
     <string name="extension_center_matching">Matcher</string>
+    <string name="extension_stats_scope">Gespeicherte Serien und Staffeln der aktiven Quelle. Jede Staffel zählt einmal.</string>
+    <string name="extension_stats_found">Gefunden</string>
+    <string name="extension_stats_matched">Zugeordnet</string>
+    <string name="extension_stats_unmatched">Nicht zugeordnet</string>
+    <string name="extension_stats_errors">Fehler beim letzten Datenabruf</string>
+    <string name="extension_stats_errors_none">Keine gemeldet</string>
+    <string name="extension_stats_errors_partial">Ein Teil der Daten konnte nicht geladen werden</string>
+    <string name="extension_stats_errors_failed">Abruf fehlgeschlagen</string>
+    <string name="extension_stats_not_checked">Noch nicht geprüft</string>
+    <string name="extension_stats_no_data">Noch keine Daten</string>
+    <string name="extension_stats_update">Aktualisierung</string>
+    <string name="extension_stats_last_updated">Zuletzt aktualisiert</string>
+    <string name="extension_stats_never_updated">Noch nicht aktualisiert</string>
+    <string name="extension_stats_refresh">Quelldaten aktualisieren</string>
+    <string name="extension_diagnostics_processing">Datenabruf und Verarbeitung</string>
 </resources>

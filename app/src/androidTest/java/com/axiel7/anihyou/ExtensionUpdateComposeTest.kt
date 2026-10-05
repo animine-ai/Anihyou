@@ -51,6 +51,9 @@ import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesUiState
 import com.axiel7.anihyou.feature.settings.source.ExtensionStatistics
 import com.axiel7.anihyou.feature.settings.source.ExtensionTrustUnavailableNotice
 import com.axiel7.anihyou.release.core.source.ExtensionPreferences
+import com.axiel7.anihyou.release.core.source.ExtensionUserStatistics
+import com.axiel7.anihyou.release.core.source.ExtensionMatchingStatistics
+import com.axiel7.anihyou.release.core.source.ExtensionDataUpdateStatus
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicy
 import com.axiel7.anihyou.release.core.source.ExtensionRollbackTarget
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
@@ -242,7 +245,7 @@ class ExtensionUpdateComposeTest {
     }
 
     @Test
-    fun statisticsExposeUpdatePackageAndPreviousGoodFields() {
+    fun diagnosticsExposeUpdatePackageAndPreviousGoodFields() {
         val key = key("statistics")
         val extension = current(key).copy(
             updateState = ExtensionUpdateState.UPDATE_FAILED,
@@ -258,7 +261,7 @@ class ExtensionUpdateComposeTest {
         composeRule.setContent {
             MaterialTheme {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    ExtensionStatistics(state)
+                    ExtensionDiagnostics(state)
                 }
             }
         }
@@ -271,41 +274,29 @@ class ExtensionUpdateComposeTest {
     }
 
     @Test
-    fun statisticsShowEachUpdateFactOnceWithoutRawDuplicates() {
+    fun statisticsShowUserCountsAndKeepAllTechnicalFactsInDiagnostics() {
         val key = key("statistics-once")
-        val extension = current(key).copy(packageGeneration = 27, installedReleaseSequence = 7)
         val state = ExtensionSourcesUiState(
-            sources = listOf(source(key.sourceId, extension)),
+            sources = listOf(source(key.sourceId, current(key).copy(packageGeneration = 27))),
             productPolicy = ExtensionProductPolicy(activeReleaseSource = key),
-            diagnostics = mapOf(key to mapOf(
-                "Last Update Check" to "2026-10-01T10:00:00Z",
-                "Last Successful Update" to "2026-10-01T09:00:00Z",
-                "Release Sequence" to "7",
-                "Rollback Available" to "true",
-                "Revocation" to "",
-                "Last successful sync" to "2026-10-01T09:30:00Z",
-                "Role health" to "CALENDAR: HEALTHY/SUCCESS",
-            )),
+            statistics = mapOf(key to ExtensionUserStatistics(ExtensionMatchingStatistics(73, 65, 8),
+                java.time.Instant.parse("2026-10-05T09:00:00Z"), ExtensionDataUpdateStatus.PARTIAL)),
+            diagnostics = mapOf(key to mapOf("Role health" to "CALENDAR: HEALTHY/SUCCESS", "Release count" to "200")),
         )
-        composeRule.setContent {
-            MaterialTheme {
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    ExtensionStatistics(state)
-                }
-            }
+        composeRule.setContent { MaterialTheme {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { ExtensionStatistics(state) }
+        } }
+        composeRule.onNodeWithTag("extension-stat-found").assertTextContains("73")
+        composeRule.onNodeWithTag("extension-stat-matched").assertTextContains("65")
+        composeRule.onNodeWithTag("extension-stat-unmatched").assertTextContains("8")
+        composeRule.onNodeWithTag("extension-stat-errors").performScrollTo().assertTextContains("Some data could not be loaded")
+        composeRule.onNodeWithTag("extension-stat-updated").performScrollTo().assertTextContains("2026", substring = true)
+        for (technical in listOf("Role health:", "Release count:", "Package SHA:", "Active package generation:", "Last Update Check:")) {
+            composeRule.onAllNodesWithText(technical, substring = true).assertCountEquals(0)
         }
-        // The localized row carries each fact exactly once.
-        composeRule.onAllNodesWithText("Last update check: 2026-10-01T10:00:00Z").assertCountEquals(1)
-        composeRule.onAllNodesWithText("Last successful update: 2026-10-01T09:00:00Z").assertCountEquals(1)
-        composeRule.onAllNodesWithText("Installed release sequence: 7").assertCountEquals(1)
-        composeRule.onAllNodesWithText("Active package generation: 27").assertCountEquals(1)
-        // The raw English twins of those facts are gone from the statistics page.
-        for (rawLabel in listOf("Last Update Check:", "Last Successful Update:", "Release Sequence:", "Rollback Available:", "Revocation:")) {
-            composeRule.onAllNodesWithText(rawLabel, substring = true).assertCountEquals(0)
+        captureScreenshot("statistics-user-overview") {
+            composeRule.onNodeWithTag("extension-stat-updated").assertIsDisplayed()
         }
-        // Facts that exist only as raw values stay visible.
-        composeRule.onNodeWithText("Last successful sync: 2026-10-01T09:30:00Z").performScrollTo().assertIsDisplayedCompat()
-        composeRule.onNodeWithText("Role health: CALENDAR: HEALTHY/SUCCESS").performScrollTo().assertIsDisplayedCompat()
     }
 
     @Test

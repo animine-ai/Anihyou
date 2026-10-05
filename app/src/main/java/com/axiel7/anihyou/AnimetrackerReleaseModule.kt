@@ -108,6 +108,9 @@ val animetrackerReleaseModule = module {
     single<com.axiel7.anihyou.release.core.source.ExtensionDiagnosticsRepository> {
         com.axiel7.anihyou.release.data.extension.ExtensionCenterDiagnosticsRepository(get(), get(), get())
     }
+    single<com.axiel7.anihyou.release.core.source.ExtensionStatisticsRepository> {
+        com.axiel7.anihyou.release.data.extension.ExtensionCenterStatisticsRepository(get(), get(), get(), get())
+    }
     single<com.axiel7.anihyou.release.core.navigation.ProviderNavigationGateway> {
         com.axiel7.anihyou.release.data.extension.InstalledProviderNavigationGateway(get(), get(), get(),
             androidApplication().filesDir.resolve("release-extension-network"))

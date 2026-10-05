@@ -58,6 +58,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -249,6 +250,26 @@ class SourceSeriesMatchingService(
     /** The active source (null without one), for the management list. */
     val activeSource: kotlinx.coroutines.flow.Flow<ExtensionSelectionKey?> =
         policy.policy.map { it.activeReleaseSource }.distinctUntilChanged()
+
+    /** Local overview of the exact same source series/season scope as the unmatched list. */
+    fun observeStatistics(active: ExtensionSelectionKey) = observeStatisticsSnapshot(active)
+        .map { it.second }.distinctUntilChanged()
+
+    /** Pair counts with their receipt so a new refresh cannot display the prior refresh's cached counts. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    internal fun observeStatisticsSnapshot(active: ExtensionSelectionKey) = kotlinx.coroutines.flow.combine(
+        database.reconciliationDao().observeSourceProjections(active.sourceId, active.extensionId, active.publisherId, active.providerId),
+        dao.observeSourceBoundAniListMappings(active.sourceId, active.extensionId, active.publisherId, active.providerId),
+        navigation.state,
+    ) { _, _, receipt -> receipt }.mapLatest { receipt -> receipt to matchingStatistics(active) }.distinctUntilChanged()
+
+    suspend fun matchingStatistics(active: ExtensionSelectionKey) = database.withTransaction {
+        val pending = findPending(active)
+        val open = pending.series.size
+        // Historical bindings outside today's accepted source data do not inflate the matched count.
+        com.axiel7.anihyou.release.core.source.ExtensionMatchingStatistics(pending.subjects,
+            pending.subjects - open, open)
+    }
 
     /** The series of the active source that no binding covers, with the title the source gave them. Local reads only. */
     suspend fun unmatched(active: ExtensionSelectionKey): List<UnmatchedSeries> = findPending(active).series.map { (slug, season) ->

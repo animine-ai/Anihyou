@@ -30,4 +30,19 @@
     <string name="extension_provider_order_section">Provider order</string>
     <string name="extension_provider_empty">Install a usable extension with streaming navigation to show it here.</string>
     <string name="extension_center_matching">Matcher</string>
+    <string name="extension_stats_scope">Stored series and seasons of the active source. Each season counts once.</string>
+    <string name="extension_stats_found">Found</string>
+    <string name="extension_stats_matched">Matched</string>
+    <string name="extension_stats_unmatched">Unmatched</string>
+    <string name="extension_stats_errors">Errors in the last data refresh</string>
+    <string name="extension_stats_errors_none">None reported</string>
+    <string name="extension_stats_errors_partial">Some data could not be loaded</string>
+    <string name="extension_stats_errors_failed">Refresh failed</string>
+    <string name="extension_stats_not_checked">Not checked yet</string>
+    <string name="extension_stats_no_data">No data yet</string>
+    <string name="extension_stats_update">Data update</string>
+    <string name="extension_stats_last_updated">Last updated</string>
+    <string name="extension_stats_never_updated">Not updated yet</string>
+    <string name="extension_stats_refresh">Refresh source data</string>
+    <string name="extension_diagnostics_processing">Data retrieval and processing</string>
 </resources>
