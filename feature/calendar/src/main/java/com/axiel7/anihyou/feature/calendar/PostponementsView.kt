@@ -94,12 +94,14 @@ fun PostponementsViewContent(
             ),
         ) {
             item(key = "postponements-search") {
+                Column(Modifier.padding(bottom = 12.dp)) {
                 SearchPillField(
                     value = state.query,
                     onValueChange = onSearch,
                     placeholder = stringResource(R.string.postponements_search),
-                    modifier = Modifier.padding(bottom = 12.dp).testTag("postponements-search"),
+                    modifier = Modifier.testTag("postponements-search"),
                 )
+                }
             }
             state.observedAt?.let { observedAt ->
                 item(key = "postponements-updated") {
@@ -110,7 +112,7 @@ fun PostponementsViewContent(
                         ),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 12.dp),
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
                     )
                 }
             }
@@ -118,9 +120,11 @@ fun PostponementsViewContent(
             if (state.notices.isEmpty()) {
                 item(key = "postponements-empty") {
                     Text(
-                        text = stringResource(R.string.postponements_empty),
+                        text = if (state.query.isNotBlank() && state.totalNotices > 0)
+                            stringResource(R.string.postponements_no_results, state.query.trim())
+                        else stringResource(R.string.postponements_empty),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 24.dp),
+                        modifier = Modifier.padding(vertical = 24.dp).testTag("postponements-empty"),
                     )
                 }
             } else {

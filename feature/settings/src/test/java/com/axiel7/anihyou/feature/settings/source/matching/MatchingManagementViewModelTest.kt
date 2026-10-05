@@ -42,7 +42,7 @@ class MatchingManagementViewModelTest {
         assertTrue(repository.resets.isEmpty())
     }
     @Test fun sourceAndGlobalActionsRequireConfirmationAndUseFrozenTokenRatherThanSearchResults() = runTest {
-        val vm = model(); vm.search("only-one-visible")
+        val vm = model()
         vm.prepare(MappingAction.RESET, MappingScope.Source(key))
         assertEquals(125, vm.state.value.confirmation?.token?.count)
         assertTrue(repository.resets.isEmpty())
@@ -60,6 +60,34 @@ class MatchingManagementViewModelTest {
         val vm = model(); vm.prepare(MappingAction.RESET, MappingScope.All)
         vm.filter(key); vm.confirm()
         assertNull(vm.state.value.confirmation); assertTrue(repository.resets.isEmpty())
+    }
+    @Test fun searchRejectsEverySourceWideActionAndDropsOldSelectionAndCapture() = runTest {
+        val vm = model(); vm.select(entry, true); vm.prepare(MappingAction.RESET, MappingScope.All)
+        vm.search("Source")
+        assertTrue(vm.state.value.selected.isEmpty()); assertNull(vm.state.value.confirmation)
+        val before = repository.captures.size
+        vm.prepare(MappingAction.RESET, MappingScope.All)
+        vm.prepare(MappingAction.REMATCH, MappingScope.Source(key))
+        vm.prepare(MappingAction.RESET, MappingScope.Entries(mapOf(entry.id to entry.revision)))
+        vm.matchNow(); vm.searchNow(); vm.confirm()
+        assertEquals(before, repository.captures.size)
+        assertEquals(0, repository.unmatchedRuns); assertTrue(repository.resets.isEmpty())
+        vm.select(entry, true)
+        vm.prepare(MappingAction.RESET, MappingScope.Entries(mapOf(entry.id to entry.revision)))
+        assertEquals(1, vm.state.value.confirmation?.token?.count)
+    }
+    @Test fun unmatchedSearchFoldsEveryWordAndSuggestionAndAppliesSourceBeforeRenderingCap() = runTest {
+        val other = key.copy(sourceId = "source-b")
+        repository.unmatched.value = (1..160).map { UnmatchedSeries(key, "series-$it", 1, "Ordinary $it") } +
+            UnmatchedSeries(key, "late", 2, "L’Été: King", UnmatchedSuggestion(99, "Queen’s return", 0.8)) +
+            UnmatchedSeries(other, "other", 2, "L’Été: King", UnmatchedSuggestion(99, "Queen’s return", 0.8))
+        val vm = model(); vm.search("queens ete")
+        assertEquals(2, vm.state.value.visibleUnmatched.size)
+        vm.filter(key)
+        assertEquals(listOf("late"), vm.state.value.visibleUnmatched.map { it.seriesKey })
+        assertEquals(161, vm.state.value.scopedUnmatched.size)
+        vm.search("ete missing"); assertTrue(vm.state.value.visibleUnmatched.isEmpty())
+        assertEquals(0, searchCalls); assertEquals(0, repository.unmatchedRuns)
     }
     @Test fun staleCaptureReturningAfterFilterChangeCannotRestoreOldScope() = runTest {
         repository.captureGate = CompletableDeferred()
@@ -116,6 +144,8 @@ class MatchingManagementViewModelTest {
     private class FakeRepository : MatchingManagementRepository {
         val rows = MutableStateFlow(MappingPage(emptyList(), 0))
         val options = MutableStateFlow<List<MatcherOption>>(emptyList())
+        val unmatched = MutableStateFlow<List<UnmatchedSeries>>(emptyList())
+        var unmatchedRuns = 0
         val queries = mutableListOf<MappingQuery>()
         val captures = mutableListOf<MappingScope>()
         val resets = mutableListOf<MappingActionToken>()
@@ -128,6 +158,9 @@ class MatchingManagementViewModelTest {
         var waitRematch = false
         var rematchCancelled = false
         override fun observePage(query: MappingQuery): Flow<MappingPage> { queries += query; return rows }
+        override fun observeUnmatched(): Flow<List<UnmatchedSeries>> = unmatched
+        override suspend fun matchUnmatchedNow(): Int { unmatchedRuns++; return 0 }
+        override suspend fun searchUnmatchedNow(): Int { unmatchedRuns++; return 0 }
         override suspend fun capture(scope: MappingScope): MappingActionToken {
             captures += scope
             return captureGate?.await() ?: MappingActionToken("frozen-${captures.size}", if (scope is MappingScope.Entries) scope.revisions.size else 125)

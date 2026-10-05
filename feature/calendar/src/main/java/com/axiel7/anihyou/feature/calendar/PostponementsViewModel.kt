@@ -6,6 +6,7 @@ import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
 import com.axiel7.anihyou.release.core.api.ExtensionPostponementNotice
 import com.axiel7.anihyou.release.core.log.AppLog
+import com.axiel7.anihyou.release.core.matching.SearchTitleFolding
 import com.axiel7.anihyou.release.core.api.ExtensionPostponementPresentationRepository
 import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
 import java.time.Instant
@@ -30,6 +31,7 @@ data class PostponementsUiState(
     val metadata: Map<Int, PostponementMediaMetadata> = emptyMap(),
     val isRefreshing: Boolean = false,
     val query: String = "",
+    val totalNotices: Int = notices.size,
 )
 
 class PostponementsViewModel(
@@ -70,13 +72,11 @@ class PostponementsViewModel(
     )
 
     val uiState = combine(notices, metadata, refreshing, query) { state, details, busy, text ->
-        val needle = text.trim().lowercase()
         state.copy(
-            notices = if (needle.isEmpty()) state.notices else state.notices.filter { notice ->
-                notice.title.lowercase().contains(needle) ||
-                    notice.mediaId?.let(details::get)?.title?.lowercase()?.contains(needle) == true
+            notices = state.notices.filter { notice ->
+                SearchTitleFolding.matches(text, notice.title, notice.mediaId?.let(details::get)?.title)
             },
-            metadata = details, isRefreshing = busy, query = text,
+            metadata = details, isRefreshing = busy, query = text, totalNotices = state.notices.size,
         )
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PostponementsUiState())

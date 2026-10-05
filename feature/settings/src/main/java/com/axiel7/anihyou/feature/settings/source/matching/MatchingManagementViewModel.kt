@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.release.core.api.*
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
+import com.axiel7.anihyou.release.core.matching.SearchTitleFolding
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
@@ -37,7 +38,13 @@ data class MatchingManagementState(
     val unmatchedEditor: UnmatchedSeries? = null,
     /** How many series the last "match now" bound; null before the first run. */
     val lastMatched: Int? = null,
-)
+) {
+    val searching: Boolean get() = query.text.isNotBlank()
+    val scopedUnmatched: List<UnmatchedSeries> get() = unmatched.filter { query.source == null || it.source == query.source }
+    val visibleUnmatched: List<UnmatchedSeries> get() = scopedUnmatched.filter {
+        SearchTitleFolding.matches(query.text, it.title, it.seriesKey, it.suggestion?.title)
+    }
+}
 
 interface MatchingManagementEvent {
     fun search(text: String)
@@ -121,7 +128,8 @@ class MatchingManagementViewModel(
     private fun changeQuery(value: MappingQuery) {
         if (state.value.busy) return
         dismissConfirmation()
-        mutable.update { it.copy(selected = emptyMap(), notice = null) }
+        mutable.update { it.copy(query = value, loading = true, page = MappingPage(emptyList(), 0),
+            selected = emptyMap(), notice = null) }
         query.value = value
     }
 
@@ -177,14 +185,14 @@ class MatchingManagementViewModel(
         if (!state.value.busy && target in state.value.targets) mutable.update { it.copy(chosenTarget = target) }
     }
     override fun matchNow() {
-        if (state.value.busy || state.value.preparing) return
+        if (state.value.busy || state.value.preparing || state.value.searching || !activeScopeVisible()) return
         mutate {
             val bound = repository.matchUnmatchedNow()
             mutable.update { it.copy(lastMatched = bound, notice = MatchingNotice.FINISHED) }
         }
     }
     override fun searchNow() {
-        if (state.value.busy || state.value.preparing) return
+        if (state.value.busy || state.value.preparing || state.value.searching || !activeScopeVisible()) return
         mutate {
             val bound = repository.searchUnmatchedNow()
             mutable.update { it.copy(lastMatched = bound, notice = MatchingNotice.FINISHED) }
@@ -192,6 +200,7 @@ class MatchingManagementViewModel(
     }
     override fun openUnmatched(series: UnmatchedSeries) {
         if (state.value.busy || state.value.preparing) return
+        if (series !in state.value.visibleUnmatched) return
         searchJob?.cancel(); searchGeneration++
         // The search starts from the nearest AniList title the matcher saw, else from the title the source gave; the user only has to press find.
         mutable.update { it.copy(unmatchedEditor = series, editor = null, targetQuery = (series.suggestion?.title ?: series.title).take(256), targets = emptyList(),
@@ -226,6 +235,12 @@ class MatchingManagementViewModel(
     }
     override fun prepare(action: MappingAction, scope: MappingScope) {
         if (state.value.busy || state.value.preparing) return
+        if (state.value.searching) {
+            if (scope !is MappingScope.Entries) return
+            // A filtered confirmation may only contain explicitly selected entries or the open single editor.
+            val allowed = state.value.selected + listOfNotNull(state.value.editor).associateBy { it.id }
+            if (scope.revisions.any { (id, revision) -> allowed[id]?.revision != revision }) return
+        }
         val generation = ++captureGeneration
         mutable.update { it.copy(preparing = true, confirmation = null, notice = null) }
         captureJob = viewModelScope.launch {
@@ -293,6 +308,9 @@ class MatchingManagementViewModel(
             catch (_: Exception) { mutable.update { it.copy(notice = MatchingNotice.FAILED) } }
             finally { mutable.update { it.copy(busy = false) } }
         }
+    }
+    private fun activeScopeVisible(): Boolean = state.value.query.source.let { filter ->
+        filter == null || state.value.unmatched.any { it.source == filter }
     }
     private fun MappingMutationResult.notice() = when (this) {
         MappingMutationResult.APPLIED -> MatchingNotice.APPLIED

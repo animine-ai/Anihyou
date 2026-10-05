@@ -20,4 +20,10 @@ object SearchTitleFolding {
         .replace(apostrophes, "")
         .replace(separators, " ")
         .trim()
+
+    /** Every search word must occur, across the available display titles, in any order. */
+    fun matches(query: String, vararg titles: String?): Boolean {
+        val haystack = titles.filterNotNull().joinToString(" ") { fold(it) }
+        return fold(query).split(' ').filter { it.isNotEmpty() }.all(haystack::contains)
+    }
 }

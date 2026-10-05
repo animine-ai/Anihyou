@@ -47,7 +47,7 @@ class MatchingManagementComposeTest {
         assertEquals(0, event.starts)
     }
     @Test fun sourceConfirmationShowsFullFrozenCountAndRequiresExplicitStart() {
-        val snapshot = fixture().copy(query = MappingQuery(text = "one visible", source = source),
+        val snapshot = fixture().copy(query = MappingQuery(source = source),
             confirmation = MappingConfirmation(MappingAction.RESET, MappingScope.Source(source), MappingActionToken("frozen-source", 125)))
         composeRule.setContent { MaterialTheme { MatchingManagementScreen(snapshot, event) } }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -91,6 +91,25 @@ class MatchingManagementComposeTest {
         composeRule.onNodeWithTag("matching-list").performScrollToNode(hasTestTag("matching-empty"))
         capture("matching-empty-dark-large-text") { composeRule.onNodeWithTag("matching-empty").assertIsDisplayed() }
         assertEquals(0, event.starts)
+    }
+    @Test fun searchHidesEveryWideActionAndShowsUnmatchedResultBeyondFirst150() {
+        val rows = (1..160).map { UnmatchedSeries(source, "series-$it", 1, "Ordinary $it") } +
+            UnmatchedSeries(source, "late", 2, "L’Été", UnmatchedSuggestion(99, "Queen’s return", 0.8))
+        val state = fixture().copy(query = MappingQuery("queens ete", source),
+            page = MappingPage(emptyList(), 0, fixture().page.sources, 125), unmatched = rows)
+        composeRule.setContent { MaterialTheme { MatchingManagementScreen(state, event) } }
+        listOf("matching-match-now", "matching-search-now", "matching-reset-all", "matching-rematch-all",
+            "matching-reset-source", "matching-rematch-source").forEach { composeRule.onNodeWithTag(it).assertDoesNotExist() }
+        composeRule.onNodeWithTag("matching-list").performScrollToNode(hasTestTag("unmatched-row-late-2"))
+        capture("matching-search-unmatched") { composeRule.onNodeWithTag("unmatched-row-late-2").assertIsDisplayed() }
+        composeRule.onNodeWithTag("unmatched-row-series-1-1").assertDoesNotExist()
+    }
+    @Test fun searchWithoutResultsHasItsOwnEmptyState() {
+        val state = fixture().copy(query = MappingQuery("missing"), page = MappingPage(emptyList(), 0))
+        composeRule.setContent { MaterialTheme { MatchingManagementScreen(state, event) } }
+        composeRule.onNodeWithTag("matching-no-results").assertIsDisplayed()
+        composeRule.onNodeWithTag("matching-empty").assertDoesNotExist()
+        capture("matching-no-results") { composeRule.onNodeWithTag("matching-no-results").assertIsDisplayed() }
     }
 
     private class RecordingEvents : MatchingManagementEvent {

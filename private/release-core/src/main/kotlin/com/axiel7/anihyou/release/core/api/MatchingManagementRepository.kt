@@ -24,7 +24,9 @@ data class MappingQuery(val text: String = "", val source: ExtensionSelectionKey
 
 data class MappingSourceFacet(val key: ExtensionSelectionKey, val label: String, val count: Int)
 data class MappingPage(val entries: List<ManagedMapping>, val total: Int,
-    val sources: List<MappingSourceFacet> = emptyList())
+    val sources: List<MappingSourceFacet> = emptyList(),
+    /** All stored entries in the selected source scope, before applying the search text. */
+    val scopeTotal: Int = total)
 
 sealed interface MappingScope {
     data class Entries(val revisions: Map<String, String>) : MappingScope {

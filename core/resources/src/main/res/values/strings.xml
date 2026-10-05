@@ -818,4 +818,5 @@
     <string name="allow_airing_notification">Allow airing notification</string>
     <string name="allow_end_notification">Allow finished notification</string>
     <string name="postponements_search">Search postponements</string>
+    <string name="postponements_no_results">No results for “%1$s”</string>
 </resources>

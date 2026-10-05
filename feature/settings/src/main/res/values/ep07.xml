@@ -117,4 +117,8 @@
     <string name="matching_matched_now">Newly matched: %1$d</string>
     <string name="matching_assign">Assign</string>
     <string name="matching_assign_title">Choose the AniList entry</string>
+    <string name="matching_search_count">Saved: %1$d results / %2$d total · %3$d selected</string>
+    <string name="matching_unmatched_count">%1$d results / %2$d total · %3$d shown</string>
+    <string name="matching_no_results">No results for “%1$s”</string>
+    <string name="matching_saved_title">Saved mappings</string>
 </resources>

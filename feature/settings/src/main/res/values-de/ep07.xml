@@ -117,4 +117,8 @@
     <string name="matching_matched_now">Neu zugeordnet: %1$d</string>
     <string name="matching_assign">Zuordnen</string>
     <string name="matching_assign_title">AniList-Eintrag wählen</string>
+    <string name="matching_search_count">Gespeichert: %1$d Treffer / %2$d gesamt · %3$d ausgewählt</string>
+    <string name="matching_unmatched_count">%1$d Treffer / %2$d gesamt · %3$d angezeigt</string>
+    <string name="matching_no_results">Keine Treffer für „%1$s“</string>
+    <string name="matching_saved_title">Gespeicherte Zuordnungen</string>
 </resources>

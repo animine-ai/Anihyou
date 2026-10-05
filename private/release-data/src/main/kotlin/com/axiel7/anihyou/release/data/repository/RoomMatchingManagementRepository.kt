@@ -100,7 +100,10 @@ class RoomMatchingManagementRepository(
         val targets = targetTitles(roomRows.mapNotNull { it.externalId.toIntOrNull() } + segmentSlice.map { it.mediaId })
         val entries = roomRows.mapNotNull { it.toManaged(labels, targets) } +
             segmentSlice.map { it.toManaged(labels, targets) }
-        return MappingPage(entries, roomTotal + segments.size, facets(labels))
+        val scopeTotal = if (raw.isEmpty()) roomTotal + segments.size else
+            dao.managedCount("", "", filter, key?.sourceId.orEmpty(), key?.extensionId.orEmpty(),
+                key?.publisherId.orEmpty(), key?.providerId.orEmpty()) + matchingSegments(key, "", "").size
+        return MappingPage(entries, roomTotal + segments.size, facets(labels), scopeTotal)
     }
 
     /** The manual episode segments that fit the filter, in a stable order. At most a few hundred. */
@@ -111,8 +114,8 @@ class RoomMatchingManagementRepository(
             if (raw.isEmpty()) return@filter true
             val label = dao.label(segment.key.sourceId, segment.key.extensionId, segment.key.publisherId,
                 segment.key.providerId, segment.seriesKey)
-            segment.mediaId.toString() == raw || SearchTitleFolding.fold(segment.seriesKey).contains(folded) ||
-                label?.titleNormalized?.contains(folded) == true || label?.aliasesPayload?.contains(folded) == true
+            segment.mediaId.toString() == raw || SearchTitleFolding.matches(folded, segment.seriesKey,
+                label?.titleNormalized, label?.aliasesPayload)
         }
         .sortedWith(compareBy({ SearchTitleFolding.fold(it.seriesKey) }, { MappingEntryIds.sourceKey(it.key) },
             { it.sourceSeason }, { it.providerFirst }, { it.canonicalFirst }))

@@ -183,6 +183,12 @@ interface ReleaseMatchingDao {
 
     // --- the management list ----------------------------------------------------------------------------------
     @Query("""
+        WITH RECURSIVE search_words(word, rest) AS (
+            SELECT '', :text || ' '
+            UNION ALL
+            SELECT substr(rest, 1, instr(rest, ' ') - 1), substr(rest, instr(rest, ' ') + 1)
+            FROM search_words WHERE rest != ''
+        )
         SELECT * FROM (
             SELECT 'V3S' AS kind, m.sourceId AS sourceId, m.extensionId AS extensionId, m.publisherId AS publisherId,
                    m.providerId AS providerId, m.mappingSubjectKey || '|' || m.externalProvider AS entryKey,
@@ -213,8 +219,10 @@ interface ReleaseMatchingDao {
             FROM release_mapping r
             WHERE :filterSource = 0 AND r.mediaId IS NOT NULL AND r.confidence IN ('EXACT', 'HIGH')
         )
-        WHERE (:text = '' OR instr(sortTitle, :text) > 0 OR instr(aliases, :text) > 0
-               OR instr(replace(lower(seriesKey), '-', ' '), :text) > 0 OR externalId = :rawText)
+        WHERE (externalId = :rawText OR NOT EXISTS (
+            SELECT 1 FROM search_words WHERE word != ''
+              AND instr(sortTitle || ' ' || aliases || ' ' || replace(lower(seriesKey), '-', ' '), word) = 0
+        ))
         ORDER BY sortTitle, sourceId, extensionId, publisherId, providerId, kind, entryKey
         LIMIT :limit OFFSET :offset
     """)
@@ -222,6 +230,12 @@ interface ReleaseMatchingDao {
                             publisherId: String, providerId: String, limit: Int, offset: Int): List<ManagedMappingRow>
 
     @Query("""
+        WITH RECURSIVE search_words(word, rest) AS (
+            SELECT '', :text || ' '
+            UNION ALL
+            SELECT substr(rest, 1, instr(rest, ' ') - 1), substr(rest, instr(rest, ' ') + 1)
+            FROM search_words WHERE rest != ''
+        )
         SELECT COUNT(*) FROM (
             SELECT m.siteSlug AS seriesKey, COALESCE(l.titleNormalized, replace(lower(m.siteSlug), '-', ' ')) AS sortTitle,
                    COALESCE(l.aliasesPayload, '') AS aliases, m.externalId AS externalId
@@ -242,8 +256,10 @@ interface ReleaseMatchingDao {
             FROM release_mapping r
             WHERE :filterSource = 0 AND r.mediaId IS NOT NULL AND r.confidence IN ('EXACT', 'HIGH')
         )
-        WHERE (:text = '' OR instr(sortTitle, :text) > 0 OR instr(aliases, :text) > 0
-               OR instr(replace(lower(seriesKey), '-', ' '), :text) > 0 OR externalId = :rawText)
+        WHERE (externalId = :rawText OR NOT EXISTS (
+            SELECT 1 FROM search_words WHERE word != ''
+              AND instr(sortTitle || ' ' || aliases || ' ' || replace(lower(seriesKey), '-', ' '), word) = 0
+        ))
     """)
     suspend fun managedCount(text: String, rawText: String, filterSource: Int, sourceId: String, extensionId: String,
                              publisherId: String, providerId: String): Int
