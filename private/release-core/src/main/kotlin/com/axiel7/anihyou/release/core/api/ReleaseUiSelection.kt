@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.release.core.api
 
+import com.axiel7.anihyou.release.core.model.LanguageTrack
 import java.time.Duration
 import java.time.Instant
 
@@ -13,11 +14,11 @@ object ReleaseUiSelection {
      * presentation is never shown and must never hide the AniList fallback of a consumer.
      */
     fun authoritative(candidates: List<ReleaseUiPresentation>): List<ReleaseUiPresentation> =
-        candidates.filter { it.isAuthoritative }
+        listOfNotNull(effective(candidates))
 
-    /** The presentation that decides counts and sorting for a media: the first authoritative one in repository order. */
+    /** SUB alone decides latest episode, pending counts and sorting. DUB remains calendar/navigation information. */
     fun effective(candidates: List<ReleaseUiPresentation>): ReleaseUiPresentation? =
-        candidates.firstOrNull { it.isAuthoritative }
+        candidates.firstOrNull { it.isAuthoritative && it.track == LanguageTrack.DE_SUB }
 
     /**
      * A planned time that passed without a confirmation is shown without a time, so an overdue plan is never
@@ -36,7 +37,7 @@ object ReleaseUiSelection {
  * A planned (not confirmed) installment never counts.
  */
 fun ReleaseUiPresentation.pendingFor(progress: Int?): Int {
-    if (!isAuthoritative || progress == null) return 0
+    if (!isAuthoritative || track != LanguageTrack.DE_SUB || progress == null) return 0
     val confirmedThrough = confirmedThroughEpisode ?: return 0
     return (confirmedThrough - progress.coerceAtLeast(0)).coerceAtLeast(0)
 }

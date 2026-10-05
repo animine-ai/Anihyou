@@ -139,6 +139,10 @@ class SettingsViewModel(
         }
     }
 
+    override fun setCalendarCombineTracks(value: Boolean) {
+        viewModelScope.launch { defaultPreferencesRepository.setCalendarCombineTracks(value) }
+    }
+
     override fun setReleaseProviderEnabled(value: Boolean) {
         viewModelScope.launch {
             releasePreferencesRepository.setProviderEnabled(value)
@@ -344,6 +348,9 @@ class SettingsViewModel(
         }
 
     init {
+        defaultPreferencesRepository.calendarCombineTracks
+            .onEach { value -> mutableUiState.update { it.copy(calendarCombineTracks = value == true) } }
+            .launchIn(viewModelScope)
         releasePreferencesRepository.releasePreferences
             .onEach { preferences ->
                 mutableUiState.update {

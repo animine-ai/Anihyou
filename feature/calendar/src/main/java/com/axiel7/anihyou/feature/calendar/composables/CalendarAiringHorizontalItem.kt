@@ -35,7 +35,7 @@ import com.axiel7.anihyou.core.model.media.localized
 import com.axiel7.anihyou.core.model.stats.overview.StatusDistribution.Companion.asStat
 import com.axiel7.anihyou.core.network.type.MediaListStatus
 import com.axiel7.anihyou.core.ui.composables.defaultPlaceholder
-import com.axiel7.anihyou.core.ui.composables.media.ReleaseCalendarScheduleText
+import com.axiel7.anihyou.core.ui.composables.media.ReleaseCalendarGroupScheduleText
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_COMPACT_WIDTH
 import com.axiel7.anihyou.core.ui.composables.media.MediaPoster
 import com.axiel7.anihyou.core.ui.composables.scores.SmallScoreIndicator
@@ -145,12 +145,9 @@ fun CalendarAiringHorizontalItem(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         } else {
-                            presentations.forEach { presentation ->
-                                ReleaseCalendarScheduleText(
-                                    presentation = presentation,
-                                    fallback = {},
-                                )
-                            }
+                            ReleaseCalendarGroupScheduleText(
+                                presentations = presentations, fallback = {},
+                            )
                         }
                     }
                     if (score != null) {

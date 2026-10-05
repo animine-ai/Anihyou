@@ -37,6 +37,20 @@ class CalendarPresentationTest {
         assertEquals(keys, updated.presentationDays().single().rows.map { it.key })
     }
 
+    @Test fun groupingSwitchPreservesIndividualSourceEventsAndSubKeyThroughRefresh() {
+        val sub = row(today).copy(forecastAt = java.time.Instant.parse("2026-10-02T08:10:00Z"))
+        val dub = sub.copy(stream = sub.stream.copy(languageTrack = LanguageTrack.DE_DUB), confirmed = true)
+        val state = CalendarUiState(today = today, providerRowsByDate = mapOf(today to listOf(dub, sub)))
+        val combined = state.presentationDays().single().rows.single()
+        assertEquals(listOf(sub, dub), combined.releasePresentations)
+        assertTrue(combined.key.contains(sub.eventKey))
+        val separate = state.copy(combineSimultaneousTracks = false).presentationDays().single().rows
+        assertEquals(2, separate.size)
+        assertEquals(setOf(sub.eventKey, dub.eventKey), separate.map { it.releasePresentations.single().eventKey }.toSet())
+        val refreshed = state.copy(providerRowsByDate = mapOf(today to listOf(sub.copy(revision = 9), dub.copy(revision = 9))))
+        assertEquals(combined.key, refreshed.presentationDays().single().rows.single().key)
+    }
+
     @Test fun theSameAniListMediaTwiceOnOneDayKeepsBothRowsWithDistinctKeys() {
         val rows = listOf(
             CalendarRow("2026-10-03-anilist-187402", null, emptyList()),

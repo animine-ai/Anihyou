@@ -1,4 +1,7 @@
 <resources>
+    <string name="calendar_combine_tracks">Combine SUB and DUB</string>
+    <string name="calendar_combine_tracks_summary">Show simultaneous releases of the same episode together. Only SUB decides whether the episode is confirmed.</string>
+    <string name="release_calendar_confirmed">Release confirmed</string>
     <string name="home">Home</string>
     <string name="anime">Anime</string>
     <string name="manga">Manga</string>

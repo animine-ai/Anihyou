@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="calendar_combine_tracks">SUB und DUB zusammenfassen</string>
+    <string name="calendar_combine_tracks_summary">Gleiche Folge zur gleichen Uhrzeit gemeinsam anzeigen. Nur SUB bestimmt, ob die Folge bestätigt ist.</string>
+    <string name="release_calendar_confirmed">Veröffentlichung bestätigt</string>
     <string name="home">Start</string>
     <string name="anime">Anime</string>
     <string name="manga">Manga</string>

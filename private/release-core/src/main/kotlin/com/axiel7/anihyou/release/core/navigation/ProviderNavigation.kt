@@ -67,7 +67,8 @@ class WatchNextResolver {
         val active = policy.activeReleaseSource ?: return WatchNextState.Unavailable(NavigationUnavailableReason.NO_ACTIVE_SOURCE)
         if (releases?.key != active || releases.policyGeneration != policy.releaseGeneration)
             return WatchNextState.Unavailable(NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE)
-        val sourceTracks = policy.preferencesFor(active).enabledTracks - "UNKNOWN"
+        // The release source's SUB confirms canonical availability. Navigation may still offer a chosen DUB.
+        val sourceTracks = policy.preferencesFor(active).enabledTracks.filter { it.endsWith("_SUB") }.toSet()
         val released = releases.installments.filter {
             it.mediaId == mediaId && it.authoritative && it.episode > watchedProgress &&
                 it.episode.signum() > 0 && it.tracks.any { track -> track in sourceTracks }

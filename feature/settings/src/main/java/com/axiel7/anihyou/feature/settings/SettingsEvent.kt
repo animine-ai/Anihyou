@@ -39,6 +39,7 @@ interface SettingsEvent : UiEvent {
     fun setGridItemsPerRow(value: ItemsPerRow)
 
     fun setAiringOnMyList(value: Boolean)
+    fun setCalendarCombineTracks(value: Boolean)
 
     fun setUseFuzzySearch(value: Boolean)
 

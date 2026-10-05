@@ -7,6 +7,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.*
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -68,6 +73,39 @@ class ReleaseScheduleTextComposeTest {
     private val episode11 get() = string(R.string.release_installment_episode, 11)
     private fun pending(count: Int) = plural(R.plurals.release_schedule_pending, count)
     private fun nextAt(relative: String) = string(R.string.release_schedule_next_at, episode11, relative)
+
+    @Test fun homeCardShowsOneSubBacklogAndKeepsTheProgressButtonInsideTheRow() {
+        val example = com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry
+        val media = requireNotNull(example.media)
+        val item = example.copy(media = media.copy(basicMediaDetails = media.basicMediaDetails.copy(
+            title = media.basicMediaDetails.title?.copy(userPreferred = "Blue Box Season 2"))),
+            basicMediaListEntry = example.basicMediaListEntry.copy(progress = 8))
+        val sub = presentation()
+        val dub = sub.copy(stream = sub.stream.copy(languageTrack = LanguageTrack.DE_DUB), confirmedThroughEpisode = 20)
+        composeRule.setContent {
+            com.axiel7.anihyou.core.ui.theme.AniHyouTheme(darkTheme = true, dynamicColor = false) {
+                com.axiel7.anihyou.feature.home.current.composables.CurrentListItem(
+                    item = item, releasePresentations = listOf(dub, sub), isPlusEnabled = true,
+                    showLowPriority = false, allPriorityColors = com.axiel7.anihyou.core.ui.composables.media.AllPriorityColors.Default,
+                    onClick = {}, onLongClick = {}, onClickPlus = {}, blockPlus = {},
+                    modifier = Modifier.width(340.dp).testTag("sub-only-home-row"),
+                )
+            }
+        }
+        val pending = plural(R.plurals.num_episodes_behind, 2)
+        composeRule.onAllNodesWithText("$pending · SUB").assertCountEquals(1)
+        composeRule.onAllNodesWithText("DUB", substring = true).assertCountEquals(0)
+        val rowBounds = composeRule.onNodeWithTag("sub-only-home-row").fetchSemanticsNode().boundsInRoot
+        val pendingBounds = composeRule.onNodeWithText("$pending · SUB", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val plusBounds = composeRule.onNodeWithText("+1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("backlog and progress must not overlap", pendingBounds.bottom <= plusBounds.top)
+        org.junit.Assert.assertTrue("progress stays inside its card", plusBounds.bottom <= rowBounds.bottom)
+        val directory = java.io.File(composeRule.activity.getExternalFilesDir(null), "ep07-ui")
+        composeRule.storeVerifiedScreenshot(composeRule.activity, directory, "home-sub-only-backlog") {
+            composeRule.onNodeWithText("$pending · SUB", useUnmergedTree = true).assertIsDisplayed()
+            composeRule.onNodeWithText("+1", useUnmergedTree = true).assertIsDisplayed()
+        }
+    }
 
     @Test fun theTextFollowsProgressTheClockAndAnOverduePlanOnAnOpenScreen() {
         val clock = MutableClock(start)

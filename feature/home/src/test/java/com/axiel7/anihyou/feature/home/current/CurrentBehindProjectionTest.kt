@@ -87,8 +87,10 @@ class CurrentBehindProjectionTest {
         val noSource = entry(mediaId = 9, progress = 5)    // no presentation: AniList rule, 5 < 11 behind
         val releases = mockk<ReleasePresentationRepository>()
         every { releases.observeForMedia(any(), any()) } returns flowOf(mapOf(
-            7 to listOf(confirmedThrough(7, 10)),
-            8 to listOf(confirmedThrough(8, 10)),
+            7 to listOf(confirmedThrough(7, 20).let { it.copy(stream = it.stream.copy(languageTrack = LanguageTrack.DE_DUB)) },
+                confirmedThrough(7, 10)),
+            8 to listOf(confirmedThrough(8, 20).let { it.copy(stream = it.stream.copy(languageTrack = LanguageTrack.DE_DUB)) },
+                confirmedThrough(8, 10)),
         ))
         val animeResults = MutableStateFlow<PagedResult<CommonMediaListEntry>>(
             PagedResult.Success(emptyList(), currentPage = 1, hasNextPage = false))

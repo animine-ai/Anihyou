@@ -83,7 +83,8 @@ fun CurrentListItem(
         Row(
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box {
@@ -120,8 +121,9 @@ fun CurrentListItem(
 
             Column(
                 modifier = Modifier
+                    .weight(1f)
                     .padding(start = 16.dp, end = 0.dp)
-                    .height(IntrinsicSize.Min),
+                    .fillMaxHeight(),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(

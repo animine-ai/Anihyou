@@ -88,8 +88,9 @@ class ReleaseUiSelectionTest {
         val stale = presentation(ReleaseUiAuthority.STALE)
         val dub = presentation(track = LanguageTrack.DE_DUB, confirmedThrough = 9)
         val sub = presentation(track = LanguageTrack.DE_SUB)
-        assertEquals(listOf(dub, sub), ReleaseUiSelection.authoritative(listOf(stale, dub, sub)))
-        assertEquals(dub, ReleaseUiSelection.effective(listOf(stale, dub, sub)))
+        assertEquals(listOf(sub), ReleaseUiSelection.authoritative(listOf(stale, dub, sub)))
+        assertEquals(sub, ReleaseUiSelection.effective(listOf(stale, dub, sub)))
+        assertNull(ReleaseUiSelection.effective(listOf(stale, dub)))
         listOf(ReleaseUiAuthority.AMBIGUOUS, ReleaseUiAuthority.UNMAPPED, ReleaseUiAuthority.STALE,
             ReleaseUiAuthority.ERROR, ReleaseUiAuthority.DISABLED).forEach { authority ->
             val rows = listOf(presentation(authority))
@@ -97,6 +98,16 @@ class ReleaseUiSelectionTest {
             assertNull(authority.name, ReleaseUiSelection.effective(rows))
         }
         assertTrue(ReleaseUiSelection.authoritative(emptyList()).isEmpty())
+    }
+
+    @Test fun dubNeverAddsPendingOrDecidesTheLatestEpisodeEvenWhenItIsAhead() {
+        val sub = presentation(confirmedThrough = 10)
+        val dub = presentation(track = LanguageTrack.DE_DUB, confirmedThrough = 12)
+        assertEquals(0, dub.pendingFor(8))
+        assertEquals(2, requireNotNull(ReleaseUiSelection.effective(listOf(dub, sub))).pendingFor(8))
+        assertEquals(sub, ReleaseUiSelection.effective(listOf(sub, dub)))
+        assertTrue(ReleaseUiSelection.authoritative(listOf(dub)).isEmpty())
+        assertEquals(listOf(sub), ReleaseUiSelection.authoritative(listOf(sub, sub, dub)))
     }
 
     @Test fun anOverduePlanIsOnlyOverduePastTheGrace() {

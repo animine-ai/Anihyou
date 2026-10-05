@@ -307,6 +307,10 @@ class CalendarViewModel(
             .onEach { value -> mutableUiState.update { it.copy(showAniListExtras = value == true) } }
             .launchIn(viewModelScope)
 
+        defaultPreferencesRepository.calendarCombineTracks
+            .onEach { value -> mutableUiState.update { it.copy(combineSimultaneousTracks = value == true).withTodayFirstItemIndex() } }
+            .launchIn(viewModelScope)
+
         listPreferencesRepository.calendarListStyle
             .onEach { value ->
                 mutableUiState.update { it.copy(listStyle = value) }

@@ -65,7 +65,9 @@ jobs:
       - name: Verify staged native checksums
         run: python3 .github/scripts/verify-extension-native-packaging.py
       - name: Verify full logging build contract
-        run: python3 .github/scripts/verify-performance-logging.py
+        run: |
+          python3 .github/scripts/test-performance-logging.py
+          python3 .github/scripts/verify-performance-logging.py
       - name: Assemble Foss performance APK
         run: ./gradlew --console=plain --stacktrace :app:assembleFossPerformance
       - name: Collect the ARM64 APK and record its digest
@@ -114,3 +116,4 @@ jobs:
 
 # Master default from 2026-10-05: optimized temporary-signed tests, full diagnostic logging preserved.
 # Include the corrected settings navigation test setup in the first performance device build.
+# Follow-up: allow unrelated consumer optimizations while rejecting diagnostic log removal; retain all UI captures.

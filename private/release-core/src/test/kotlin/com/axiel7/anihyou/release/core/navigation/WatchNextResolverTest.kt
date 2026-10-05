@@ -12,6 +12,22 @@ import org.junit.Test
 class WatchNextResolverTest {
     private val resolver = WatchNextResolver()
 
+    @Test fun `dub-only release never adds behind but a confirmed sub can be opened with dub navigation`() {
+        val snapshot = ActiveReleaseSnapshot(ACTIVE_KEY, RELEASE_GENERATION, listOf(
+            release("3", tracks = setOf("DE_SUB")),
+            release("3.0", tracks = setOf("DE_DUB")),
+            release("4", tracks = setOf("DE_DUB")),
+        ))
+        val state = resolver.resolve(MEDIA_ID, BigDecimal("2"), policy(), snapshot, listOf(provider()),
+            listOf(coordinate("3"), coordinate("4"))) as WatchNextState.Candidate
+        assertEquals(1, state.behindCount)
+        assertEquals(BigDecimal("3"), state.episode)
+        val dubOnly = snapshot.copy(installments = listOf(release("4", tracks = setOf("DE_DUB"))))
+        assertEquals(NavigationUnavailableReason.NO_RELEASED_UNWATCHED,
+            (resolver.resolve(MEDIA_ID, BigDecimal("2"), policy(), dubOnly, listOf(provider()),
+                listOf(coordinate("4"))) as WatchNextState.Unavailable).reason)
+    }
+
     @Test
     fun `no active release source is reported explicitly`() {
         val state = resolver.resolve(

@@ -183,11 +183,12 @@ class ExtensionMediaPresentationsTest {
         val dubFirst = presented(rows, mappings,
             preferences = ExtensionPreferences(preferredTrackOrder = listOf("DE_DUB", "DE_SUB"))).getValue(42)
         assertEquals(listOf(LanguageTrack.DE_DUB, LanguageTrack.DE_SUB), dubFirst.map { it.stream.languageTrack })
-        assertEquals("the preferred track decides counts", 8, ReleaseUiSelection.effective(dubFirst)?.confirmedThroughEpisode)
+        assertEquals("SUB decides counts even when navigation prefers DUB", 10, ReleaseUiSelection.effective(dubFirst)?.confirmedThroughEpisode)
 
         val onlyDub = presented(rows, mappings, preferences = ExtensionPreferences(enabledTracks = setOf("DE_DUB"),
             preferredTrackOrder = listOf("DE_DUB"))).getValue(42)
         assertEquals(listOf(LanguageTrack.DE_DUB), onlyDub.map { it.stream.languageTrack })
+        assertNull("DUB alone never replaces canonical episode state", ReleaseUiSelection.effective(onlyDub))
     }
 
     @Test fun separateSeasonsOfOneSeriesMapToTheirOwnMedia() {

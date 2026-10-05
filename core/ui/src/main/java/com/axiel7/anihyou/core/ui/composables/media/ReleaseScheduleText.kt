@@ -62,7 +62,7 @@ fun ReleaseScheduleText(
     progress: Int? = null,
     fallback: @Composable () -> Unit,
 ) {
-    if (presentation?.isAuthoritative != true) {
+    if (presentation?.isAuthoritative != true || presentation.track != LanguageTrack.DE_SUB) {
         fallback()
         return
     }

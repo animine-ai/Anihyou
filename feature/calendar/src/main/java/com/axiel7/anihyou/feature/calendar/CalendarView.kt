@@ -75,7 +75,8 @@ import com.axiel7.anihyou.core.ui.composables.common.IconButtonWithMenu
 import com.axiel7.anihyou.core.ui.composables.list.OnBottomReached
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_SMALL_WIDTH
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemVertical
-import com.axiel7.anihyou.core.ui.composables.media.ReleaseCalendarScheduleText
+import com.axiel7.anihyou.core.ui.composables.media.ReleaseCalendarGroupScheduleText
+import com.axiel7.anihyou.release.core.api.ReleaseCalendarUiSelection
 import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
 import com.axiel7.anihyou.core.ui.composables.media.MediaItemVerticalPlaceholder
 import com.axiel7.anihyou.feature.calendar.composables.CalendarAiringHorizontalItem
@@ -415,7 +416,7 @@ internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
         .toSortedSet()
         .mapNotNull { date ->
             val providerRows = providerRowsByDate[date].orEmpty()
-            val releaseRows = if (providerRows.isNotEmpty()) {
+            val separateReleaseRows = if (providerRows.isNotEmpty()) {
                 // Provider events own the date. AniList supplies metadata only.
                 val (knownRows, providerOnlyRows) = providerRows.partition { row ->
                     row.mediaId?.let(metadataByMediaId::containsKey) == true
@@ -436,6 +437,15 @@ internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
                     )
                 }
             }
+            val releaseRows = if (combineSimultaneousTracks) {
+                val byRelease = separateReleaseRows.associateBy { it.releasePresentations.single() }
+                ReleaseCalendarUiSelection
+                    .simultaneousTracks(separateReleaseRows.map { it.releasePresentations.single() })
+                    .map { group ->
+                        val representative = requireNotNull(ReleaseCalendarUiSelection.representative(group))
+                        requireNotNull(byRelease[representative]).copy(releasePresentations = group)
+                    }
+            } else separateReleaseRows
             val originalRows = weeklyAnime[date].orEmpty().uniqueAiringEvents()
                 .filter { sourceIsMain.not() || showAniListExtras }
                 .filter { it.media.id !in sourceCoveredMediaIds }.map { airing ->
@@ -622,9 +632,9 @@ private fun GridView(
                     subtitle = {
                         val authoritativeRows = row.releasePresentations.filter { it.isAuthoritative }
                         if (authoritativeRows.isNotEmpty()) {
-                            authoritativeRows.forEach { presentation ->
-                                ReleaseCalendarScheduleText(presentation = presentation, fallback = {})
-                            }
+                            ReleaseCalendarGroupScheduleText(
+                                presentations = authoritativeRows, fallback = {},
+                            )
                         } else {
                             Text(
                                 text = calendarSubtitle(row),

@@ -14,6 +14,7 @@ data class CalendarUiState(
     val onMyList: Boolean? = null,
     /** Only matters while a release source supplies rows: then AniList entries without a source match are hidden unless this is on. */
     val showAniListExtras: Boolean = false,
+    val combineSimultaneousTracks: Boolean = true,
     val listStyle: ListStyle? = null,
     val selectedItem: ExploreMedia? = null,
     val todayFirstItemIndex: Int = 0,

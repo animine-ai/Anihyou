@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Reject optimized test APKs that drop the diagnostic sink or its log levels."""
 import argparse
+import fnmatch
 import hashlib
 import json
 from pathlib import Path
@@ -23,14 +24,37 @@ def clean_rules(text):
     return "\n".join(line.split("#", 1)[0] for line in text.splitlines())
 
 
+def verify_assumptions(rules):
+    """Consumer optimizations are valid unless they can silence our diagnostic path."""
+    owners = []
+    protected = ("android.util.Log", "com.axiel7.anihyou.App", "com.axiel7.anihyou.AppKt",
+                 "com.axiel7.anihyou.BuildConfig", "com.axiel7.anihyou.release.core.log.AppLog",
+                 "com.axiel7.anihyou.release.core.log.AppLog$Sink",
+                 "com.axiel7.anihyou.release.data.repository.SourceSeriesMatchingService")
+    for rule in re.finditer(r"(?m)^\s*-(assume\w+)\b([\s\S]*?)(?=^\s*-\w|\Z)", rules):
+        header = rule.group(2).split("{", 1)[0]
+        match = re.search(r"\b(?:class|interface|enum)\s+([^\s{]+)", header)
+        require(match is not None, "Unrecognized assumption rule: " + header.strip())
+        # Treat wildcards conservatively, including negated filters or backreferences.
+        for owner in match.group(1).split(","):
+            require(owner and not owner.startswith("!") and "<" not in owner,
+                    "Unsupported assumption filter: " + owner)
+            potentially_protected = owner.startswith("com.axiel7.anihyou.") or any(
+                fnmatch.fnmatchcase(name, owner) for name in protected)
+            require(not potentially_protected, "Assumption can remove diagnostic data: " + owner)
+            owners.append(owner)
+    return sorted(set(owners))
+
+
 def verify_rules(text):
     rules = clean_rules(text)
-    require("-assumenosideeffects" not in rules, "Log-removing assumption rules are forbidden in performance tests")
+    owners = verify_assumptions(rules)
     require(not re.search(r"-maximumremovedandroidloglevel\s+[1-9]", rules), "Android log removal is forbidden")
     require("-dontobfuscate" in rules, "Diagnostic class names must remain readable")
     require(re.search(r"-keepattributes[^\n]*SourceFile[^\n]*LineNumberTable", rules), "Source lines must be retained")
     for name in ("com.axiel7.anihyou.release.core.log.AppLog**", "com.axiel7.anihyou.App"):
         require(re.search(r"-keep\s+class\s+" + re.escape(name) + r"\s*\{\s*\*;\s*\}", rules), "Missing full logger/application keep rule: " + name)
+    return owners
 
 
 def verify_source():
@@ -100,7 +124,7 @@ def main():
     report = {"sourceContract": verify_source(), "apks": []}
     if args.apk_dir:
         require(args.r8_config is not None, "Packaged check requires the actual merged R8 configuration")
-        verify_rules(args.r8_config.read_text())
+        report["consumerAssumptionOwners"] = verify_rules(args.r8_config.read_text())
         apks = sorted(args.apk_dir.glob("*.apk"))
         require(len(apks) == 1, "Publish exactly one ARM64 APK")
         report["apks"] = [verify_apk(path) for path in apks]

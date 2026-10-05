@@ -34,6 +34,37 @@ class ExtensionCalendarComposeTest {
     @Test fun gridStartsAtEmptyTodayAndTodayButtonReturnsFromHistory() = todayAnchor(ListStyle.GRID, "calendar-grid")
     @Test fun darkListRetainsHistoryAndReturnsToToday() = todayAnchor(ListStyle.STANDARD, "calendar-list", dark = true)
 
+    @Test fun simultaneousSubDubListUsesOnlySubConfirmationAndCanBeSeparated() = simultaneousTracks(ListStyle.STANDARD)
+    @Test fun simultaneousSubDubGridUsesOnlySubConfirmationAndCanBeSeparated() = simultaneousTracks(ListStyle.GRID)
+
+    private fun simultaneousTracks(style: ListStyle) {
+        val sub = row(today, 2).copy(forecastAt = java.time.Instant.parse("2026-10-02T08:10:00Z"))
+        val dub = sub.copy(stream = sub.stream.copy(languageTrack = LanguageTrack.DE_DUB), confirmed = true)
+        var state by mutableStateOf(CalendarUiState(today = today, day = today.atStartOfDay(), listStyle = style,
+            isLoading = false, providerRowsByDate = mapOf(today to listOf(dub, sub))))
+        composeRule.setContent {
+            val navigation = rememberNavigationState(Route.Calendar, MainNavigationResolver.allRoutes)
+            val navigator = remember(navigation) { Navigator(navigation) }
+            CompositionLocalProvider(LocalNavActionManager provides NavActionManager(navigator)) {
+                MaterialTheme(colorScheme = darkColorScheme()) { CalendarViewContent(isLoggedIn = false, uiState = state, event = null) }
+            }
+        }
+        val name = "calendar-tracks-${style.name.lowercase()}"
+        val confirmed = composeRule.activity.getString(R.string.release_calendar_confirmed)
+        composeRule.onAllNodesWithText("SUB/DUB", substring = true).assertCountEquals(1)
+        composeRule.onNodeWithContentDescription(confirmed).assertDoesNotExist()
+        capture("$name-combined-planned") { composeRule.onNodeWithText("SUB/DUB", substring = true).assertIsDisplayed() }
+        composeRule.runOnIdle { state = state.copy(providerRowsByDate = mapOf(today to listOf(dub, sub.copy(confirmed = true)))) }
+        composeRule.onNodeWithContentDescription(confirmed).assertIsDisplayed()
+        capture("$name-combined-confirmed") { composeRule.onNodeWithContentDescription(confirmed).assertIsDisplayed() }
+        composeRule.runOnIdle { state = state.copy(combineSimultaneousTracks = false) }
+        composeRule.onNodeWithText("SUB/DUB", substring = true).assertDoesNotExist()
+        composeRule.onAllNodesWithText("SUB", substring = true).assertCountEquals(1)
+        composeRule.onAllNodesWithText("DUB", substring = true).assertCountEquals(1)
+        composeRule.onAllNodesWithContentDescription(confirmed).assertCountEquals(2)
+        capture("$name-separate") { composeRule.onNodeWithText("SUB", substring = true).assertIsDisplayed() }
+    }
+
     private fun todayAnchor(style: ListStyle, listTag: String, dark: Boolean = false) {
         val label = "${style.name.lowercase()}-${if (dark) "dark" else "light"}"
         val past = today.minusDays(14)

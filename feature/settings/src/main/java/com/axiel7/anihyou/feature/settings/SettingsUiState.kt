@@ -30,6 +30,7 @@ data class SettingsUiState(
     val generalListStyle: ListStyle? = null,
     val gridItemsPerRow: ItemsPerRow? = null,
     val airingOnMyList: Boolean? = null,
+    val calendarCombineTracks: Boolean = true,
     val scoreFormat: ScoreFormat? = null,
     val scoreStep: Double = 1.0,
     val defaultTab: DefaultTab = DefaultTab.LAST_USED,

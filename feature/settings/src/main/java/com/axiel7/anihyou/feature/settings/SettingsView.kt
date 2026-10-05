@@ -353,6 +353,17 @@ fun SettingsViewContent(
                 shape = bottomShape
             )
 
+            PreferencesTitle(text = stringResource(R.string.calendar))
+            SwitchPreference(
+                title = stringResource(R.string.calendar_combine_tracks),
+                subtitle = stringResource(R.string.calendar_combine_tracks_summary),
+                preferenceValue = uiState.calendarCombineTracks,
+                icon = R.drawable.calendar_today_24,
+                onValueChange = { event?.setCalendarCombineTracks(it) },
+                shape = singleShape,
+                modifier = Modifier.testTag("calendar-combine-tracks"),
+            )
+
             if (uiState.isLoggedIn) {
                 PreferencesTitle(text = stringResource(R.string.list))
 

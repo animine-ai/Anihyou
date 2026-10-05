@@ -155,7 +155,7 @@ class ExtensionProviderNavigationProductRepository(
         val grouped = releases.groupBy { it.episode.stripTrailingZeros() }.map { (_, rows) -> rows.first().copy(tracks = rows.flatMap { it.tracks }.toSet()) }
         val mappings = mutableListOf<ProviderCoordinate>()
         val targets = mutableMapOf<Pair<ExtensionSelectionKey, BigDecimal>, ProviderNavigationResult.Ready>()
-        for (provider in providers) for (release in grouped) {
+        for (provider in providers) for (release in grouped.filter { "DE_SUB" in it.tracks }) {
             if (release.episode <= BigDecimal(watched)) continue
             val candidate = ProviderEpisodeMapper.coordinate(segments, provider.key, mediaId, release.episode,
                 if (provider.key == active) release.tracks else provider.supportedTracks) ?: continue

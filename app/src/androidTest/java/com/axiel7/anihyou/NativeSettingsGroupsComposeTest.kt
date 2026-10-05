@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +45,34 @@ class NativeSettingsGroupsComposeTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
     @Test fun loggedOutRootKeepsSeparateNavigationAndSourcesGroups() = root(false, false)
     @Test fun loggedInDarkRootKeepsSeparateNavigationAndSourcesGroups() = root(true, true)
+    @Test fun calendarGroupingSwitchChangesThePreferenceFromRootSettings() {
+        var enabled by mutableStateOf(true)
+        val changes = mutableListOf<Boolean>()
+        val event = java.lang.reflect.Proxy.newProxyInstance(SettingsEvent::class.java.classLoader,
+            arrayOf(SettingsEvent::class.java)) { proxy, method, args ->
+            when (method.name) {
+                "setCalendarCombineTracks" -> { enabled = args!![0] as Boolean; changes += enabled; null }
+                "hashCode" -> System.identityHashCode(proxy)
+                "equals" -> proxy === args?.get(0)
+                "toString" -> "CalendarSettingsTestEvents"
+                else -> null
+            }
+        } as SettingsEvent
+        rule.setContent {
+            val state = rememberNavigationState(Route.Settings, MainNavigationResolver.allRoutes + Route.Settings)
+            val nav = remember(state) { Navigator(state) }
+            CompositionLocalProvider(LocalNavActionManager provides NavActionManager(nav)) {
+                AniHyouTheme(darkTheme = true, dynamicColor = false) {
+                    SettingsViewContent(SettingsUiState(calendarCombineTracks = enabled), event, null)
+                }
+            }
+        }
+        rule.onNodeWithTag("calendar-combine-tracks").performScrollTo().performClick()
+        rule.runOnIdle { org.junit.Assert.assertFalse(enabled) }
+        rule.onNodeWithTag("calendar-combine-tracks").performClick()
+        rule.runOnIdle { org.junit.Assert.assertTrue(enabled) }
+        rule.runOnIdle { org.junit.Assert.assertEquals(listOf(false, true), changes) }
+    }
     private fun root(loggedIn: Boolean, dark: Boolean) {
         rule.setContent {
             val state = rememberNavigationState(Route.Settings, MainNavigationResolver.allRoutes + Route.Settings)
@@ -191,7 +222,8 @@ class NativeSettingsGroupsComposeTest {
                 LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.5f)) {
                 AniHyouTheme(darkTheme = true, dynamicColor = false, blackColors = true) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                        Box { Column(Modifier.width(320.dp).verticalScroll(rememberScrollState())) { content() } }
+                        Box { Column(Modifier.width(320.dp).windowInsetsPadding(WindowInsets.safeDrawing)
+                            .verticalScroll(rememberScrollState())) { content() } }
                     }
                 }
             }
