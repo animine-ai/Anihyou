@@ -18,6 +18,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.composables.media.ReleaseScheduleText
 import com.axiel7.anihyou.core.ui.composables.media.nextEpisodeText
+import com.axiel7.anihyou.core.ui.composables.media.releaseBacklogText
 import com.axiel7.anihyou.release.core.api.ReleaseUiAuthority
 import com.axiel7.anihyou.release.core.api.ReleaseUiFreshness
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
@@ -79,12 +80,16 @@ class ReleaseScheduleTextComposeTest {
         val fixedClock = Clock.fixed(start, ZoneOffset.UTC)
         var rows by mutableStateOf(listOf(presentation().copy(nextExpectedInstallment = null, nextForecast = null)))
         composeRule.setContent {
-            MaterialTheme { nextEpisodeText(rows, 2, 172800, fixedClock)?.let { Text(it) } }
+            MaterialTheme { androidx.compose.foundation.layout.Column {
+                nextEpisodeText(rows, 2, 172800, fixedClock)?.let { Text(it) }
+                releaseBacklogText(rows, 8, 12)?.let { Text(it) }
+            } }
         }
         composeRule.onNodeWithText("Ep 2 in", substring = true).assertIsDisplayed()
         // The source supplies a different episode and time; it replaces AniList even when the user is behind.
         composeRule.runOnIdle { rows = listOf(presentation()) }
         composeRule.onNodeWithText("Ep 11 in", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText(plural(R.plurals.num_episodes_behind, 2), substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("Ep 2 in", substring = true).assertDoesNotExist()
         // A source date without a canonical episode number still wins, without claiming a guessed number.
         composeRule.runOnIdle { rows = listOf(presentation().copy(

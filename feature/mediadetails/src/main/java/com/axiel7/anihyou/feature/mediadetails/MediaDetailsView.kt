@@ -112,6 +112,7 @@ import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_BIG_HEIGHT
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_BIG_WIDTH
 import com.axiel7.anihyou.core.ui.composables.media.MediaPoster
 import com.axiel7.anihyou.core.ui.composables.media.nextEpisodeText
+import com.axiel7.anihyou.core.ui.composables.media.releaseBacklogText
 import com.axiel7.anihyou.core.ui.composables.middleShape
 import com.axiel7.anihyou.core.ui.composables.sheet.SelectionSheet
 import com.axiel7.anihyou.core.ui.composables.sheet.SelectionSheetItem
@@ -473,11 +474,18 @@ private fun MediaDetailsContent(
                     fallbackEpisode = uiState.details?.nextAiringEpisode?.episode,
                     fallbackSeconds = uiState.details?.nextAiringEpisode?.timeUntilAiring?.toLong(),
                 )
-                if (nextEpisode != null) {
-                    TextSubtitleVertical(
-                        text = nextEpisode,
-                        subtitle = stringResource(R.string.airing),
-                    )
+                val backlog = releaseBacklogText(uiState.releasePresentations,
+                    uiState.details?.mediaListEntry?.basicMediaListEntry?.progress,
+                    uiState.details?.nextAiringEpisode?.episode)
+                if (nextEpisode != null || backlog != null) {
+                    Column {
+                        if (nextEpisode != null) TextSubtitleVertical(
+                            text = nextEpisode,
+                            subtitle = stringResource(R.string.airing),
+                        )
+                        if (backlog != null) Text(text = backlog, color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge)
+                    }
                     VerticalDivider(
                         modifier = Modifier.padding(horizontal = 8.dp).height(dividerHeight.dp),
                     )
