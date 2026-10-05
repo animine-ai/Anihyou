@@ -697,13 +697,18 @@ class RoomMatchingManagementRepositoryTest {
     }
 
     @Test fun autoMatchRunsOneAtATime() = runBlocking {
-        val rig = Rig()
-        rig.seedSeries(Triple("show", "Show", 2))
-        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(
-            IdentityCandidate(11, setOf("Show Season 2"), "TV", java.time.LocalDate.of(2026, 10, 1))))
+        suspend fun rigWithOneSeries() = Rig().also { rig ->
+            rig.seedSeries(Triple("show", "Show", 2))
+            rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(
+                IdentityCandidate(11, setOf("Show Season 2"), "TV", java.time.LocalDate.of(2026, 10, 1))))
+        }
+        // What one run alone asks for (the pools load ahead, so more than the one that settles the series).
+        val alone = rigWithOneSeries()
+        alone.service.autoMatchPending()
+        val rig = rigWithOneSeries()
         listOf(async { rig.service.autoMatchPending() }, async { rig.service.autoMatchPending() }).awaitAll()
-        assertTrue("the second run found nothing left and asked for no pool: the first run alone started the two it loads ahead",
-            rig.candidates.poolRequests.size <= 2)
+        assertEquals("the second run found nothing left and asked for no pool of its own",
+            alone.candidates.poolRequests, rig.candidates.poolRequests)
         assertEquals("and for no calendar day", 9, rig.candidates.dayRequests.size)
     }
 
