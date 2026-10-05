@@ -11,6 +11,7 @@ on:
       - ep06/provider-navigation-watch-next
       - ep07/extension-update-ux
       - ep07/device-feedback-cutover
+      - ep07/product-audit-candidate
     paths:
       - "private/release-core/**"
       - "private/release-data/**"

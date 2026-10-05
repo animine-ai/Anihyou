@@ -6,6 +6,7 @@ on:
       - ep07/update-ux-recovery
       - ep07/extension-update-ux
       - ep07/device-feedback-cutover
+      - ep07/product-audit-candidate
   workflow_dispatch:
 
 permissions:
