@@ -40,6 +40,9 @@ data class MatchingManagementState(
     val lastMatched: Int? = null,
 ) {
     val searching: Boolean get() = query.text.isNotBlank()
+    val sourceFacets: List<MappingSourceFacet> get() = page.sources + unmatched.distinctBy { it.source }
+        .filter { series -> page.sources.none { it.key == series.source } }
+        .map { MappingSourceFacet(it.source, it.sourceLabel, 0) }
     val scopedUnmatched: List<UnmatchedSeries> get() = unmatched.filter { query.source == null || it.source == query.source }
     val visibleUnmatched: List<UnmatchedSeries> get() = scopedUnmatched.filter {
         SearchTitleFolding.matches(query.text, it.title, it.seriesKey, it.suggestion?.title)

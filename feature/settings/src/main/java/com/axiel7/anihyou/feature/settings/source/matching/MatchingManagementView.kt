@@ -3,6 +3,7 @@ package com.axiel7.anihyou.feature.settings.source.matching
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -72,7 +73,7 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
     DefaultScaffoldWithSmallTopAppBar(title = stringResource(R.string.matching_title),
         navigationIcon = { BackIconButton(nav::goBack) }, scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize().testTag("matching-list"),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
             item {
                 Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SearchPillField(value = state.query.text, onValueChange = event::search,
@@ -108,7 +109,7 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                             onClear = event::clearSelection)
                     }
                     if (!state.searching) state.query.source?.let { key ->
-                        val facet = state.page.sources.singleOrNull { it.key == key }
+                        val facet = state.sourceFacets.singleOrNull { it.key == key }
                         ScopeActions(stringResource(R.string.matching_scope_source, "${facet?.label ?: key.sourceId} · ${key.sourceId} / ${key.extensionId}"), enabled,
                             scope = MappingScope.Source(key), event = event, tag = "source")
                     }
@@ -144,15 +145,15 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp).testTag("matching-unmatched-empty"))
                 }
             }
-            items(unmatched.take(UNMATCHED_SHOWN), key = { "unmatched-${it.source.testTagPart()}-${it.seriesKey}-${it.season}" }) { series ->
+            itemsIndexed(unmatched.take(UNMATCHED_SHOWN), key = { _, series -> "unmatched-${series.source.testTagPart()}-${series.seriesKey}-${series.season}" }) { index, series ->
                 Card(onClick = { event.openUnmatched(series) }, enabled = !state.busy && !state.preparing,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = preferenceShape(index, minOf(unmatched.size, UNMATCHED_SHOWN)),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                    modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp).fillMaxWidth()
                         .testTag("unmatched-row-${series.seriesKey}-${series.season}")) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Text(series.title, style = MaterialTheme.typography.titleMedium)
-                        Text(state.page.sources.singleOrNull { it.key == series.source }?.label ?: series.source.sourceId,
+                        Text(series.sourceLabel,
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(stringResource(R.string.matching_unmatched_season, series.season),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -171,11 +172,11 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).testTag(if (state.searching) "matching-no-results" else "matching-empty"))
             }
             if (state.page.total > 0) item { PreferencesTitle(stringResource(R.string.matching_saved_title)) }
-            items(state.page.entries, key = { it.id }) { entry ->
+            itemsIndexed(state.page.entries, key = { _, entry -> entry.id }) { index, entry ->
                 Card(onClick = { event.open(entry) }, enabled = !state.busy && !state.preparing,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = preferenceShape(index, state.page.entries.size),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                    modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().testTag("mapping-row-${entry.id}")) {
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp).fillMaxWidth().testTag("mapping-row-${entry.id}")) {
                     Row(Modifier.padding(horizontal = 8.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         val selectionLabel = stringResource(R.string.matching_select_entry,
                             entry.sourceTitle?.takeIf { it.isNotBlank() } ?: entry.sourceIdentity,
@@ -188,7 +189,7 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                 }
             }
             item {
-                Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 1.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = { event.page(state.query.offset - state.query.limit) },
                         enabled = state.query.offset > 0 && !state.busy && !state.loading,
                         modifier = Modifier.testTag("matching-previous")) { Text(stringResource(R.string.matching_previous)) }
@@ -257,7 +258,7 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
 private fun SourceFilter(state: MatchingManagementState, event: MatchingManagementEvent) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        val label = state.page.sources.singleOrNull { it.key == state.query.source }?.label
+        val label = state.sourceFacets.singleOrNull { it.key == state.query.source }?.label
             ?: state.query.source?.sourceId ?: stringResource(R.string.matching_all_sources)
         AssistChip(onClick = { expanded = true }, enabled = !state.busy, modifier = Modifier.testTag("matching-source-filter"),
             label = { Text(label) },
@@ -267,7 +268,7 @@ private fun SourceFilter(state: MatchingManagementState, event: MatchingManageme
                 modifier = Modifier.size(AssistChipDefaults.IconSize)) })
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text(stringResource(R.string.matching_all_sources)) }, onClick = { expanded = false; event.filter(null) })
-            state.page.sources.forEach { facet ->
+            state.sourceFacets.forEach { facet ->
                 DropdownMenuItem(text = { Text("${facet.label} · ${facet.key.sourceId} / ${facet.key.extensionId} (${facet.count})") }, onClick = { expanded = false; event.filter(facet.key) })
             }
         }
@@ -385,7 +386,7 @@ private const val UNMATCHED_SHOWN = 150
 private fun scopeText(scope: MappingScope, state: MatchingManagementState): String = when (scope) {
     MappingScope.All -> stringResource(R.string.matching_scope_all)
     is MappingScope.Source -> stringResource(R.string.matching_scope_source,
-        "${state.page.sources.singleOrNull { it.key == scope.key }?.label ?: scope.key.sourceId} · ${scope.key.sourceId} / ${scope.key.extensionId}")
+        "${state.sourceFacets.singleOrNull { it.key == scope.key }?.label ?: scope.key.sourceId} · ${scope.key.sourceId} / ${scope.key.extensionId}")
     is MappingScope.Entries -> stringResource(R.string.matching_scope_selected, scope.revisions.size)
 }
 private fun noticeText(notice: MatchingNotice) = when (notice) {

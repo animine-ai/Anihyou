@@ -56,7 +56,7 @@ data class DetailMappingRequest(val mediaId: Int, val titles: Set<String>,
 
 /** A series of the active source that has no AniList binding yet, per season; [title] is what the source calls it. */
 data class UnmatchedSeries(val source: ExtensionSelectionKey, val seriesKey: String, val season: Int, val title: String,
-    val suggestion: UnmatchedSuggestion? = null)
+    val suggestion: UnmatchedSuggestion? = null, val sourceLabel: String = source.sourceId)
 
 /** The AniList entry whose title came nearest to a series the matcher could not settle; only an offer, never a binding. */
 data class UnmatchedSuggestion(val mediaId: Int, val title: String, val score: Double)

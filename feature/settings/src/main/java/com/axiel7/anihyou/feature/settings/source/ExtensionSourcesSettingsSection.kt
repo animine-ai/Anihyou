@@ -591,17 +591,14 @@ internal fun ExtensionTrackPreferences(
         .sorted()
 
     if (subTracks.isNotEmpty() || dubTracks.isNotEmpty()) {
-        Text(
-            text = stringResource(R.string.extension_sources_track_settings),
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(top = 8.dp),
-        )
+        PreferencesTitle(stringResource(R.string.extension_sources_track_settings))
         if (subTracks.isNotEmpty()) {
             TrackSwitch(
                 label = stringResource(R.string.extension_sources_sub_enabled),
                 checked = subTracks.all { it in preferences.enabledTracks },
                 enabled = enabled,
                 testTag = "extension-preference-sub-${key.testTagPart()}",
+                shape = preferenceShape(0, listOf(subTracks, dubTracks).count { it.isNotEmpty() }),
             ) { checked ->
                 event.setPreferences(key, preferences.withTrackGroup(subTracks, checked))
             }
@@ -612,21 +609,19 @@ internal fun ExtensionTrackPreferences(
                 checked = dubTracks.all { it in preferences.enabledTracks },
                 enabled = enabled,
                 testTag = "extension-preference-dub-${key.testTagPart()}",
+                shape = preferenceShape(if (subTracks.isEmpty()) 0 else 1, listOf(subTracks, dubTracks).count { it.isNotEmpty() }),
             ) { checked ->
                 event.setPreferences(key, preferences.withTrackGroup(dubTracks, checked))
             }
         }
         if (subTracks.isNotEmpty() && dubTracks.isNotEmpty()) {
-            Text(
-                text = stringResource(R.string.extension_sources_track_priority),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+            PreferencesTitle(stringResource(R.string.extension_sources_track_priority))
             TrackPriorityOption(
                 label = stringResource(R.string.extension_sources_sub_first),
                 selected = preferences.priorityChoice(subTracks, dubTracks) == TrackPriority.SUB_FIRST,
                 enabled = enabled,
                 testTag = "extension-preference-priority-sub-first-${key.testTagPart()}",
+                shape = preferenceShape(0, 4),
             ) {
                 event.setPreferences(key, preferences.withPriority(subTracks, dubTracks, TrackPriority.SUB_FIRST))
             }
@@ -635,6 +630,7 @@ internal fun ExtensionTrackPreferences(
                 selected = preferences.priorityChoice(subTracks, dubTracks) == TrackPriority.DUB_FIRST,
                 enabled = enabled,
                 testTag = "extension-preference-priority-dub-first-${key.testTagPart()}",
+                shape = preferenceShape(1, 4),
             ) {
                 event.setPreferences(key, preferences.withPriority(subTracks, dubTracks, TrackPriority.DUB_FIRST))
             }
@@ -643,6 +639,7 @@ internal fun ExtensionTrackPreferences(
                 selected = preferences.priorityChoice(subTracks, dubTracks) == TrackPriority.SUB_ONLY,
                 enabled = enabled,
                 testTag = "extension-preference-priority-sub-only-${key.testTagPart()}",
+                shape = preferenceShape(2, 4),
             ) {
                 event.setPreferences(key, preferences.withPriority(subTracks, dubTracks, TrackPriority.SUB_ONLY))
             }
@@ -651,17 +648,14 @@ internal fun ExtensionTrackPreferences(
                 selected = preferences.priorityChoice(subTracks, dubTracks) == TrackPriority.DUB_ONLY,
                 enabled = enabled,
                 testTag = "extension-preference-priority-dub-only-${key.testTagPart()}",
+                shape = preferenceShape(3, 4),
             ) {
                 event.setPreferences(key, preferences.withPriority(subTracks, dubTracks, TrackPriority.DUB_ONLY))
             }
         }
         if (languages.size > 1) {
-            Text(
-                text = stringResource(R.string.extension_sources_language_priority),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            languages.forEach { language ->
+            PreferencesTitle(stringResource(R.string.extension_sources_language_priority))
+            languages.forEachIndexed { index, language ->
                 SelectionOption(
                     label = stringResource(R.string.extension_sources_prefer_language, language.uppercase()),
                     selected = preferences.languageOrder.firstOrNull { it in languages } == language,
@@ -673,6 +667,7 @@ internal fun ExtensionTrackPreferences(
                         event.setPreferences(key, preferences.copy(languageOrder = reorderedLanguages.distinct()))
                     },
                     testTag = "extension-preference-language-$language-${key.testTagPart()}",
+                    shape = preferenceShape(index, languages.size),
                 )
             }
         }
@@ -697,7 +692,10 @@ internal fun SelectionOption(
     enabled: Boolean,
     onClick: () -> Unit,
     testTag: String,
+    shape: RoundedCornerShape = singleShape,
 ) {
+    Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 1.dp)) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -708,7 +706,7 @@ internal fun SelectionOption(
                 onClick = onClick,
             )
             .testTag(testTag)
-            .padding(vertical = 2.dp),
+            .padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(
@@ -719,6 +717,7 @@ internal fun SelectionOption(
         Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }
+}
 
 @Composable
 private fun TrackPriorityOption(
@@ -726,6 +725,7 @@ private fun TrackPriorityOption(
     selected: Boolean,
     enabled: Boolean,
     testTag: String,
+    shape: RoundedCornerShape = singleShape,
     onClick: () -> Unit,
 ) {
     SelectionOption(
@@ -734,6 +734,7 @@ private fun TrackPriorityOption(
         enabled = enabled,
         onClick = onClick,
         testTag = testTag,
+        shape = shape,
     )
 }
 
@@ -743,10 +744,13 @@ internal fun TrackSwitch(
     checked: Boolean,
     enabled: Boolean,
     testTag: String,
+    shape: RoundedCornerShape = singleShape,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 1.dp)) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
@@ -757,6 +761,7 @@ internal fun TrackSwitch(
             modifier = Modifier.testTag(testTag),
         )
     }
+}
 }
 
 private enum class TrackKind { SUB, DUB, OTHER }

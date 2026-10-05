@@ -458,6 +458,9 @@ class RoomMatchingManagementRepository(
                 active.publisherId, active.providerId).map { it.size },
             service.suggestionRevision,
         ) { _, _, _, _, _ -> 0 }.mapLatest { service.unmatched(active) }
+    }.combine(sources.sources) { rows, catalog ->
+        val labels = labelsOf(catalog)
+        rows.map { it.copy(sourceLabel = labels[it.source] ?: it.source.sourceId) }
     }.distinctUntilChanged().flowOn(Dispatchers.IO)
 
     override suspend fun matchUnmatchedNow(): Int = withContext(Dispatchers.IO) {

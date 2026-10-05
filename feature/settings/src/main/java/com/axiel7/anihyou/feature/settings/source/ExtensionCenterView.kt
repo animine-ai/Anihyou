@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.res.painterResource
@@ -211,10 +212,10 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
     PreferencesTitle(text = stringResource(R.string.extension_sources_data_source_heading))
     SelectionOption(stringResource(R.string.extension_sources_no_active_source),
         active !in releaseEntries.map { it.first }, canEdit,
-        { event.selectActiveSource(null) }, "extension-product-active-none")
-    releaseEntries.forEach { (key, extension) ->
+        { event.selectActiveSource(null) }, "extension-product-active-none", preferenceShape(0, releaseEntries.size + 1))
+    releaseEntries.forEachIndexed { index, (key, extension) ->
         SelectionOption(extension.displayName, active == key, canEdit,
-            { event.selectActiveSource(key) }, "extension-product-active-" + key.testTagPart())
+            { event.selectActiveSource(key) }, "extension-product-active-" + key.testTagPart(), preferenceShape(index + 1, releaseEntries.size + 1))
     }
     entries.forEach { (key, extension) ->
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
@@ -237,43 +238,30 @@ fun ExtensionStatistics(state: ExtensionSourcesUiState) {
     if (key == null || extension == null) {
         Text(stringResource(R.string.extension_statistics_empty)); return
     }
-    Text(extension.displayName)
+    PreferencesTitle(extension.displayName)
     val values = state.diagnostics[key].orEmpty()
     val source = state.sources.singleOrNull { it.id == key.sourceId }
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_installed_version), extension.installedVersion)
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_latest_version), extension.latestAvailableVersion)
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_update_state),
-        stringResource(extensionUpdateStateLabel(extension.updateState)))
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_package_status),
-        stringResource(installedPackageStatusLabel(extension)))
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_package_generation),
-        extension.packageGeneration.toString())
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_release_sequence),
-        extension.installedReleaseSequence?.toString())
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_metadata),
-        stringResource(if (extension.metadataFresh) R.string.extension_manage_diagnostic_fresh
-            else R.string.extension_manage_diagnostic_stale))
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_yanked),
-        stringResource(if (extension.candidateYanked) R.string.extension_manage_diagnostic_yes
-            else R.string.extension_manage_diagnostic_no))
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_last_update),
-        values["Last Update Check"]?.takeIf { it.isNotBlank() } ?: source?.lastAttemptAt?.toString())
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_update_result), extension.lastUpdateResult)
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_update_failure),
-        extension.lastUpdateFailure?.let { stringResource(updateFailureLabel(it)) })
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_previous_good),
-        extension.rollbackTarget?.let { "${it.version} · ${it.trustState} · ${it.digest.take(12)}" })
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_failure_code),
-        values["Last Update Failure Code"]?.takeIf(::isSafeTechnicalCode)
-            ?: extension.lastUpdateTechnicalCode?.takeIf(::isSafeTechnicalCode))
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_last_successful_update), values["Last Successful Update"])
-    DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_last_metadata_success), values["Last metadata success"])
-    // Update check, successful update, release sequence and rollback availability already have localized rows above.
-    // The raw revocation digest list and the other update facts stay in Diagnostics and its copy export.
-    listOf("Last successful sync", "Last committed sync", "Freshness", "Release count", "Tracks", "Role health", "Role reports", "Last sync outcome", "Sync duration",
-        "Runtime", "Last parse status", "Last navigation status").forEach {
-        DiagnosticRow(it, values[it])
-    }
+    val rows = listOf(
+        stringResource(R.string.extension_manage_diagnostic_installed_version) to (extension.installedVersion),
+        stringResource(R.string.extension_manage_diagnostic_latest_version) to (extension.latestAvailableVersion),
+        stringResource(R.string.extension_manage_diagnostic_update_state) to (stringResource(extensionUpdateStateLabel(extension.updateState))),
+        stringResource(R.string.extension_manage_diagnostic_package_status) to (stringResource(installedPackageStatusLabel(extension))),
+        stringResource(R.string.extension_manage_diagnostic_package_generation) to (extension.packageGeneration.toString()),
+        stringResource(R.string.extension_manage_diagnostic_release_sequence) to (extension.installedReleaseSequence?.toString()),
+        stringResource(R.string.extension_manage_diagnostic_metadata) to (stringResource(if (extension.metadataFresh) R.string.extension_manage_diagnostic_fresh
+            else R.string.extension_manage_diagnostic_stale)),
+        stringResource(R.string.extension_manage_diagnostic_yanked) to (stringResource(if (extension.candidateYanked) R.string.extension_manage_diagnostic_yes
+            else R.string.extension_manage_diagnostic_no)),
+        stringResource(R.string.extension_manage_diagnostic_last_update) to (values["Last Update Check"]?.takeIf { it.isNotBlank() } ?: source?.lastAttemptAt?.toString()),
+        stringResource(R.string.extension_manage_diagnostic_update_result) to (extension.lastUpdateResult),
+        stringResource(R.string.extension_manage_diagnostic_update_failure) to (extension.lastUpdateFailure?.let { stringResource(updateFailureLabel(it)) }),
+        stringResource(R.string.extension_manage_diagnostic_previous_good) to (extension.rollbackTarget?.let { "${it.version} · ${it.trustState} · ${it.digest.take(12)}" }),
+        stringResource(R.string.extension_manage_diagnostic_failure_code) to (values["Last Update Failure Code"]?.takeIf(::isSafeTechnicalCode)
+            ?: extension.lastUpdateTechnicalCode?.takeIf(::isSafeTechnicalCode)),
+        stringResource(R.string.extension_manage_diagnostic_last_successful_update) to (values["Last Successful Update"]),
+        stringResource(R.string.extension_manage_diagnostic_last_metadata_success) to (values["Last metadata success"])
+    ) + listOf("Last successful sync", "Last committed sync", "Freshness", "Release count", "Tracks", "Role health", "Role reports", "Last sync outcome", "Sync duration", "Runtime", "Last parse status", "Last navigation status").map { it to values[it] }
+    DiagnosticRows(rows)
 }
 
 @Composable
@@ -317,58 +305,40 @@ fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
             "Yanked candidate" to extension.candidateYanked.toString()) +
             state.diagnostics[key].orEmpty()
         val safeValues = safeDiagnosticEntries(values).toMap()
-        Text(extension.displayName)
-        // Facts that have a localized row below (version, update state, package generation, Known/Previous
-        // Good, metadata freshness, yanked, update result) are shown there only, so each value appears once.
-        // The copy-to-clipboard export below still carries every raw entry.
-        listOf("Extension ID", "Provider ID", "Signed displayName", "Repository", "Publisher",
+        PreferencesTitle(extension.displayName)
+        val identityRows = listOf("Extension ID", "Provider ID", "Signed displayName", "Repository", "Publisher",
             "Key ID", "Trust status", "Package SHA", "WASM SHA", "Active selection generation",
             "Last update at", "Capabilities", "Allowed Hosts", "Role health", "Role reports",
             "Last committed sync", "Last sync outcome", "Runtime", "Last parse status", "Last navigation status", "Fuel limit",
-            "Memory limit", "Deadline limit", "Cancellation").forEach { DiagnosticRow(it, safeValues[it]) }
-        // Permanent for a source the user accepted without an independent check.
-        if (source.manuallyTrusted) DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_trust_class),
-            stringResource(R.string.extension_manage_manual_trust))
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_installed_version),
-            safeValues["Current Version"]?.takeIf { it.isNotBlank() } ?: extension.installedVersion)
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_latest_version),
-            safeValues["Latest Available"]?.takeIf { it.isNotBlank() } ?: extension.latestAvailableVersion)
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_release_sequence),
-            safeValues["Release Sequence"]?.takeIf { it.isNotBlank() } ?: extension.installedReleaseSequence?.toString())
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_update_state),
-            stringResource(extensionUpdateStateLabel(extension.updateState)))
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_package_status),
-            stringResource(installedPackageStatusLabel(extension)))
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_package_generation),
-            extension.packageGeneration.toString())
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_known_good),
-            safeValues["Known Good"]?.takeIf { it.isNotBlank() } ?: extension.installedVersion.takeIf { extension.installedUsable })
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_previous_good),
-            extension.rollbackTarget?.let { "${it.version} · ${it.trustState} · ${it.digest.take(12)}" })
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_last_update),
-            safeValues["Last Update Check"]?.takeIf { it.isNotBlank() } ?: source.lastAttemptAt?.toString())
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_update_result),
-            safeValues["Last Update Result"]?.takeIf { it.isNotBlank() } ?: extension.lastUpdateResult)
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_update_failure),
-            extension.lastUpdateFailure?.let { stringResource(updateFailureLabel(it)) })
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_failure_code),
-            safeValues["Last Update Failure Code"]?.takeIf(::isSafeTechnicalCode))
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_last_successful_update),
-            safeValues["Last Successful Update"])
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_rollback_available),
-            stringResource(if (extension.rollbackTarget != null) R.string.extension_manage_diagnostic_yes
+            "Memory limit", "Deadline limit", "Cancellation").map { it to safeValues[it] }
+        DiagnosticRows(identityRows)
+        PreferencesTitle(stringResource(R.string.extension_manage_diagnostic_package_status))
+        val statusRows = (if (source.manuallyTrusted) listOf(stringResource(R.string.extension_manage_diagnostic_trust_class) to
+            stringResource(R.string.extension_manage_manual_trust)) else emptyList()) + listOf(
+            stringResource(R.string.extension_manage_diagnostic_installed_version) to (safeValues["Current Version"]?.takeIf { it.isNotBlank() } ?: extension.installedVersion),
+            stringResource(R.string.extension_manage_diagnostic_latest_version) to (safeValues["Latest Available"]?.takeIf { it.isNotBlank() } ?: extension.latestAvailableVersion),
+            stringResource(R.string.extension_manage_diagnostic_release_sequence) to (safeValues["Release Sequence"]?.takeIf { it.isNotBlank() } ?: extension.installedReleaseSequence?.toString()),
+            stringResource(R.string.extension_manage_diagnostic_update_state) to (stringResource(extensionUpdateStateLabel(extension.updateState))),
+            stringResource(R.string.extension_manage_diagnostic_package_status) to (stringResource(installedPackageStatusLabel(extension))),
+            stringResource(R.string.extension_manage_diagnostic_package_generation) to (extension.packageGeneration.toString()),
+            stringResource(R.string.extension_manage_diagnostic_known_good) to (safeValues["Known Good"]?.takeIf { it.isNotBlank() } ?: extension.installedVersion.takeIf { extension.installedUsable }),
+            stringResource(R.string.extension_manage_diagnostic_previous_good) to (extension.rollbackTarget?.let { "${it.version} · ${it.trustState} · ${it.digest.take(12)}" }),
+            stringResource(R.string.extension_manage_diagnostic_last_update) to (safeValues["Last Update Check"]?.takeIf { it.isNotBlank() } ?: source.lastAttemptAt?.toString()),
+            stringResource(R.string.extension_manage_diagnostic_update_result) to (safeValues["Last Update Result"]?.takeIf { it.isNotBlank() } ?: extension.lastUpdateResult),
+            stringResource(R.string.extension_manage_diagnostic_update_failure) to (extension.lastUpdateFailure?.let { stringResource(updateFailureLabel(it)) }),
+            stringResource(R.string.extension_manage_diagnostic_failure_code) to (safeValues["Last Update Failure Code"]?.takeIf(::isSafeTechnicalCode)),
+            stringResource(R.string.extension_manage_diagnostic_last_successful_update) to (safeValues["Last Successful Update"]),
+            stringResource(R.string.extension_manage_diagnostic_rollback_available) to (stringResource(if (extension.rollbackTarget != null) R.string.extension_manage_diagnostic_yes
+                else R.string.extension_manage_diagnostic_no)),
+            stringResource(R.string.extension_manage_diagnostic_revocation) to (stringResource(if (extension.revoked || extension.installedStatus == InstalledPackageStatus.REVOKED)
+                R.string.extension_manage_trust_revoked else R.string.extension_manage_diagnostic_no)),
+            stringResource(R.string.extension_manage_diagnostic_metadata) to (stringResource(if (extension.metadataFresh) R.string.extension_manage_diagnostic_fresh
+                else R.string.extension_manage_diagnostic_stale)),
+            stringResource(R.string.extension_manage_diagnostic_last_metadata_success) to (safeValues["Last metadata success"]?.takeIf { it.isNotBlank() }),
+            stringResource(R.string.extension_manage_diagnostic_yanked) to (stringResource(if (extension.candidateYanked) R.string.extension_manage_diagnostic_yes
                 else R.string.extension_manage_diagnostic_no))
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_revocation),
-            stringResource(if (extension.revoked || extension.installedStatus == InstalledPackageStatus.REVOKED)
-                R.string.extension_manage_trust_revoked else R.string.extension_manage_diagnostic_no))
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_metadata),
-            stringResource(if (extension.metadataFresh) R.string.extension_manage_diagnostic_fresh
-                else R.string.extension_manage_diagnostic_stale))
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_last_metadata_success),
-            safeValues["Last metadata success"]?.takeIf { it.isNotBlank() })
-        DiagnosticRow(stringResource(R.string.extension_manage_diagnostic_yanked),
-            stringResource(if (extension.candidateYanked) R.string.extension_manage_diagnostic_yes
-                else R.string.extension_manage_diagnostic_no))
+        )
+        DiagnosticRows(statusRows)
         TextButton(onClick = { clipboard.setText(AnnotatedString(
             safeDiagnosticEntries(values).joinToString("\n") { (name, value) -> "$name: $value" })) },
             modifier = Modifier.testTag("diagnostics-copy-" + key.testTagPart())) {
@@ -378,7 +348,7 @@ fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
     }
 }
 
-private fun ExtensionSourcesUiState.hasSourceOperationInFlight(): Boolean =
+internal fun ExtensionSourcesUiState.hasSourceOperationInFlight(): Boolean =
     busySourceIds.isNotEmpty() || sources.any { source -> source.extensions.any { it.updateState.isInFlight() } }
 
 private fun isSafeTechnicalCode(value: String): Boolean =
@@ -403,8 +373,13 @@ private fun redactDiagnosticSecrets(value: String): String = value.replace(
 ) { "${it.groupValues[1]}[redacted]" }
 
 @Composable
-private fun DiagnosticRow(label: String, value: String?) {
-    Text(label + ": " + value?.takeIf { it.isNotBlank() }.orEmpty().ifEmpty {
-        stringResource(R.string.extension_no_measurement)
-    })
+private fun DiagnosticRows(rows: List<Pair<String, String?>>) {
+    rows.forEachIndexed { index, (label, value) ->
+        Surface(shape = preferenceShape(index, rows.size), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 1.dp)) {
+            Text(label + ": " + value?.takeIf { it.isNotBlank() }.orEmpty().ifEmpty {
+                stringResource(R.string.extension_no_measurement)
+            }, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.bodyMedium)
+        }
+    }
 }

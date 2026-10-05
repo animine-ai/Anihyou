@@ -119,6 +119,22 @@ class ExtensionCalendarComposeTest {
         }
     }
 
+    @Test fun postponementSearchWithoutResultsKeepsSearchAndUpdatedLineAndUsesResultEmptyText() {
+        composeRule.setContent {
+            val navigation = rememberNavigationState(Route.Home, MainNavigationResolver.allRoutes)
+            val navigator = remember(navigation) { Navigator(navigation) }
+            CompositionLocalProvider(LocalNavActionManager provides NavActionManager(navigator)) {
+                MaterialTheme {
+                    PostponementsViewContent(PostponementsUiState(query = "missing", totalNotices = 2,
+                        observedAt = java.time.Instant.parse("2026-10-05T09:00:00Z")))
+                }
+            }
+        }
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.postponements_no_results, "missing")).assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.postponements_empty)).assertDoesNotExist()
+        capture("postponements-search-no-results") { composeRule.onNodeWithTag("postponements-search").assertIsDisplayed() }
+    }
+
     private fun capture(name: String, assertTarget: () -> Unit) {
         val directory = File(composeRule.activity.getExternalFilesDir(null), "ep07-ui")
         // The capture refuses to store anything unless this app screen is the foreground and shows the target.
