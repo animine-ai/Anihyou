@@ -100,3 +100,4 @@ jobs:
           retention-days: 7
 
 # One-time authorized build request: native grouped settings and search fixes, 2026-10-05.
+# Follow-up device build: transparent postponement list and aligned search layout, 2026-10-05.

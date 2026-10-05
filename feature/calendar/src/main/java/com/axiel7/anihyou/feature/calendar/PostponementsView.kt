@@ -1,21 +1,18 @@
 package com.axiel7.anihyou.feature.calendar
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import com.axiel7.anihyou.core.ui.composables.common.SearchPillField
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -82,111 +79,79 @@ fun PostponementsViewContent(
         androidx.compose.material3.pulltorefresh.PullToRefreshBox(
             isRefreshing = state.isRefreshing,
             onRefresh = onRefresh,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .consumeWindowInsets(padding)
+                .imePadding(),
         ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().testTag("postponements-list"),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = padding.calculateTopPadding() + 8.dp,
-                bottom = padding.calculateBottomPadding() + 16.dp,
-            ),
-        ) {
-            item(key = "postponements-search") {
-                Column(Modifier.padding(bottom = 12.dp)) {
-                SearchPillField(
-                    value = state.query,
-                    onValueChange = onSearch,
-                    placeholder = stringResource(R.string.postponements_search),
-                    modifier = Modifier.testTag("postponements-search"),
-                )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().testTag("postponements-list"),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+            ) {
+                item(key = "postponements-search") {
+                    Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                        .testTag("postponements-search-container")) {
+                        SearchPillField(
+                            value = state.query,
+                            onValueChange = onSearch,
+                            placeholder = stringResource(R.string.postponements_search),
+                            modifier = Modifier.testTag("postponements-search"),
+                        )
+                    }
                 }
-            }
-            state.observedAt?.let { observedAt ->
-                item(key = "postponements-updated") {
-                    Text(
-                        text = stringResource(
-                            R.string.postponements_last_updated,
-                            observedAt.atZone(ZoneId.systemDefault()).format(UPDATED_FORMAT),
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
-                    )
+                state.observedAt?.let { observedAt ->
+                    item(key = "postponements-updated") {
+                        Text(
+                            text = stringResource(
+                                R.string.postponements_last_updated,
+                                observedAt.atZone(ZoneId.systemDefault()).format(UPDATED_FORMAT),
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                .testTag("postponements-updated"),
+                        )
+                    }
                 }
-            }
 
-            if (state.notices.isEmpty()) {
-                item(key = "postponements-empty") {
-                    Text(
-                        text = if (state.query.isNotBlank() && state.totalNotices > 0)
-                            stringResource(R.string.postponements_no_results, state.query.trim())
-                        else stringResource(R.string.postponements_empty),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 24.dp).testTag("postponements-empty"),
-                    )
-                }
-            } else {
-                // Every notice of the source is listed; the ones with an AniList binding show its cover and open its details,
-                // the others show the source title only.
-                items(
-                    items = state.notices,
-                    key = { it.presentationKey },
-                ) { notice ->
-                    val details = notice.mediaId?.let(state.metadata::get)
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    ) {
+                if (state.notices.isEmpty()) {
+                    item(key = "postponements-empty") {
+                        Text(
+                            text = if (state.query.isNotBlank() && state.totalNotices > 0)
+                                stringResource(R.string.postponements_no_results, state.query.trim())
+                            else stringResource(R.string.postponements_empty),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+                                .testTag("postponements-empty"),
+                        )
+                    }
+                } else {
+                    // Every notice of the source is listed; the ones with an AniList binding show its cover and open its details,
+                    // the others show the source title only.
+                    items(
+                        items = state.notices,
+                        key = { it.presentationKey },
+                    ) { notice ->
+                        val details = notice.mediaId?.let(state.metadata::get)
                         MediaItemHorizontal(
                             title = details?.title?.takeIf { it.isNotBlank() } ?: notice.title,
                             imageUrl = details?.cover,
                             blurImage = LocalBlurAdult.current && details?.adult == true,
-                            subtitle1 = { Text(notice.detailsLabel(), color = MaterialTheme.colorScheme.primary) },
-                            subtitle2 = { notice.rawText?.let { Text(it) } },
+                            subtitle1 = {
+                                Text(notice.detailsLabel(), style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary)
+                            },
+                            subtitle2 = {
+                                notice.rawText?.takeIf { it.isNotBlank() }?.let {
+                                    Text(it, style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            },
                             onClick = { notice.mediaId?.let(nav::toMediaDetails) },
                         )
                     }
                 }
-            }
-        }
-        }
-    }
-}
-
-@Composable
-private fun PostponementRow(
-    notice: ExtensionPostponementNotice,
-    onClick: (() -> Unit)?,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(24.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp)
-            .clickable(enabled = onClick != null) { onClick?.invoke() },
-    ) {
-        Column(Modifier.padding(vertical = 14.dp, horizontal = 16.dp)) {
-            Text(
-                text = notice.title,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = notice.detailsLabel(),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            notice.rawText?.takeIf { it.isNotBlank() }?.let { raw ->
-                Text(
-                    text = raw,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
             }
         }
     }

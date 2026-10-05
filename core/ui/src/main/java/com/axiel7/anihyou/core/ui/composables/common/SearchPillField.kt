@@ -2,6 +2,7 @@ package com.axiel7.anihyou.core.ui.composables.common
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -54,7 +55,7 @@ fun SearchPillField(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 4.dp),
+            modifier = Modifier.padding(horizontal = 4.dp).fillMaxHeight(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
