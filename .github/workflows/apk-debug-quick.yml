@@ -1,7 +1,7 @@
 name: Performance APK (temporary signed)
 # Optimized ARM64 test APK with temporary debug signing and complete data-decision logging. No tests, lint or emulator.
 # R8/resource shrinking reduce download size. Product gates remain separate; full logging and native packaging are verified.
-# Retry with verified Compose visual-debug R8 scope, corrected UI expectations and reviewed menu layout.
+# Final reviewed layout: accurate statistics/diagnostics labels and full logging guards.
 
 on:
   workflow_dispatch:

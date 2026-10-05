@@ -7,7 +7,7 @@
     <string name="main_navigation_move_down">%1$s nach unten</string>
     <string name="main_navigation_reset">Standard wiederherstellen</string>
     <string name="main_navigation_save_failed">Die Navigationseinstellungen konnten nicht gespeichert werden.</string>
-    <string name="extension_center_title">Quellen &amp; Diagnose</string>
+    <string name="extension_center_title">Statistik &amp; Diagnose</string>
     <string name="extension_center_manage">Extensions verwalten</string>
     <string name="extension_center_source">Datenquelle &amp; Präferenzen</string>
     <string name="extension_center_providers">Provider-Anzeige</string>
@@ -23,7 +23,7 @@
     <string name="settings_navigation_section">Navigation</string>
     <string name="settings_sources_section">Quellen &amp; Erweiterungen</string>
     <string name="extension_center_management_section">Verwaltung</string>
-    <string name="extension_center_diagnostics_section">Diagnose &amp; Debug</string>
+    <string name="extension_center_diagnostics_section">Auswertung</string>
     <string name="extension_provider_visible_section">Angezeigte Streaming-Anbieter</string>
     <string name="extension_provider_preferred_section">Bevorzugter Anbieter</string>
     <string name="extension_provider_preferred_explanation">Der Stern markiert einen bevorzugten Anbieter. Erneutes Antippen entfernt die Präferenz. Andere angezeigte Anbieter bleiben sichtbar.</string>

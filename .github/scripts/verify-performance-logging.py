@@ -35,7 +35,7 @@ def verify_assumptions(rules):
         header = rule.group(2).split("{", 1)[0]
         match = re.search(r"\b(?:class|interface|enum)\s+([^\s{]+)", header)
         require(match is not None, "Unrecognized assumption rule: " + header.strip())
-        # Compose animation 1.10 scopes this wildcard to one exact visual-debug return type.
+        # The observed Compose animation consumer rule scopes this wildcard to one exact visual-debug return type.
         # AppLog, its sink and Android Log have no such methods. Reject every broader/member-added variant.
         body = rule.group(2).split("{", 1)[1].rsplit("}", 1)[0].strip() if "{" in rule.group(2) else ""
         if (rule.group(1) == "assumenosideeffects" and header.strip() == "class *" and

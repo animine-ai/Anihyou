@@ -7,7 +7,7 @@
     <string name="main_navigation_move_down">Move %1$s down</string>
     <string name="main_navigation_reset">Restore defaults</string>
     <string name="main_navigation_save_failed">Could not save the navigation settings.</string>
-    <string name="extension_center_title">Sources &amp; diagnostics</string>
+    <string name="extension_center_title">Statistics &amp; diagnostics</string>
     <string name="extension_center_manage">Manage extensions</string>
     <string name="extension_center_source">Data source &amp; preferences</string>
     <string name="extension_center_providers">Provider display</string>
@@ -23,7 +23,7 @@
     <string name="settings_navigation_section">Navigation</string>
     <string name="settings_sources_section">Sources &amp; extensions</string>
     <string name="extension_center_management_section">Management</string>
-    <string name="extension_center_diagnostics_section">Diagnostics &amp; debug</string>
+    <string name="extension_center_diagnostics_section">Overview</string>
     <string name="extension_provider_visible_section">Visible streaming providers</string>
     <string name="extension_provider_preferred_section">Preferred provider</string>
     <string name="extension_provider_preferred_explanation">The star marks one preferred provider. Tap it again to clear the preference. Other shown providers remain visible.</string>
