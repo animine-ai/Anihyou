@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -66,6 +67,9 @@ import com.axiel7.anihyou.core.ui.composables.common.SmallCircularProgressIndica
 import com.axiel7.anihyou.core.ui.composables.middleShape
 import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.core.ui.composables.topShape
+import com.axiel7.anihyou.core.ui.composables.preferenceShape
+import com.axiel7.anihyou.feature.settings.source.ExtensionCenterPage
+import com.axiel7.anihyou.core.ui.common.navigation.Route
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.feature.settings.composables.CustomColorPreference
 import com.axiel7.anihyou.feature.settings.composables.LanguagePreference
@@ -109,11 +113,21 @@ fun SettingsSourceNavigationPreferences() {
         shape = singleShape,
     )
     PreferencesTitle(text = stringResource(com.axiel7.anihyou.feature.settings.R.string.settings_sources_section))
+    val pages = listOf(ExtensionCenterPage.MANAGE, ExtensionCenterPage.MATCHING, ExtensionCenterPage.PROVIDERS)
+    pages.forEachIndexed { index, page ->
+        PlainPreference(
+            title = stringResource(page.title), icon = page.icon,
+            onClick = { nav.navigate(Route.ExtensionCenterPage(page.id)) },
+            shape = preferenceShape(index, 4),
+            modifier = Modifier.testTag("extension-center-${page.id}"),
+        )
+    }
     PlainPreference(
         title = stringResource(com.axiel7.anihyou.feature.settings.R.string.extension_center_title),
         icon = R.drawable.link_24,
         onClick = { nav.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.ExtensionCenter) },
-        shape = singleShape,
+        shape = preferenceShape(3, 4),
+        modifier = Modifier.testTag("extension-center-root"),
     )
 }
 

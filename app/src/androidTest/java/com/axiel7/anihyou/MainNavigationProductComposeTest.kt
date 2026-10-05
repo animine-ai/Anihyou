@@ -166,7 +166,7 @@ class MainNavigationProductComposeTest {
         }
     }
 
-    @Test fun configPersistsAndExtensionCenterHasExactlyFiveFlatPages() {
+    @Test fun configPersistsAndExtensionCenterContainsOnlySourceAndDiagnostics() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val store = MainNavigationConfigStore.get(context)
         try {
@@ -175,11 +175,11 @@ class MainNavigationProductComposeTest {
             assertEquals(store.config.value, MainNavigationConfigCodec.decode(persisted))
             var selected: ExtensionCenterPage? = null
             composeRule.setContent { MaterialTheme { Column { ExtensionCenterMenu { selected = it } } } }
-            for (page in ExtensionCenterPage.entries) {
+            for (page in listOf(ExtensionCenterPage.SOURCE, ExtensionCenterPage.STATISTICS, ExtensionCenterPage.DIAGNOSTICS)) {
                 composeRule.onNodeWithTag("extension-center-" + page.id).assertIsDisplayed().performClick()
                 composeRule.runOnIdle { assertEquals(page, selected) }
             }
-            assertEquals(5, ExtensionCenterPage.entries.size)
+            listOf("manage", "matching", "providers").forEach { composeRule.onNodeWithTag("extension-center-$it").assertDoesNotExist() }
         } finally { store.update { MainNavigationConfig() } }
     }
 

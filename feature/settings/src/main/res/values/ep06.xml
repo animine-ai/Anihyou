@@ -7,7 +7,7 @@
     <string name="main_navigation_move_down">Move %1$s down</string>
     <string name="main_navigation_reset">Restore defaults</string>
     <string name="main_navigation_save_failed">Could not save the navigation settings.</string>
-    <string name="extension_center_title">Extensions &amp; Provider</string>
+    <string name="extension_center_title">Sources &amp; diagnostics</string>
     <string name="extension_center_manage">Manage extensions</string>
     <string name="extension_center_source">Data source &amp; preferences</string>
     <string name="extension_center_providers">Provider display</string>
@@ -29,4 +29,5 @@
     <string name="extension_provider_preferred_explanation">This selects the default provider. Other enabled providers remain visible.</string>
     <string name="extension_provider_order_section">Provider order</string>
     <string name="extension_provider_empty">Install a usable extension with streaming navigation to show it here.</string>
+    <string name="extension_center_matching">Matcher</string>
 </resources>

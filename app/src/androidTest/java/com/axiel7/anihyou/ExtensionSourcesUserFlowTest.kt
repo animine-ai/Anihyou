@@ -29,10 +29,8 @@ class ExtensionSourcesUserFlowTest {
         composeRule.onNodeWithTag("HomeTab").performClick()
         composeRule.onNodeWithTag("ProfileTab").assertDoesNotExist()
         composeRule.onNodeWithTag("home-settings").performClick()
-        composeRule.onNodeWithText(text(SettingsR.string.extension_center_title)).performScrollTo().performClick()
-
         // Manually accepted first trust makes adding possible: the "unavailable" notice must be gone.
-        composeRule.onNodeWithTag("extension-center-manage").performClick()
+        composeRule.onNodeWithTag("extension-center-manage").performScrollTo().performClick()
         awaitTag("extension-source-url")
         composeRule.onAllNodesWithTag("extension-trust-unavailable").assertCountEquals(0)
         composeRule.onNodeWithText(text(SettingsR.string.extension_sources_title))

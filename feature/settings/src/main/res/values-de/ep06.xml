@@ -7,7 +7,7 @@
     <string name="main_navigation_move_down">%1$s nach unten</string>
     <string name="main_navigation_reset">Standard wiederherstellen</string>
     <string name="main_navigation_save_failed">Die Navigationseinstellungen konnten nicht gespeichert werden.</string>
-    <string name="extension_center_title">Extensions &amp; Provider</string>
+    <string name="extension_center_title">Quellen &amp; Diagnose</string>
     <string name="extension_center_manage">Extensions verwalten</string>
     <string name="extension_center_source">Datenquelle &amp; Präferenzen</string>
     <string name="extension_center_providers">Provider-Anzeige</string>
@@ -29,4 +29,5 @@
     <string name="extension_provider_preferred_explanation">Dies bestimmt nur die Vorauswahl. Andere eingeschaltete Anbieter bleiben sichtbar.</string>
     <string name="extension_provider_order_section">Reihenfolge der Anbieter</string>
     <string name="extension_provider_empty">Installiere eine benutzbare Extension mit Streaming-Navigation, um sie hier anzuzeigen.</string>
+    <string name="extension_center_matching">Matcher</string>
 </resources>

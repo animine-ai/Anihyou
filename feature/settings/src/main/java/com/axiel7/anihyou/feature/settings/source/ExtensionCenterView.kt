@@ -54,6 +54,7 @@ import org.koin.compose.viewmodel.koinViewModel
 
 enum class ExtensionCenterPage(val id: String, val title: Int, @DrawableRes val icon: Int) {
     MANAGE("manage", R.string.extension_center_manage, CoreR.drawable.settings_24),
+    MATCHING("matching", R.string.extension_center_matching, CoreR.drawable.link_24),
     SOURCE("source", R.string.extension_center_source, CoreR.drawable.rss_feed_24),
     PROVIDERS("providers", R.string.extension_center_providers, CoreR.drawable.play_circle_24),
     STATISTICS("statistics", R.string.extension_center_statistics, CoreR.drawable.bar_chart_24),
@@ -101,7 +102,7 @@ fun ExtensionTrustUnavailableNotice(modifier: Modifier = Modifier) {
 fun ExtensionCenterMenu(onPage: (ExtensionCenterPage) -> Unit) {
     listOf(
         R.string.extension_center_management_section to listOf(
-            ExtensionCenterPage.MANAGE, ExtensionCenterPage.SOURCE, ExtensionCenterPage.PROVIDERS),
+            ExtensionCenterPage.SOURCE),
         R.string.extension_center_diagnostics_section to listOf(
             ExtensionCenterPage.STATISTICS, ExtensionCenterPage.DIAGNOSTICS),
     ).forEach { (title, pages) ->
@@ -142,6 +143,7 @@ fun ExtensionCenterPageView(pageId: String) {
             }
         }
         when (page) {
+            ExtensionCenterPage.MATCHING -> Unit // Handled by the settings-only route above.
             ExtensionCenterPage.MANAGE -> ExtensionSourcesSettingsSection(state, model)
             ExtensionCenterPage.SOURCE -> ExtensionDataSourcePreferences(state, model)
             ExtensionCenterPage.PROVIDERS -> ExtensionProviderDisplay(state, model)
@@ -170,11 +172,9 @@ internal fun installedEntries(state: ExtensionSourcesUiState): List<Pair<Extensi
 @Composable
 fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: ExtensionSourcesEvent) {
     val nav = LocalNavActionManager.current
-    PlainPreference(title = stringResource(R.string.matching_title), icon = CoreR.drawable.link_24,
-        shape = preferenceShape(0, 2), modifier = Modifier.testTag("extension-source-matching"),
-        onClick = { nav.navigate(Route.ExtensionCenterPage("matching")) })
+    PreferencesTitle(stringResource(R.string.extension_center_management_section))
     PlainPreference(title = stringResource(R.string.extension_center_schedule), icon = CoreR.drawable.schedule_24,
-        shape = preferenceShape(1, 2), modifier = Modifier.testTag("extension-source-schedule"),
+        shape = singleShape, modifier = Modifier.testTag("extension-source-schedule"),
         onClick = { nav.navigate(Route.ExtensionCenterPage("schedule")) })
     state.releaseNotificationsEnabled?.let { enabled ->
         PreferencesTitle(text = stringResource(CoreR.string.notifications))

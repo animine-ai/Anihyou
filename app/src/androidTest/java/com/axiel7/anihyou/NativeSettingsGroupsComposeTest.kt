@@ -73,9 +73,29 @@ class NativeSettingsGroupsComposeTest {
         rule.onNodeWithText(rule.activity.getString(SettingsR.string.extension_center_management_section)).assertIsDisplayed()
         rule.onNodeWithText(rule.activity.getString(SettingsR.string.extension_center_diagnostics_section)).assertIsDisplayed()
         rule.storeVerifiedScreenshot(rule.activity, File(rule.activity.getExternalFilesDir(null), "ep07-ui"), "native-center-groups") {
-            rule.onNodeWithTag("extension-center-manage").assertIsDisplayed()
+            rule.onNodeWithTag("extension-center-source").assertIsDisplayed()
             rule.onNodeWithTag("extension-center-diagnostics").assertIsDisplayed()
         }
+    }
+    @Test fun rootOpensExtensionsMatcherAndProvidersDirectlyAndBackReturnsToSettings() {
+        lateinit var state: NavigationState
+        lateinit var nav: Navigator
+        rule.setContent {
+            state = rememberNavigationState(Route.Settings, MainNavigationResolver.allRoutes)
+            nav = remember(state) { Navigator(state) }
+            CompositionLocalProvider(LocalNavActionManager provides NavActionManager(nav)) {
+                AniHyouTheme(darkTheme = false, dynamicColor = false) {
+                    Column(Modifier.verticalScroll(rememberScrollState())) { SettingsSourceNavigationPreferences() }
+                }
+            }
+        }
+        listOf("manage", "matching", "providers").forEach { id ->
+            rule.onNodeWithTag("extension-center-$id").performScrollTo().performClick()
+            rule.runOnIdle { org.junit.Assert.assertEquals(Route.ExtensionCenterPage(id), state.getCurrentRoute())
+                nav.goBack(); org.junit.Assert.assertEquals(Route.Settings, state.getCurrentRoute()) }
+        }
+        rule.onNodeWithTag("extension-center-root").performScrollTo().performClick()
+        rule.runOnIdle { org.junit.Assert.assertEquals(Route.ExtensionCenter, state.getCurrentRoute()) }
     }
 
     @Test fun centerWithLargeGermanTextUsesTheOriginalBlackTheme() {
@@ -88,7 +108,7 @@ class NativeSettingsGroupsComposeTest {
         }
     }
 
-    @Test fun emptySourcesDisableSelectionAndKeepMatchingAndScheduleRoutes() {
+    @Test fun emptySourcesDisableSelectionAndKeepScheduleRoute() {
         lateinit var navigation: NavigationState
         val context = germanBlackContent {
             navigation = rememberNavigationState(Route.Home, MainNavigationResolver.allRoutes)
@@ -101,11 +121,11 @@ class NativeSettingsGroupsComposeTest {
         rule.onNodeWithText(context.getString(SettingsR.string.extension_sources_no_active_source)).assertIsDisplayed()
         rule.storeVerifiedScreenshot(rule.activity, File(rule.activity.getExternalFilesDir(null), "ep07-ui"),
             "native-sources-empty-german-black-large") {
-            rule.onNodeWithTag("extension-source-matching").assertIsDisplayed()
+            rule.onNodeWithTag("extension-source-schedule").assertIsDisplayed()
             rule.onNodeWithTag("extension-product-active-none").assertIsNotEnabled()
         }
-        rule.onNodeWithTag("extension-source-matching").performClick()
-        rule.runOnIdle { org.junit.Assert.assertEquals(Route.ExtensionCenterPage("matching"), navigation.getCurrentRoute()) }
+        rule.onNodeWithTag("extension-source-schedule").performClick()
+        rule.runOnIdle { org.junit.Assert.assertEquals(Route.ExtensionCenterPage("schedule"), navigation.getCurrentRoute()) }
     }
 
     @Test fun dataSourcePageOwnsTheReleaseNotificationSwitch() {
