@@ -36,11 +36,20 @@ class AniListIdentityCandidateSource(
 
     override suspend fun airingCandidates(day: LocalDate): List<IdentityCandidate> {
         val repository = mediaRepository ?: return emptyList()
+        val now = clock.instant()
+        val poolKey = "airing-day:$day"
+        // The schedule of a day moves rarely. What was derived from it is kept like a season pool (the older matcher kept
+        // every candidate source that way): a later run reads a few rows instead of taking the AniList answer apart
+        // again, which cost 300 ms a day and a request now and then.
+        if (cache.readSeasonPoolMetadata(poolKey, now)?.complete == true) {
+            return cache.observeSeasonCandidates(poolKey, now).first()
+        }
         val zone = java.time.ZoneId.systemDefault()
         val from = day.atStartOfDay(zone).toEpochSecond()
         val to = day.plusDays(1).atStartOfDay(zone).toEpochSecond() - 1
         val byMedia = LinkedHashMap<Int, IdentityCandidate>()
         var page = 1
+        var complete = false
         while (page <= AIRING_DAY_MAX_PAGES) {
             val result = runCatching {
                 repository.getCalendarAiringEventsPage(
@@ -60,10 +69,18 @@ class AniListIdentityCandidateSource(
                     )
                 }
             }
-            if (!result.hasNextPage) break
+            if (!result.hasNextPage) { complete = true; break }
             page++
         }
-        return byMedia.values.filter { it.titles.isNotEmpty() }
+        val found = byMedia.values.filter { it.titles.isNotEmpty() }
+        // Only a day that was read to its end is kept; an empty day is an answer too.
+        if (complete) runCatching {
+            val expiresAt = now.plus(AIRING_DAY_TTL_HOURS, ChronoUnit.HOURS)
+            cache.replaceSeasonCandidates(poolKey, found, now, expiresAt)
+            cache.writeSeasonPoolMetadata(poolKey, SeasonPoolCacheMetadata(
+                complete = true, nextCursor = null, fetchedAt = now, expiresAt = expiresAt, pagesFetched = page))
+        }
+        return found
     }
 
     override suspend fun readTargetedLookupCursor(providerId: String): TargetedLookupCursor =
@@ -248,6 +265,7 @@ class AniListIdentityCandidateSource(
         const val SEASON_PAGE_SIZE = 50
         const val AIRING_PAGE_SIZE = 50
         const val AIRING_DAY_MAX_PAGES = 4
+        const val AIRING_DAY_TTL_HOURS = 3L
     }
 }
 

@@ -55,6 +55,7 @@ dependencies {
     ksp("androidx.room:room-compiler:2.8.5")
 
     testImplementation(libs.junit)
+    testImplementation(libs.mockk)
     testImplementation(libs.apache.commons.compress)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("com.squareup.okhttp3:mockwebserver3:5.5.0")
