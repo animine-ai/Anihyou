@@ -174,12 +174,12 @@ fun SwitchPreference(
     enabled: Boolean = true,
     @DrawableRes icon: Int? = null,
     iconTint: Color = MaterialTheme.colorScheme.primary,
-    iconPadding: PaddingValues = PaddingValues(16.dp),
+    iconPadding: PaddingValues = PaddingValues(12.dp),
     onValueChange: (Boolean) -> Unit,
     shape: RoundedCornerShape = RoundedCornerShape(4.dp),
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh
 ) {
-    val verticalPadding = if (subtitle == null) 8.dp else 1.dp
+    val verticalPadding = 12.dp
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -218,9 +218,7 @@ fun SwitchPreference(
                 }
 
                 Column(
-                    modifier = if (subtitle != null)
-                        Modifier.padding(16.dp)
-                    else Modifier.padding(horizontal = 16.dp)
+                    modifier = Modifier.weight(1f).padding(start = 4.dp, end = 8.dp)
                 ) {
                     Text(
                         text = title,
@@ -232,7 +230,7 @@ fun SwitchPreference(
                             text = subtitle,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
-                            lineHeight = 14.sp
+                            lineHeight = 18.sp
                         )
                     }
                 }//: Column
@@ -244,7 +242,7 @@ fun SwitchPreference(
                     onValueChange(it)
                 },
                 enabled = enabled,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier.padding(start = 8.dp, end = 12.dp)
             )
         }//: Row
     }//: Surface

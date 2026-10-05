@@ -579,6 +579,7 @@ internal fun ExtensionTrackPreferences(
     enabled: Boolean,
     canShowInProviderField: Boolean,
     event: ExtensionSourcesEvent,
+    heading: String? = null,
 ) {
     val tracksByKind = extension.supportedTracks
         .filter(::isPreferenceTrack)
@@ -591,7 +592,7 @@ internal fun ExtensionTrackPreferences(
         .sorted()
 
     if (subTracks.isNotEmpty() || dubTracks.isNotEmpty()) {
-        PreferencesTitle(stringResource(R.string.extension_sources_track_settings))
+        PreferencesTitle(heading ?: stringResource(R.string.extension_sources_track_settings))
         if (subTracks.isNotEmpty()) {
             TrackSwitch(
                 label = stringResource(R.string.extension_sources_sub_enabled),
@@ -706,7 +707,8 @@ internal fun SelectionOption(
                 onClick = onClick,
             )
             .testTag(testTag)
-            .padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+            .heightIn(min = 56.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(
@@ -714,7 +716,8 @@ internal fun SelectionOption(
             onClick = null,
             enabled = enabled,
         )
-        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.size(12.dp))
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
     }
 }
 }
@@ -750,10 +753,10 @@ internal fun TrackSwitch(
     Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 1.dp)) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Text(label, modifier = Modifier.weight(1f).padding(end = 12.dp), style = MaterialTheme.typography.bodyLarge)
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,

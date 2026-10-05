@@ -97,14 +97,15 @@ class NativeSettingsGroupsComposeTest {
             rule.onNodeWithText(navigationTitle).assertIsDisplayed()
         }
     }
-    @Test fun centerSeparatesManagementFromDiagnostics() {
+    @Test fun centerContainsOnlyStatisticsAndDiagnostics() {
         rule.setContent { AniHyouTheme(darkTheme = false, dynamicColor = false) { Column(Modifier.verticalScroll(rememberScrollState())) {
             ExtensionCenterMenu { }
         } } }
-        rule.onNodeWithText(rule.activity.getString(SettingsR.string.extension_center_management_section)).assertIsDisplayed()
+        rule.onAllNodesWithText(rule.activity.getString(SettingsR.string.extension_center_management_section)).assertCountEquals(0)
         rule.onNodeWithText(rule.activity.getString(SettingsR.string.extension_center_diagnostics_section)).assertIsDisplayed()
         rule.storeVerifiedScreenshot(rule.activity, File(rule.activity.getExternalFilesDir(null), "ep07-ui"), "native-center-groups") {
-            rule.onNodeWithTag("extension-center-source").assertIsDisplayed()
+            rule.onAllNodesWithTag("extension-center-source").assertCountEquals(0)
+            rule.onNodeWithTag("extension-center-statistics").assertIsDisplayed()
             rule.onNodeWithTag("extension-center-diagnostics").assertIsDisplayed()
         }
     }
@@ -120,7 +121,7 @@ class NativeSettingsGroupsComposeTest {
                 }
             }
         }
-        listOf("manage", "matching", "providers").forEach { id ->
+        listOf("manage", "source", "matching", "providers").forEach { id ->
             rule.onNodeWithTag("extension-center-$id").performScrollTo().performClick()
             rule.runOnIdle { org.junit.Assert.assertEquals(Route.ExtensionCenterPage(id), state.getCurrentRoute())
                 nav.goBack(); org.junit.Assert.assertEquals(Route.Settings, state.getCurrentRoute()) }

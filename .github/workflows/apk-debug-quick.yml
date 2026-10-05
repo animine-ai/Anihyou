@@ -1,7 +1,7 @@
 name: Performance APK (temporary signed)
 # Optimized ARM64 test APK with temporary debug signing and complete data-decision logging. No tests, lint or emulator.
 # R8/resource shrinking reduce download size. Product gates remain separate; full logging and native packaging are verified.
-# Build the repaired Behind candidate with canonical-coordinate guards and full logs.
+# Build the direct source-settings and readable preference-layout follow-up with full logs.
 
 on:
   workflow_dispatch:
@@ -104,6 +104,16 @@ jobs:
           for apk in out/*.apk; do
             "$apksigner_path" verify --print-certs "$apk" > out/signature-verification.txt
           done
+      - name: Preserve logging verification evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: performance-logging-evidence-${{ github.sha }}
+          path: |
+            app/build/outputs/mapping/fossPerformance/configuration.txt
+            out/*verification*
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Upload the ARM64 performance APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

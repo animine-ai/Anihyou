@@ -102,8 +102,6 @@ fun ExtensionTrustUnavailableNotice(modifier: Modifier = Modifier) {
 @Composable
 fun ExtensionCenterMenu(onPage: (ExtensionCenterPage) -> Unit) {
     listOf(
-        R.string.extension_center_management_section to listOf(
-            ExtensionCenterPage.SOURCE),
         R.string.extension_center_diagnostics_section to listOf(
             ExtensionCenterPage.STATISTICS, ExtensionCenterPage.DIAGNOSTICS),
     ).forEach { (title, pages) ->
@@ -202,7 +200,6 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
             onValueChange = { if (!it) event.disableLegacyLane() },
         )
     }
-    HorizontalDivider(Modifier.padding(vertical = 12.dp))
     val entries = installedEntries(state)
     val canEdit = state.canEditProductPolicy && !state.hasSourceOperationInFlight()
     val releaseEntries = entries.filter { (_, e) -> e.capabilities.any { cap ->
@@ -218,11 +215,9 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
             { event.selectActiveSource(key) }, "extension-product-active-" + key.testTagPart(), preferenceShape(index + 1, releaseEntries.size + 1))
     }
     entries.forEach { (key, extension) ->
-        HorizontalDivider(Modifier.padding(vertical = 12.dp))
-        PreferencesTitle(text = extension.displayName)
         ExtensionTrackPreferences(key, extension,
             state.productPolicy.preferences[key] ?: ExtensionPreferences().withGenericDefaults(extension),
-            canEdit, canShowInProviderField = false, event = event)
+            canEdit, canShowInProviderField = false, event = event, heading = extension.displayName)
     }
 }
 

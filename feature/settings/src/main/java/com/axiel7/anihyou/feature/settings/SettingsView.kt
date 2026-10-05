@@ -113,12 +113,12 @@ fun SettingsSourceNavigationPreferences() {
         shape = singleShape,
     )
     PreferencesTitle(text = stringResource(com.axiel7.anihyou.feature.settings.R.string.settings_sources_section))
-    val pages = listOf(ExtensionCenterPage.MANAGE, ExtensionCenterPage.MATCHING, ExtensionCenterPage.PROVIDERS)
+    val pages = listOf(ExtensionCenterPage.MANAGE, ExtensionCenterPage.SOURCE, ExtensionCenterPage.MATCHING, ExtensionCenterPage.PROVIDERS)
     pages.forEachIndexed { index, page ->
         PlainPreference(
             title = stringResource(page.title), icon = page.icon,
             onClick = { nav.navigate(Route.ExtensionCenterPage(page.id)) },
-            shape = preferenceShape(index, 4),
+            shape = preferenceShape(index, pages.size + 1),
             modifier = Modifier.testTag("extension-center-${page.id}"),
         )
     }
@@ -126,7 +126,7 @@ fun SettingsSourceNavigationPreferences() {
         title = stringResource(com.axiel7.anihyou.feature.settings.R.string.extension_center_title),
         icon = R.drawable.link_24,
         onClick = { nav.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.ExtensionCenter) },
-        shape = preferenceShape(3, 4),
+        shape = preferenceShape(pages.size, pages.size + 1),
         modifier = Modifier.testTag("extension-center-root"),
     )
 }
