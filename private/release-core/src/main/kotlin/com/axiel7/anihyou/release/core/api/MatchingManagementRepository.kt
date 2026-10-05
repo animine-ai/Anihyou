@@ -58,8 +58,10 @@ data class UnmatchedSeries(val source: ExtensionSelectionKey, val seriesKey: Str
 interface MatchingManagementRepository {
     /** The series of the active source without a binding, nearest releases first. Local reads only. */
     fun observeUnmatched(): Flow<List<UnmatchedSeries>> = kotlinx.coroutines.flow.flowOf(emptyList())
-    /** Runs the automatic matching for the unbound series now; returns how many it bound. Spends bounded AniList searches. */
+    /** Runs the automatic matching for the unbound series now (AniList calendar and season pools); returns how many it bound. */
     suspend fun matchUnmatchedNow(): Int = 0
+    /** Opt-in: also asks AniList for the title of the series that stay open, a few per run. Returns how many it bound. */
+    suspend fun searchUnmatchedNow(): Int = 0
     /** The user's own choice for one unbound series. Never overwrites an existing binding. */
     suspend fun assignUnmatched(series: UnmatchedSeries, mediaId: Int): MappingMutationResult = MappingMutationResult.UNAVAILABLE
 

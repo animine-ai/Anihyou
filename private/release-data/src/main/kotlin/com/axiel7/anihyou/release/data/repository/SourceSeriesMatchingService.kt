@@ -195,9 +195,9 @@ class SourceSeriesMatchingService(
     /**
      * Binds the series of the active source's rows that have no binding yet to AniList entries, so that the calendar,
      * Behind and the details present them with AniList metadata. It uses the same matcher and the same automatic tiers
-     * as [resolve]; a fuzzy hit is never written, and a series the user reset or corrected is left alone. One run spends
-     * at most [maxSearches] AniList searches (the lookup cache answers a repeated title without the network), nearest
-     * releases first, so the series the user looks at are bound first and the rest follow with the next refresh.
+     * as [resolve]; a fuzzy hit is never written, and a series the user reset or corrected is left alone. A run asks
+     * AniList for the calendar and the season pools; it spends at most [maxSearches] searches per title (none unless the
+     * user asked for them), nearest releases first.
      */
     /** The unbound (series, season) pairs of this source's rows, nearest releases first, plus what is already taken. */
     private class Pending(val subjects: Int, val bound: Int, val series: List<Pair<String, Int>>, val takenMedia: Set<Int>)
@@ -273,8 +273,17 @@ class SourceSeriesMatchingService(
      * One run at a time: a refresh, a button and the details may ask together, and a second run only waits and then finds
      * nothing left to do instead of spending the same AniList requests again.
      */
-    suspend fun autoMatchPending(maxSearches: Int = AUTO_SEARCHES_PER_RUN, force: Boolean = false): AutoMatchReport =
+    suspend fun autoMatchPending(maxSearches: Int = 0, force: Boolean = false): AutoMatchReport =
         runLock.withLock { autoMatchLocked(maxSearches, force) }
+
+    /** The run after a refresh and the plain button: the AniList calendar and the season pools, never a search per title. */
+    suspend fun matchPendingNow(): AutoMatchReport = autoMatchPending(force = true)
+
+    /**
+     * The user's explicit wish (opt-in): after the calendar and the pools, ask AniList for the title of the series that are
+     * still open, a few per run. It is slow, it mostly guesses and it costs AniList requests, so nothing starts it by itself.
+     */
+    suspend fun searchPendingNow(): AutoMatchReport = autoMatchPending(maxSearches = SEARCHES_PER_USER_RUN, force = true)
 
     /** When a series was last tried without a result, so the automatic runs after a refresh do not try it again and again. */
     private val lastTried = java.util.concurrent.ConcurrentHashMap<String, java.time.Instant>()
@@ -307,7 +316,8 @@ class SourceSeriesMatchingService(
         //    It holds what airs now and what premieres soon, so the next season needs no search of its own. Day by day,
         //    today first, and it stops as soon as nothing is open.
         // 2. The current season, then the last one, as pools: for what does not air in these days.
-        // 3. A single search is the last resort: it is slow, it mostly guesses, and it costs AniList requests.
+        // 3. A single search is the last resort and only on the user's wish: it is slow, it mostly guesses, and it costs
+        //    AniList requests. The automatic run passes a budget of none.
         var firstRound = true
         suspend fun round(via: String) {
             val still = ArrayList<Pair<String, Int>>()
@@ -577,8 +587,8 @@ class SourceSeriesMatchingService(
         const val MAX_LABELS = 20_000
         /** Spacing between two network searches of one explicit rematch run. */
         const val SEARCH_PACE_MS = 700L
-        /** AniList answers about 90 requests a minute; the automatic pass stays far below it and spreads over refreshes. */
-        const val AUTO_SEARCHES_PER_RUN = 6
+        /** AniList answers about 90 requests a minute; one explicit search run stays far below it. */
+        const val SEARCHES_PER_USER_RUN = 8
         val RETRY_AFTER: java.time.Duration = java.time.Duration.ofHours(6)
         /** Bumped with every change of the rules; automatic bindings of another version are decided again. */
         const val MATCHER_VERSION = "v3-season-strict-1"

@@ -121,6 +121,12 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                         enabled = !state.busy && !state.preparing && state.confirmation == null, isLoading = state.busy,
                         onClick = event::matchNow, shape = singleShape,
                         modifier = Modifier.testTag("matching-match-now"))
+                    // Only on the user's wish: one AniList search per open title is slow, guesses and loads AniList.
+                    PlainPreference(title = stringResource(R.string.matching_search_now),
+                        subtitle = stringResource(R.string.matching_search_now_summary), icon = CoreR.drawable.search_24,
+                        enabled = !state.busy && !state.preparing && state.confirmation == null && state.unmatched.isNotEmpty(),
+                        onClick = event::searchNow, shape = singleShape,
+                        modifier = Modifier.testTag("matching-search-now"))
                     state.lastMatched?.let {
                         Text(stringResource(R.string.matching_matched_now, it), style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

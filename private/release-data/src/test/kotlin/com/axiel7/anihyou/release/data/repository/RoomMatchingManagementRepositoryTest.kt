@@ -528,7 +528,7 @@ class RoomMatchingManagementRepositoryTest {
         assertTrue("no season pool and no search were needed", rig.candidates.poolRequests.isEmpty() && rig.candidates.targetedCalls == 0)
     }
 
-    @Test fun autoMatchTakesTheCurrentSeasonThenTheLastAndSingleSearchesOnlyAtTheEnd() = runBlocking {
+    @Test fun autoMatchTakesTheCurrentSeasonThenTheLastAndNeverSearchesByItself() = runBlocking {
         val rig = Rig()
         rig.seedSeries(Triple("now", "Now Show", 1), Triple("old", "Old Show", 1), Triple("nowhere", "Nowhere", 1))
         rig.candidates.pools = mapOf(
@@ -539,7 +539,17 @@ class RoomMatchingManagementRepositoryTest {
         assertEquals(2, report.matched)
         assertEquals("the next season is never loaded; the third pool goes back one more season",
             listOf("season-pool:fall:2026", "season-pool:summer:2026", "season-pool:spring:2026"), rig.candidates.poolRequests)
+        assertEquals("a search per title never starts by itself", 0, rig.candidates.targetedCalls)
+        // Only on the user's wish, and then only for the series nothing else settled.
+        rig.service.searchPendingNow()
         assertEquals("only the series nothing else settled is searched", 1, rig.candidates.targetedCalls)
+    }
+
+    @Test fun theButtonWithoutSearchNeverSearchesEither() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("nowhere", "Nowhere", 1))
+        rig.service.matchPendingNow()
+        assertEquals(0, rig.candidates.targetedCalls)
     }
 
     @Test fun aDubThatRunsWeeksBehindIsFoundInTheSeasonBeforeTheLastOne() = runBlocking {

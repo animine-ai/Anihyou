@@ -458,7 +458,12 @@ class RoomMatchingManagementRepository(
 
     override suspend fun matchUnmatchedNow(): Int = withContext(Dispatchers.IO) {
         AppLog.i("matching") { "user: match unbound series now" }
-        service.autoMatchPending(force = true).matched
+        service.matchPendingNow().matched
+    }
+
+    override suspend fun searchUnmatchedNow(): Int = withContext(Dispatchers.IO) {
+        AppLog.i("matching") { "user: match unbound series now with a search per title" }
+        service.searchPendingNow().matched
     }
 
     override suspend fun assignUnmatched(series: UnmatchedSeries, mediaId: Int): MappingMutationResult =

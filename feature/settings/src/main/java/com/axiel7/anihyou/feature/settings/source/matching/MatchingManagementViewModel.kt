@@ -59,8 +59,10 @@ interface MatchingManagementEvent {
     fun askConfigurationReset()
     fun dismissConfigurationReset()
     fun resetConfiguration()
-    /** Matches the unbound series of the active source automatically, now. */
+    /** Matches the unbound series of the active source automatically, now (AniList calendar and season pools). */
     fun matchNow() {}
+    /** Opt-in: also asks AniList for the title of each series that stays open. Slower and heavier on AniList. */
+    fun searchNow() {}
     fun openUnmatched(series: UnmatchedSeries) {}
     fun closeUnmatched() {}
     /** Binds the open unbound series to the chosen AniList entry. */
@@ -178,6 +180,13 @@ class MatchingManagementViewModel(
         if (state.value.busy || state.value.preparing) return
         mutate {
             val bound = repository.matchUnmatchedNow()
+            mutable.update { it.copy(lastMatched = bound, notice = MatchingNotice.FINISHED) }
+        }
+    }
+    override fun searchNow() {
+        if (state.value.busy || state.value.preparing) return
+        mutate {
+            val bound = repository.searchUnmatchedNow()
             mutable.update { it.copy(lastMatched = bound, notice = MatchingNotice.FINISHED) }
         }
     }
