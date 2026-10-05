@@ -321,24 +321,43 @@ class SourceSeriesMatchingService(
             firstRound = false
             left = still
         }
+        val runStart = System.nanoTime()
+        fun since(start: Long) = (System.nanoTime() - start) / 1_000_000
         for (offset in CALENDAR_DAY_OFFSETS) {
             if (left.isEmpty()) break
             val day = today.plusDays(offset.toLong())
+            AppLog.d("matching") { "auto match: asking AniList for the calendar of $day" }
+            val loadStart = System.nanoTime()
             val loaded = attempt { candidates.airingCandidates(day) }.orEmpty()
+            val loadMs = since(loadStart)
             loaded.forEach { pool.putIfAbsent(it.mediaId, it) }
-            AppLog.i("matching") { "auto match: AniList calendar $day +${loaded.size} entries (pool ${pool.size}), ${left.size} series open" }
+            val roundStart = System.nanoTime()
+            val before = matched
             round("calendar $day")
+            AppLog.i("matching") {
+                "auto match: AniList calendar $day +${loaded.size} entries (pool ${pool.size}), ${left.size} series open " +
+                    "after ${matched - before} bound (load $loadMs ms, match ${since(roundStart)} ms)"
+            }
         }
-        val windows = CandidatePoolWindows.currentAndPrevious(today)
-        val pages = listOf(CURRENT_POOL_PAGES, PREVIOUS_POOL_PAGES)
+        // The last seasons: a dub that runs weeks behind the original airs on the source when AniList is done with it.
+        val windows = CandidatePoolWindows.currentAndTwoPrevious(today)
+        val pages = listOf(CURRENT_POOL_PAGES, PREVIOUS_POOL_PAGES, EARLIER_POOL_PAGES)
         for ((index, window) in windows.withIndex()) {
             if (left.isEmpty()) break
+            AppLog.d("matching") { "auto match: asking AniList for the season pool ${window.cacheKey} (up to ${pages[index]} pages)" }
+            val loadStart = System.nanoTime()
             val loaded = attempt {
                 candidates.boundedSeasonPool(CandidatePoolRequest(window = window, maxPages = pages[index])).candidates
             }.orEmpty()
+            val loadMs = since(loadStart)
             loaded.forEach { pool.putIfAbsent(it.mediaId, it) }
-            AppLog.i("matching") { "auto match: pool ${window.cacheKey} +${loaded.size} entries (pool ${pool.size}), ${left.size} series open" }
+            val roundStart = System.nanoTime()
+            val before = matched
             round(window.cacheKey)
+            AppLog.i("matching") {
+                "auto match: pool ${window.cacheKey} +${loaded.size} entries (pool ${pool.size}), ${left.size} series open " +
+                    "after ${matched - before} bound (load $loadMs ms, match ${since(roundStart)} ms)"
+            }
         }
         var searches = 0
         for ((slug, season) in left) {
@@ -348,7 +367,9 @@ class SourceSeriesMatchingService(
             if (result == Bind.BOUND) matched++
         }
         left.forEach { (slug, season) -> lastTried["${MappingEntryIds.sourceKey(active)}|$slug|$season"] = now }
-        AppLog.i("matching") { "auto match done: examined=$examined matched=$matched single searches=$searches open=${left.size}" }
+        AppLog.i("matching") {
+            "auto match done: examined=$examined matched=$matched single searches=$searches open=${left.size} in ${since(runStart)} ms"
+        }
         return AutoMatchReport(found.series.size, examined, matched, searches)
     }
 
@@ -562,7 +583,8 @@ class SourceSeriesMatchingService(
         /** Bumped with every change of the rules; automatic bindings of another version are decided again. */
         const val MATCHER_VERSION = "v3-season-strict-1"
         const val CURRENT_POOL_PAGES = 8
-        const val PREVIOUS_POOL_PAGES = 6
+        const val PREVIOUS_POOL_PAGES = 8
+        const val EARLIER_POOL_PAGES = 5
         /** The calendar days asked for, in order: today, then the week ahead, then yesterday (the source lists recent releases too). */
         val CALENDAR_DAY_OFFSETS = listOf(0, 1, 2, 3, 4, 5, 6, 7, -1)
         const val AUTO_SEARCH_PACE_MS = 1_100L

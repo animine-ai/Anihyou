@@ -158,7 +158,23 @@ object CandidatePoolWindows {
         return listOf(current, previous)
     }
 
-    /** The current season first, then the last one, then the next one: the order in which the matcher loads them, only as needed. */
+    /**
+     * The current season first, then the last one, then the one before: the order in which the matcher loads them, only as
+     * needed. A dub that runs weeks behind the original (and a two-cour show that started two seasons ago) still airs on the
+     * source when AniList is long done with it.
+     */
+    fun currentAndTwoPrevious(sourceDate: java.time.LocalDate): List<CandidatePoolWindow> {
+        val (current, previous) = currentAndPrevious(sourceDate)
+        val earlier = when (previous.season) {
+            CandidateSeason.WINTER -> CandidatePoolWindow(CandidateSeason.FALL, previous.year - 1)
+            CandidateSeason.SPRING -> CandidatePoolWindow(CandidateSeason.WINTER, previous.year)
+            CandidateSeason.SUMMER -> CandidatePoolWindow(CandidateSeason.SPRING, previous.year)
+            CandidateSeason.FALL -> CandidatePoolWindow(CandidateSeason.SUMMER, previous.year)
+        }
+        return listOf(current, previous, earlier)
+    }
+
+    /** The current season first, then the last one, then the next one. */
     fun currentPreviousAndNext(sourceDate: java.time.LocalDate): List<CandidatePoolWindow> {
         val (current, previous) = currentAndPrevious(sourceDate)
         val next = when (current.season) {

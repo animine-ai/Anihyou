@@ -537,8 +537,21 @@ class RoomMatchingManagementRepositoryTest {
         )
         val report = rig.service.autoMatchPending()
         assertEquals(2, report.matched)
-        assertEquals("the next season is never loaded", listOf("season-pool:fall:2026", "season-pool:summer:2026"), rig.candidates.poolRequests)
+        assertEquals("the next season is never loaded; the third pool goes back one more season",
+            listOf("season-pool:fall:2026", "season-pool:summer:2026", "season-pool:spring:2026"), rig.candidates.poolRequests)
         assertEquals("only the series nothing else settled is searched", 1, rig.candidates.targetedCalls)
+    }
+
+    @Test fun aDubThatRunsWeeksBehindIsFoundInTheSeasonBeforeTheLastOne() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("late", "Late Show", 1))
+        rig.candidates.pools = mapOf(
+            "season-pool:spring:2026" to listOf(IdentityCandidate(40, setOf("Late Show"), "TV", java.time.LocalDate.of(2026, 4, 6))))
+        val report = rig.service.autoMatchPending()
+        assertEquals(1, report.matched)
+        assertEquals("no single search was needed", 0, rig.candidates.targetedCalls)
+        assertEquals("40", rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("late", 1).stableKey, "anilist")!!.externalId)
     }
 
     @Test fun autoMatchTakesTheAiringEntryOfTheTitleWhenTheSeasonNumbersDiffer() = runBlocking {

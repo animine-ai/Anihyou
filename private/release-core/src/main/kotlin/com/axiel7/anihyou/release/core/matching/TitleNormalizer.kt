@@ -17,6 +17,7 @@ data class NormalizedTitle(
 }
 
 object TitleNormalizer {
+    private val whitespace = Regex("\\s+")
     private val combiningMarks = Regex("\\p{M}+")
     private val separators = Regex("[^\\p{L}\\p{N}]+")
     private val positiveNumber = Regex("[1-9][0-9]{0,2}")
@@ -24,14 +25,28 @@ object TitleNormalizer {
     private val compactPart = Regex("p([1-9][0-9]{0,2})")
     private val ordinalSeason = Regex("([1-9][0-9]{0,2})(?:st|nd|rd|th)")
 
+    /**
+     * The same title is looked at once per series and per candidate of a pool: tens of thousands of times in one matcher
+     * run. The result only depends on the text, so it is kept (bounded, least recently used).
+     */
+    private const val CACHE_LIMIT = 16_384
+    private val cache = object : LinkedHashMap<String, NormalizedTitle>(1_024, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, NormalizedTitle>): Boolean = size > CACHE_LIMIT
+    }
+
     fun normalize(raw: String): NormalizedTitle {
+        synchronized(cache) { cache[raw] }?.let { return it }
+        return compute(raw).also { value -> synchronized(cache) { cache[raw] = value } }
+    }
+
+    private fun compute(raw: String): NormalizedTitle {
         val folded = Normalizer.normalize(raw, Normalizer.Form.NFKD)
             .replace(combiningMarks, "")
             .lowercase(Locale.ROOT)
             .replace("&", " and ")
             .replace(separators, " ")
             .trim()
-        val sourceTokens = if (folded.isEmpty()) emptyList() else folded.split(Regex("\\s+"))
+        val sourceTokens = if (folded.isEmpty()) emptyList() else folded.split(whitespace)
         val removed = BooleanArray(sourceTokens.size)
         var season: Int? = null
         var part: Int? = null
