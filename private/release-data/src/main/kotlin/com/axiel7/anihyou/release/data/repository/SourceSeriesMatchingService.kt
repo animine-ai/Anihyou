@@ -376,23 +376,38 @@ class SourceSeriesMatchingService(
             }
         }
         // The last seasons: a dub that runs weeks behind the original airs on the source when AniList is done with it.
+        // They load two at a time (as the older matcher did, for the same kindness to AniList) while the first one is
+        // already compared; a season is still compared in its order, and the loads that are not needed are dropped.
         val windows = CandidatePoolWindows.lastSeasons(today, POOL_PAGES.size)
-        val pages = POOL_PAGES
-        for ((index, window) in windows.withIndex()) {
-            if (left.isEmpty()) break
-            AppLog.d("matching") { "auto match: asking AniList for the season pool ${window.cacheKey} (up to ${pages[index]} pages)" }
-            val loadStart = System.nanoTime()
-            val loaded = attempt {
-                candidates.boundedSeasonPool(CandidatePoolRequest(window = window, maxPages = pages[index])).candidates
-            }.orEmpty()
-            val loadMs = since(loadStart)
-            pool.add(loaded)
-            val roundStart = System.nanoTime()
-            val before = matched
-            round(window.cacheKey)
-            AppLog.i("matching") {
-                "auto match: pool ${window.cacheKey} +${loaded.size} entries (pool ${pool.size}), ${left.size} series open " +
-                    "after ${matched - before} bound (load $loadMs ms, match ${since(roundStart)} ms)"
+        if (left.isNotEmpty()) coroutineScope {
+            val poolPermits = Semaphore(POOL_PARALLEL)
+            val loads = windows.mapIndexed { index, window ->
+                async {
+                    poolPermits.withPermit {
+                        AppLog.d("matching") { "auto match: asking AniList for the season pool ${window.cacheKey} (up to ${POOL_PAGES[index]} pages)" }
+                        val loadStart = System.nanoTime()
+                        val batch = attempt {
+                            candidates.boundedSeasonPool(CandidatePoolRequest(window = window, maxPages = POOL_PAGES[index])).candidates
+                        }.orEmpty()
+                        batch to since(loadStart)
+                    }
+                }
+            }
+            try {
+                for ((index, window) in windows.withIndex()) {
+                    if (left.isEmpty()) break
+                    val (loaded, loadMs) = loads[index].await()
+                    pool.add(loaded)
+                    val roundStart = System.nanoTime()
+                    val before = matched
+                    round(window.cacheKey)
+                    AppLog.i("matching") {
+                        "auto match: pool ${window.cacheKey} +${loaded.size} entries (pool ${pool.size}), ${left.size} series open " +
+                            "after ${matched - before} bound (load $loadMs ms, match ${since(roundStart)} ms)"
+                    }
+                }
+            } finally {
+                loads.forEach { it.cancel() }
             }
         }
         var searches = 0
@@ -753,6 +768,8 @@ class SourceSeriesMatchingService(
         /** Pages of the season pools, the current season first and then one after the other further back (a year in all). */
         val POOL_PAGES = listOf(8, 8, 5, 4, 4)
         const val PREPARE_PARALLEL = 4
+        /** Season pools loaded at the same time: two, like the older matcher (and like the request budget of AniList allows). */
+        const val POOL_PARALLEL = 2
         const val COMPACT_MIN_LENGTH = 6
         val YEAR_SUFFIX = Regex(" (19|20)\\d{2}$")
         const val SUGGESTION_MIN_SCORE = 0.4
