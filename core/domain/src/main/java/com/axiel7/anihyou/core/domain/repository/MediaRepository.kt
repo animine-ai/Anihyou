@@ -130,6 +130,18 @@ class MediaRepository(
             data.Page?.media?.mapNotNull { it?.exploreMedia }.orEmpty()
         }
 
+    /** Cover, title and list entry of several anime at once; the same fragment as the other lists. */
+    fun getMediaByIdsPage(
+        ids: List<Int>,
+        page: Int = 1,
+        perPage: Int = 50,
+    ) = api
+        .mediaByIdsQuery(ids, page, perPage)
+        .toFlow()
+        .asPagedResult(page = { it.Page?.pageInfo?.commonPage }) { data ->
+            data.Page?.media?.mapNotNull { it?.exploreMedia }.orEmpty()
+        }
+
     fun getMediaChartPage(
         type: ChartType,
         isAdult: Boolean? = null,

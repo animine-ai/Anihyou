@@ -574,6 +574,44 @@ class RoomMatchingManagementRepositoryTest {
             subject("black", 5).stableKey, "anilist")!!.externalId)
     }
 
+    @Test fun aSourceTitleWithoutTheApostropheMeetsTheAniListTitleThatBeginsWithIt() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("jojos", "Jojos Bizarre Adventure", 7))
+        val today = java.time.LocalDate.of(2026, 10, 1)
+        rig.candidates.airing = mapOf(today to listOf(
+            IdentityCandidate(51, setOf("JoJo's Bizarre Adventure: Steel Ball Run"), "TV", today)))
+        assertEquals(1, rig.service.autoMatchPending().matched)
+        assertEquals("51", rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("jojos", 7).stableKey, "anilist")!!.externalId)
+    }
+
+    @Test fun aShortSourceTitleMeetsTheOnlyAiringEntryThatBeginsWithIt() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("bleach", "Bleach", 17))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(
+            IdentityCandidate(61, setOf("Bleach: Thousand-Year Blood War"), "TV", java.time.LocalDate.of(2026, 10, 2))))
+        assertEquals(1, rig.service.autoMatchPending().matched)
+        assertEquals("61", rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("bleach", 17).stableKey, "anilist")!!.externalId)
+    }
+
+    @Test fun twoAiringEntriesThatBeginWithTheShortTitleAreNeverGuessed() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("bleach", "Bleach", 17))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(
+            IdentityCandidate(61, setOf("Bleach: Thousand-Year Blood War"), "TV", java.time.LocalDate.of(2026, 10, 2)),
+            IdentityCandidate(62, setOf("Bleach: Another Story"), "TV", java.time.LocalDate.of(2026, 10, 3))))
+        assertEquals(0, rig.service.autoMatchPending().matched)
+    }
+
+    @Test fun aMovieIsNeverTheContinuationOfASeries() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("bleach", "Bleach", 17))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(
+            IdentityCandidate(63, setOf("Bleach: The Movie"), "MOVIE", java.time.LocalDate.of(2026, 10, 2))))
+        assertEquals(0, rig.service.autoMatchPending().matched)
+    }
+
     @Test fun autoMatchRunsOneAtATime() = runBlocking {
         val rig = Rig()
         rig.seedSeries(Triple("show", "Show", 2))

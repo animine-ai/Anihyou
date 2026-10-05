@@ -11,11 +11,13 @@ import java.util.Locale
 object SearchTitleFolding {
     private val combiningMarks = Regex("\\p{M}+")
     private val separators = Regex("[^\\p{L}\\p{N}]+")
+    private val apostrophes = Regex("['\u2019\u2018\u02BC`\u00B4]")
 
     fun fold(raw: String): String = Normalizer.normalize(raw, Normalizer.Form.NFKD)
         .replace(combiningMarks, "")
         .lowercase(Locale.ROOT)
         .replace("&", " and ")
+        .replace(apostrophes, "")
         .replace(separators, " ")
         .trim()
 }

@@ -22,6 +22,8 @@ data class CalendarUiState(
     val today: LocalDate = LocalDate.of(2000, 1, 1),
     val day: LocalDateTime = LocalDateTime.of(2000, 1, 1, 0, 0),
     val weeklyAnime: MutableMap<LocalDate, List<CalendarAiringEvent>> = mutableMapOf(),
+    /** Cover and title of the entries a release source names that no loaded AniList day holds (a dub that runs weeks behind). */
+    val extraMedia: Map<Int, ExploreMedia> = emptyMap(),
     val releaseCalendarRows: List<ReleaseUiCalendarItem> = emptyList(),
     val providerRowsByDate: Map<LocalDate, List<ReleaseUiCalendarItem>> = emptyMap(),
     val releaseByMediaId: Map<Int, List<ReleaseUiCalendarItem>> = emptyMap(),

@@ -4,6 +4,9 @@ import com.axiel7.anihyou.release.core.api.ReleaseUiAuthority
 import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
 import com.axiel7.anihyou.release.core.model.*
 import java.time.LocalDate
+import com.axiel7.anihyou.core.network.fragment.ExploreMedia
+import io.mockk.every
+import io.mockk.mockk
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -64,6 +67,14 @@ class CalendarPresentationTest {
         val keys = state.presentationDays().single().rows.map { it.key }
         assertEquals(2, keys.size)
         assertEquals(2, keys.toSet().size)
+    }
+
+    @Test fun anEntryNoLoadedAniListDayHoldsStillGetsItsCoverFromTheEntriesLoadedById() {
+        val loaded = mockk<ExploreMedia>(relaxed = true) { every { id } returns 7 }
+        val withoutIt = CalendarUiState(today = today, providerRowsByDate = mapOf(today to listOf(row(today))))
+        assertNull("the row of a dub that runs weeks behind has no entry yet", withoutIt.presentationDays().single().rows.single().media)
+        val withIt = withoutIt.copy(extraMedia = mapOf(7 to loaded))
+        assertSame(loaded, withIt.presentationDays().single().rows.single().media)
     }
 
     private fun row(date: LocalDate) = ReleaseUiCalendarItem(

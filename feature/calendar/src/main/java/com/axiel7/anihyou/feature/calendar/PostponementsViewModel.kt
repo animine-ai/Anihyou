@@ -2,7 +2,7 @@ package com.axiel7.anihyou.feature.calendar
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.axiel7.anihyou.core.base.DataResult
+import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
 import com.axiel7.anihyou.release.core.api.ExtensionPostponementNotice
 import com.axiel7.anihyou.release.core.log.AppLog
@@ -17,16 +17,10 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.CancellationException
 import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
 import com.axiel7.anihyou.release.core.source.usableExtension
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 
 data class PostponementMediaMetadata(val title: String?, val cover: String?, val adult: Boolean)
 
@@ -110,27 +104,23 @@ class PostponementsViewModel(
                 .collectLatest { ids ->
                     // Existing AniList repository/cache supplies display metadata only.
                     // Mapping changes cancel obsolete requests; metadata cannot grant a binding.
-                    val permits = Semaphore(4)
-                    coroutineScope {
-                        ids.filterNot(metadata.value::containsKey).map { id ->
-                            async {
-                                permits.withPermit {
-                                    val result = mediaRepository.getMediaDetails(id)
-                                        .catch { error ->
-                                            if (error is CancellationException) throw error
-                                            emit(DataResult.Error("Metadata unavailable"))
-                                        }
-                                        .first { it !is DataResult.Loading }
-                                    if (result is DataResult.Success) result.data?.let { media ->
-                                        metadata.value = metadata.value + (id to PostponementMediaMetadata(
-                                            title = media.basicMediaDetails.title?.userPreferred,
-                                            cover = media.coverImage?.large,
-                                            adult = media.basicMediaDetails.isAdult == true,
-                                        ))
-                                    }
-                                }
+                    // All entries in a few requests (50 per page) instead of one details request each.
+                    ids.filterNot(metadata.value::containsKey).chunked(MEDIA_BY_IDS_PAGE).forEach { chunk ->
+                        val result = runCatching {
+                            mediaRepository.getMediaByIdsPage(chunk, page = 1, perPage = MEDIA_BY_IDS_PAGE)
+                                .first { it !is PagedResult.Loading }
+                        }.onFailure { error -> if (error is CancellationException) throw error }.getOrNull()
+                        if (result is PagedResult.Success) {
+                            metadata.value = metadata.value + result.list.associate { media ->
+                                media.id to PostponementMediaMetadata(
+                                    title = media.basicMediaDetails.title?.userPreferred,
+                                    cover = media.coverImage?.large,
+                                    adult = media.basicMediaDetails.isAdult == true,
+                                )
                             }
-                        }.awaitAll()
+                        } else {
+                            AppLog.w("ui") { "cover and title for ${chunk.size} postponed entries unavailable" }
+                        }
                     }
                 }
         }
@@ -138,3 +128,4 @@ class PostponementsViewModel(
 }
 
 private const val REFRESH_WAIT_MILLIS = 30_000L
+private const val MEDIA_BY_IDS_PAGE = 50

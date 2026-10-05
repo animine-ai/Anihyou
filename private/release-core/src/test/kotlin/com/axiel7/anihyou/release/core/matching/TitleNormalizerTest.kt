@@ -21,6 +21,12 @@ class TitleNormalizerTest {
         assertEquals(3, b.season)
     }
 
+    @Test fun anApostropheDoesNotCutAWordInTwo() {
+        assertEquals("jojos bizarre adventure", TitleNormalizer.normalize("JoJo's Bizarre Adventure").base)
+        assertEquals("jojos bizarre adventure", TitleNormalizer.normalize("Jojos Bizarre Adventure").base)
+        assertEquals("lets go kaikigumi", TitleNormalizer.normalize("Let\u2019s Go Kaikigumi").base)
+    }
+
     @Test fun moreTitlesThanTheCacheHoldsStillNormalizeCorrectly() {
         repeat(20_000) { index -> assertEquals("show $index", TitleNormalizer.normalize("Show $index").base) }
         assertEquals("the apothecary diaries", TitleNormalizer.normalize("The Apothecary Diaries Season 3").base)

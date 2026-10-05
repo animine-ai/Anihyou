@@ -123,6 +123,42 @@ class FileExtensionPostponementStoreTest {
         assertNull(reopened.presentation.first().notices.single().mediaId)
     }
 
+    /** A notice of the real page carries a short title and no series key; the series the source listed elsewhere gives the media. */
+    @Test fun aShortTitleOfThePageFindsTheSeriesWithTheLongTitleThatHasABindingForThatSeason() = runBlocking {
+        val store = FileExtensionPostponementStore(temporary.newFolder(), database)
+        val subject = AniWorldMappingSubject.Season(AniWorldSiteIdentifier("rezero-starting-life"), 2)
+        val e = ExternalMapping(subject, ExternalProvider.ANILIST, "189046", MappingSource.PERSISTED,
+            MappingConfidence.EXACT, now, now, MappingStatus.ACTIVE).toEntity()
+        database.matchingDao().upsertSourceMapping(SourceMappingEntity(key.sourceId, key.extensionId, key.publisherId,
+            key.providerId, e.mappingSubjectKey, e.externalProvider, e.seriesStableKey, e.siteSlug, e.subjectType,
+            e.navigationSeason, e.filmNumber, e.externalId, e.mappingSource, e.mappingStatus, e.confidence, e.createdAt,
+            e.validatedAt, e.staleAt, e.provenance, e.parserVersion, 1L, now.toString()))
+        database.matchingDao().upsertLabel(SourceSeriesLabelEntity(key.sourceId, key.extensionId, key.publisherId,
+            key.providerId, "rezero-starting-life", "Re:ZERO - Starting Life in Another World",
+            com.axiel7.anihyou.release.core.matching.SearchTitleFolding.fold("Re:ZERO - Starting Life in Another World"),
+            "", now.toString(), now.toString()))
+        store.record(key, 1, "a".repeat(64), 1, now, listOf(observation().copy(providerSeriesKey = null, rawTitle = "Re:Zero")))
+        assertEquals(189046, store.presentation.first().notices.single().mediaId)
+    }
+
+    @Test fun twoDifferentEntriesBehindOneShortTitleAreAmbiguousAndGiveNoLink() = runBlocking {
+        val store = FileExtensionPostponementStore(temporary.newFolder(), database)
+        listOf("alpha-one" to 1, "alpha-two" to 2).forEach { (slug, media) ->
+            val e = ExternalMapping(AniWorldMappingSubject.Season(AniWorldSiteIdentifier(slug), 2), ExternalProvider.ANILIST,
+                media.toString(), MappingSource.PERSISTED, MappingConfidence.EXACT, now, now, MappingStatus.ACTIVE).toEntity()
+            database.matchingDao().upsertSourceMapping(SourceMappingEntity(key.sourceId, key.extensionId, key.publisherId,
+                key.providerId, e.mappingSubjectKey, e.externalProvider, e.seriesStableKey, e.siteSlug, e.subjectType,
+                e.navigationSeason, e.filmNumber, e.externalId, e.mappingSource, e.mappingStatus, e.confidence, e.createdAt,
+                e.validatedAt, e.staleAt, e.provenance, e.parserVersion, 1L, now.toString()))
+            val title = "Alpha ${if (media == 1) "One" else "Two"}"
+            database.matchingDao().upsertLabel(SourceSeriesLabelEntity(key.sourceId, key.extensionId, key.publisherId,
+                key.providerId, slug, title, com.axiel7.anihyou.release.core.matching.SearchTitleFolding.fold(title),
+                "", now.toString(), now.toString()))
+        }
+        store.record(key, 1, "a".repeat(64), 1, now, listOf(observation().copy(providerSeriesKey = null, rawTitle = "Alpha")))
+        assertNull(store.presentation.first().notices.single().mediaId)
+    }
+
     private fun mapping() = ExternalMapping(
         AniWorldMappingSubject.Season(AniWorldSiteIdentifier("example-series"), 2),
         ExternalProvider.ANILIST, "7", MappingSource.MANUAL, MappingConfidence.EXACT,

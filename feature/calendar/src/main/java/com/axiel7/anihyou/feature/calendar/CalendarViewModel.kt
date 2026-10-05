@@ -61,6 +61,36 @@ class CalendarViewModel(
     /** The device-local date. It follows the clock: a screen that stays open across midnight must not keep yesterday. */
     private var today = nowLocalDateTime().toLocalDate()
 
+    private val requestedMedia = HashSet<Int>()
+
+    /**
+     * A release source can name an entry that no loaded AniList day holds, as a dub does that runs weeks behind the
+     * original. Cover and title of such an entry come from AniList by id, a few requests for all of them.
+     */
+    private fun loadMissingMedia(ids: Collection<Int>) {
+        val state = mutableUiState.value
+        val known = state.weeklyAnime.values.asSequence().flatten().map { it.media.id }.toSet()
+        val missing = ids.filter { it > 0 && it !in known && it !in state.extraMedia && it !in requestedMedia }.distinct()
+        if (missing.isEmpty()) return
+        requestedMedia += missing
+        viewModelScope.launch {
+            missing.chunked(MEDIA_BY_IDS_PAGE).forEach { chunk ->
+                val result = runCatching {
+                    mediaRepository.getMediaByIdsPage(chunk, page = 1, perPage = MEDIA_BY_IDS_PAGE)
+                        .first { it !is PagedResult.Loading }
+                }.getOrNull()
+                if (result is PagedResult.Success) {
+                    val loaded = result.list.associateBy { it.id }
+                    AppLog.i("calendar") { "cover and title loaded by id: ${loaded.size} of ${chunk.size} entries" }
+                    mutableUiState.update { it.copy(extraMedia = it.extraMedia + loaded) }
+                } else {
+                    AppLog.w("calendar") { "cover and title by id unavailable for ${chunk.size} entries, asked again with the next rows" }
+                    requestedMedia -= chunk.toSet()
+                }
+            }
+        }
+    }
+
     override fun onMyListChanged(value: Boolean?) {
         viewModelScope.launch {
             defaultPreferencesRepository.setCalendarOnMyList(value)
@@ -269,6 +299,7 @@ class CalendarViewModel(
                         ),
                     ).withTodayFirstItemIndex()
                 }
+                loadMissingMedia(rows.mapNotNull { it.mediaId })
             }
             .launchIn(viewModelScope)
 
@@ -418,3 +449,6 @@ internal fun millisUntilNextLocalDay(now: ZonedDateTime): Long =
 /** The loaded request window has reached today, or nothing more will load (end of data, error). */
 internal fun isTodayAnchorStable(loadedDay: LocalDate, today: LocalDate, hasNextPage: Boolean, error: String?): Boolean =
     loadedDay >= today || !hasNextPage || error != null
+
+/** How many entries one request for cover and title by id asks for (AniList allows 50 per page). */
+private const val MEDIA_BY_IDS_PAGE = 50

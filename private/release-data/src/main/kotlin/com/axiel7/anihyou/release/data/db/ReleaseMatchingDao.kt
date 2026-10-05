@@ -55,6 +55,17 @@ interface ReleaseMatchingDao {
     suspend fun labelsByTitle(sourceId: String, extensionId: String, publisherId: String, providerId: String,
                               normalized: String): List<SourceSeriesLabelEntity>
 
+    /**
+     * The series whose title begins with this folded title, or that this folded title begins with, on a whole word. A
+     * list of the source gives a short name ("Re:Zero") where the series page has the long one. Folded titles hold only
+     * letters, digits and single spaces, so no LIKE wildcard can occur in them.
+     */
+    @Query("SELECT * FROM v3_source_series_label WHERE sourceId=:sourceId AND extensionId=:extensionId " +
+        "AND publisherId=:publisherId AND providerId=:providerId AND titleNormalized != '' AND " +
+        "(titleNormalized LIKE :normalized || ' %' OR :normalized LIKE titleNormalized || ' %') LIMIT 40")
+    suspend fun labelsSharingTitleStart(sourceId: String, extensionId: String, publisherId: String, providerId: String,
+                                        normalized: String): List<SourceSeriesLabelEntity>
+
     @Query("SELECT * FROM v3_source_series_label WHERE sourceId=:sourceId AND extensionId=:extensionId " +
         "AND publisherId=:publisherId AND providerId=:providerId ORDER BY titleNormalized, providerSeriesKey " +
         "LIMIT :limit OFFSET :offset")

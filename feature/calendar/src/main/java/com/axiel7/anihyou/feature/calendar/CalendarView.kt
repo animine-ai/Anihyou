@@ -406,7 +406,7 @@ internal fun List<CalendarRow>.withUniqueKeys(): List<CalendarRow> {
 }
 
 internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
-    val metadataByMediaId = weeklyAnime.values.asSequence().flatten().map { it.media }.associateBy { it.id }
+    val metadataByMediaId = extraMedia + weeklyAnime.values.asSequence().flatten().map { it.media }.associateBy { it.id }
     val sourceCoveredMediaIds = providerRowsByDate.values.asSequence().flatten()
         .filter { it.isAuthoritative }.mapNotNull { it.mediaId }.toSet()
     // A release source is the main calendar as soon as it supplies rows: AniList entries without its match stay out unless asked for.

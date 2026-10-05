@@ -140,16 +140,26 @@ class FileExtensionPostponementStore(
         if (notice.installmentKind != ObservationInstallmentKind.EPISODE) return null
         val season = notice.navigationSeason ?: notice.sourceSeason ?: return null
         val dao = database.matchingDao()
-        val label = dao.labelsByTitle(source.sourceId, source.extensionId, source.publisherId, source.providerId,
-            com.axiel7.anihyou.release.core.matching.SearchTitleFolding.fold(notice.title)).singleOrNull() ?: return null
-        val subject = runCatching {
-            AniWorldMappingSubject.Season(AniWorldSiteIdentifier(label.providerSeriesKey), season)
-        }.getOrNull() ?: return null
-        val row = dao.sourceMapping(source.sourceId, source.extensionId, source.publisherId, source.providerId,
-            subject.stableKey, "anilist") ?: return null
-        if (row.mappingStatus != "ACTIVE" || row.confidence !in setOf("EXACT", "HIGH") ||
-            row.validatedAt == null || row.staleAt != null) return null
-        return row.externalId?.toIntOrNull()?.takeIf { it > 0 }
+        val folded = com.axiel7.anihyou.release.core.matching.SearchTitleFolding.fold(notice.title)
+        if (folded.isEmpty()) return null
+        // The same title first. The page of the postponements often gives a short name ("Re:Zero") where the series has a
+        // longer one: then the series that share the beginning of the title and have a binding for exactly this season.
+        val exact = dao.labelsByTitle(source.sourceId, source.extensionId, source.publisherId, source.providerId, folded)
+        val labels = exact.ifEmpty {
+            dao.labelsSharingTitleStart(source.sourceId, source.extensionId, source.publisherId, source.providerId, folded)
+        }
+        val media = labels.mapNotNull { label ->
+            val subject = runCatching {
+                AniWorldMappingSubject.Season(AniWorldSiteIdentifier(label.providerSeriesKey), season)
+            }.getOrNull() ?: return@mapNotNull null
+            val row = dao.sourceMapping(source.sourceId, source.extensionId, source.publisherId, source.providerId,
+                subject.stableKey, "anilist") ?: return@mapNotNull null
+            if (row.mappingStatus != "ACTIVE" || row.confidence !in setOf("EXACT", "HIGH") ||
+                row.validatedAt == null || row.staleAt != null) return@mapNotNull null
+            row.externalId?.toIntOrNull()?.takeIf { it > 0 }
+        }.distinct()
+        // Two different entries are ambiguous: no link is better than a wrong one.
+        return media.singleOrNull()
     }
 
     private fun mappedAniListId(

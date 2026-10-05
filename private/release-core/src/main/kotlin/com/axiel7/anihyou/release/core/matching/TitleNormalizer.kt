@@ -20,6 +20,8 @@ object TitleNormalizer {
     private val whitespace = Regex("\\s+")
     private val combiningMarks = Regex("\\p{M}+")
     private val separators = Regex("[^\\p{L}\\p{N}]+")
+    /** "JoJo's" and "Jojos" are one word; an apostrophe must not cut it into "jojo s". */
+    private val apostrophes = Regex("['\u2019\u2018\u02BC`\u00B4]")
     private val positiveNumber = Regex("[1-9][0-9]{0,2}")
     private val compactSeason = Regex("s([1-9][0-9]{0,2})")
     private val compactPart = Regex("p([1-9][0-9]{0,2})")
@@ -44,6 +46,7 @@ object TitleNormalizer {
             .replace(combiningMarks, "")
             .lowercase(Locale.ROOT)
             .replace("&", " and ")
+            .replace(apostrophes, "")
             .replace(separators, " ")
             .trim()
         val sourceTokens = if (folded.isEmpty()) emptyList() else folded.split(whitespace)

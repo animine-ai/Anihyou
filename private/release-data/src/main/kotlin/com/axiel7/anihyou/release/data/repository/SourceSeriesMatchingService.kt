@@ -309,30 +309,30 @@ class SourceSeriesMatchingService(
         }
         val today = now.atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate()
         val pool = LinkedHashMap<Int, IdentityCandidate>()
-        var left = open
         var matched = 0
-        var examined = 0
         // 1. The AniList airing calendar, as far ahead as it goes: the data the calendar tab shows without a release source.
         //    It holds what airs now and what premieres soon, so the next season needs no search of its own. Day by day,
         //    today first, and it stops as soon as nothing is open.
         // 2. The current season, then the last one, as pools: for what does not air in these days.
         // 3. A single search is the last resort and only on the user's wish: it is slow, it mostly guesses, and it costs
         //    AniList requests. The automatic run passes a budget of none.
-        var firstRound = true
-        suspend fun round(via: String) {
-            val still = ArrayList<Pair<String, Int>>()
-            for ((slug, season) in left) {
-                when (tryBind(active, slug, season, pool.values.toList(), takenMedia, search = null, via = via)) {
-                    Bind.BOUND -> { matched++; if (firstRound) examined++ }
-                    Bind.SKIPPED -> Unit
-                    Bind.NONE -> { still += slug to season; if (firstRound) examined++ }
-                }
-            }
-            firstRound = false
-            left = still
-        }
+        // The database is asked once per series for the whole run (fence, binding, label, epoch, local candidates). The
+        // rounds below only compare titles in memory: a round per calendar day and per season used to ask again each time.
         val runStart = System.nanoTime()
         fun since(start: Long) = (System.nanoTime() - start) / 1_000_000
+        var left: List<Prepared> = open.mapNotNull { (slug, season) -> prepare(active, slug, season) }
+        val examined = left.size
+        AppLog.i("matching") {
+            "auto match: prepared $examined series in ${since(runStart)} ms (${open.size - examined} skipped)"
+        }
+        suspend fun round(via: String) {
+            val poolList = pool.values.toList()
+            val still = ArrayList<Prepared>()
+            for (series in left) {
+                if (bind(active, series, poolList, takenMedia, search = null, via = via) != Bind.BOUND) still += series else matched++
+            }
+            left = still
+        }
         for (offset in CALENDAR_DAY_OFFSETS) {
             if (left.isEmpty()) break
             val day = today.plusDays(offset.toLong())
@@ -370,39 +370,61 @@ class SourceSeriesMatchingService(
             }
         }
         var searches = 0
-        for ((slug, season) in left) {
+        val poolList = pool.values.toList()
+        for (series in left) {
             if (searches >= maxSearches) break
-            val result = tryBind(active, slug, season, pool.values.toList(), takenMedia,
-                search = { searches++ }, via = "single search")
-            if (result == Bind.BOUND) matched++
+            if (bind(active, series, poolList, takenMedia, search = { searches++ }, via = "single search") == Bind.BOUND) matched++
         }
-        left.forEach { (slug, season) -> lastTried["${MappingEntryIds.sourceKey(active)}|$slug|$season"] = now }
+        left.forEach { lastTried["${MappingEntryIds.sourceKey(active)}|${it.slug}|${it.season}"] = now }
+        // Why a series stays open: its title and the nearest entries of everything that was looked at.
+        left.take(OPEN_SERIES_LOGGED).forEach { series ->
+            AppLog.i("matching") {
+                "auto match: open series=${series.slug} season=${series.season} title='${series.title}' closest: " +
+                    closestEntries(series.request, poolList)
+            }
+        }
         AppLog.i("matching") {
             "auto match done: examined=$examined matched=$matched single searches=$searches open=${left.size} in ${since(runStart)} ms"
         }
         return AutoMatchReport(found.series.size, examined, matched, searches)
     }
 
-    private enum class Bind { BOUND, SKIPPED, NONE }
+    private enum class Bind { BOUND, NONE }
 
-    /** One series against the candidates at hand; [search] non-null also asks AniList for this one title (last resort). */
-    private suspend fun tryBind(
-        active: ExtensionSelectionKey, slug: String, season: Int, pool: List<IdentityCandidate>,
-        takenMedia: MutableSet<Int>, search: (() -> Unit)?, via: String,
-    ): Bind {
+    /** What the database says about one series, read once per run; null when the series is not to be matched. */
+    private class Prepared(
+        val slug: String, val season: Int, val subject: AniWorldMappingSubject.Season, val title: String,
+        val identity: SourceIdentity, val request: ReleaseMatchRequest, val epoch: Long, val local: List<IdentityCandidate>,
+    )
+
+    private suspend fun prepare(active: ExtensionSelectionKey, slug: String, season: Int): Prepared? {
         val sourceKey = MappingEntryIds.sourceKey(active)
         val subject = runCatching { AniWorldMappingSubject.Season(AniWorldSiteIdentifier(slug), season) }.getOrNull()
-            ?: return Bind.SKIPPED
+            ?: return null
         // A reset or corrected entry is the user's decision; the automatic pass never brings it back.
-        if (dao.fence(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}") != null) return Bind.SKIPPED
-        if (alreadyAccepted(active, subject)) return Bind.SKIPPED
+        if (dao.fence(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}") != null) return null
+        if (alreadyAccepted(active, subject)) return null
         val label = dao.label(active.sourceId, active.extensionId, active.publisherId, active.providerId, slug)
-        val title = label?.title ?: slug.replace(Regex("[-_]+"), " ").trim().ifBlank { return Bind.SKIPPED }
+        val title = label?.title ?: slug.replace(Regex("[-_]+"), " ").trim().ifBlank { return null }
         val identity = sourceIdentity(active.providerId, slug, season)
         val request = ReleaseMatchRequest(identity, title,
             aliases = label?.let { names(it).toSet() - it.title }.orEmpty(), season = season)
         val epoch = fence.epoch(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}")
-        val local = (attempt { candidates.localCandidates(setOf(identity)).candidates }.orEmpty() + pool).distinctBy { it.mediaId }
+        val local = attempt { candidates.localCandidates(setOf(identity)).candidates }.orEmpty()
+        return Prepared(slug, season, subject, title, identity, request, epoch, local)
+    }
+
+    /** One prepared series against the candidates at hand; [search] non-null also asks AniList for this one title (last resort). */
+    private suspend fun bind(
+        active: ExtensionSelectionKey, series: Prepared, pool: List<IdentityCandidate>,
+        takenMedia: MutableSet<Int>, search: (() -> Unit)?, via: String,
+    ): Bind {
+        val slug = series.slug
+        val season = series.season
+        val title = series.title
+        val identity = series.identity
+        val request = series.request
+        val local = (series.local + pool).distinctBy { it.mediaId }
         var decision: MatchDecision = decide(request, local)
         var accepted = (decision as? MatchDecision.Matched)?.takeIf { it.tier in AUTO_TIERS }
         // The numbering of the source differs from AniList for long franchises (season 5 there, "Season 2" here): the one
@@ -431,22 +453,56 @@ class SourceSeriesMatchingService(
             return Bind.NONE
         }
         AppLog.i("matching") { "auto: series=$slug season=$season title='$title' -> media=${accepted.mediaId} tier=${accepted.tier} via $via" }
-        writeAuto(active, subject, accepted, epoch)
+        writeAuto(active, series.subject, accepted, series.epoch)
         return Bind.BOUND
     }
 
-    /** The one recent entry of the pool that carries the title of the series, whatever season number either side gives it. */
+    /**
+     * The one recent entry of the pool that carries the title of the series, whatever season number either side gives it.
+     * An entry whose title only begins with the title of the series counts when no entry carries exactly that title: the
+     * source says "Bleach" where AniList calls the continuation "Bleach: Thousand-Year Blood War".
+     */
     private fun continuation(request: ReleaseMatchRequest, pool: List<IdentityCandidate>): MatchDecision.Matched? {
         val season = request.season ?: return null
         if (season <= 1) return null
         val today = clock.instant().atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate()
         val wanted = (listOf(request.title) + request.aliases).map { TitleNormalizer.normalize(it).base }
             .filter { it.isNotBlank() }.toSet()
-        val only = pool.filter { candidate ->
+        val airing = pool.filter { candidate ->
             SeasonCandidateRule.isRecent(candidate.startDate, today) &&
-                candidate.titles.any { TitleNormalizer.normalize(it).base in wanted }
-        }.singleOrNull() ?: return null
+                (candidate.format == null || candidate.format in CONTINUATION_FORMATS)
+        }
+        val exact = airing.filter { candidate -> candidate.titles.any { TitleNormalizer.normalize(it).base in wanted } }
+        val only = when {
+            exact.size == 1 -> exact.single()
+            exact.size > 1 -> return null
+            else -> airing.filter { candidate ->
+                candidate.titles.any { title ->
+                    val base = TitleNormalizer.normalize(title).base
+                    wanted.any { it.length >= CONTINUATION_MIN_PREFIX && base.startsWith("$it ") }
+                }
+            }.singleOrNull() ?: return null
+        }
         return MatchDecision.Matched(only.mediaId, MatchTier.ALIAS, 0.9, null, "airing-continuation", only)
+    }
+
+    /** For the log of a series that stays open: the two entries of the pool whose titles share the most words with it. */
+    private fun closestEntries(request: ReleaseMatchRequest, pool: List<IdentityCandidate>): String {
+        val wanted = (listOf(request.title) + request.aliases).map { TitleNormalizer.normalize(it).tokens.toSet() }
+            .filter { it.isNotEmpty() }
+        if (wanted.isEmpty()) return "-"
+        return pool.mapNotNull { candidate ->
+            val best = candidate.titles.maxOfOrNull { title ->
+                val tokens = TitleNormalizer.normalize(title).tokens.toSet()
+                wanted.maxOf { words ->
+                    val shared = words.intersect(tokens).size
+                    if (shared == 0) 0.0 else shared.toDouble() / words.union(tokens).size
+                }
+            } ?: 0.0
+            if (best > 0.0) candidate to best else null
+        }.sortedByDescending { it.second }.take(2).joinToString("; ") { (candidate, score) ->
+            "'${candidate.titles.first()}' (${candidate.mediaId}, ${candidate.format ?: "-"}, ${candidate.startDate ?: "-"}, ${"%.2f".format(score)})"
+        }.ifEmpty { "none shares a word" }
     }
 
     /**
@@ -598,6 +654,9 @@ class SourceSeriesMatchingService(
         /** The calendar days asked for, in order: today, then the week ahead, then yesterday (the source lists recent releases too). */
         val CALENDAR_DAY_OFFSETS = listOf(0, 1, 2, 3, 4, 5, 6, 7, -1)
         const val AUTO_SEARCH_PACE_MS = 1_100L
+        const val OPEN_SERIES_LOGGED = 40
+        const val CONTINUATION_MIN_PREFIX = 5
+        val CONTINUATION_FORMATS = setOf("TV", "TV_SHORT", "ONA")
         val AUTO_FORMATS = setOf("TV", "TV_SHORT", "ONA", "OVA")
         /** A fuzzy hit is never accepted without the user. */
         val AUTO_TIERS = setOf(MatchTier.EXACT_NORMALIZED, MatchTier.EXACT_BASE_SEASON, MatchTier.ALIAS)
