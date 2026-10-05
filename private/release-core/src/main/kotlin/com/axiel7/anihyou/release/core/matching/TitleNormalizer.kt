@@ -14,6 +14,8 @@ data class NormalizedTitle(
         season?.let { append("|season:").append(it) }
         part?.let { append("|part:").append(it) }
     }
+    /** The base without its spaces: "Kurumi-chan" and "Kurumichan" are one title. */
+    val compact: String = base.replace(" ", "")
 }
 
 object TitleNormalizer {

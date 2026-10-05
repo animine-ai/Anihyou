@@ -453,7 +453,8 @@ class RoomMatchingManagementRepository(
             dao.observeSourceMappingTrigger(), dao.observeLabelTrigger(), dao.observeLegacyV3Trigger(),
             database.reconciliationDao().observeSourceProjections(active.sourceId, active.extensionId,
                 active.publisherId, active.providerId).map { it.size },
-        ) { _, _, _, _ -> 0 }.mapLatest { service.unmatched(active) }
+            service.suggestionRevision,
+        ) { _, _, _, _, _ -> 0 }.mapLatest { service.unmatched(active) }
     }.distinctUntilChanged().flowOn(Dispatchers.IO)
 
     override suspend fun matchUnmatchedNow(): Int = withContext(Dispatchers.IO) {

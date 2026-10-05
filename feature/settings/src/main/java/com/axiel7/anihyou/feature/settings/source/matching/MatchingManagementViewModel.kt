@@ -193,8 +193,8 @@ class MatchingManagementViewModel(
     override fun openUnmatched(series: UnmatchedSeries) {
         if (state.value.busy || state.value.preparing) return
         searchJob?.cancel(); searchGeneration++
-        // The search starts from the title the source gave the series; the user only has to press find.
-        mutable.update { it.copy(unmatchedEditor = series, editor = null, targetQuery = series.title.take(256), targets = emptyList(),
+        // The search starts from the nearest AniList title the matcher saw, else from the title the source gave; the user only has to press find.
+        mutable.update { it.copy(unmatchedEditor = series, editor = null, targetQuery = (series.suggestion?.title ?: series.title).take(256), targets = emptyList(),
             targetPage = 1, chosenTarget = null, hasMoreTargets = false, targetLoading = false, notice = null) }
     }
     override fun closeUnmatched() {

@@ -27,6 +27,11 @@ class TitleNormalizerTest {
         assertEquals("lets go kaikigumi", TitleNormalizer.normalize("Let\u2019s Go Kaikigumi").base)
     }
 
+    @Test fun theCompactFormIgnoresSpacesAndHyphens() {
+        assertEquals(TitleNormalizer.normalize("FX Fighter KURUMICHAN").compact, TitleNormalizer.normalize("FX Fighter Kurumi-chan").compact)
+        assertEquals("fxfighterkurumichan", TitleNormalizer.normalize("FX Fighter Kurumi-chan Season 2").compact)
+    }
+
     @Test fun moreTitlesThanTheCacheHoldsStillNormalizeCorrectly() {
         repeat(20_000) { index -> assertEquals("show $index", TitleNormalizer.normalize("Show $index").base) }
         assertEquals("the apothecary diaries", TitleNormalizer.normalize("The Apothecary Diaries Season 3").base)

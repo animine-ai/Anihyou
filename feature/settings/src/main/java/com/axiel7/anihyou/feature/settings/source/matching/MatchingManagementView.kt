@@ -147,6 +147,11 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                         Text(series.title, style = MaterialTheme.typography.titleMedium)
                         Text(stringResource(R.string.matching_unmatched_season, series.season),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        series.suggestion?.let { suggestion ->
+                            Text(stringResource(R.string.matching_unmatched_suggestion, suggestion.title),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.testTag("unmatched-suggestion-${series.seriesKey}-${series.season}"))
+                        }
                     }
                 }
             }

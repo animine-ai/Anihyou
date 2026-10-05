@@ -159,20 +159,27 @@ object CandidatePoolWindows {
     }
 
     /**
-     * The current season first, then the last one, then the one before: the order in which the matcher loads them, only as
-     * needed. A dub that runs weeks behind the original (and a two-cour show that started two seasons ago) still airs on the
-     * source when AniList is long done with it.
+     * The current season first, then one after the other further back, as many as asked for: the order in which the matcher
+     * loads them, only as needed. A dub that runs weeks or months behind the original (and a two-cour show that started
+     * seasons ago) still airs on the source when AniList is long done with it.
      */
-    fun currentAndTwoPrevious(sourceDate: java.time.LocalDate): List<CandidatePoolWindow> {
-        val (current, previous) = currentAndPrevious(sourceDate)
-        val earlier = when (previous.season) {
-            CandidateSeason.WINTER -> CandidatePoolWindow(CandidateSeason.FALL, previous.year - 1)
-            CandidateSeason.SPRING -> CandidatePoolWindow(CandidateSeason.WINTER, previous.year)
-            CandidateSeason.SUMMER -> CandidatePoolWindow(CandidateSeason.SPRING, previous.year)
-            CandidateSeason.FALL -> CandidatePoolWindow(CandidateSeason.SUMMER, previous.year)
+    fun lastSeasons(sourceDate: java.time.LocalDate, count: Int): List<CandidatePoolWindow> {
+        require(count in 1..12) { "season count must be between 1 and 12" }
+        val windows = ArrayList<CandidatePoolWindow>(count)
+        var window = currentAndPrevious(sourceDate).first()
+        repeat(count) {
+            windows += window
+            window = when (window.season) {
+                CandidateSeason.WINTER -> CandidatePoolWindow(CandidateSeason.FALL, window.year - 1)
+                CandidateSeason.SPRING -> CandidatePoolWindow(CandidateSeason.WINTER, window.year)
+                CandidateSeason.SUMMER -> CandidatePoolWindow(CandidateSeason.SPRING, window.year)
+                CandidateSeason.FALL -> CandidatePoolWindow(CandidateSeason.SUMMER, window.year)
+            }
         }
-        return listOf(current, previous, earlier)
+        return windows
     }
+
+    fun currentAndTwoPrevious(sourceDate: java.time.LocalDate): List<CandidatePoolWindow> = lastSeasons(sourceDate, 3)
 
     /** The current season first, then the last one, then the next one. */
     fun currentPreviousAndNext(sourceDate: java.time.LocalDate): List<CandidatePoolWindow> {

@@ -112,6 +112,7 @@
     <string name="matching_search_now">Search AniList for the rest</string>
     <string name="matching_search_now_summary">Asks AniList for each open title one by one. Slow, can guess wrong and loads AniList. It never starts by itself.</string>
     <string name="matching_unmatched_empty">Every series of the active source is matched.</string>
+    <string name="matching_unmatched_suggestion">Nearest on AniList: %1$s</string>
     <string name="matching_unmatched_season">Season %1$d</string>
     <string name="matching_matched_now">Newly matched: %1$d</string>
     <string name="matching_assign">Assign</string>

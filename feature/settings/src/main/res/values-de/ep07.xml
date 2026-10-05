@@ -112,6 +112,7 @@
     <string name="matching_search_now">Rest bei AniList suchen</string>
     <string name="matching_search_now_summary">Fragt AniList für jeden offenen Titel einzeln. Langsam, kann danebenliegen und belastet AniList. Startet nie von allein.</string>
     <string name="matching_unmatched_empty">Alle Serien der aktiven Quelle sind zugeordnet.</string>
+    <string name="matching_unmatched_suggestion">Am nächsten bei AniList: %1$s</string>
     <string name="matching_unmatched_season">Staffel %1$d</string>
     <string name="matching_matched_now">Neu zugeordnet: %1$d</string>
     <string name="matching_assign">Zuordnen</string>

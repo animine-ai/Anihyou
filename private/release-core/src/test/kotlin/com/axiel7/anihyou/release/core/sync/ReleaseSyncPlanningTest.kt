@@ -71,6 +71,20 @@ class ReleaseSyncPlanningTest {
     }
 
     @Test
+    fun aYearOfSeasonsGoesBackFromTheCurrentOneAndCrossesTheYear() {
+        assertEquals(
+            listOf(
+                CandidatePoolWindow(CandidateSeason.FALL, 2026),
+                CandidatePoolWindow(CandidateSeason.SUMMER, 2026),
+                CandidatePoolWindow(CandidateSeason.SPRING, 2026),
+                CandidatePoolWindow(CandidateSeason.WINTER, 2026),
+                CandidatePoolWindow(CandidateSeason.FALL, 2025),
+            ),
+            CandidatePoolWindows.lastSeasons(LocalDate.of(2026, 10, 5), 5),
+        )
+    }
+
+    @Test
     fun targetedWorkIsSortedDeduplicatedAndVariantCapped() {
         val other = identity.copy(
             stream = identity.stream.copy(stableSeriesKey = SourceSeriesKey("zz-other")),

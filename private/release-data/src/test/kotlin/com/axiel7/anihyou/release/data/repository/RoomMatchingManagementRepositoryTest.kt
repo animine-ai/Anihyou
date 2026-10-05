@@ -537,8 +537,9 @@ class RoomMatchingManagementRepositoryTest {
         )
         val report = rig.service.autoMatchPending()
         assertEquals(2, report.matched)
-        assertEquals("the next season is never loaded; the third pool goes back one more season",
-            listOf("season-pool:fall:2026", "season-pool:summer:2026", "season-pool:spring:2026"), rig.candidates.poolRequests)
+        assertEquals("the next season is never loaded; the pools go back a year, one season after the other",
+            listOf("season-pool:fall:2026", "season-pool:summer:2026", "season-pool:spring:2026",
+                "season-pool:winter:2026", "season-pool:fall:2025"), rig.candidates.poolRequests)
         assertEquals("a search per title never starts by itself", 0, rig.candidates.targetedCalls)
         // Only on the user's wish, and then only for the series nothing else settled.
         rig.service.searchPendingNow()
@@ -610,6 +611,60 @@ class RoomMatchingManagementRepositoryTest {
         rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(
             IdentityCandidate(63, setOf("Bleach: The Movie"), "MOVIE", java.time.LocalDate.of(2026, 10, 2))))
         assertEquals(0, rig.service.autoMatchPending().matched)
+    }
+
+    @Test fun anOnaThatAirsEpisodeByEpisodeIsAnEpisodicSeries() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("magical-explorer", "Magical Explorer", 1))
+        val today = java.time.LocalDate.of(2026, 10, 1)
+        rig.candidates.airing = mapOf(today.plusDays(2) to listOf(IdentityCandidate(71,
+            setOf("Magical\u2605Explorer: Eroge no Yuujin Chara ni Tensei Shitakedo", "Magical Explorer"), "ONA", today.plusDays(2))))
+        assertEquals(1, rig.service.autoMatchPending().matched)
+        assertEquals("71", rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("magical-explorer", 1).stableKey, "anilist")!!.externalId)
+    }
+
+    @Test fun aSpecialOrAnOvaIsStillNeverAnEpisodicSeries() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("extra", "Extra Show", 1))
+        val today = java.time.LocalDate.of(2026, 10, 1)
+        rig.candidates.airing = mapOf(today to listOf(
+            IdentityCandidate(72, setOf("Extra Show"), "SPECIAL", today), IdentityCandidate(73, setOf("Extra Show"), "OVA", today)))
+        assertEquals(0, rig.service.autoMatchPending().matched)
+    }
+
+    @Test fun theSameTitleWithAHyphenInsteadOfNoSpaceIsTheSameTitle() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("fx", "FX Fighter KURUMICHAN", 1))
+        val today = java.time.LocalDate.of(2026, 10, 1)
+        rig.candidates.airing = mapOf(today.plusDays(3) to listOf(IdentityCandidate(74,
+            setOf("FX Senshi Kurumi-chan", "FX Fighter Kurumi-chan"), "TV", today.plusDays(3))))
+        assertEquals(1, rig.service.autoMatchPending().matched)
+        assertEquals("74", rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("fx", 1).stableKey, "anilist")!!.externalId)
+    }
+
+    @Test fun aRemakeYearOfTheSourceDoesNotKeepTheAiringContinuationApart() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("jojos", "JoJo's Bizarre Adventure (2012)", 6))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(IdentityCandidate(75,
+            setOf("JoJo no Kimyou na Bouken: Steel Ball Run", "JoJo's Bizarre Adventure: Steel Ball Run"), "ONA",
+            java.time.LocalDate.of(2026, 10, 2))))
+        assertEquals(1, rig.service.autoMatchPending().matched)
+    }
+
+    @Test fun aSeriesThatStaysOpenGetsTheNearestAniListTitleAsAnOfferButNoBinding() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("suikoden", "Suikoden", 1), Triple("tomb", "Tomb Raider King", 1))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(IdentityCandidate(80, setOf("Gensou Suikoden"), "TV",
+            java.time.LocalDate.of(2026, 10, 10))))
+        assertEquals(0, rig.service.autoMatchPending().matched)
+        val list = rig.repository.observeUnmatched().first().associateBy { it.seriesKey }
+        assertEquals(80, list.getValue("suikoden").suggestion?.mediaId)
+        assertEquals("Gensou Suikoden", list.getValue("suikoden").suggestion?.title)
+        assertNull("nothing shares a word with this one, so nothing is offered", list.getValue("tomb").suggestion)
+        assertNull(rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("suikoden", 1).stableKey, "anilist"))
     }
 
     @Test fun autoMatchRunsOneAtATime() = runBlocking {
