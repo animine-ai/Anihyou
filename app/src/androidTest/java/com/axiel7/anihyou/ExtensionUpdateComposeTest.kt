@@ -589,6 +589,10 @@ class ExtensionUpdateComposeTest {
                 state.value = state.value.copy(productPolicy = state.value.productPolicy.copy(
                     preferences = state.value.productPolicy.preferences + (key to preferences)))
             }
+            override fun setProviderVisibility(key: ExtensionSelectionKey, visible: Boolean) {
+                setPreferences(key, state.value.productPolicy.preferencesFor(key).copy(visibleInProviderField = visible))
+                if (!visible && state.value.productPolicy.preferredNavigationProvider == key) selectNavigationProvider(null)
+            }
         }
         composeRule.setContent { MaterialTheme {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -600,14 +604,20 @@ class ExtensionUpdateComposeTest {
         composeRule.onNodeWithTag(visibleA).assertIsOn()
         composeRule.onNodeWithTag(visibleB).assertIsOn()
         composeRule.onNodeWithTag("extension-product-navigation-${keyB.testTagPart()}")
-            .performScrollTo().performClick().assertIsSelected()
+            .performScrollTo().performClick().assertIsOn()
         composeRule.onNodeWithTag(visibleA).performScrollTo().assertIsOn()
         composeRule.onNodeWithTag(visibleB).assertIsOn()
         captureScreenshot("providers-both-visible") {
             composeRule.onNodeWithTag(visibleA).assertIsDisplayed().assertIsOn()
             composeRule.onNodeWithTag(visibleB).assertIsDisplayed().assertIsOn()
         }
+        composeRule.onNodeWithTag("extension-product-navigation-${keyB.testTagPart()}")
+            .performScrollTo().performClick().assertIsOff()
+        assertEquals(null, state.value.productPolicy.preferredNavigationProvider)
+        composeRule.onNodeWithTag("extension-product-navigation-${keyA.testTagPart()}")
+            .performScrollTo().performClick().assertIsOn()
         composeRule.onNodeWithTag(visibleA).performClick().assertIsOff()
+        assertEquals(null, state.value.productPolicy.preferredNavigationProvider)
         composeRule.onNodeWithTag(visibleB).assertIsOn()
         captureScreenshot("providers-one-disabled") {
             composeRule.onNodeWithTag(visibleA).assertIsDisplayed().assertIsOff()

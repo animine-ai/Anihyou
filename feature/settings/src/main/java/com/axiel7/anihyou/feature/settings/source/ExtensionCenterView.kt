@@ -227,63 +227,7 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
 
 @Composable
 fun ExtensionProviderDisplay(state: ExtensionSourcesUiState, event: ExtensionSourcesEvent) {
-    val canEdit = state.canEditProductPolicy && !state.hasSourceOperationInFlight()
-    val entries = installedEntries(state).filter { it.second.supportsNavigation() }
-        .sortedWith(compareBy<Pair<ExtensionSelectionKey, SourceExtension>> {
-            state.productPolicy.navigationProviderOrder.indexOf(it.first).let { i -> if (i < 0) Int.MAX_VALUE else i }
-        }.thenBy { it.first.sourceId }.thenBy { it.first.extensionId })
-    PreferencesTitle(text = stringResource(R.string.extension_provider_visible_section))
-    if (entries.isEmpty()) {
-        Text(stringResource(R.string.extension_provider_empty), modifier = Modifier.padding(horizontal = 16.dp))
-    }
-    entries.forEachIndexed { index, (key, extension) ->
-        val preferences = state.productPolicy.preferences[key] ?: ExtensionPreferences().withGenericDefaults(extension)
-        SwitchPreference(
-            title = extension.displayName,
-            preferenceValue = preferences.visibleInProviderField,
-            icon = CoreR.drawable.play_circle_24,
-            enabled = canEdit,
-            shape = preferenceShape(index, entries.size),
-            modifier = Modifier.testTag("extension-preference-provider-visible-" + key.testTagPart())
-                .semantics { toggleableState = if (preferences.visibleInProviderField) ToggleableState.On else ToggleableState.Off
-                    role = Role.Switch },
-            onValueChange = { event.setPreferences(key, preferences.copy(visibleInProviderField = it)) },
-        )
-    }
-    if (entries.isNotEmpty()) {
-        PreferencesTitle(text = stringResource(R.string.extension_provider_preferred_section))
-        Text(stringResource(R.string.extension_provider_preferred_explanation),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.bodyMedium)
-        SelectionOption(stringResource(R.string.extension_sources_no_preferred_navigation_provider),
-            state.productPolicy.preferredNavigationProvider == null, canEdit,
-            { event.selectNavigationProvider(null) }, "extension-product-navigation-none")
-        entries.forEach { (key, extension) ->
-            SelectionOption(extension.displayName, state.productPolicy.preferredNavigationProvider == key, canEdit,
-                { event.selectNavigationProvider(key) }, "extension-product-navigation-" + key.testTagPart())
-        }
-        PreferencesTitle(text = stringResource(R.string.extension_provider_order_section))
-        entries.forEachIndexed { index, (key, extension) ->
-            Text(extension.displayName, modifier = Modifier.padding(horizontal = 16.dp))
-            Row(Modifier.padding(horizontal = 16.dp)) {
-                fun move(offset: Int) {
-                    val keys = entries.map { it.first }.toMutableList()
-                    keys.removeAt(index); keys.add((index + offset).coerceIn(0, keys.size), key)
-                    event.setProviderOrder(keys)
-                }
-                val moveUp = stringResource(R.string.extension_provider_move_up, extension.displayName)
-                val moveDown = stringResource(R.string.extension_provider_move_down, extension.displayName)
-                IconButton(onClick = { move(-1) }, enabled = index > 0 && canEdit,
-                    modifier = Modifier.testTag("provider-up-" + key.testTagPart())) {
-                    Icon(painterResource(CoreR.drawable.arrow_upward_24), contentDescription = moveUp)
-                }
-                IconButton(onClick = { move(1) }, enabled = index < entries.lastIndex && canEdit,
-                    modifier = Modifier.testTag("provider-down-" + key.testTagPart())) {
-                    Icon(painterResource(CoreR.drawable.arrow_downward_24), contentDescription = moveDown)
-                }
-            }
-        }
-    }
+    ProviderDisplayEditor(state, event)
 }
 
 @Composable

@@ -35,6 +35,30 @@ class FileExtensionProductPolicyRepositoryTest {
         assertNull(repository.withCurrentPolicy(before) { "stale" })
         assertEquals(listOf(KEY_B, KEY_A), repository(directory).policy.value.navigationProviderOrder)
     }
+    @Test fun `hiding preferred provider and display reset each commit once and preserve release policy`() = runBlocking {
+        val directory = temporaryFolder.newFolder("display-reset")
+        val repo = repository(directory)
+        val tracks = ExtensionPreferences(setOf("DE_DUB"), listOf("DE_DUB"), listOf("de"))
+        repo.setPreferences(KEY_A, tracks); repo.selectActiveSource(KEY_A)
+        repo.selectNavigationProvider(KEY_B); repo.setNavigationProviderOrder(listOf(KEY_B, KEY_A))
+        val beforeHide = repo.policy.value
+        repo.setProviderVisibility(KEY_B, false, ExtensionPreferences())
+        val hidden = repo.policy.value
+        assertEquals(beforeHide.generation + 1, hidden.generation)
+        assertFalse(hidden.preferencesFor(KEY_B).visibleInProviderField)
+        assertNull(hidden.preferredNavigationProvider)
+        assertEquals(KEY_A, hidden.activeReleaseSource); assertEquals(beforeHide.releaseGeneration, hidden.releaseGeneration)
+        repo.setProviderVisibility(KEY_A, false, tracks)
+        val beforeReset = repo.policy.value
+        repo.resetProviderDisplay(listOf(KEY_A, KEY_B))
+        val reset = repo.policy.value
+        assertEquals(beforeReset.generation + 1, reset.generation)
+        assertTrue(reset.preferencesFor(KEY_A).visibleInProviderField); assertTrue(reset.preferencesFor(KEY_B).visibleInProviderField)
+        assertEquals(tracks, reset.preferencesFor(KEY_A))
+        assertNull(reset.preferredNavigationProvider); assertTrue(reset.navigationProviderOrder.isEmpty())
+        assertEquals(KEY_A, reset.activeReleaseSource); assertEquals(beforeReset.releaseGeneration, reset.releaseGeneration)
+        assertEquals(reset, repository(directory).policy.value)
+    }
 
     @Test
     fun `old policy migrates provider order and removal preserves preferences for reinstall`() = runBlocking {

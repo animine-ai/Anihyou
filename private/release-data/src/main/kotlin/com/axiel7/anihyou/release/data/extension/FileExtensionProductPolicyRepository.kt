@@ -59,6 +59,19 @@ class FileExtensionProductPolicyRepository(
         require(keys.size <= 256 && keys.distinct() == keys && keys.all(navigationEligible))
         it.copy(navigationProviderOrder = keys)
     }
+    override suspend fun setProviderVisibility(key: ExtensionSelectionKey, visible: Boolean, defaults: ExtensionPreferences) = mutate {
+        require(navigationEligible(key)) { "navigation provider unavailable" }
+        require(key in it.preferences || it.preferences.size < 256)
+        it.copy(preferences = it.preferences + (key to (it.preferences[key] ?: defaults).copy(visibleInProviderField = visible)),
+            preferredNavigationProvider = it.preferredNavigationProvider?.takeUnless { preferred -> preferred == key && !visible })
+    }
+
+    override suspend fun resetProviderDisplay(keys: List<ExtensionSelectionKey>) = mutate {
+        require(keys.size <= 256 && keys.distinct() == keys && keys.all(navigationEligible))
+        // Reset display fields only. Track/language policy, release selection and its generation are preserved.
+        it.copy(preferences = it.preferences.mapValues { (_, p) -> p.copy(visibleInProviderField = true) },
+            preferredNavigationProvider = null, navigationProviderOrder = emptyList())
+    }
 
     override suspend fun <T> withCurrentSelection(snapshot: ExtensionProductPolicy, block: suspend () -> T): T? =
         mutex.withLock {

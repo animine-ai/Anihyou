@@ -26,7 +26,7 @@
     <string name="extension_center_diagnostics_section">Diagnose &amp; Debug</string>
     <string name="extension_provider_visible_section">Angezeigte Streaming-Anbieter</string>
     <string name="extension_provider_preferred_section">Bevorzugter Anbieter</string>
-    <string name="extension_provider_preferred_explanation">Dies bestimmt nur die Vorauswahl. Andere eingeschaltete Anbieter bleiben sichtbar.</string>
+    <string name="extension_provider_preferred_explanation">Der Stern markiert einen bevorzugten Anbieter. Erneutes Antippen entfernt die Präferenz. Andere angezeigte Anbieter bleiben sichtbar.</string>
     <string name="extension_provider_order_section">Reihenfolge der Anbieter</string>
     <string name="extension_provider_empty">Installiere eine benutzbare Extension mit Streaming-Navigation, um sie hier anzuzeigen.</string>
     <string name="extension_center_matching">Matcher</string>

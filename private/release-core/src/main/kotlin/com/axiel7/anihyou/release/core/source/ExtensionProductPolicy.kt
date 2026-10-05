@@ -72,6 +72,16 @@ interface ExtensionProductPolicyRepository {
     suspend fun invalidateSource(sourceId: String)
     suspend fun invalidateExtension(key: ExtensionSelectionKey) { invalidateSource(key.sourceId) }
     suspend fun setNavigationProviderOrder(keys: List<ExtensionSelectionKey>) {}
+    /** Display-only edits. Production repositories commit visibility and preferred provider together. */
+    suspend fun setProviderVisibility(key: ExtensionSelectionKey, visible: Boolean, defaults: ExtensionPreferences) {
+        setPreferences(key, (policy.value.preferences[key] ?: defaults).copy(visibleInProviderField = visible))
+        if (!visible && policy.value.preferredNavigationProvider == key) selectNavigationProvider(null)
+    }
+    suspend fun resetProviderDisplay(keys: List<ExtensionSelectionKey>) {
+        keys.forEach { setPreferences(it, policy.value.preferencesFor(it).copy(visibleInProviderField = true)) }
+        setNavigationProviderOrder(emptyList())
+        selectNavigationProvider(null)
+    }
     suspend fun <T> withCurrentSelection(snapshot: ExtensionProductPolicy, block: suspend () -> T): T?
     suspend fun <T> withCurrentPolicy(snapshot: ExtensionProductPolicy, block: suspend () -> T): T? =
         if (policy.value == snapshot) block() else null

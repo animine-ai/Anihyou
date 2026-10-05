@@ -146,6 +146,17 @@ class NativeSettingsGroupsComposeTest {
             rule.onNodeWithText(context.getString(SettingsR.string.extension_provider_empty)).assertIsDisplayed()
         }
     }
+    @Test fun twoProvidersInGermanBlackLargeTextKeepControlsReadable() {
+        val sources = (1..2).map { n -> ExtensionSource("provider-$n", "https://provider-$n.example/repo", "fixture", true,
+            ExtensionSourceStatus.CURRENT, extensions = listOf(SourceExtension("extension-$n", "Anbieter $n", "1.0", "digest-$n", 1,
+                listOf("OVERVIEW_NAVIGATION"), installedDigest = "digest-$n", activationAllowed = true,
+                publisherId = "publisher-$n", providerId = "provider-$n"))) }
+        germanBlackContent { ExtensionProviderDisplay(ExtensionSourcesUiState(sources = sources, canEditProductPolicy = true), noSourceEvent) }
+        rule.storeVerifiedScreenshot(rule.activity, File(rule.activity.getExternalFilesDir(null), "ep07-ui"), "providers-two-german-black-large") {
+            rule.onNodeWithText("Anbieter 1").assertIsDisplayed()
+            rule.onNodeWithText("Anbieter 2").assertIsDisplayed()
+        }
+    }
 
     private fun germanBlackContent(content: @Composable () -> Unit): Context {
         val context = rule.activity.createConfigurationContext(Configuration(rule.activity.resources.configuration).apply {

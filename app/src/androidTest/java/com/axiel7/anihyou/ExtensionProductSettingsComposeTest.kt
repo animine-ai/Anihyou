@@ -102,7 +102,7 @@ class ExtensionProductSettingsComposeTest {
             awaitPolicy(policyRepository) { it.preferredNavigationProvider == keyB }
             assertEquals(keyA, policyRepository.policy.value.activeReleaseSource)
             composeRule.onNodeWithTag(activeATag).assertIsSelected()
-            composeRule.onNodeWithTag(navigationBTag).assertIsSelected()
+            composeRule.onNodeWithTag(navigationBTag).assertIsOn()
             composeRule.onNodeWithTag("extension-preference-provider-visible-$keyATag").performScrollTo().assertIsOn()
             composeRule.onNodeWithTag("extension-preference-provider-visible-$keyBTag").performScrollTo().assertIsOn()
             val sourceGeneration = policyRepository.policy.value.releaseGeneration
@@ -305,6 +305,14 @@ class ExtensionProductSettingsComposeTest {
 
         override fun setPreferences(key: ExtensionSelectionKey, preferences: ExtensionPreferences) {
             scope.launch { repository.setPreferences(key, preferences) }
+        }
+        override fun setProviderVisibility(key: ExtensionSelectionKey, visible: Boolean) {
+            scope.launch { repository.setProviderVisibility(key, visible, ExtensionPreferences.forTracks(
+                sources.value.single { it.id == key.sourceId }.extensions.single { it.extensionId == key.extensionId }.supportedTracks)) }
+        }
+        override fun resetProviderDisplay() {
+            scope.launch { repository.resetProviderDisplay(sources.value.flatMap { source -> source.extensions.map {
+                ExtensionSelectionKey(source.id, it.extensionId, it.publisherId, it.providerId) } }) }
         }
 
         override fun setProviderOrder(keys: List<ExtensionSelectionKey>) {

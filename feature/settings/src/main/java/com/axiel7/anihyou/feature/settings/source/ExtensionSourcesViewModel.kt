@@ -57,6 +57,8 @@ interface ExtensionSourcesEvent {
     fun removeExtension(sourceId: String, extensionId: String) {}
     fun rollback(sourceId: String, extensionId: String, expectedGeneration: Long, targetDigest: String) {}
     fun setProviderOrder(keys: List<ExtensionSelectionKey>) {}
+    fun setProviderVisibility(key: ExtensionSelectionKey, visible: Boolean) {}
+    fun resetProviderDisplay() {}
     fun setReleaseNotificationsEnabled(enabled: Boolean) {}
     fun disableLegacyLane() {}
     fun refreshDiagnostics() {}
@@ -253,6 +255,16 @@ class ExtensionSourcesViewModel(
     override fun setProviderOrder(keys: List<ExtensionSelectionKey>) = performPolicyAction {
         AppLog.i("ui") { "user: provider order -> ${keys.map { it.extensionId }}" }
         productPolicyRepository?.setNavigationProviderOrder(keys)
+    }
+    override fun setProviderVisibility(key: ExtensionSelectionKey, visible: Boolean) = performPolicyAction {
+        val extension = uiState.value.sources.usableExtension(key)
+        require(extension != null && isUsableNavigationProvider(key))
+        productPolicyRepository?.setProviderVisibility(key, visible, ExtensionPreferences.forTracks(extension.supportedTracks))
+    }
+
+    override fun resetProviderDisplay() = performPolicyAction {
+        val keys = installedEntries(uiState.value).filter { it.second.supportsNavigation() }.map { it.first }
+        productPolicyRepository?.resetProviderDisplay(keys)
     }
 
     override fun refreshReleasesNow() {

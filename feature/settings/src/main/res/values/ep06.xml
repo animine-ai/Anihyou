@@ -26,7 +26,7 @@
     <string name="extension_center_diagnostics_section">Diagnostics &amp; debug</string>
     <string name="extension_provider_visible_section">Visible streaming providers</string>
     <string name="extension_provider_preferred_section">Preferred provider</string>
-    <string name="extension_provider_preferred_explanation">This selects the default provider. Other enabled providers remain visible.</string>
+    <string name="extension_provider_preferred_explanation">The star marks one preferred provider. Tap it again to clear the preference. Other shown providers remain visible.</string>
     <string name="extension_provider_order_section">Provider order</string>
     <string name="extension_provider_empty">Install a usable extension with streaming navigation to show it here.</string>
     <string name="extension_center_matching">Matcher</string>

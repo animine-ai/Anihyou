@@ -121,4 +121,10 @@
     <string name="matching_unmatched_count">%1$d Treffer / %2$d gesamt · %3$d angezeigt</string>
     <string name="matching_no_results">Keine Treffer für „%1$s“</string>
     <string name="matching_saved_title">Gespeicherte Zuordnungen</string>
+    <string name="extension_provider_shown">Angezeigt</string>
+    <string name="extension_provider_hidden">Ausgeblendet</string>
+    <string name="extension_provider_reset">Provider-Anzeige zurücksetzen</string>
+    <string name="extension_provider_prefer">%1$s bevorzugen</string>
+    <string name="extension_provider_unprefer">Präferenz für %1$s entfernen</string>
+    <string name="extension_provider_visibility">Anbieter anzeigen: %1$s</string>
 </resources>

@@ -121,4 +121,10 @@
     <string name="matching_unmatched_count">%1$d results / %2$d total · %3$d shown</string>
     <string name="matching_no_results">No results for “%1$s”</string>
     <string name="matching_saved_title">Saved mappings</string>
+    <string name="extension_provider_shown">Shown</string>
+    <string name="extension_provider_hidden">Hidden</string>
+    <string name="extension_provider_reset">Reset provider display</string>
+    <string name="extension_provider_prefer">Prefer %1$s</string>
+    <string name="extension_provider_unprefer">Remove preference for %1$s</string>
+    <string name="extension_provider_visibility">Show provider: %1$s</string>
 </resources>
