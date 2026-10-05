@@ -99,7 +99,8 @@ class ExtensionMediaPresentationsTest {
         val rows = listOf(released("series-a", 24))
         val mappings = listOf(binding("series-a", 42))
         val unknown = rows.toExtensionMediaPresentations(mappings, setOf(42), defaults, source).getValue(42).single()
-        assertEquals(ReleaseUiAuthority.VALID, unknown.authority)
+        assertEquals(ReleaseUiAuthority.UNMAPPED, unknown.authority)
+        assertNull("unknown coordinates must not turn AniList Behind into caught-up", ReleaseUiSelection.effective(listOf(unknown)))
         assertNull(unknown.confirmedThroughEpisode)
         assertTrue(unknown.confirmedInstallments.isEmpty())
         assertEquals(0, unknown.pendingFor(10))
@@ -110,6 +111,19 @@ class ExtensionMediaPresentationsTest {
         val calendar = rows.toExtensionCalendarItems(mappings,
             LocalDate.of(2026, 9, 1)..LocalDate.of(2026, 11, 1), defaults, source)
         assertEquals(Installment.Episode(24), calendar.single().installment)
+        assertTrue("source-numbered calendar event remains available", calendar.single().isAuthoritative)
+    }
+
+    @Test fun anUnmappedPlanDoesNotHideTheNextAniListEpisode() {
+        val source = com.axiel7.anihyou.release.core.source.ExtensionSelectionKey("repo", "extension", "publisher", "aniworld")
+        val rows = listOf(planned("series-a", 2, today3pm))
+        val release = rows.toExtensionMediaPresentations(listOf(binding("series-a", 42)), setOf(42), defaults, source)
+            .getValue(42).single()
+        assertEquals(ReleaseUiAuthority.UNMAPPED, release.authority)
+        assertNull(release.nextExpectedInstallment)
+        assertNotNull("source date is retained independently of unknown episode coordinates", release.nextForecastAt)
+        assertNotNull("usable source date still overrides AniList without inventing an episode number",
+            ReleaseUiSelection.upcoming(listOf(release), now))
     }
 
     @Test fun confirmedComesFromReleasedRowsAndAPlanNeverConfirms() {

@@ -73,7 +73,9 @@ class RoomReleasePresentationRepository(
             }
             AppLog.i("presentation") {
                 "media request=${mediaIds.size} legacyMedia=${legacyRows.size} legacyLaneOn=$legacyOn mode=${chosen.javaClass.simpleName} " +
-                    "presented=${result.size} authoritative=${result.values.count { list -> list.any { it.isAuthoritative } }}"
+                    "presented=${result.size} authoritative=${result.values.count { list -> list.any { it.isAuthoritative } }} " +
+                    "knownConfirmed=${result.values.count { list -> list.any { it.isAuthoritative && it.confirmedThroughEpisode != null } }} " +
+                    "sourceForecast=${result.values.count { list -> list.any { it.hasAuthoritativeForecast && it.nextForecastAt != null } }}"
             }
             result
         }.offMain()
@@ -141,7 +143,7 @@ class RoomReleasePresentationRepository(
                     if (catalog.usableExtension(selected) != null) {
                         AppLog.d("selection") {
                             "mode=EXTENSION ext=${selected.extensionId} source=${selected.sourceId.take(8)} rows=${sourceRows.size} mappings=${bindings.size} " +
-                                "tracks=${product.preferencesFor(selected).enabledTracks.sorted()}"
+                                "tracks=${product.preferencesFor(selected).enabledTracks.sorted()} segments=${navigation.segments.count { it.key == selected }}"
                         }
                         ReleaseSelection.Extension(
                             rows = sourceRows.filter {

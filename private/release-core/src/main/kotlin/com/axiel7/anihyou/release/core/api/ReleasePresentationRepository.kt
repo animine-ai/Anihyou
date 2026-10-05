@@ -43,6 +43,8 @@ data class ReleaseUiPresentation(
     val freshness: ReleaseUiFreshness,
     val sourceRoot: String?,
     val revision: Long,
+    /** A trustworthy schedule can exist before provider episode numbers can be mapped to AniList progress. */
+    val forecastAuthority: ReleaseUiAuthority = authority,
 ) {
     init {
         require(mediaId == null || mediaId > 0) { "media id must be positive when present" }
@@ -58,6 +60,10 @@ data class ReleaseUiPresentation(
 
     val isAuthoritative: Boolean
         get() = authority == ReleaseUiAuthority.VALID
+
+    val hasAuthoritativeForecast: Boolean
+        get() = authority in setOf(ReleaseUiAuthority.VALID, ReleaseUiAuthority.UNMAPPED) &&
+            forecastAuthority == ReleaseUiAuthority.VALID
 
     val nextForecastAt: Instant?
         get() = nextForecast?.forecastAt

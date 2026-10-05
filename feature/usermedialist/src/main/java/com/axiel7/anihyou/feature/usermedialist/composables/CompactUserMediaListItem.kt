@@ -24,6 +24,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.axiel7.anihyou.core.common.utils.NumberUtils.isGreaterThanZero
+import com.axiel7.anihyou.core.model.media.episodesBehind
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.core.model.media.exampleBasicMediaListEntry
@@ -149,7 +150,9 @@ fun CompactUserMediaListItem(
                         ReleaseScheduleText(
                             presentation = presentation,
                             progress = item.basicMediaListEntry.progress,
-                            fallback = {},
+                            fallbackCountdown = { AiringScheduleText(item = item, showBehind = false) },
+                            fallbackPending = item.episodesBehind(),
+                            fallback = { AiringScheduleText(item = item) },
                         )
                     }
                 }

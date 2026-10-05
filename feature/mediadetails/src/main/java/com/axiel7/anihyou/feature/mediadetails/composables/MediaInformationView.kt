@@ -68,20 +68,15 @@ import com.axiel7.anihyou.core.ui.composables.media.VideoThumbnailItem
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.formatted
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.minutesToLegibleText
+import com.axiel7.anihyou.core.ui.composables.media.nextEpisodeText
 import com.axiel7.anihyou.core.ui.composables.media.releaseInstallmentLabel
-import com.axiel7.anihyou.core.ui.composables.media.rememberReleaseNow
-import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 import com.axiel7.anihyou.feature.mediadetails.MediaDetailsUiState
 import com.axiel7.anihyou.feature.mediadetails.MediaDetailsEvent
 import com.axiel7.anihyou.feature.mediadetails.EpisodeMappingSaveState
 import com.axiel7.anihyou.feature.mediadetails.isValidProviderSeriesKey
-import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
-import com.axiel7.anihyou.release.core.api.pendingFor
-import com.axiel7.anihyou.release.core.model.Installment
 import com.axiel7.anihyou.release.core.navigation.NavigationProvider
 import com.axiel7.anihyou.release.core.extension.NavigationCapability
 import kotlinx.collections.immutable.persistentListOf
-import java.time.Clock
 import java.time.ZoneId
 
 private const val TagLimit = 10
@@ -106,45 +101,17 @@ fun MediaInformationView(
     ) {
         InfoTitle(text = stringResource(R.string.information))
 
-        // The same rows as the header of the details screen: every authoritative stream, never a stored pending count.
-        val providerReleases = ReleaseUiSelection.authoritative(uiState.releasePresentations)
-        if (providerReleases.isNotEmpty()) {
-            val progress = uiState.details?.mediaListEntry?.basicMediaListEntry?.progress
-            val now = rememberReleaseNow(
-                Clock.systemUTC(),
-                providerReleases.mapNotNull { it.nextForecastAt }.minOrNull(),
-            )
-            // The original line of the app ("Ep 15 in 3d 4h") with the next release of the source.
-            val providerInfoLines = providerReleases.mapNotNull { providerRelease ->
-                val installment = providerRelease.nextExpectedInstallment as? Installment.Episode
-                val forecastAt = providerRelease.nextForecastAt?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
-                if (installment == null || forecastAt == null) null
-                else stringResource(
-                    R.string.episode_in_time,
-                    installment.number,
-                    java.time.Duration.between(now, forecastAt).seconds.coerceAtLeast(0L).secondsToLegibleText(),
-                ).let { line ->
-                    com.axiel7.anihyou.core.ui.composables.media.releaseTrackLabel(providerRelease.stream.languageTrack)
-                        ?.let { "$line · $it" } ?: line
-                }
-            }
+        val nextEpisode = nextEpisodeText(
+            presentations = uiState.releasePresentations,
+            fallbackEpisode = uiState.details?.nextAiringEpisode?.episode,
+            fallbackSeconds = uiState.details?.nextAiringEpisode?.timeUntilAiring?.toLong(),
+        )
+        if (nextEpisode != null) {
             InfoItemView(
                 title = stringResource(R.string.airing),
-                info = providerInfoLines.joinToString("\n"),
+                info = nextEpisode,
                 modifier = Modifier.defaultPlaceholder(visible = uiState.isLoading),
             )
-        } else {
-            uiState.details?.nextAiringEpisode?.let { nextAiringEpisode ->
-                InfoItemView(
-                    title = stringResource(R.string.airing),
-                    info = stringResource(
-                        R.string.episode_in_time,
-                        nextAiringEpisode.episode,
-                        nextAiringEpisode.timeUntilAiring.toLong().secondsToLegibleText(),
-                    ),
-                    modifier = Modifier.defaultPlaceholder(visible = uiState.isLoading),
-                )
-            }
         }
         InfoItemView(
             title = stringResource(R.string.duration),

@@ -135,7 +135,12 @@ fun AiringAnimeHorizontalItem(
                             presentation = presentation,
                             progress = progress,
                             modifier = Modifier.padding(bottom = 4.dp),
-                            fallback = {},
+                            fallback = { Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 8.dp),
+                            ) },
                         )
                     }
                     calendarPresentations.isNotEmpty() -> calendarPresentations.forEach { presentation ->

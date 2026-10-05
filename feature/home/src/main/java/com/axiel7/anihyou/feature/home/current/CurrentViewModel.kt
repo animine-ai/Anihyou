@@ -11,7 +11,7 @@ import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
-import com.axiel7.anihyou.release.core.api.pendingFor
+import com.axiel7.anihyou.release.core.api.pendingForOrNull
 import com.axiel7.anihyou.release.core.log.AppLog
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaListRepository
@@ -145,11 +145,7 @@ class CurrentViewModel(
         presentations: Map<Int, List<ReleaseUiPresentation>>,
     ): Int {
         val release = presentations.authoritativeFor(entry.mediaId)
-        return if (release != null) {
-            release.pendingFor(entry.basicMediaListEntry.progress)
-        } else {
-            entry.episodesBehind()
-        }
+        return release?.pendingForOrNull(entry.basicMediaListEntry.progress) ?: entry.episodesBehind()
     }
 
     /** One summary line per classification and one line per entry the source decided differently from AniList. */
@@ -169,11 +165,11 @@ class CurrentViewModel(
             val progress = entry.basicMediaListEntry.progress
             val anilist = entry.episodesBehind()
             if (release != null) {
-                val source = release.pendingFor(progress)
-                if ((anilist > 0) != (source > 0)) {
+                val source = release.pendingForOrNull(progress)
+                if (source == null || (anilist > 0) != (source > 0)) {
                     AppLog.i("current") {
                         "source decides media=${entry.mediaId} progress=$progress anilistBehind=$anilist sourcePending=$source " +
-                            "confirmedThrough=${release.confirmedThroughEpisode} -> ${if (source > 0) "behind" else "not behind"}"
+                            "confirmedThrough=${release.confirmedThroughEpisode} -> ${if (source == null) "unknown: AniList fallback=$anilist" else if (source > 0) "behind" else "not behind"}"
                     }
                 }
             } else if (anilist > 0) {
@@ -186,7 +182,7 @@ class CurrentViewModel(
         entry: CommonMediaListEntry,
         presentations: Map<Int, List<ReleaseUiPresentation>>,
     ): Long? {
-        val release = presentations.authoritativeFor(entry.mediaId)
+        val release = ReleaseUiSelection.upcoming(presentations[entry.mediaId].orEmpty(), clock.instant())
         return if (release != null) {
             release.nextForecastAt?.let { Duration.between(clock.instant(), it).toMillis() }
         } else {

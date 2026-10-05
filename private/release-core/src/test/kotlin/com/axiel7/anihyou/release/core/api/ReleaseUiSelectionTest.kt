@@ -78,6 +78,33 @@ class ReleaseUiSelectionTest {
         assertEquals(0, presentation().pendingFor(null))
     }
 
+    @Test fun unknownSourceCountIsDifferentFromAConfirmedZeroAndScheduleHasItsOwnAuthority() {
+        assertNull(presentation(confirmedThrough = null).pendingForOrNull(8))
+        assertEquals(0, presentation().pendingForOrNull(10))
+        assertNull(presentation().pendingForOrNull(null))
+        val dateOnly = presentation(confirmedThrough = null).copy(
+            authority = ReleaseUiAuthority.UNMAPPED, nextExpectedInstallment = null,
+            forecastAuthority = ReleaseUiAuthority.VALID,
+        )
+        assertNull(dateOnly.pendingForOrNull(8))
+        assertEquals(dateOnly, ReleaseUiSelection.upcoming(listOf(dateOnly), now))
+        for (authority in listOf(ReleaseUiAuthority.STALE, ReleaseUiAuthority.AMBIGUOUS,
+                ReleaseUiAuthority.ERROR, ReleaseUiAuthority.DISABLED)) {
+            assertNull("copied forecast authority cannot bypass $authority",
+                ReleaseUiSelection.upcoming(listOf(dateOnly.copy(authority = authority)), now))
+        }
+    }
+
+    @Test fun theNextEpisodeFallsBackIndependentlyOfAValidConfirmedSourceCount() {
+        val confirmedOnly = presentation(planned = null)
+        assertEquals(2, confirmedOnly.pendingForOrNull(8))
+        assertNull(ReleaseUiSelection.upcoming(listOf(confirmedOnly), now))
+        val scheduled = presentation().copy(nextForecast = presentation().nextForecast!!.copy(forecastAt = now.plusSeconds(172800)))
+        assertEquals(scheduled, ReleaseUiSelection.upcoming(listOf(confirmedOnly, scheduled), now))
+        assertNull(ReleaseUiSelection.upcoming(listOf(scheduled), now.plusSeconds(180001)))
+        assertNull(ReleaseUiSelection.upcoming(listOf(scheduled.copy(stream = stream.copy(languageTrack = LanguageTrack.DE_DUB))), now))
+    }
+
     @Test fun aNonAuthoritativePresentationHasNothingPending() {
         ReleaseUiAuthority.entries.filter { it != ReleaseUiAuthority.VALID }.forEach { authority ->
             assertEquals(authority.name, 0, presentation(authority).pendingFor(0))

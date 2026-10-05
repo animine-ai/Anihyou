@@ -17,6 +17,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.composables.media.ReleaseScheduleText
+import com.axiel7.anihyou.core.ui.composables.media.nextEpisodeText
 import com.axiel7.anihyou.release.core.api.ReleaseUiAuthority
 import com.axiel7.anihyou.release.core.api.ReleaseUiFreshness
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
@@ -73,6 +74,44 @@ class ReleaseScheduleTextComposeTest {
     private val episode11 get() = string(R.string.release_installment_episode, 11)
     private fun pending(count: Int) = plural(R.plurals.release_schedule_pending, count)
     private fun nextAt(relative: String) = string(R.string.release_schedule_next_at, episode11, relative)
+
+    @Test fun detailsNextEpisodeUsesSourceTimeAndKeepsAniListWhenOnlyBacklogIsKnown() {
+        val fixedClock = Clock.fixed(start, ZoneOffset.UTC)
+        var rows by mutableStateOf(listOf(presentation().copy(nextExpectedInstallment = null, nextForecast = null)))
+        composeRule.setContent {
+            MaterialTheme { nextEpisodeText(rows, 2, 172800, fixedClock)?.let { Text(it) } }
+        }
+        composeRule.onNodeWithText("Ep 2 in", substring = true).assertIsDisplayed()
+        // The source supplies a different episode and time; it replaces AniList even when the user is behind.
+        composeRule.runOnIdle { rows = listOf(presentation()) }
+        composeRule.onNodeWithText("Ep 11 in", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Ep 2 in", substring = true).assertDoesNotExist()
+        // A source date without a canonical episode number still wins, without claiming a guessed number.
+        composeRule.runOnIdle { rows = listOf(presentation().copy(
+            authority = ReleaseUiAuthority.UNMAPPED, confirmedThroughEpisode = null,
+            confirmedInstallments = emptyList(), nextExpectedInstallment = null,
+            forecastAuthority = ReleaseUiAuthority.VALID,
+        )) }
+        composeRule.onNodeWithText("SUB", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Ep ", substring = true).assertDoesNotExist()
+        composeRule.runOnIdle { rows = listOf(presentation(ReleaseUiAuthority.STALE)) }
+        composeRule.onNodeWithText("Ep 2 in", substring = true).assertIsDisplayed()
+    }
+
+    @Test fun unknownSourceBacklogKeepsAniListButConfirmedZeroSuppressesTheConflictingCount() {
+        var source by mutableStateOf(presentation().copy(confirmedThroughEpisode = null, confirmedInstallments = emptyList()))
+        composeRule.setContent {
+            MaterialTheme {
+                ReleaseScheduleText(source, clock = Clock.fixed(start, ZoneOffset.UTC), progress = 10, fallbackPending = 2) {
+                    Text("AniList: 2 behind")
+                }
+            }
+        }
+        composeRule.onNodeWithText("AniList: 2 behind").assertIsDisplayed()
+        composeRule.runOnIdle { source = presentation() }
+        composeRule.onNodeWithText("AniList: 2 behind").assertDoesNotExist()
+        composeRule.onNodeWithText("Ep 11 in", substring = true).assertIsDisplayed()
+    }
 
     @Test fun homeCardShowsOneSubBacklogAndKeepsTheProgressButtonInsideTheRow() {
         val example = com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry

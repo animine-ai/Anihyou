@@ -85,12 +85,14 @@ class CurrentBehindProjectionTest {
         val behind = entry(mediaId = 7, progress = 8)      // source: 10 - 8 = 2 behind
         val caughtUp = entry(mediaId = 8, progress = 10)   // source: 0 behind, although AniList says 12 is next
         val noSource = entry(mediaId = 9, progress = 5)    // no presentation: AniList rule, 5 < 11 behind
+        val unknownSource = entry(mediaId = 10, progress = 10) // source lacks a confirmed episode coordinate
         val releases = mockk<ReleasePresentationRepository>()
         every { releases.observeForMedia(any(), any()) } returns flowOf(mapOf(
             7 to listOf(confirmedThrough(7, 20).let { it.copy(stream = it.stream.copy(languageTrack = LanguageTrack.DE_DUB)) },
                 confirmedThrough(7, 10)),
             8 to listOf(confirmedThrough(8, 20).let { it.copy(stream = it.stream.copy(languageTrack = LanguageTrack.DE_DUB)) },
                 confirmedThrough(8, 10)),
+            10 to listOf(confirmedThrough(10, 10).copy(confirmedThroughEpisode = null, confirmedInstallments = emptyList())),
         ))
         val animeResults = MutableStateFlow<PagedResult<CommonMediaListEntry>>(
             PagedResult.Success(emptyList(), currentPage = 1, hasNextPage = false))
@@ -107,23 +109,23 @@ class CurrentBehindProjectionTest {
         val viewModel = CurrentViewModel(repository, preferences(), releases,
             Clock.fixed(now, ZoneOffset.UTC))
         advanceUntilIdle()
-        animeResults.value = PagedResult.Success(listOf(behind, caughtUp, noSource), currentPage = 1, hasNextPage = false)
+        animeResults.value = PagedResult.Success(listOf(behind, caughtUp, noSource, unknownSource), currentPage = 1, hasNextPage = false)
         advanceUntilIdle()
 
         assertEquals("source state wins over AniList where it is valid; most unseen first, the stored 99 is never read",
-            listOf(9, 7), viewModel.uiState.value.behindList.map { it.mediaId })
+            listOf(9, 7, 10), viewModel.uiState.value.behindList.map { it.mediaId })
         assertEquals(listOf(8), viewModel.uiState.value.airingList.map { it.mediaId })
 
         // The user watches episodes 9 and 10 elsewhere: Home reprojects from the entry, no source refresh happens.
         lastUpdated.value = MediaListRepository.AccountEntryUpdate(4242, behind.basicMediaListEntry.copy(progress = 10))
         advanceUntilIdle()
-        assertEquals(listOf(9), viewModel.uiState.value.behindList.map { it.mediaId })
+        assertEquals(listOf(9, 10), viewModel.uiState.value.behindList.map { it.mediaId })
         assertEquals(listOf(7, 8), viewModel.uiState.value.airingList.map { it.mediaId }.sorted())
 
         // Undo (or another device sets it back to 8): the same two unseen episodes are behind again, no source refresh.
         lastUpdated.value = MediaListRepository.AccountEntryUpdate(4242, behind.basicMediaListEntry.copy(progress = 8))
         advanceUntilIdle()
-        assertEquals(listOf(9, 7), viewModel.uiState.value.behindList.map { it.mediaId })
+        assertEquals(listOf(9, 7, 10), viewModel.uiState.value.behindList.map { it.mediaId })
         assertEquals(listOf(8), viewModel.uiState.value.airingList.map { it.mediaId })
     }
 }

@@ -18,9 +18,10 @@ fun AiringScheduleText(
     item: CommonMediaListEntry,
     modifier: Modifier = Modifier,
     textAlign: TextAlign? = null,
+    showBehind: Boolean = true,
 ) {
     item.media?.nextAiringEpisode?.let { nextAiringEpisode ->
-        val isBehind = item.isBehind()
+        val isBehind = showBehind && item.isBehind()
         Text(
             text =
             if (isBehind) {

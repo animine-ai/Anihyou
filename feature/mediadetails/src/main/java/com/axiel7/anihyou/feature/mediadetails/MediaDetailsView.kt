@@ -111,14 +111,13 @@ import com.axiel7.anihyou.core.ui.composables.defaultPlaceholder
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_BIG_HEIGHT
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_BIG_WIDTH
 import com.axiel7.anihyou.core.ui.composables.media.MediaPoster
-import com.axiel7.anihyou.core.ui.composables.media.ReleaseScheduleText
+import com.axiel7.anihyou.core.ui.composables.media.nextEpisodeText
 import com.axiel7.anihyou.core.ui.composables.middleShape
 import com.axiel7.anihyou.core.ui.composables.sheet.SelectionSheet
 import com.axiel7.anihyou.core.ui.composables.sheet.SelectionSheetItem
 import com.axiel7.anihyou.core.ui.composables.spoilerPlaceholder
 import com.axiel7.anihyou.core.ui.composables.topShape
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
-import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 import com.axiel7.anihyou.core.ui.utils.StringUtils.htmlDecoded
 import com.axiel7.anihyou.core.ui.utils.StringUtils.toAnnotatedString
 import com.axiel7.anihyou.feature.editmedia.EditMediaSheet
@@ -128,7 +127,6 @@ import com.axiel7.anihyou.feature.mediadetails.composables.MediaRelationsView
 import com.axiel7.anihyou.feature.mediadetails.composables.MediaStatsView
 import com.axiel7.anihyou.feature.mediadetails.composables.ReviewThreadListView
 import com.axiel7.anihyou.feature.mediadetails.composables.ProviderWatchNextFloatingActionButton
-import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.release.core.navigation.WatchNextState
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamicColorScheme
@@ -470,38 +468,19 @@ private fun MediaDetailsContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val dividerHeight = 28
-                val providerReleases = ReleaseUiSelection.authoritative(uiState.releasePresentations)
-                if (providerReleases.isNotEmpty()) {
-                    Column {
-                        providerReleases.forEach { presentation ->
-                            ReleaseScheduleText(
-                                presentation = presentation,
-                                progress = uiState.details?.mediaListEntry?.basicMediaListEntry?.progress,
-                                fallback = {},
-                            )
-                        }
-                    }
-                    VerticalDivider(
-                        modifier = Modifier
-                            .padding(horizontal = 8.dp)
-                            .height(dividerHeight.dp)
+                val nextEpisode = nextEpisodeText(
+                    presentations = uiState.releasePresentations,
+                    fallbackEpisode = uiState.details?.nextAiringEpisode?.episode,
+                    fallbackSeconds = uiState.details?.nextAiringEpisode?.timeUntilAiring?.toLong(),
+                )
+                if (nextEpisode != null) {
+                    TextSubtitleVertical(
+                        text = nextEpisode,
+                        subtitle = stringResource(R.string.airing),
                     )
-                } else {
-                    uiState.details?.nextAiringEpisode?.let { nextAiringEpisode ->
-                        TextSubtitleVertical(
-                            text = stringResource(
-                                R.string.episode_in_time,
-                                nextAiringEpisode.episode,
-                                nextAiringEpisode.timeUntilAiring.toLong().secondsToLegibleText()
-                            ),
-                            subtitle = stringResource(R.string.airing),
-                        )
-                        VerticalDivider(
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .height(dividerHeight.dp)
-                        )
-                    }
+                    VerticalDivider(
+                        modifier = Modifier.padding(horizontal = 8.dp).height(dividerHeight.dp),
+                    )
                 }
                 TextSubtitleVertical(
                     text = "${uiState.details?.averageScore?.format().orUnknown()}%",

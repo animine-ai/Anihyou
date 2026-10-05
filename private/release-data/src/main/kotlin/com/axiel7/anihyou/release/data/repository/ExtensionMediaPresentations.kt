@@ -127,7 +127,10 @@ private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresent
     return ReleaseUiPresentation(
         mediaId = group.media,
         stream = stream,
-        authority = ReleaseUiAuthority.VALID,
+        // A series identity alone proves no AniList episode position. Keep the calendar events,
+        // but let media consumers use their existing fallback until an episode mapping is known.
+        authority = if (confirmedThrough == null && released.none { it.installment != null } && next?.installment == null)
+            ReleaseUiAuthority.UNMAPPED else ReleaseUiAuthority.VALID,
         confirmedThroughEpisode = confirmedThrough,
         confirmedInstallments = released.mapNotNull { it.installment }.distinctBy { it.stableKey }
             .sortedBy { it.wholeEpisodeNumber ?: Int.MAX_VALUE },
@@ -135,6 +138,7 @@ private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresent
         confirmedPending = 0,
         nextExpectedInstallment = next?.installment,
         nextForecast = nextForecast,
+        forecastAuthority = if (next != null) ReleaseUiAuthority.VALID else ReleaseUiAuthority.UNMAPPED,
         freshness = ReleaseUiFreshness.UNKNOWN,
         // No consumer reads a source URL, and the host does not build provider URLs on the extension path.
         sourceRoot = null,

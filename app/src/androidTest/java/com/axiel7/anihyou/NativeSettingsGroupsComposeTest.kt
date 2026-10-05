@@ -189,8 +189,12 @@ class NativeSettingsGroupsComposeTest {
         rule.onNodeWithTag("extension-preference-release-notifications").performScrollTo().assertIsDisplayed()
         val title = rule.onNodeWithText(context.getString(CoreR.string.release_notifications_enabled), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val summary = rule.onNodeWithText(context.getString(CoreR.string.release_notifications_enabled_summary), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        val toggle = rule.onNodeWithTag("extension-preference-release-notifications").fetchSemanticsNode().boundsInRoot
-        org.junit.Assert.assertTrue("title and summary stay left of the switch", title.right <= toggle.left && summary.right <= toggle.left)
+        val toggle = rule.onNode(
+            SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.Role, androidx.compose.ui.semantics.Role.Switch) and
+                hasAnyAncestor(hasTestTag("extension-preference-release-notifications")),
+            useUnmergedTree = true,
+        ).fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("title=$title summary=$summary must stay left of switch=$toggle", title.right <= toggle.left && summary.right <= toggle.left)
         org.junit.Assert.assertTrue("title and description must not overlap", title.bottom <= summary.top)
         rule.storeVerifiedScreenshot(rule.activity, directory, "native-source-notifications-german-large") {
             rule.onNodeWithTag("extension-preference-release-notifications").assertIsDisplayed()

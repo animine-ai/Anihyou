@@ -14,7 +14,7 @@ import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.secondsToLegibleText
 import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
-import com.axiel7.anihyou.release.core.api.pendingFor
+import com.axiel7.anihyou.release.core.api.pendingForOrNull
 import com.axiel7.anihyou.release.core.model.Installment
 import com.axiel7.anihyou.release.core.model.LanguageTrack
 import com.axiel7.anihyou.release.core.model.ReleaseKind
@@ -60,9 +60,14 @@ fun ReleaseScheduleText(
     clock: Clock = Clock.systemUTC(),
     /** The user's current AniList progress for this media; without it no pending count is claimed. */
     progress: Int? = null,
+    /** AniList remains the count fallback when the source cannot decide a confirmed episode position. */
+    fallbackPending: Int = 0,
+    /** A confirmed zero overrides AniList's count, but need not hide AniList's next schedule. */
+    fallbackCountdown: @Composable () -> Unit = {},
     fallback: @Composable () -> Unit,
 ) {
-    if (presentation?.isAuthoritative != true || presentation.track != LanguageTrack.DE_SUB) {
+    if (presentation == null || presentation.track != LanguageTrack.DE_SUB ||
+        (!presentation.isAuthoritative && !presentation.hasAuthoritativeForecast)) {
         fallback()
         return
     }
@@ -70,18 +75,27 @@ fun ReleaseScheduleText(
     // The original wording of the app, with the data of the release source: "N episodes behind" in the accent colour,
     // otherwise "Ep N in 3d 4h". No wording of its own.
     val now = rememberReleaseNow(clock, presentation.nextForecastAt)
-    val pending = presentation.pendingFor(progress)
+    val sourcePending = presentation.pendingForOrNull(progress)
+    if (sourcePending == null && fallbackPending > 0) {
+        fallback()
+        return
+    }
+    val pending = sourcePending ?: 0
     val next = presentation.nextExpectedInstallment
     // A plan that passed without a confirmation stays a plan: no time, never "now" for days.
-    val forecastAt = presentation.nextForecast?.forecastAt?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
+    val forecastAt = presentation.nextForecast?.forecastAt?.takeIf { presentation.hasAuthoritativeForecast }
+        ?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
     val untilNext = forecastAt?.let { Duration.between(now, it).seconds.coerceAtLeast(0L).secondsToLegibleText() }
     val text = when {
         pending > 0 -> pluralStringResource(R.plurals.num_episodes_behind, pending, pending)
         next is Installment.Episode && untilNext != null -> stringResource(R.string.episode_in_time, next.number, untilNext)
-        next != null && untilNext != null -> stringResource(R.string.airing_in, untilNext)
+        untilNext != null -> stringResource(R.string.airing_in, untilNext)
         else -> null
     }
-    if (text == null) return // An authoritative source with unknown coordinates must not invent an AniList count.
+    if (text == null) {
+        if (sourcePending == null) fallback() else fallbackCountdown()
+        return
+    }
 
     Text(
         text = text.withTrack(presentation.stream.languageTrack),
