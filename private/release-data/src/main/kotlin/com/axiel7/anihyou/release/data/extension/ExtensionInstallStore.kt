@@ -13,6 +13,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.time.Instant
+import java.time.Clock
 import java.util.Base64
 import kotlinx.serialization.json.*
 
@@ -53,6 +54,7 @@ internal class ExtensionInstallStore(
     private val policyVersion: Int, private val runtimeVersion: String,
     private val smoke: (VerifiedExtensionPackage) -> Unit,
     private val failure: InstallFailureHook = InstallFailureHook { },
+    private val clock: Clock = Clock.systemUTC(),
 ) : VerifiedExtensionRepository {
     private val trust = ExtensionTrustVerifier(pin)
     private val staging = File(directory, "staging")
@@ -257,7 +259,7 @@ internal class ExtensionInstallStore(
 
     /** Explicit rollback is a new activation. It requires fresh authority even when an
      * already-published LKG remains executable under the historical offline-read policy. */
-    fun safePreviousGood(extensionId: String, now: Instant = Instant.now()): InstallReceipt? = serialized {
+    fun safePreviousGood(extensionId: String, now: Instant = clock.instant()): InstallReceipt? = serialized {
         previousGood(extensionId)?.takeIf { freshRollbackPackage(it, now) != null }
     }
 
@@ -385,7 +387,7 @@ internal class ExtensionInstallStore(
         val published = generation.knownGood ?: return null
         // Only a lost trust or health condition retires the published package. A yank alone never does (D1).
         if (generation.active?.digest == published.digest && !trustEligible(published)) {
-            rollbackBad(extensionId, Instant.now())
+            rollbackBad(extensionId, clock.instant())
             generation = state.generations[extensionId] ?: return null
         }
         return generation.knownGood?.let(::verifiedReceipt)?.also {

@@ -739,6 +739,8 @@ class FileExtensionSourceRepositoryTest {
         repository.refresh(id)
         assertTrue(repository.source(id).extensions.single().revoked)
         assertNull(repository.loadInstalled(key))
+        assertEquals("implicit revocation uses the same fixed clock as metadata acceptance", FIXED_NOW,
+            rig.stores.last().snapshot().acceptedClock)
         val afterRevocation = repository.diagnostics(key)
         assertEquals(beforeRevocation["Signed displayName"], afterRevocation["Signed displayName"])
         assertEquals(beforeRevocation["Key ID"], afterRevocation["Key ID"])
@@ -757,6 +759,7 @@ class FileExtensionSourceRepositoryTest {
         assertNull(rig.stores.last().loadUsableExtension(EXTENSION_ID))
         assertTrue(restarted.source(id).extensions.single().revoked)
         assertEquals(ExtensionSourceFailure.INVALID_PACKAGE, restarted.source(id).lastFailure)
+        assertEquals(FIXED_NOW, rig.stores.last().snapshot().acceptedClock)
     }
 
     @Test
@@ -1085,6 +1088,7 @@ class FileExtensionSourceRepositoryTest {
             storeFactory = ExtensionSourceStoreFactory { storeDirectory, authenticated ->
                 val store = ExtensionInstallStore(
                     directory = storeDirectory,
+                    clock = FIXED_CLOCK,
                     pin = authenticated.pin,
                     verifier = ExtensionPackageVerifier(WasmCoreModuleProfileVerifier { module, navigation ->
                         verificationGate?.await()
