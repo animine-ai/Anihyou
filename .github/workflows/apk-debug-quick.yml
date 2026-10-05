@@ -1,6 +1,6 @@
-name: Debug APK only (quick)
-# Builds only the installable Foss debug APK for a device test: no tests, no lint, no R8 release, no emulator.
-# It proves nothing about the product gates; the V3 evidence workflow stays the gate. Run it from any branch.
+name: Performance APK (temporary signed)
+# Optimized ARM64 test APK with temporary debug signing and complete data-decision logging. No tests, lint or emulator.
+# R8/resource shrinking reduce download size. Product gates remain separate; full logging and native packaging are verified.
 
 on:
   workflow_dispatch:
@@ -43,7 +43,7 @@ jobs:
           retention-days: 3
 
   debug-apk:
-    name: Foss debug APK
+    name: Foss performance APK
     needs: native-runtime
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -64,40 +64,52 @@ jobs:
           path: tools/ep02-android/native-out
       - name: Verify staged native checksums
         run: python3 .github/scripts/verify-extension-native-packaging.py
-      - name: Assemble Foss debug APK
-        run: ./gradlew --console=plain --stacktrace :app:assembleFossDebug
-      - name: Name every APK after the commit and record the digests
+      - name: Verify full logging build contract
+        run: python3 .github/scripts/verify-performance-logging.py
+      - name: Assemble Foss performance APK
+        run: ./gradlew --console=plain --stacktrace :app:assembleFossPerformance
+      - name: Collect the ARM64 APK and record its digest
         run: |
           set -eu
           mkdir -p out
-          ls -l app/build/outputs/apk/foss/debug/
-          for apk in app/build/outputs/apk/foss/debug/*.apk; do
-            cp "$apk" "out/AniHyou-${GITHUB_SHA::8}-$(basename "$apk")"
+          ls -l app/build/outputs/apk/foss/performance/
+          for apk in app/build/outputs/apk/foss/performance/*arm64-v8a*.apk; do
+            cp "$apk" "out/AniHyou-PERF-${GITHUB_SHA::8}-$(basename "$apk")"
           done
           (cd out && sha256sum *.apk > SHA256.txt)
           {
-            echo "## Debug APKs"
+            echo "## ARM64 performance test APK"
             echo ""
             echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- Install the \`arm64-v8a\` file on a current phone (or the \`universal\` one)."
-            echo "- Signed with the debug key. Not a gate: no tests, lint or emulator ran in this workflow."
+            echo "- Install the \`arm64-v8a\` file on a current phone."
+            echo "- Temporary debug signing, R8/resource shrinking, all AppLog levels retained. Not a product gate; no tests, lint or emulator."
             echo ""
             echo '```'
             cat out/SHA256.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Verify the native runtime is packaged in the debug APK
+      - name: Verify performance APK native runtime, logging and signature
         run: |
           python3 .github/scripts/verify-extension-native-packaging.py \
-            --apk-dir app/build/outputs/apk/foss/debug \
+            --apk-dir app/build/outputs/apk/foss/performance \
             --report out/apk-native-verification.json
-      - name: Upload the debug APK
+          python3 .github/scripts/verify-performance-logging.py \
+            --apk-dir out --r8-config app/build/outputs/mapping/fossPerformance/configuration.txt \
+            --report out/performance-logging-verification.json
+          gzip -n -c app/build/outputs/mapping/fossPerformance/mapping.txt > out/r8-mapping.txt.gz
+          apksigner_path="$(rg --files "$ANDROID_HOME/build-tools" -g apksigner | sort -V | tail -1)"
+          for apk in out/*.apk; do
+            "$apksigner_path" verify --print-certs "$apk" > out/signature-verification.txt
+          done
+      - name: Upload the ARM64 performance APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: debug-apk-${{ github.sha }}
+          name: performance-apk-${{ github.sha }}
           path: out/
           if-no-files-found: error
           retention-days: 7
 
 # One-time authorized build request: native grouped settings and search fixes, 2026-10-05.
 # Follow-up device build: transparent postponement list and aligned search layout, 2026-10-05.
+
+# Master default from 2026-10-05: optimized temporary-signed tests, full diagnostic logging preserved.

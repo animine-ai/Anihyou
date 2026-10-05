@@ -3,7 +3,7 @@ package com.axiel7.anihyou.release.core.log
 /**
  * Debug log of every place where data is chosen, replaced, filtered or where a long operation changes stage.
  *
- * The sink is empty unless the debug app installs one, so a release build prints nothing. Messages carry ids, counts,
+ * Debug and performance test apps install the sink; ordinary releases print nothing. Messages carry ids, counts,
  * stage names and short digests. They never carry keys, seeds, tokens, cookies or page content: callers pass only what
  * [short] and [host] let through.
  */

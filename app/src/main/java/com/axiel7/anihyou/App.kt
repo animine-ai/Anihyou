@@ -47,10 +47,10 @@ class App : Application(), SingletonImageLoader.Factory {
         // network. Starting the whole app there (Koin, stores, schedulers) crashed that process on its first
         // uncaught exception, so the service never connected and an install waited on it indefinitely.
         if (isIsolatedProcess()) return
-        if (BuildConfig.DEBUG) installDebugLog()
+        if (BuildConfig.DEBUG || BuildConfig.PERFORMANCE_LOGGING) installDiagnosticLog()
 
         val koinApplication = startKoin {
-            if (BuildConfig.DEBUG) {
+            if (BuildConfig.DEBUG || BuildConfig.PERFORMANCE_LOGGING) {
                 androidLogger()
             }
             androidContext(this@App)
@@ -150,8 +150,8 @@ internal object AniWorldShadowDebugActivation {
 /** Isolated processes run under a uid in the 99000..99999 range of their user. */
 private fun isIsolatedProcess(): Boolean = (android.os.Process.myUid() % 100000) in 99000..99999
 
-/** The debug build prints every data decision to logcat under "AniHyou.<area>"; a release build prints nothing. */
-private fun installDebugLog() {
+/** Debug and performance tests print every data decision; the ordinary release has no log sink. */
+private fun installDiagnosticLog() {
     com.axiel7.anihyou.release.core.log.AppLog.sink =
         com.axiel7.anihyou.release.core.log.AppLog.Sink { level, area, message, error ->
             val tag = "AniHyou.$area"
@@ -166,6 +166,6 @@ private fun installDebugLog() {
             }
         }
     com.axiel7.anihyou.release.core.log.AppLog.i("app") {
-        "debug log on, version=${BuildConfig.VERSION_NAME} code=${BuildConfig.VERSION_CODE} sdk=${android.os.Build.VERSION.SDK_INT}"
+        "diagnostic log on, profile=${BuildConfig.BUILD_TYPE} version=${BuildConfig.VERSION_NAME} code=${BuildConfig.VERSION_CODE} sdk=${android.os.Build.VERSION.SDK_INT}"
     }
 }

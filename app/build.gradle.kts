@@ -70,6 +70,7 @@ android {
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         buildConfigField("String", "EXTENSION_BUILD_PROFILE", "\"$extensionBuildProfile\"")
+        buildConfigField("boolean", "PERFORMANCE_LOGGING", "false")
         extensionBuildFields.forEach { (field, property) ->
             buildConfigField("String", field, "\"${extensionPublicFields.getValue(property)}\"")
         }
@@ -133,6 +134,19 @@ android {
             ndk {
                 debugSymbolLevel = "SYMBOL_TABLE"
             }
+        }
+        create("performance") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-PERF-" + (System.getenv("GITHUB_SHA")?.take(8) ?: "local")
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            buildConfigField("boolean", "PERFORMANCE_LOGGING", "true")
+            // Temporary test signing, production-like execution, and all existing diagnostic data retained.
+            proguardFile("proguard-performance.pro")
         }
         create("benchmarkRelease") {
             buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", "false")
@@ -235,7 +249,7 @@ val verifyExtensionNativeRuntime = tasks.register("verifyExtensionNativeRuntime"
 // Compile/unit-test/schema tasks remain usable without native artifacts. Packaging fails closed.
 tasks.configureEach {
     if ((name.startsWith("merge") && name.endsWith("NativeLibs")) ||
-        name.matches(Regex("(assemble|bundle)(Foss|Gms)?(Debug|Release|BenchmarkRelease|NonMinifiedRelease)?"))) {
+        name.matches(Regex("(assemble|bundle)(Foss|Gms)?(Debug|Release|Performance|BenchmarkRelease|NonMinifiedRelease)?"))) {
         dependsOn(verifyExtensionNativeRuntime)
     }
 }
