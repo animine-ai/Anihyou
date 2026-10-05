@@ -17,8 +17,28 @@ object ReleaseUiSelection {
         listOfNotNull(effective(candidates))
 
     /** SUB alone decides latest episode, pending counts and sorting. DUB remains calendar/navigation information. */
-    fun effective(candidates: List<ReleaseUiPresentation>): ReleaseUiPresentation? =
-        candidates.firstOrNull { it.isAuthoritative && it.track == LanguageTrack.DE_SUB }
+    fun effective(candidates: List<ReleaseUiPresentation>): ReleaseUiPresentation? {
+        val valid = candidates.filter { it.isAuthoritative && it.track == LanguageTrack.DE_SUB }.distinct()
+        val first = valid.firstOrNull() ?: return null
+        // Never join facts across media or providers. Production input is already bound to one active source.
+        if (valid.any { it.mediaId != first.mediaId || it.providerId != first.providerId }) return null
+        if (valid.size == 1) return first
+        val confirmed = valid.mapNotNull { it.confirmedThroughEpisode }.maxOrNull()
+        val next = valid.filter { candidate ->
+            candidate.nextExpectedInstallment != null && candidate.nextForecast != null &&
+                candidate.nextExpectedInstallment?.wholeEpisodeNumber?.let { confirmed == null || it > confirmed } != false
+        }.minWithOrNull(compareBy<ReleaseUiPresentation> { it.nextExpectedInstallment?.wholeEpisodeNumber ?: Int.MAX_VALUE }
+            .thenBy { it.nextForecastAt }.thenBy { it.stream.stableKey })
+        return first.copy(
+            confirmedThroughEpisode = confirmed,
+            confirmedInstallments = valid.flatMap { it.confirmedInstallments }.distinctBy { it.stableKey }
+                .sortedBy { it.wholeEpisodeNumber ?: Int.MAX_VALUE },
+            confirmedPending = 0,
+            nextExpectedInstallment = next?.nextExpectedInstallment,
+            nextForecast = next?.nextForecast,
+            revision = valid.maxOf { it.revision },
+        )
+    }
 
     /**
      * A planned time that passed without a confirmation is shown without a time, so an overdue plan is never

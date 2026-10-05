@@ -12,7 +12,8 @@ internal fun canonicalPresentationInstallment(
     if (source == null || mediaId == null || installment !is Installment.Episode) return installment
     val matching = segments.filter { it.key == source && it.mediaId == mediaId &&
         it.seriesKey == seriesPath.removePrefix("/anime/stream/") && it.sourceSeason == season }
-    if (matching.isEmpty()) return installment
+    // A series binding proves identity, not episode numbering. Identity offsets need an explicit segment too.
+    if (matching.isEmpty()) return null
     val providerNumber = BigDecimal(installment.number.toString() + (installment.fraction?.let { ".$it" } ?: ""))
     val covered = matching.filter { it.canonicalEpisode(providerNumber) != null }
     // Multiple agreeing mappings are still ambiguous, exactly like ProviderEpisodeMapper.

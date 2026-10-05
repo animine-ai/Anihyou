@@ -77,6 +77,26 @@ class UserMediaListReleaseObservationTest {
         assertEquals(2, viewModel.uiState.value.filteredEntriesCache.size)
     }
 
+    @Test
+    fun localProgressUpdatesOnlyApplyToTheLoadedOwnAccount() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val harness = Harness()
+        val model = harness.viewModel(userId = 0)
+        awaitState { !model.uiState.value.isLoading }
+        val original = com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry.let {
+            it.copy(basicMediaListEntry = it.basicMediaListEntry.copy(progress = 10))
+        }
+        harness.results.value = PagedResult.Success(listOf(collection(original)), 1, false)
+        awaitState { model.uiState.value.entries.singleOrNull()?.basicMediaListEntry?.progress == 10 }
+        harness.updates.value = MediaListRepository.AccountEntryUpdate(4242, original.basicMediaListEntry.copy(progress = 12))
+        awaitState { model.uiState.value.entries.singleOrNull()?.basicMediaListEntry?.progress == 12 }
+        harness.updates.value = MediaListRepository.AccountEntryUpdate(9999, original.basicMediaListEntry.copy(progress = 3))
+        testScheduler.runCurrent()
+        assertEquals(12, model.uiState.value.entries.single().basicMediaListEntry.progress)
+        harness.account.value = null
+        awaitState { model.uiState.value.entries.isEmpty() && model.uiState.value.releaseByMediaId.isEmpty() }
+    }
+
     private suspend fun TestScope.awaitState(condition: () -> Boolean) {
         // The production view model computes filtering/sorting on Dispatchers.Default.
         // Wait on a real dispatcher while draining the controlled Main dispatcher.
@@ -125,11 +145,14 @@ class UserMediaListReleaseObservationTest {
                 flowOf(emptyMap())
             }
         }
+        val updates = MutableStateFlow<MediaListRepository.AccountEntryUpdate?>(null)
+        val account = MutableStateFlow<Int?>(4242)
         private val repository = mockk<MediaListRepository>().also {
+            every { it.accountEntryUpdate } returns updates
             every { it.getMediaListCollection(any(), any(), any(), any(), any(), any()) } returns results
         }
         private val preferences = mockk<DefaultPreferencesRepository>().also {
-            every { it.userId } returns flowOf(4242)
+            every { it.userId } returns account
             every { it.titleLanguage } returns emptyFlow()
             every { it.scoreFormat } returns emptyFlow()
             every { it.showLowPriority } returns emptyFlow()
@@ -148,8 +171,8 @@ class UserMediaListReleaseObservationTest {
             every { it.animeListSort } returns emptyFlow()
         }
 
-        fun viewModel() = UserMediaListViewModel(
-            Route.UserMediaList(mediaType = "ANIME", userId = 4242),
+        fun viewModel(userId: Int = 4242) = UserMediaListViewModel(
+            Route.UserMediaList(mediaType = "ANIME", userId = userId),
             repository, preferences, listPreferences, releases,
         )
     }

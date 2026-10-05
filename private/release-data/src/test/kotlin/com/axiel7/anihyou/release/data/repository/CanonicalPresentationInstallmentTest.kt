@@ -20,8 +20,8 @@ class CanonicalPresentationInstallmentTest {
         assertNull(map(13, listOf(segment, segment)))
     }
     @Test fun anotherSourceOrSeasonCannotApplyAnOffset() {
-        assertEquals(Installment.Episode(13), map(13, listOf(segment.copy(key = source.copy(sourceId = "other")))))
-        assertEquals(Installment.Episode(13), map(13, listOf(segment.copy(sourceSeason = 2))))
-        assertEquals(Installment.Episode(13), map(13, emptyList()))
+        assertNull(map(13, listOf(segment.copy(key = source.copy(sourceId = "other")))))
+        assertNull(map(13, listOf(segment.copy(sourceSeason = 2))))
+        assertNull(map(13, emptyList()))
     }
 }

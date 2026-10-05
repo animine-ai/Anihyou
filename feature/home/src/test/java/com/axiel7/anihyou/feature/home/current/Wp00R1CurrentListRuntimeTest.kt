@@ -60,7 +60,7 @@ class Wp00R1CurrentListRuntimeTest {
 
         val transport = HarnessRepositoryBoundary()
         val repository = mockk<MediaListRepository>()
-        every { repository.lastUpdatedEntry } returns MutableStateFlow<BasicMediaListEntry?>(null)
+        every { repository.accountEntryUpdate } returns MutableStateFlow<MediaListRepository.AccountEntryUpdate?>(null)
         every {
             repository.getUserMediaList(any(), any(), any(), any(), any(), any(), any(), any())
         } answers {
@@ -143,7 +143,7 @@ class Wp00R1CurrentListRuntimeTest {
             PagedResult.Success(emptyList(), currentPage = 1, hasNextPage = false),
         )
         val repository = mockk<MediaListRepository>()
-        every { repository.lastUpdatedEntry } returns MutableStateFlow<BasicMediaListEntry?>(null)
+        every { repository.accountEntryUpdate } returns MutableStateFlow<MediaListRepository.AccountEntryUpdate?>(null)
         every {
             repository.getUserMediaList(any(), any(), any(), any(), any(), any(), any(), any())
         } answers {

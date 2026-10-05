@@ -49,7 +49,7 @@ data class ActiveReleaseSnapshot(
 enum class NavigationUnavailableReason {
     NO_ACTIVE_SOURCE, RELEASE_SOURCE_UNAVAILABLE, NO_PROVIDERS, PROVIDER_UNAVAILABLE,
     CHOOSE_PROVIDER, NO_RELEASED_UNWATCHED, MISSING_MAPPING, TRACK_UNAVAILABLE, INVALID_TARGET,
-    STALE_RESULT, LAUNCH_FAILED,
+    STALE_RESULT, LAUNCH_FAILED, UNKNOWN_PROGRESS,
 }
 
 sealed interface WatchNextState {
@@ -64,11 +64,12 @@ class WatchNextResolver {
     fun resolve(mediaId: Int, watchedProgress: BigDecimal, policy: ExtensionProductPolicy,
         releases: ActiveReleaseSnapshot?, providers: List<NavigationProvider>,
         mappings: List<ProviderCoordinate>): WatchNextState {
+        if (watchedProgress.signum() < 0) return WatchNextState.Unavailable(NavigationUnavailableReason.UNKNOWN_PROGRESS)
         val active = policy.activeReleaseSource ?: return WatchNextState.Unavailable(NavigationUnavailableReason.NO_ACTIVE_SOURCE)
         if (releases?.key != active || releases.policyGeneration != policy.releaseGeneration)
             return WatchNextState.Unavailable(NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE)
         // The release source's SUB confirms canonical availability. Navigation may still offer a chosen DUB.
-        val sourceTracks = policy.preferencesFor(active).enabledTracks.filter { it.endsWith("_SUB") }.toSet()
+        val sourceTracks = setOf("DE_SUB")
         val released = releases.installments.filter {
             it.mediaId == mediaId && it.authoritative && it.episode > watchedProgress &&
                 it.episode.signum() > 0 && it.tracks.any { track -> track in sourceTracks }

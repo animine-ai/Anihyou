@@ -81,10 +81,7 @@ fun ReleaseScheduleText(
         next != null && untilNext != null -> stringResource(R.string.airing_in, untilNext)
         else -> null
     }
-    if (text == null) {
-        fallback()
-        return
-    }
+    if (text == null) return // An authoritative source with unknown coordinates must not invent an AniList count.
 
     Text(
         text = text.withTrack(presentation.stream.languageTrack),

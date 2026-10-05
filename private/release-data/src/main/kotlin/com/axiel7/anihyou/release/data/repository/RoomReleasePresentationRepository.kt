@@ -63,11 +63,10 @@ class RoomReleasePresentationRepository(
         }
         val selection = selection() ?: return legacy.offMain()
         // Extension First, the same selection as the calendar: an active usable source owns the release fields of
-        // every entry point; without an active source the old provider-wide projection stays (when its lane is on);
-        // an unusable one shows nothing.
+        // every entry point; without an active source the consumer keeps AniList, never an old provider-wide episode count.
         return combine(legacy, selection, legacyLaneEnabled ?: kotlinx.coroutines.flow.flowOf(true)) { legacyRows, chosen, legacyOn ->
             val result = when (chosen) {
-                is ReleaseSelection.Legacy -> if (legacyOn) legacyRows else emptyMap()
+                is ReleaseSelection.Legacy -> emptyMap() // Old provider projections cannot determine current episode counts.
                 is ReleaseSelection.None -> emptyMap()
                 is ReleaseSelection.Extension ->
                     chosen.rows.toExtensionMediaPresentations(chosen.mappings, mediaIds, chosen.preferences, chosen.source, chosen.segments)
@@ -191,8 +190,7 @@ internal fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionE
     segments: List<ProviderEpisodeSegment> = emptyList(),
 ): List<ReleaseUiCalendarItem> {
     val lookup = MappingLookup(mappings)
-    // The same track switches as the per-media fold: a language track the user turned off is not presented by any entry
-    // point (the calendar also feeds the widget and the explore airing rows).
+    // Calendar and widget visibility follows track preferences. Media release authority always comes from SUB.
     val enabledTracks = preferences.enabledTracks - "UNKNOWN"
     return mapNotNull { row ->
         val state = runCatching { ReleaseReconciliationMapper.state(row) }.getOrNull()
@@ -225,7 +223,9 @@ internal fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionE
         }
         val mediaId = lookup.aniListId(identity, state.navigationSeasons)
         val installment = canonicalPresentationInstallment(source, mediaId, identity.seriesPath,
-            identity.sourceSeason, identity.installment, segments) ?: return@mapNotNull null
+            identity.sourceSeason, identity.installment, segments)
+        // Calendar events retain source numbering even when the AniList coordinate is unknown.
+        val calendarInstallment = installment ?: identity.installment
         ReleaseUiCalendarItem(
             mediaId = mediaId,
             stream = ReleaseStreamKey(
@@ -235,7 +235,7 @@ internal fun List<com.axiel7.anihyou.release.data.db.CanonicalReleaseProjectionE
                 sourceSeason = identity.sourceSeason,
                 languageTrack = identity.track,
             ),
-            installment = installment,
+            installment = calendarInstallment,
             forecastAt = presentationAt,
             confirmed = confirmed,
             // The effective phase already encodes the monotonic release contract (ReleaseConflictPolicy.effectivePhase): an

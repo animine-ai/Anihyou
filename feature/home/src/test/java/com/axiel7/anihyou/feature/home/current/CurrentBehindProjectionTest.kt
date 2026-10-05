@@ -94,9 +94,9 @@ class CurrentBehindProjectionTest {
         ))
         val animeResults = MutableStateFlow<PagedResult<CommonMediaListEntry>>(
             PagedResult.Success(emptyList(), currentPage = 1, hasNextPage = false))
-        val lastUpdated = MutableStateFlow<BasicMediaListEntry?>(null)
+        val lastUpdated = MutableStateFlow<MediaListRepository.AccountEntryUpdate?>(null)
         val repository = mockk<MediaListRepository>()
-        every { repository.lastUpdatedEntry } returns lastUpdated
+        every { repository.accountEntryUpdate } returns lastUpdated
         every { repository.getUserMediaList(any(), any(), any(), any(), any(), any(), any(), any()) } answers {
             if (arg<MediaType>(1) == MediaType.ANIME) animeResults
             else flowOf(PagedResult.Success(emptyList(), currentPage = 1, hasNextPage = false))
@@ -115,13 +115,13 @@ class CurrentBehindProjectionTest {
         assertEquals(listOf(8), viewModel.uiState.value.airingList.map { it.mediaId })
 
         // The user watches episodes 9 and 10 elsewhere: Home reprojects from the entry, no source refresh happens.
-        lastUpdated.value = behind.basicMediaListEntry.copy(progress = 10)
+        lastUpdated.value = MediaListRepository.AccountEntryUpdate(4242, behind.basicMediaListEntry.copy(progress = 10))
         advanceUntilIdle()
         assertEquals(listOf(9), viewModel.uiState.value.behindList.map { it.mediaId })
         assertEquals(listOf(7, 8), viewModel.uiState.value.airingList.map { it.mediaId }.sorted())
 
         // Undo (or another device sets it back to 8): the same two unseen episodes are behind again, no source refresh.
-        lastUpdated.value = behind.basicMediaListEntry.copy(progress = 8)
+        lastUpdated.value = MediaListRepository.AccountEntryUpdate(4242, behind.basicMediaListEntry.copy(progress = 8))
         advanceUntilIdle()
         assertEquals(listOf(9, 7), viewModel.uiState.value.behindList.map { it.mediaId })
         assertEquals(listOf(8), viewModel.uiState.value.airingList.map { it.mediaId })

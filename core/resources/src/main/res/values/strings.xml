@@ -822,4 +822,5 @@
     <string name="allow_end_notification">Allow finished notification</string>
     <string name="postponements_search">Search postponements</string>
     <string name="postponements_no_results">No results for “%1$s”</string>
+    <string name="navigation_unknown_progress">Watched progress is unknown. Add or update your list entry.</string>
 </resources>

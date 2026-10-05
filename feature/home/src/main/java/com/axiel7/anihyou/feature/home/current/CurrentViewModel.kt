@@ -31,6 +31,8 @@ import com.axiel7.anihyou.core.network.type.ScoreFormat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -371,10 +373,24 @@ class CurrentViewModel(
     }
 
     init {
+        var loadedAccount: Int? = null
+        defaultPreferencesRepository.userId.distinctUntilChanged().onEach { account ->
+            if (account != loadedAccount) {
+                loadedAccount = account
+                mutableUiState.update { state ->
+                    state.airingList.clear(); state.behindList.clear(); state.animeList.clear()
+                    state.mangaList.clear(); state.nextSeasonAnimeList.clear()
+                    state.copy(releaseByMediaId = emptyMap(), selectedItem = null, selectedType = null)
+                }
+                refreshReleaseMediaIds()
+            }
+        }.launchIn(viewModelScope)
+
         releaseMediaIds
-            .combine(myUserId) { ids, accountId -> accountId.toLong() to ids }
+            .combine(defaultPreferencesRepository.userId.distinctUntilChanged()) { ids, accountId -> accountId to ids }
             .flatMapLatest { (accountId, ids) ->
-                releasePresentationRepository.observeForMedia(accountId, ids)
+                if (accountId == null) flowOf(emptyMap())
+                else releasePresentationRepository.observeForMedia(accountId.toLong(), ids)
             }
             .onEach { presentations ->
                 mutableUiState.update { state ->
@@ -388,8 +404,9 @@ class CurrentViewModel(
             .distinctUntilChanged { _, new ->
                 !new.fetchFromNetwork
             }
-            .flatMapLatest { uiState ->
-                allCurrentPages(MediaType.ANIME, uiState.fetchFromNetwork)
+            .combine(defaultPreferencesRepository.userId.distinctUntilChanged()) { state, account -> state to account }
+            .flatMapLatest { (uiState, account) ->
+                if (account == null) emptyFlow() else allCurrentPages(MediaType.ANIME, uiState.fetchFromNetwork)
             }
             .onEach { result ->
                 mutableUiState.update { uiState ->
@@ -470,8 +487,9 @@ class CurrentViewModel(
             .distinctUntilChanged { _, new ->
                 !new.fetchFromNetwork
             }
-            .flatMapLatest { uiState ->
-                allCurrentPages(MediaType.MANGA, uiState.fetchFromNetwork)
+            .combine(defaultPreferencesRepository.userId.distinctUntilChanged()) { state, account -> state to account }
+            .flatMapLatest { (uiState, account) ->
+                if (account == null) emptyFlow() else allCurrentPages(MediaType.MANGA, uiState.fetchFromNetwork)
             }
             .onEach { result ->
                 mutableUiState.update { uiState ->
@@ -541,7 +559,9 @@ class CurrentViewModel(
             .distinctUntilChanged { _, new ->
                 !new.fetchFromNetwork
             }
-            .flatMapLatest { uiState ->
+            .combine(defaultPreferencesRepository.userId.distinctUntilChanged()) { state, account -> state to account }
+            .flatMapLatest { (uiState, account) ->
+                if (account == null) return@flatMapLatest emptyFlow()
                 val now = LocalDateTime.ofInstant(clock.instant(), ZoneId.systemDefault())
                 mediaListRepository.getMySeasonalAnime(
                     season = now.currentAnimeSeason(),
@@ -598,9 +618,11 @@ class CurrentViewModel(
             .launchIn(viewModelScope)
 
         mediaListRepository
-            .lastUpdatedEntry
+            .accountEntryUpdate
             .filterNotNull()
-            .onEach { entry ->
+            .onEach { update ->
+                if (update.accountId != defaultPreferencesRepository.userId.first()) return@onEach
+                val entry = update.entry
                 findEntryAndListType(entry)?.let {
                     val mediaEntry = it.first
                     val listType = it.second

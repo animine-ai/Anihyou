@@ -110,6 +110,20 @@ class ReleaseUiSelectionTest {
         assertEquals(listOf(sub), ReleaseUiSelection.authoritative(listOf(sub, sub, dub)))
     }
 
+    @Test fun multipleSubStreamsMergeCanonicalFactsRegardlessOfInputOrder() {
+        val older = presentation(confirmedThrough = 8, planned = 9)
+        val newer = presentation(confirmedThrough = 12, planned = 13)
+            .copy(stream = stream.copy(stableSeriesKey = SourceSeriesKey("/other")))
+        for (rows in listOf(listOf(older, newer), listOf(newer, older))) {
+            val selected = requireNotNull(ReleaseUiSelection.effective(rows))
+            assertEquals(12, selected.confirmedThroughEpisode)
+            assertEquals(2, selected.pendingFor(10))
+            assertEquals(Installment.Episode(13), selected.nextExpectedInstallment)
+            assertEquals(12, selected.confirmedInstallments.size)
+        }
+        assertNull(ReleaseUiSelection.effective(listOf(older, newer.copy(mediaId = 8))))
+    }
+
     @Test fun anOverduePlanIsOnlyOverduePastTheGrace() {
         assertFalse(ReleaseUiSelection.isOverdue(now.plusSeconds(60), now))
         assertFalse(ReleaseUiSelection.isOverdue(now, now))

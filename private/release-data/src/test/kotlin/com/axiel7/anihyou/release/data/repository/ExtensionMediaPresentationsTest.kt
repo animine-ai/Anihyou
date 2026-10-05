@@ -94,6 +94,24 @@ class ExtensionMediaPresentationsTest {
         ids: Set<Int> = setOf(42), preferences: ExtensionPreferences = defaults,
     ) = rows.toExtensionMediaPresentations(mappings, ids, preferences)
 
+    @Test fun aSeriesBindingWithoutEpisodeEvidenceNeverClaimsRawCoordinates() {
+        val source = com.axiel7.anihyou.release.core.source.ExtensionSelectionKey("repo", "extension", "publisher", "aniworld")
+        val rows = listOf(released("series-a", 24))
+        val mappings = listOf(binding("series-a", 42))
+        val unknown = rows.toExtensionMediaPresentations(mappings, setOf(42), defaults, source).getValue(42).single()
+        assertEquals(ReleaseUiAuthority.VALID, unknown.authority)
+        assertNull(unknown.confirmedThroughEpisode)
+        assertTrue(unknown.confirmedInstallments.isEmpty())
+        assertEquals(0, unknown.pendingFor(10))
+        val segment = com.axiel7.anihyou.release.core.navigation.ProviderEpisodeSegment(source, 42, "series-a", 1, 13, 1, 12)
+        val mapped = rows.toExtensionMediaPresentations(mappings, setOf(42), defaults, source, listOf(segment)).getValue(42).single()
+        assertEquals(12, mapped.confirmedThroughEpisode)
+        assertEquals(2, mapped.pendingFor(10))
+        val calendar = rows.toExtensionCalendarItems(mappings,
+            LocalDate.of(2026, 9, 1)..LocalDate.of(2026, 11, 1), defaults, source)
+        assertEquals(Installment.Episode(24), calendar.single().installment)
+    }
+
     @Test fun confirmedComesFromReleasedRowsAndAPlanNeverConfirms() {
         val rows = listOf(
             released("series-a", 9), released("series-a", 10),
@@ -187,8 +205,8 @@ class ExtensionMediaPresentationsTest {
 
         val onlyDub = presented(rows, mappings, preferences = ExtensionPreferences(enabledTracks = setOf("DE_DUB"),
             preferredTrackOrder = listOf("DE_DUB"))).getValue(42)
-        assertEquals(listOf(LanguageTrack.DE_DUB), onlyDub.map { it.stream.languageTrack })
-        assertNull("DUB alone never replaces canonical episode state", ReleaseUiSelection.effective(onlyDub))
+        assertEquals(listOf(LanguageTrack.DE_DUB, LanguageTrack.DE_SUB), onlyDub.map { it.stream.languageTrack })
+        assertEquals("SUB authority survives a DUB-only navigation preference", 10, ReleaseUiSelection.effective(onlyDub)?.confirmedThroughEpisode)
     }
 
     @Test fun separateSeasonsOfOneSeriesMapToTheirOwnMedia() {
@@ -253,8 +271,8 @@ class ExtensionMediaPresentationsTest {
         return ReleaseReconciliationMapper.projection(state, identity.bucketKey, 1)
     }
 
-    /** F02 of the independent review: a track switched off in the settings must leave every entry point, not only some. */
-    @Test fun aTrackTheUserTurnedOffIsPresentedByNeitherTheCalendarNorThePerMediaFold() {
+    /** Calendar visibility follows preferences; SUB authority is independent of navigation visibility. */
+    @Test fun subAuthoritySurvivesTrackVisibilityWhileCalendarStillFilters() {
         val rows = listOf(
             released("series-a", 10, LanguageTrack.DE_SUB), planned("series-a", 11, today3pm, LanguageTrack.DE_SUB),
             released("series-a", 10, LanguageTrack.DE_DUB), planned("series-a", 11, today3pm, LanguageTrack.DE_DUB),
@@ -267,11 +285,11 @@ class ExtensionMediaPresentationsTest {
         val both = setOf(LanguageTrack.DE_SUB, LanguageTrack.DE_DUB)
         assertEquals(Pair(both, both), tracksOf(defaults))
         val dubOnly = ExtensionPreferences(enabledTracks = setOf("DE_DUB"), preferredTrackOrder = listOf("DE_DUB"))
-        assertEquals(Pair(setOf(LanguageTrack.DE_DUB), setOf(LanguageTrack.DE_DUB)), tracksOf(dubOnly))
+        assertEquals(Pair(both, setOf(LanguageTrack.DE_DUB)), tracksOf(dubOnly))
         val subOnly = ExtensionPreferences(enabledTracks = setOf("DE_SUB"), preferredTrackOrder = listOf("DE_SUB"))
         assertEquals(Pair(setOf(LanguageTrack.DE_SUB), setOf(LanguageTrack.DE_SUB)), tracksOf(subOnly))
         val none = ExtensionPreferences(enabledTracks = emptySet(), preferredTrackOrder = emptyList())
-        assertEquals(Pair(emptySet<LanguageTrack>(), emptySet<LanguageTrack>()), tracksOf(none))
+        assertEquals(Pair(setOf(LanguageTrack.DE_SUB), emptySet<LanguageTrack>()), tracksOf(none))
     }
 
     /** F03 of the independent review: one released episode with an open conflict has one authority in every entry point. */

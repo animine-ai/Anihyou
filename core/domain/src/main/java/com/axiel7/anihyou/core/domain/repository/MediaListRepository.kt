@@ -27,11 +27,18 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
 
 class MediaListRepository(
     private val api: MediaListApi,
     defaultPreferencesRepository: DefaultPreferencesRepository,
 ) : BaseNetworkRepository(defaultPreferencesRepository) {
+
+    data class AccountEntryUpdate(val accountId: Int, val entry: BasicMediaListEntry)
+    private val _accountEntryUpdate = MutableStateFlow<AccountEntryUpdate?>(null)
+    val accountEntryUpdate = _accountEntryUpdate.asStateFlow()
 
     private val _lastUpdatedEntry = MutableStateFlow<BasicMediaListEntry?>(null)
     val lastUpdatedEntry = _lastUpdatedEntry.asStateFlow()
@@ -171,7 +178,9 @@ class MediaListRepository(
         hiddenFromStatusLists: Boolean? = null,
         notes: String? = null,
         priority: Int? = null,
-    ) = api
+    ) = flow {
+        val mutationAccountId = defaultPreferencesRepository.userId.first()
+        emitAll(api
         .updateEntryMutation(
             mediaId = mediaId,
             status = status.takeIf { status != oldEntry?.status },
@@ -193,29 +202,41 @@ class MediaListRepository(
         .onEach {
             it.data?.SaveMediaListEntry?.basicMediaListEntry?.let { entry ->
                 localAccountProgressIndex.invalidate(entry.mediaId)
-                _lastUpdatedEntry.emit(entry)
-                api.updateMediaListCache(entry)
+                if (mutationAccountId != null && mutationAccountId == defaultPreferencesRepository.userId.first()) {
+                    _lastUpdatedEntry.emit(entry)
+                    _accountEntryUpdate.emit(AccountEntryUpdate(mutationAccountId, entry))
+                    api.updateMediaListCache(entry)
+                }
             }
         }
         .asDataResult {
             it.SaveMediaListEntry
         }
+        )
+    }
 
     fun updateEntryCustomLists(
         mediaId: Int,
         customLists: List<String?>,
-    ) = api
+    ) = flow {
+        val mutationAccountId = defaultPreferencesRepository.userId.first()
+        emitAll(api
         .updateEntryCustomListsMutation(mediaId, customLists)
         .toFlow()
         .onEach {
             it.data?.SaveMediaListEntry?.basicMediaListEntry?.let { entry ->
-                _lastUpdatedEntry.emit(entry)
-                api.updateMediaListCache(entry)
+                if (mutationAccountId != null && mutationAccountId == defaultPreferencesRepository.userId.first()) {
+                    _lastUpdatedEntry.emit(entry)
+                    _accountEntryUpdate.emit(AccountEntryUpdate(mutationAccountId, entry))
+                    api.updateMediaListCache(entry)
+                }
             }
         }
         .asDataResult {
             it.SaveMediaListEntry
         }
+        )
+    }
 
     suspend fun deleteEntry(id: Int): DataResult<*> {
         val result = api

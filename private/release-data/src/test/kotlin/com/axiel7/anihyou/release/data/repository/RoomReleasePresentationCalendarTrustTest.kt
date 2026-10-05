@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -355,22 +356,20 @@ class RoomReleasePresentationCalendarTrustTest {
             val policy = Policy(ExtensionProductPolicy())
             val repository = repository(db, policy, sources)
 
-            assertEquals("no active source: the old projection stays", 7,
-                presentedForMedia(repository).getValue(42).single().confirmedThroughEpisode)
+            assertTrue("no active source: old provider counts must not replace AniList", presentedForMedia(repository).isEmpty())
 
             policy.selectActiveSource(keyA)
             val owned = presentedForMedia(repository).getValue(42).single()
             assertEquals("the active source's accepted row replaces it (a plan does not confirm)", null,
                 owned.confirmedThroughEpisode)
-            assertEquals(Installment.Episode(1), owned.nextExpectedInstallment)
+            assertNull("a series binding does not prove an episode coordinate", owned.nextExpectedInstallment)
 
             sources.sources.value = listOf(source(keyA, extension(keyA, usable = false)))
             assertTrue("an unusable active source must not fall back to the old projection",
                 presentedForMedia(repository).isEmpty())
 
             policy.selectActiveSource(null)
-            assertEquals("deselected again: the old projection returns", 7,
-                presentedForMedia(repository).getValue(42).single().confirmedThroughEpisode)
+            assertTrue("deselected again: old provider counts stay excluded", presentedForMedia(repository).isEmpty())
         } finally { db.close() }
     }
 
@@ -413,7 +412,7 @@ class RoomReleasePresentationCalendarTrustTest {
             )
             policy.policy.value = only("DE_DUB")
             assertTrue("the calendar (and so the widget and the explore rows) no longer shows the switched-off track", presented(repository).isEmpty())
-            assertTrue("Home, lists and details do not either", presentedForMedia(repository).isEmpty())
+            assertTrue("SUB stays authoritative regardless of calendar visibility", presentedForMedia(repository).getValue(42).single().isAuthoritative)
 
             policy.policy.value = only("DE_SUB")
             assertEquals("switching it on again shows the accepted row, nothing was deleted", 1, presented(repository).size)

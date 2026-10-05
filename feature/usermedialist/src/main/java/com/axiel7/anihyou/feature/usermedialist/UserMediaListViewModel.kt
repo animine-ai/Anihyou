@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -83,8 +84,7 @@ class UserMediaListViewModel(
             isMyList = arguments.userId == 0
         )
 
-    private val myUserId = defaultPreferencesRepository.userId
-        .filterNotNull()
+    private var loadedAccountId: Int? = null
 
     private val titleLanguage = defaultPreferencesRepository.titleLanguage
     private val releaseMediaIds = MutableStateFlow<Set<Int>>(emptySet())
@@ -582,6 +582,20 @@ class UserMediaListViewModel(
     }
 
     init {
+        mediaListRepository.accountEntryUpdate.filterNotNull().onEach { update ->
+            val state = mutableUiState.value
+            val account = defaultPreferencesRepository.userId.first()
+            if (state.isMyList && update.accountId == account && loadedAccountId == account) {
+                val lists = state.lists.mapValues { (_, entries) ->
+                    entries.map { old ->
+                        if (old.mediaId == update.entry.mediaId) old.copy(basicMediaListEntry = update.entry) else old
+                    }
+                }.toMutableMap()
+                val updated = mutableUiState.updateAndGet { it.copy(lists = lists) }
+                updateSearchAndFilters(updated)
+            }
+        }.launchIn(viewModelScope)
+
         releaseMediaIds
             .combine(mutableUiState.map { it.userId }.distinctUntilChanged()) { ids, accountId ->
                 ids to accountId
@@ -590,8 +604,9 @@ class UserMediaListViewModel(
                 if (accountId != null) {
                     releasePresentationRepository.observeForMedia(accountId.toLong(), ids)
                 } else {
-                    myUserId.flatMapLatest { currentAccountId ->
-                        releasePresentationRepository.observeForMedia(currentAccountId.toLong(), ids)
+                    defaultPreferencesRepository.userId.flatMapLatest { currentAccountId ->
+                        if (currentAccountId == null) flowOf(emptyMap())
+                        else releasePresentationRepository.observeForMedia(currentAccountId.toLong(), ids)
                     }
                 }
             }
@@ -763,8 +778,18 @@ class UserMediaListViewModel(
             .distinctUntilChanged { _, new ->
                 !new.fetchFromNetwork
             }
-            .flatMapLatest { uiState ->
-                val listUserId = uiState.userId ?: myUserId.first()
+            .combine(defaultPreferencesRepository.userId.distinctUntilChanged()) { state, account -> state to account }
+            .flatMapLatest { (uiState, account) ->
+                val listUserId = uiState.userId ?: account
+                if (loadedAccountId != listUserId) {
+                    loadedAccountId = listUserId
+                    mutableUiState.update { it.copy(lists = mutableMapOf(), releaseByMediaId = emptyMap(), selectedItem = null, filteredEntriesCache = emptyList()) }
+                    mutableUiState.value.entries.clear()
+                    mutableUiState.value.mangaEntries.clear()
+                    mutableUiState.value.novelEntries.clear()
+                    publishReleaseMediaIds()
+                }
+                if (listUserId == null) return@flatMapLatest emptyFlow()
                 val sort = if (uiState.sort.isTitle()) {
                     listOf(MediaListSort.MEDIA_ID)
                 } else {

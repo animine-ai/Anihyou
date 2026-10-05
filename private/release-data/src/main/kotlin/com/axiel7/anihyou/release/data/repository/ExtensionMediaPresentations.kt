@@ -47,12 +47,12 @@ internal fun List<CanonicalReleaseProjectionEntity>.toExtensionMediaPresentation
     val rows = mapNotNull { row ->
         val state = runCatching { ReleaseReconciliationMapper.state(row) }.getOrNull() ?: return@mapNotNull null
         val identity = CanonicalReleaseIdentity.decode(row.projectionKey) ?: return@mapNotNull null
-        if (identity.track.name !in enabledTracks) return@mapNotNull null
+        if (identity.track != LanguageTrack.DE_SUB && identity.track.name !in enabledTracks) return@mapNotNull null
         if (identity.installment is Installment.Special) return@mapNotNull null
         val media = lookup.aniListId(identity, state.navigationSeasons) ?: return@mapNotNull null
         if (media !in mediaIds) return@mapNotNull null
         val installment = canonicalPresentationInstallment(source, media, identity.seriesPath,
-            identity.sourceSeason, identity.installment, segments) ?: return@mapNotNull null
+            identity.sourceSeason, identity.installment, segments)
         MediaRow(media, identity, state, installment)
     }
     val trackOrder = preferences.preferredTrackOrder
@@ -68,7 +68,7 @@ internal fun List<CanonicalReleaseProjectionEntity>.toExtensionMediaPresentation
         }
 }
 
-private data class MediaRow(val media: Int, val identity: CanonicalReleaseIdentity, val state: CanonicalReleaseState, val installment: Installment)
+private data class MediaRow(val media: Int, val identity: CanonicalReleaseIdentity, val state: CanonicalReleaseState, val installment: Installment?)
 
 private data class StreamGroup(
     val media: Int,
@@ -81,7 +81,7 @@ private data class StreamGroup(
 private fun kindOf(identity: CanonicalReleaseIdentity): ReleaseKind =
     if (identity.installment is Installment.Film) ReleaseKind.MOVIE else ReleaseKind.EPISODE
 
-private fun wholeEpisode(row: MediaRow): Int? = row.installment.wholeEpisodeNumber
+private fun wholeEpisode(row: MediaRow): Int? = row.installment?.wholeEpisodeNumber
 
 private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresentation? {
     val released = items.filter { it.state.underlyingPhase == ReleasePhase.RELEASED }
@@ -115,7 +115,7 @@ private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresent
     val nextForecast = next?.let { row ->
         val at = requireNotNull(row.state.forecastAt)
         Forecast(
-            identity = SourceIdentity(stream, row.installment),
+            identity = SourceIdentity(stream, row.installment ?: row.identity.installment),
             forecastAt = at,
             sourceDate = at.atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate(),
             sourceTime = null,
@@ -129,7 +129,7 @@ private fun present(group: StreamGroup, items: List<MediaRow>): ReleaseUiPresent
         stream = stream,
         authority = ReleaseUiAuthority.VALID,
         confirmedThroughEpisode = confirmedThrough,
-        confirmedInstallments = released.map { it.installment }.distinctBy { it.stableKey }
+        confirmedInstallments = released.mapNotNull { it.installment }.distinctBy { it.stableKey }
             .sortedBy { it.wholeEpisodeNumber ?: Int.MAX_VALUE },
         // The rows carry no account progress; the consumer derives the pending count from its AniList entry.
         confirmedPending = 0,

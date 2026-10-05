@@ -163,6 +163,7 @@ private fun NavigationUnavailableReason.localizedNavigationMessage(): String = s
         NavigationUnavailableReason.NO_PROVIDERS,
         NavigationUnavailableReason.PROVIDER_UNAVAILABLE -> R.string.navigation_provider_unavailable
         NavigationUnavailableReason.CHOOSE_PROVIDER -> R.string.navigation_choose_provider
+        NavigationUnavailableReason.UNKNOWN_PROGRESS -> R.string.navigation_unknown_progress
         NavigationUnavailableReason.NO_RELEASED_UNWATCHED -> R.string.navigation_no_released_episode
         NavigationUnavailableReason.MISSING_MAPPING -> R.string.navigation_missing_mapping
         NavigationUnavailableReason.TRACK_UNAVAILABLE -> R.string.navigation_track_unavailable

@@ -91,7 +91,7 @@ class MediaDetailsViewModel(
         val currentState = mutableUiState.value
         val details = currentState.details ?: return
         val mediaId = details.id
-        val watchedProgress = details.mediaListEntry?.basicMediaListEntry?.progress ?: 0
+        val watchedProgress = details.mediaListEntry?.basicMediaListEntry?.progress ?: return
         val navigation = currentState.extensionNavigation
         val candidate = navigation.watchNext as? WatchNextState.Candidate ?: return
         if (candidate.behindCount <= 0) return
@@ -103,7 +103,7 @@ class MediaDetailsViewModel(
         runNavigationAction {
             val resolved = providerNavigationProductRepository.watchNext(mediaId, watchedProgress)
             val latestDetails = mutableUiState.value.details
-            val latestProgress = latestDetails?.mediaListEntry?.basicMediaListEntry?.progress ?: 0
+            val latestProgress = latestDetails?.mediaListEntry?.basicMediaListEntry?.progress
             if (latestDetails?.id != mediaId || latestProgress != watchedProgress) {
                 return@runNavigationAction NavigationUnavailableReason.STALE_RESULT
             }
@@ -592,7 +592,7 @@ class MediaDetailsViewModel(
             .flatMapLatest { (mediaId, request) ->
                 val progress = mutableUiState.mapNotNull { state ->
                     state.details?.takeIf { it.id == mediaId }?.let {
-                        it.mediaListEntry?.basicMediaListEntry?.progress ?: 0
+                        it.mediaListEntry?.basicMediaListEntry?.progress ?: -1
                     }
                 }
                 progress.observeNavigationAfterDetailMapping(

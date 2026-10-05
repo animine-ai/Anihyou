@@ -132,6 +132,10 @@ class ExtensionProviderNavigationProductRepository(
             }.thenBy { it.key.sourceId }.thenBy { it.key.extensionId })
         val visible = providers.filter { NavigationCapability.OVERVIEW_NAVIGATION in it.capabilities && overviewCoordinate(mediaId, it) != null }
         val active = p.activeReleaseSource
+        // Negative progress represents unknown in the product port; overview navigation remains available.
+        if (watched < 0) return ProviderNavigationProductState(visible,
+            WatchNextState.Unavailable(NavigationUnavailableReason.UNKNOWN_PROGRESS),
+            mappingProviders = providers, activeReleaseSource = active)
         val stored = store.state.value
         val activeProvider = active?.let { selected -> sources.sources.value.usableExtension(selected) }
         val sourceReady = active != null && activeProvider != null && stored.source == active &&
