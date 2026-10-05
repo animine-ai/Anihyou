@@ -48,6 +48,7 @@ import com.axiel7.anihyou.release.data.db.ReleaseDatabase
 import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
 import com.axiel7.anihyou.release.data.preferences.ReleasePreferencesStore
 import com.axiel7.anihyou.release.data.repository.AniListIdentityCandidateSource
+import com.axiel7.anihyou.release.data.repository.AniListLibraryCandidateLoader
 import com.axiel7.anihyou.release.data.repository.AniListReleaseAccountContextProvider
 import com.axiel7.anihyou.release.data.repository.ReleaseIdentityMatcher
 import com.axiel7.anihyou.release.data.repository.ReleaseSyncCoordinator
@@ -187,7 +188,10 @@ val animetrackerReleaseModule = module {
     single { AniWorldClient(get()) }
     single { AniWorldProvider(client = get(), clock = get()) }
     single { RoomIdentityCandidateStore(get(), get()) }
-    single<IdentityCandidateSource> { AniListIdentityCandidateSource(get(), get(), get(), mediaRepository = get()) }
+    single { AniListLibraryCandidateLoader(get(), get()) }
+    single<IdentityCandidateSource> {
+        AniListIdentityCandidateSource(get(), get(), get(), mediaRepository = get(), library = get())
+    }
     // Matching management (Settings): one real Room-backed repository, one shared targeted matching service.
     single { com.axiel7.anihyou.release.data.repository.MappingWriterFence(get<ReleaseDatabase>(), get<Clock>()) }
     single {

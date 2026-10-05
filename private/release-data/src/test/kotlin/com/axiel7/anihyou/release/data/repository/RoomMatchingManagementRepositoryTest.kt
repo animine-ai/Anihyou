@@ -132,6 +132,9 @@ class RoomMatchingManagementRepositoryTest {
         /** The AniList entries that air on a day, and which days were asked for. */
         var airing: Map<java.time.LocalDate, List<IdentityCandidate>> = emptyMap()
         val dayRequests = mutableListOf<java.time.LocalDate>()
+        /** The entries of the user's own AniList list. */
+        var library: List<IdentityCandidate> = emptyList()
+        override suspend fun libraryCandidates(): List<IdentityCandidate> = library
         override suspend fun airingCandidates(day: java.time.LocalDate): List<IdentityCandidate> {
             dayRequests += day
             return airing[day].orEmpty()
@@ -610,6 +613,32 @@ class RoomMatchingManagementRepositoryTest {
         rig.seedSeries(Triple("bleach", "Bleach", 17))
         rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(
             IdentityCandidate(63, setOf("Bleach: The Movie"), "MOVIE", java.time.LocalDate.of(2026, 10, 2))))
+        assertEquals(0, rig.service.autoMatchPending().matched)
+    }
+
+    @Test fun theUsersOwnListIsLookedAtBeforeTheCalendarAndTheSeasons() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("tomb", "Tomb Raider King", 1))
+        rig.candidates.library = listOf(IdentityCandidate(90, setOf("Tomb Raider-ou", "Tomb Raider King"), "TV",
+            java.time.LocalDate.of(2025, 1, 1)))
+        assertEquals(1, rig.service.autoMatchPending().matched)
+        assertTrue("nothing else had to be asked", rig.candidates.dayRequests.isEmpty() && rig.candidates.poolRequests.isEmpty())
+        assertEquals("90", rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("tomb", 1).stableKey, "anilist")!!.externalId)
+    }
+
+    @Test fun aShowOfTheListThatReleasesNowIsTheContinuationOfALaterSeasonOfTheSource() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("onepiece", "One Piece", 23))
+        // The service takes a releasing entry as airing now: the loader dates it today, whatever year it began.
+        rig.candidates.library = listOf(IdentityCandidate(91, setOf("ONE PIECE"), "TV", java.time.LocalDate.of(2026, 10, 1)))
+        assertEquals(1, rig.service.autoMatchPending().matched)
+    }
+
+    @Test fun anOldFinishedEntryOfTheListNeverStandsForALaterSeason() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("show", "Show", 2))
+        rig.candidates.library = listOf(IdentityCandidate(92, setOf("Show"), "TV", java.time.LocalDate.of(2020, 1, 1)))
         assertEquals(0, rig.service.autoMatchPending().matched)
     }
 

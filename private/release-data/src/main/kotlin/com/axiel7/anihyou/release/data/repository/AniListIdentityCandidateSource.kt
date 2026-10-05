@@ -32,7 +32,10 @@ class AniListIdentityCandidateSource(
     private val cache: RoomIdentityCandidateStore,
     private val clock: Clock = Clock.systemUTC(),
     private val mediaRepository: com.axiel7.anihyou.core.domain.repository.MediaRepository? = null,
+    private val library: AniListLibraryCandidateLoader? = null,
 ) : IdentityCandidateSource {
+
+    override suspend fun libraryCandidates(): List<IdentityCandidate> = library?.load().orEmpty()
 
     override suspend fun airingCandidates(day: LocalDate): List<IdentityCandidate> {
         val repository = mediaRepository ?: return emptyList()

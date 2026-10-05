@@ -330,6 +330,7 @@ class SourceSeriesMatchingService(
         val today = now.atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate()
         val pool = PoolIndex()
         var matched = 0
+        // 0. The user's own AniList list, then
         // 1. The AniList airing calendar, as far ahead as it goes: the data the calendar tab shows without a release source.
         //    It holds what airs now and what premieres soon, so the next season needs no search of its own. Day by day,
         //    today first, and it stops as soon as nothing is open.
@@ -358,6 +359,21 @@ class SourceSeriesMatchingService(
                 if (bind(active, series, relevant, takenMedia, search = null, via = via) == Bind.BOUND) matched++ else still += series
             }
             left = still
+        }
+        // 0. The user's own AniList list first, as the older matcher did with its local active library: what the user
+        //    watches or plans is the likeliest match, and it holds shows that no season of the last year does.
+        if (left.isNotEmpty()) {
+            val loadStart = System.nanoTime()
+            val library = attempt { candidates.libraryCandidates() }.orEmpty()
+            val loadMs = since(loadStart)
+            pool.add(library)
+            val roundStart = System.nanoTime()
+            val before = matched
+            round("list")
+            AppLog.i("matching") {
+                "auto match: AniList list +${library.size} entries (pool ${pool.size}), ${left.size} series open " +
+                    "after ${matched - before} bound (load $loadMs ms, match ${since(roundStart)} ms)"
+            }
         }
         for (offset in CALENDAR_DAY_OFFSETS) {
             if (left.isEmpty()) break
