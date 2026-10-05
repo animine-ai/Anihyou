@@ -113,3 +113,4 @@ jobs:
 # Follow-up device build: transparent postponement list and aligned search layout, 2026-10-05.
 
 # Master default from 2026-10-05: optimized temporary-signed tests, full diagnostic logging preserved.
+# Include the corrected settings navigation test setup in the first performance device build.

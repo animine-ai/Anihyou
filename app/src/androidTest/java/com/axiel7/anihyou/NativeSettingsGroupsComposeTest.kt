@@ -44,7 +44,7 @@ class NativeSettingsGroupsComposeTest {
     @Test fun loggedInDarkRootKeepsSeparateNavigationAndSourcesGroups() = root(true, true)
     private fun root(loggedIn: Boolean, dark: Boolean) {
         rule.setContent {
-            val state = rememberNavigationState(Route.Settings, MainNavigationResolver.allRoutes)
+            val state = rememberNavigationState(Route.Settings, MainNavigationResolver.allRoutes + Route.Settings)
             val nav = remember(state) { Navigator(state) }
             CompositionLocalProvider(LocalNavActionManager provides NavActionManager(nav)) {
                 AniHyouTheme(darkTheme = dark, dynamicColor = false) {
@@ -81,7 +81,7 @@ class NativeSettingsGroupsComposeTest {
         lateinit var state: NavigationState
         lateinit var nav: Navigator
         rule.setContent {
-            state = rememberNavigationState(Route.Settings, MainNavigationResolver.allRoutes)
+            state = rememberNavigationState(Route.Settings, MainNavigationResolver.allRoutes + Route.Settings)
             nav = remember(state) { Navigator(state) }
             CompositionLocalProvider(LocalNavActionManager provides NavActionManager(nav)) {
                 AniHyouTheme(darkTheme = false, dynamicColor = false) {
