@@ -25,6 +25,19 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.TextOverflow
+import com.axiel7.anihyou.core.ui.composables.preferenceShape
+import com.axiel7.anihyou.core.ui.composables.common.SearchPillField
+import com.axiel7.anihyou.release.core.matching.SearchTitleFolding
+import com.axiel7.anihyou.core.resources.R as CoreR
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,59 +74,61 @@ fun ExtensionSourcesSettingsSection(
     uiState: ExtensionSourcesUiState,
     event: ExtensionSourcesEvent,
 ) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var showAdd by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(uiState.trustPrompt, uiState.addResult) {
+        if (uiState.trustPrompt != null || uiState.addResult is AddExtensionSourceResult.Added ||
+            uiState.addResult is AddExtensionSourceResult.Duplicate) showAdd = false
+    }
     val entries = uiState.sources.flatMap { source -> source.extensions.map { extension -> source to extension } }
-    // Installed extensions are the active ones; everything a source offers that is not installed yet is available.
-    val active = entries.filter { (_, extension) -> extension.installedDigest != null }
-    val available = entries.filter { (_, extension) -> extension.installedDigest == null }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-    ) {
-        Spacer(Modifier.height(8.dp))
-        if (uiState.trustAvailable) AddExtensionSourceForm(uiState, event)
-        if (uiState.actionFailed) {
-            Spacer(Modifier.height(8.dp))
-            TextButton(onClick = event::clearActionFailure) {
-                Text(stringResource(R.string.extension_sources_action_failed))
-            }
+        .filter { (source, extension) -> SearchTitleFolding.matches(query, extension.displayName, extension.extensionId,
+            extension.version, repositoryHost(source.url), extension.supportedTracks.joinToString(" ")) }
+    val active = entries.filter { it.second.installedDigest != null }
+    val available = entries.filter { it.second.installedDigest == null }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) { PreferencesTitle(stringResource(R.string.extension_sources_title)) }
+        IconButton(onClick = { showAdd = true }, enabled = uiState.trustAvailable && !uiState.isAdding,
+            modifier = Modifier.padding(top = 16.dp, end = 16.dp).testTag("extension-source-add-open")) {
+            Icon(painterResource(CoreR.drawable.add_24), contentDescription = stringResource(R.string.extension_sources_add))
         }
     }
-
+    if (uiState.sources.isEmpty()) Text(stringResource(R.string.extension_sources_empty),
+        modifier = Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodyMedium)
+    else uiState.sources.forEachIndexed { index, source ->
+        ExtensionSourceCard(source, uiState.busySourceIds, uiState.trustAvailable, event,
+            shape = preferenceShape(index, uiState.sources.size))
+    }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        SearchPillField(value = query, onValueChange = { query = it.take(256) },
+            placeholder = stringResource(R.string.extension_manage_search), modifier = Modifier.testTag("extensions-search"))
+        if (uiState.actionFailed) TextButton(onClick = event::clearActionFailure) {
+            Text(stringResource(R.string.extension_sources_action_failed))
+        }
+    }
     if (active.isNotEmpty()) {
-        PreferencesTitle(text = stringResource(R.string.extension_manage_active_title))
+        PreferencesTitle(stringResource(R.string.extension_manage_active_title))
         ExtensionCards(active, uiState, event)
     }
     if (available.isNotEmpty()) {
-        PreferencesTitle(text = stringResource(R.string.extension_manage_available_title))
+        PreferencesTitle(stringResource(R.string.extension_manage_available_title))
         ExtensionCards(available, uiState, event)
     }
-
-    PreferencesTitle(text = stringResource(R.string.extension_sources_title))
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-    ) {
-        if (uiState.sources.isEmpty()) {
-            Text(
-                text = stringResource(R.string.extension_sources_empty),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        } else {
-            uiState.sources.forEach { source ->
-                ExtensionSourceCard(
-                    source = source,
-                    busySourceIds = uiState.busySourceIds,
-                    trustAvailable = uiState.trustAvailable,
-                    event = event,
-                    modifier = Modifier.padding(vertical = 6.dp),
-                )
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-    }
+    if (query.isNotBlank() && entries.isEmpty()) Text(stringResource(R.string.extension_manage_no_results, query.trim()),
+        modifier = Modifier.padding(24.dp).testTag("extensions-no-results"), color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.height(16.dp))
+    if (showAdd) AlertDialog(onDismissRequest = { if (!uiState.isAdding) showAdd = false },
+        modifier = Modifier.testTag("extension-source-add-dialog"),
+        title = { Text(stringResource(R.string.extension_sources_add)) },
+        text = { AddExtensionSourceForm(uiState, event) },
+        confirmButton = { TextButton(onClick = event::addSource, enabled = uiState.url.isNotBlank() && !uiState.isAdding,
+            modifier = Modifier.testTag("extension-source-add")) {
+            Text(stringResource(if (uiState.isAdding) R.string.extension_sources_adding else R.string.extension_sources_add))
+        } },
+        dismissButton = { TextButton(onClick = { showAdd = false }, enabled = !uiState.isAdding) {
+            Text(stringResource(R.string.extension_manage_cancel))
+        } })
+    uiState.trustPrompt?.let { UnverifiedSourceDialog(it, busy = uiState.isAdding,
+        onConfirm = event::confirmTrust, onCancel = event::cancelTrust) }
 }
 
 @Composable
@@ -127,12 +142,12 @@ private fun ExtensionCards(
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
     ) {
-        entries.forEach { (source, extension) ->
+        entries.forEachIndexed { index, (source, extension) ->
             val sourceBusy = source.id in uiState.busySourceIds || source.extensions.any { it.updateState.isInFlight() }
             // The rounded surfaceContainerHigh tile of the original settings rows and cards.
             Card(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).testTag("extension-card"),
-                shape = singleShape,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp).testTag("extension-card"),
+                shape = preferenceShape(index, entries.size),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -168,15 +183,6 @@ private fun AddExtensionSourceForm(
             ),
             keyboardActions = KeyboardActions(onDone = { event.addSource() }),
         )
-        Spacer(Modifier.height(8.dp))
-        Button(
-            onClick = event::addSource,
-            modifier = Modifier.testTag("extension-source-add"),
-            enabled = uiState.url.isNotBlank() && !uiState.isAdding,
-        ) {
-            Text(stringResource(if (uiState.isAdding) R.string.extension_sources_adding else R.string.extension_sources_add))
-        }
-
         uiState.addResult?.let { result ->
             val message = when (result) {
                 is AddExtensionSourceResult.Added -> R.string.extension_sources_added
@@ -196,10 +202,7 @@ private fun AddExtensionSourceForm(
                 )
             }
         }
-        uiState.trustPrompt?.let { preview ->
-            UnverifiedSourceDialog(preview, busy = uiState.isAdding,
-                onConfirm = event::confirmTrust, onCancel = event::cancelTrust)
-        }
+
     }
 }
 
@@ -210,81 +213,52 @@ private fun ExtensionSourceCard(
     trustAvailable: Boolean,
     event: ExtensionSourcesEvent,
     modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = singleShape,
 ) {
     val sourceBusy = source.id in busySourceIds || source.extensions.any { it.updateState.isInFlight() }
     var showRemoveConfirmation by remember(source.id) { mutableStateOf(false) }
-    val refreshLabel = stringResource(if (sourceBusy) R.string.extension_manage_working else R.string.extension_sources_refresh)
-    val refreshModifier = if (sourceBusy) Modifier.semantics {
-        liveRegion = LiveRegionMode.Polite
-        stateDescription = refreshLabel
-    } else Modifier
-    // The rounded surfaceContainerHigh tile of the original settings rows and cards.
-    Card(
-        modifier = modifier.fillMaxWidth().testTag("extension-source-card"),
-        shape = singleShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-        ) {
-            Text(repositoryHost(source.url) ?: stringResource(R.string.extension_manage_unknown_repository),
-                style = MaterialTheme.typography.titleMedium)
-            // The full address tells two repositories of one host apart; the internal id is not for the user.
-            Text(
-                text = source.url,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = stringResource(
-                    R.string.extension_sources_status,
-                    stringResource(sourceStatusString(source.status)),
-                ),
-                modifier = Modifier.testTag("extension-source-status"),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            if (source.manuallyTrusted) {
-                // Permanent, plain wording: this source was accepted by the user, nobody independently verified it.
-                Text(
-                    text = stringResource(R.string.extension_manage_manual_trust),
-                    modifier = Modifier.testTag("extension-source-manual-trust"),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
+    var menu by remember(source.id) { mutableStateOf(false) }
+    var details by remember(source.id) { mutableStateOf(false) }
+    Card(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 1.dp).testTag("extension-source-card"),
+        shape = shape, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(CoreR.drawable.rss_feed_24), contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(end = 16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(repositoryHost(source.url) ?: stringResource(R.string.extension_manage_unknown_repository),
+                    style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.extension_sources_status, stringResource(
+                    if (sourceBusy) R.string.extension_manage_working else sourceStatusString(source.status))),
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("extension-source-status"))
+                if (source.manuallyTrusted) Text(stringResource(R.string.extension_manage_manual_trust),
+                    modifier = Modifier.testTag("extension-source-manual-trust"), style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary)
+                source.lastFailure?.let { Text(stringResource(R.string.extension_sources_last_failure, stringResource(sourceFailureString(it))),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             }
-            source.lastFailure?.let { failure ->
-                Text(
-                    text = stringResource(
-                        R.string.extension_sources_last_failure,
-                        stringResource(sourceFailureString(failure)),
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                TextButton(
-                    onClick = { event.refreshSource(source.id) },
-                    modifier = Modifier.testTag("extension-source-refresh"),
-                    enabled = !sourceBusy && trustAvailable,
-                ) {
-                    Text(refreshLabel, modifier = refreshModifier)
+            Box {
+                IconButton(onClick = { menu = true }, modifier = Modifier.testTag("extension-source-menu")) {
+                    Icon(painterResource(CoreR.drawable.more_vert_24), contentDescription = stringResource(R.string.extension_repository_actions))
                 }
-                TextButton(
-                    onClick = { showRemoveConfirmation = true },
-                    modifier = Modifier.testTag("extension-source-remove"),
-                    enabled = !sourceBusy,
-                ) {
-                    Text(stringResource(R.string.extension_sources_remove))
+                DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.extension_sources_refresh)) },
+                        enabled = !sourceBusy && trustAvailable, modifier = Modifier.testTag("extension-source-refresh"),
+                        onClick = { menu = false; event.refreshSource(source.id) })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.extension_manage_details)) },
+                        modifier = Modifier.testTag("extension-source-details"), onClick = { menu = false; details = true })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.extension_sources_remove)) }, enabled = !sourceBusy,
+                        modifier = Modifier.testTag("extension-source-remove"), onClick = { menu = false; showRemoveConfirmation = true })
                 }
             }
         }
     }
+    if (details) AlertDialog(onDismissRequest = { details = false },
+        title = { Text(repositoryHost(source.url) ?: stringResource(R.string.extension_manage_unknown_repository)) },
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+            Text(source.url); Text(source.id, style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.extension_sources_status, stringResource(sourceStatusString(source.status))))
+            if (source.manuallyTrusted) Text(stringResource(R.string.extension_manage_manual_trust))
+        } }, confirmButton = { TextButton(onClick = { details = false }) { Text(stringResource(R.string.extension_manage_close)) } })
     if (showRemoveConfirmation) {
         AlertDialog(
             onDismissRequest = { showRemoveConfirmation = false },
@@ -327,140 +301,63 @@ private fun SourceExtensionInfo(
     val updateStateLabel = stringResource(extensionUpdateStateLabel(extension.updateState))
     val updateStatusText = stringResource(R.string.extension_manage_status, updateStateLabel)
     val installedStatusLabel = stringResource(installedPackageStatusLabel(extension))
-    val latestVersion = extension.latestAvailableVersion
     val unavailableLabel = stringResource(R.string.extension_manage_unavailable)
     val lastUpdateFailure = extension.lastUpdateFailure
 
-    Text(stringResource(R.string.extension_manage_signed_name, extension.displayName),
-        style = MaterialTheme.typography.titleMedium)
-    Text(
-        text = repositoryHost(source.url) ?: stringResource(R.string.extension_manage_unknown_repository),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(Modifier.height(4.dp))
-    Text(
-        text = stringResource(R.string.extension_manage_installed_version,
-            extension.installedVersion ?: stringResource(R.string.extension_manage_not_installed)),
-        style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier.testTag("extension-installed-version-${extension.extensionId}"),
-    )
-    Text(
-        text = stringResource(R.string.extension_manage_latest_authenticated_version,
-            latestVersion ?: stringResource(R.string.extension_manage_unavailable)),
-        style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier.testTag("extension-latest-version-${extension.extensionId}"),
-    )
-    Text(
-        text = stringResource(R.string.extension_manage_package_trust, installedStatusLabel),
-        style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier.testTag("extension-installed-status-${extension.extensionId}"),
-    )
-    val digest = extension.installedDigest
-    val repoTrust = diagnostics["Trust status"]
-    if (lastUpdateFailure != null) {
-        Text(
-            text = stringResource(R.string.extension_manage_update_failure,
-                stringResource(updateFailureLabel(lastUpdateFailure))),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.testTag("extension-update-failure-${extension.extensionId}"),
-        )
-    }
-    Text(
-        text = updateStatusText,
-        style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier
-            .testTag("extension-update-state-${extension.extensionId}")
-            .semantics {
-                liveRegion = LiveRegionMode.Polite
-                stateDescription = updateStateLabel
-            },
-    )
-    if (actionBusy) {
-        val progressLabel = stringResource(R.string.extension_manage_working)
-        Row(verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.testTag("extension-progress-${extension.extensionId}").semantics {
-                liveRegion = LiveRegionMode.Polite
-                stateDescription = progressLabel
-            }) {
-            CircularProgressIndicator(Modifier.size(16.dp).semantics {
-                stateDescription = progressLabel
-            }, strokeWidth = 2.dp)
-            Text("  " + progressLabel, style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.semantics {
-                    liveRegion = LiveRegionMode.Polite
-                    stateDescription = progressLabel
-                })
-        }
-    }
-
-    val current = extension.installedUsable && !extension.updateAvailable
+    val repoTrust = diagnostics["Trust status"] ?: if (source.manuallyTrusted) stringResource(R.string.extension_manage_manual_trust) else null
     val primaryAction = when {
         source.enabled && !actionBusy && extension.activationAllowed && extension.installedDigest == null &&
-            extension.installedStatus == com.axiel7.anihyou.release.core.source.InstalledPackageStatus.NOT_INSTALLED ->
-            ExtensionPrimaryAction.INSTALL
-        source.enabled && !actionBusy && extension.updateAvailable && extension.activationAllowed ->
-            ExtensionPrimaryAction.UPDATE
-        source.enabled && !actionBusy && current -> ExtensionPrimaryAction.CHECK
+            extension.installedStatus == com.axiel7.anihyou.release.core.source.InstalledPackageStatus.NOT_INSTALLED -> ExtensionPrimaryAction.INSTALL
+        source.enabled && !actionBusy && extension.updateAvailable && extension.activationAllowed -> ExtensionPrimaryAction.UPDATE
         else -> null
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (primaryAction != null) {
-            TextButton(
-                onClick = {
-                    when (primaryAction) {
-                        ExtensionPrimaryAction.INSTALL, ExtensionPrimaryAction.UPDATE ->
-                            event.activate(source.id, extension.extensionId)
-                        ExtensionPrimaryAction.CHECK -> event.refreshSource(source.id)
-                    }
-                },
-                enabled = !actionBusy,
-                modifier = Modifier.testTag("extension-action-${extension.extensionId}"),
-            ) {
-                Text(stringResource(when (primaryAction) {
-                    ExtensionPrimaryAction.INSTALL -> R.string.extension_install
-                    ExtensionPrimaryAction.UPDATE -> R.string.extension_manage_update
-                    ExtensionPrimaryAction.CHECK -> R.string.extension_manage_check
-                }))
-            }
-        } else if (!extension.activationAllowed && (extension.updateAvailable ||
-                extension.installedStatus == com.axiel7.anihyou.release.core.source.InstalledPackageStatus.NOT_INSTALLED)) {
-            Text(
-                text = stringResource(R.string.extension_sources_activation_unavailable),
-                style = MaterialTheme.typography.bodySmall,
-            )
+    fun askRollback() {
+        val target = extension.rollbackTarget ?: return
+        dialog = null
+        rollbackRequest = RollbackRequest(source.id, extension.extensionId, extension.packageGeneration,
+            extension.installedDigest, extension.installedVersion ?: unavailableLabel, target,
+            extension.lastUpdateFailure?.let(::updateFailureLabel))
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(40.dp).clearAndSetSemantics { }) {
+            Box(contentAlignment = Alignment.Center) { Text(extension.displayName.take(1).uppercase(), style = MaterialTheme.typography.titleMedium) }
         }
-        TextButton(onClick = { dialog = ExtensionManageDialog.CAPABILITIES },
+        Column(Modifier.weight(1f)) {
+            Text(extension.displayName, style = MaterialTheme.typography.bodyLarge)
+            Text(listOfNotNull(extension.installedVersion ?: extension.latestAvailableVersion,
+                extension.supportedTracks.filter { it != "UNKNOWN" }.sorted().joinToString(" / ").takeIf { it.isNotBlank() }).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(updateStatusText, style = MaterialTheme.typography.bodySmall,
+                color = if (extension.revoked || !extension.installedUsable && extension.installedDigest != null)
+                    MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("extension-update-state-${extension.extensionId}").semantics {
+                    liveRegion = LiveRegionMode.Polite; stateDescription = updateStateLabel
+                })
+            if (extension.revoked) Text(stringResource(R.string.extension_manage_state_revoked), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            if (!extension.installedUsable && extension.installedDigest != null) Text(installedStatusLabel,
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            if (lastUpdateFailure != null) Text(stringResource(R.string.extension_manage_update_failure, stringResource(updateFailureLabel(lastUpdateFailure))),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("extension-update-failure-${extension.extensionId}"))
+        }
+        if (actionBusy) CircularProgressIndicator(Modifier.size(24.dp).testTag("extension-progress-${extension.extensionId}"), strokeWidth = 2.dp)
+        else if (primaryAction != null) IconButton(onClick = { event.activate(source.id, extension.extensionId) },
+            modifier = Modifier.testTag("extension-action-${extension.extensionId}")) {
+            Icon(painterResource(if (primaryAction == ExtensionPrimaryAction.INSTALL) CoreR.drawable.arrow_downward_24 else CoreR.drawable.refresh_24),
+                contentDescription = stringResource(if (primaryAction == ExtensionPrimaryAction.INSTALL) R.string.extension_install else R.string.extension_manage_update))
+        }
+        IconButton(onClick = { dialog = ExtensionManageDialog.CAPABILITIES },
             modifier = Modifier.testTag("extension-details-${extension.extensionId}")) {
-            Text(stringResource(R.string.extension_manage_details))
-        }
-        if (digest != null) {
-            TextButton(onClick = { dialog = ExtensionManageDialog.REMOVE_EXTENSION },
-                enabled = !actionBusy,
-                modifier = Modifier.testTag("extension-remove-${extension.extensionId}")) {
-                Text(stringResource(R.string.extension_remove))
-            }
-        }
-        val target = extension.rollbackTarget
-        if (target != null && !actionBusy) {
-            TextButton(onClick = {
-                rollbackRequest = RollbackRequest(
-                    sourceId = source.id,
-                    extensionId = extension.extensionId,
-                    expectedGeneration = extension.packageGeneration,
-                    currentDigest = extension.installedDigest,
-                    currentVersion = extension.installedVersion ?: unavailableLabel,
-                    target = target,
-                    reason = extension.lastUpdateFailure?.let(::updateFailureLabel),
-                )
-            }, modifier = Modifier.testTag("extension-rollback-${extension.extensionId}")) {
-                Text(stringResource(R.string.extension_manage_previous_good))
-            }
+            Icon(painterResource(CoreR.drawable.settings_24), contentDescription = stringResource(R.string.extension_manage_details_title, extension.displayName))
         }
     }
+    if (!extension.activationAllowed && (extension.updateAvailable || extension.installedDigest == null))
+        Text(stringResource(R.string.extension_sources_activation_unavailable), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error)
     if (dialog == ExtensionManageDialog.CAPABILITIES) {
-        ExtensionCapabilityDialog(extension, repoTrust, onDismiss = { dialog = null })
+        ExtensionCapabilityDialog(extension, repoTrust, actionBusy,
+            onRemove = { dialog = ExtensionManageDialog.REMOVE_EXTENSION }, onRollback = ::askRollback, onDismiss = { dialog = null })
     } else if (dialog == ExtensionManageDialog.REMOVE_EXTENSION) {
         AlertDialog(
             onDismissRequest = { dialog = null },
@@ -545,7 +442,7 @@ private fun SourceExtensionInfo(
     }
 }
 
-private enum class ExtensionPrimaryAction { INSTALL, CHECK, UPDATE }
+private enum class ExtensionPrimaryAction { INSTALL, UPDATE }
 private enum class ExtensionManageDialog { CAPABILITIES, REMOVE_EXTENSION }
 
 private data class RollbackRequest(
@@ -559,7 +456,8 @@ private data class RollbackRequest(
 )
 
 @Composable
-private fun ExtensionCapabilityDialog(extension: SourceExtension, repositoryTrust: String?, onDismiss: () -> Unit) {
+private fun ExtensionCapabilityDialog(extension: SourceExtension, repositoryTrust: String?, busy: Boolean,
+    onRemove: () -> Unit, onRollback: () -> Unit, onDismiss: () -> Unit) {
     val releaseCapabilities = extension.capabilities.filter { it in setOf("CALENDAR", "RECENT", "DIRECT", "POSTPONEMENT") }
     val navigationCapabilities = extension.capabilities.filter { it in setOf("OVERVIEW_NAVIGATION", "EPISODE_NAVIGATION") }
     val otherCapabilities = extension.capabilities.filterNot { it in releaseCapabilities || it in navigationCapabilities }
@@ -567,7 +465,17 @@ private fun ExtensionCapabilityDialog(extension: SourceExtension, repositoryTrus
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.extension_manage_details_title, extension.displayName)) },
         text = {
-            Column {
+            Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+                Text(stringResource(R.string.extension_manage_installed_version, extension.installedVersion ?: stringResource(R.string.extension_manage_not_installed)),
+                    modifier = Modifier.testTag("extension-installed-version-${extension.extensionId}"))
+                Text(stringResource(R.string.extension_manage_latest_authenticated_version, extension.latestAvailableVersion ?: stringResource(R.string.extension_manage_unavailable)),
+                    modifier = Modifier.testTag("extension-latest-version-${extension.extensionId}"))
+                Text(stringResource(R.string.extension_manage_package_trust, stringResource(installedPackageStatusLabel(extension))),
+                    modifier = Modifier.testTag("extension-installed-status-${extension.extensionId}"))
+                if (extension.installedDigest != null) TextButton(onClick = onRemove, enabled = !busy,
+                    modifier = Modifier.testTag("extension-remove-${extension.extensionId}")) { Text(stringResource(R.string.extension_remove)) }
+                if (extension.rollbackTarget != null) TextButton(onClick = onRollback, enabled = !busy,
+                    modifier = Modifier.testTag("extension-rollback-${extension.extensionId}")) { Text(stringResource(R.string.extension_manage_previous_good)) }
                 Text(stringResource(R.string.extension_manage_release_capabilities), style = MaterialTheme.typography.titleSmall)
                 Text(releaseCapabilities.joinToString().ifBlank { stringResource(R.string.extension_manage_none) })
                 Text(stringResource(R.string.extension_manage_navigation_capabilities),

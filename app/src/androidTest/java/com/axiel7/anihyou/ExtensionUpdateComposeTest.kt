@@ -31,6 +31,8 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -89,14 +91,16 @@ class ExtensionUpdateComposeTest {
         val state = mutableStateOf(ExtensionSourcesUiState(sources = sources))
         composeManage(state, event)
 
-        composeRule.onNodeWithText("Signed name: Signed: current", substring = true).assertIsDisplayedCompat()
+        composeRule.onNodeWithText("Signed: current").performScrollTo().assertIsDisplayedCompat()
+        openDetails(currentKey)
         composeRule.onNodeWithTag("extension-installed-version-${currentKey.extensionId}")
             .assertTextContains("Installed version: 1.0.0")
         composeRule.onNodeWithTag("extension-latest-version-${currentKey.extensionId}")
             .assertTextContains("Latest authenticated version: 1.0.0")
-        composeRule.onNodeWithTag("extension-action-${currentKey.extensionId}").assertTextContains("Check")
-        composeRule.onNodeWithTag("extension-action-${updateKey.extensionId}").assertTextContains("Update")
-        composeRule.onNodeWithTag("extension-action-${installKey.extensionId}").assertTextContains("Install extension")
+        closeDetails(currentKey)
+        composeRule.onNodeWithTag("extension-details-${currentKey.extensionId}").assertExists()
+        composeRule.onNodeWithTag("extension-action-${updateKey.extensionId}").assertContentDescriptionEquals("Update")
+        composeRule.onNodeWithTag("extension-action-${installKey.extensionId}").assertContentDescriptionEquals("Install extension")
         composeRule.onNodeWithTag("extension-action-${blockedKey.extensionId}").assertDoesNotExist()
 
         composeRule.onNodeWithTag("extension-action-${updateKey.extensionId}").performScrollTo().performClick()
@@ -148,10 +152,9 @@ class ExtensionUpdateComposeTest {
             .assertTextContains("Package health check failed", substring = true)
         composeRule.onNodeWithTag("extension-update-state-${key.extensionId}")
             .assertTextContains("Update failed", substring = true)
-        composeRule.onNodeWithTag("extension-action-${key.extensionId}").assertTextContains("Check")
+        openDetails(key)
+        composeRule.onNodeWithTag("extension-installed-version-${key.extensionId}").assertTextContains("Installed version: 1.1.0")
         composeRule.onNodeWithTag("extension-rollback-${key.extensionId}").performScrollTo().performClick()
-        composeRule.onNodeWithTag("extension-installed-version-${key.extensionId}")
-            .assertTextContains("Installed version: 1.1.0")
         composeRule.onNodeWithText("Previous Good version: 1.0.0", substring = true).assertIsDisplayedCompat()
         composeRule.onNodeWithText("Previous Good trust: TRUSTED").assertIsDisplayedCompat()
         composeRule.onNodeWithText("Reason: Package health check failed").assertIsDisplayedCompat()
@@ -187,6 +190,7 @@ class ExtensionUpdateComposeTest {
             failing.copy(rollbackTarget = null, updateState = ExtensionUpdateState.UPDATE_FAILED),
         )) {
             state.value = state.value.copy(sources = listOf(source(key.sourceId, failing)))
+            openDetails(key)
             composeRule.onNodeWithTag("extension-rollback-${key.extensionId}").performScrollTo().performClick()
             composeRule.onNodeWithTag("extension-rollback-confirm-${key.extensionId}").assertIsEnabled()
             state.value = state.value.copy(sources = listOf(source(key.sourceId, changed)))
@@ -202,16 +206,19 @@ class ExtensionUpdateComposeTest {
         val event = RecordingEvent()
         composeManage(state, event)
 
+        openDetails(key)
         composeRule.onNodeWithTag("extension-remove-${key.extensionId}").performScrollTo().performClick()
         composeRule.onNodeWithText("Remove Signed: remove and its installed package", substring = true).assertIsDisplayedCompat()
         assertTrue(event.removedExtensions.isEmpty())
         composeRule.onNodeWithTag("extension-remove-cancel-${key.extensionId}").performClick()
         assertTrue(event.removedExtensions.isEmpty())
+        openDetails(key)
         composeRule.onNodeWithTag("extension-remove-${key.extensionId}").performScrollTo().performClick()
         composeRule.onNodeWithTag("extension-remove-confirm-${key.extensionId}").performClick()
         assertEquals(listOf(key.sourceId to key.extensionId), event.removedExtensions)
 
-        composeRule.onNodeWithTag("extension-source-remove").performScrollTo().performClick()
+        composeRule.onNodeWithTag("extension-source-menu").performScrollTo().performClick()
+        composeRule.onNodeWithTag("extension-source-remove").performClick()
         composeRule.onNodeWithText("Remove repository?").assertIsDisplayedCompat()
         assertTrue(event.removedSources.isEmpty())
         composeRule.onNodeWithTag("extension-source-remove-confirm").performClick()
@@ -227,11 +234,11 @@ class ExtensionUpdateComposeTest {
         composeManage(mutableStateOf(ExtensionSourcesUiState(sources = listOf(source(key.sourceId, extension)))), RecordingEvent())
 
         composeRule.onNodeWithTag("extension-details-${key.extensionId}").performScrollTo().performClick()
-        composeRule.onNodeWithText("Release-data capabilities").assertIsDisplayedCompat()
-        composeRule.onNodeWithText("CALENDAR, RECENT, DIRECT, POSTPONEMENT").assertIsDisplayedCompat()
-        composeRule.onNodeWithText("Navigation capabilities").assertIsDisplayedCompat()
-        composeRule.onNodeWithText("OVERVIEW_NAVIGATION, EPISODE_NAVIGATION").assertIsDisplayedCompat()
-        composeRule.onNodeWithText("Navigation access does not grant release-data authority.").assertIsDisplayedCompat()
+        composeRule.onNodeWithText("Release-data capabilities").performScrollTo().assertIsDisplayedCompat()
+        composeRule.onNodeWithText("CALENDAR, RECENT, DIRECT, POSTPONEMENT").performScrollTo().assertIsDisplayedCompat()
+        composeRule.onNodeWithText("Navigation capabilities").performScrollTo().assertIsDisplayedCompat()
+        composeRule.onNodeWithText("OVERVIEW_NAVIGATION, EPISODE_NAVIGATION").performScrollTo().assertIsDisplayedCompat()
+        composeRule.onNodeWithText("Navigation access does not grant release-data authority.").performScrollTo().assertIsDisplayedCompat()
     }
 
     @Test
@@ -314,9 +321,11 @@ class ExtensionUpdateComposeTest {
 
         composeRule.onNodeWithTag("extension-source-url").assertDoesNotExist()
         composeRule.onNodeWithTag("extension-source-add").assertDoesNotExist()
-        composeRule.onNodeWithTag("extension-source-refresh").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithTag("extension-source-add-open").assertIsNotEnabled()
+        composeRule.onNodeWithTag("extension-source-menu").performScrollTo().performClick()
+        composeRule.onNodeWithTag("extension-source-refresh").assertIsNotEnabled()
         // Removing local data must stay possible so nothing becomes unreachable.
-        composeRule.onNodeWithTag("extension-source-remove").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithTag("extension-source-remove").assertIsEnabled()
         captureScreenshot("trust-unavailable-manage") {
             composeRule.onNodeWithTag("extension-source-remove").assertIsDisplayedCompat()
         }
@@ -328,9 +337,33 @@ class ExtensionUpdateComposeTest {
         val state = mutableStateOf(ExtensionSourcesUiState(sources = listOf(source(key.sourceId, current(key)))))
         composeManage(state, RecordingEvent())
 
+        composeRule.onNodeWithTag("extension-source-url").assertDoesNotExist()
+        composeRule.onNodeWithTag("extension-source-menu").performScrollTo().performClick()
+        composeRule.onNodeWithTag("extension-source-refresh").assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("extension-source-add-open").performScrollTo().performClick()
         composeRule.onNodeWithTag("extension-source-url").assertIsDisplayedCompat()
-        composeRule.onNodeWithTag("extension-source-add").assertIsDisplayedCompat()
-        composeRule.onNodeWithTag("extension-source-refresh").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithTag("extension-source-add").assertIsNotEnabled()
+    }
+    @Test fun emptyRepositoryListKeepsPlusReachableAndAddressOnlyInPopup() {
+        composeManage(mutableStateOf(ExtensionSourcesUiState()), RecordingEvent())
+        composeRule.onNodeWithTag("extension-source-url").assertDoesNotExist()
+        composeRule.onNodeWithTag("extension-source-add-open").assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("extension-source-url").assertIsDisplayedCompat()
+        composeRule.onNodeWithTag("extension-source-add").assertIsNotEnabled()
+        captureScreenshot("manage-empty-add-dialog") { composeRule.onNodeWithTag("extension-source-url").assertIsDisplayedCompat() }
+    }
+    @Test fun extensionSearchFiltersInstalledAndAvailableWithoutHidingManualTrust() {
+        val a = key("alpha"); val b = key("beta")
+        val source = source(a.sourceId, current(a).copy(displayName = "L’Été Alpha")).copy(manuallyTrusted = true,
+            extensions = listOf(current(a).copy(displayName = "L’Été Alpha"), notInstalled(b).copy(displayName = "Queen’s Beta")))
+        composeManage(mutableStateOf(ExtensionSourcesUiState(sources = listOf(source))), RecordingEvent())
+        composeRule.onNodeWithTag("extension-source-manual-trust").assertIsDisplayedCompat()
+        composeRule.onNodeWithTag("extensions-search").performScrollTo().performTextInput("queens beta")
+        composeRule.onNodeWithTag("extension-details-${a.extensionId}").assertDoesNotExist()
+        composeRule.onNodeWithTag("extension-action-${b.extensionId}").performScrollTo().assertIsDisplayedCompat()
+        composeRule.onNodeWithTag("extensions-search").performScrollTo().performTextInput(" missing")
+        composeRule.onNodeWithTag("extensions-no-results").performScrollTo().assertIsDisplayedCompat()
+        composeRule.onNodeWithTag("extension-source-manual-trust").assertExists()
     }
 
     @Test
@@ -665,8 +698,10 @@ class ExtensionUpdateComposeTest {
             .performScrollTo().assertTextContains("keeps running", substring = true)
         composeRule.onNodeWithTag("extension-update-state-${key.extensionId}")
             .assertTextContains("Installed and current", substring = true)
+        openDetails(key)
         composeRule.onNodeWithTag("extension-installed-version-${key.extensionId}")
             .assertTextContains("Installed version: 1.0.0")
+        closeDetails(key)
         captureScreenshot("manage-installed-version-withdrawn") {
             composeRule.onNodeWithTag("extension-yank-note-${key.extensionId}").assertIsDisplayedCompat()
         }
@@ -775,6 +810,13 @@ class ExtensionUpdateComposeTest {
         latestAvailableVersion = "1.0.0",
         packageGeneration = 0,
     )
+
+    private fun openDetails(key: ExtensionSelectionKey) {
+        composeRule.onNodeWithTag("extension-details-${key.extensionId}").performScrollTo().performClick()
+    }
+    private fun closeDetails(key: ExtensionSelectionKey) {
+        composeRule.onNodeWithTag("extension-details-close-${key.extensionId}").performClick()
+    }
 
     private class RecordingEvent(
         private val onSelectActive: (ExtensionSelectionKey?) -> Unit = {},

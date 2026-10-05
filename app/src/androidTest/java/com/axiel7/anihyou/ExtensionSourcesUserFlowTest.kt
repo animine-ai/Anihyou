@@ -31,7 +31,6 @@ class ExtensionSourcesUserFlowTest {
         composeRule.onNodeWithTag("home-settings").performClick()
         // Manually accepted first trust makes adding possible: the "unavailable" notice must be gone.
         composeRule.onNodeWithTag("extension-center-manage").performScrollTo().performClick()
-        awaitTag("extension-source-url")
         composeRule.onAllNodesWithTag("extension-trust-unavailable").assertCountEquals(0)
         composeRule.onNodeWithText(text(SettingsR.string.extension_sources_title))
             .performScrollTo()
@@ -39,6 +38,9 @@ class ExtensionSourcesUserFlowTest {
         composeRule.onNodeWithText(text(SettingsR.string.extension_sources_empty))
             .performScrollTo()
             .assertIsDisplayed()
+        composeRule.onNodeWithTag("extension-source-url").assertDoesNotExist()
+        composeRule.onNodeWithTag("extension-source-add-open").performScrollTo().performClick()
+        awaitTag("extension-source-url")
         composeRule.onNodeWithTag("extension-source-add").assertExists()
         // Nothing is installed, accepted or asked before the user enters a source and decides.
         composeRule.onAllNodesWithTag("extension-trust-dialog").assertCountEquals(0)

@@ -100,7 +100,7 @@
     <string name="extension_center_unavailable_message">This build has no verified source identity configured, so extensions cannot be added, installed or updated. Existing local data stays unchanged and can still be removed.</string>
     <string name="extension_provider_move_up">Move %1$s up</string>
     <string name="extension_provider_move_down">Move %1$s down</string>
-    <string name="extension_manage_active_title">Active extensions</string>
+    <string name="extension_manage_active_title">Installed</string>
     <string name="extension_manage_available_title">Available extensions</string>
     <string name="extension_manage_technical_title">Technical details</string>
     <string name="extension_legacy_lane_title">Old AniWorld data</string>
@@ -127,4 +127,7 @@
     <string name="extension_provider_prefer">Prefer %1$s</string>
     <string name="extension_provider_unprefer">Remove preference for %1$s</string>
     <string name="extension_provider_visibility">Show provider: %1$s</string>
+    <string name="extension_manage_search">Search extensions</string>
+    <string name="extension_manage_no_results">No results for “%1$s”</string>
+    <string name="extension_repository_actions">Repository actions</string>
 </resources>

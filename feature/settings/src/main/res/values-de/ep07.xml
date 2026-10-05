@@ -100,7 +100,7 @@
     <string name="extension_center_unavailable_message">In diesem Build ist keine geprüfte Quellenidentität eingerichtet. Extensions können deshalb nicht hinzugefügt, installiert oder aktualisiert werden. Vorhandene lokale Daten bleiben unverändert und können weiterhin entfernt werden.</string>
     <string name="extension_provider_move_up">%1$s nach oben verschieben</string>
     <string name="extension_provider_move_down">%1$s nach unten verschieben</string>
-    <string name="extension_manage_active_title">Aktive Erweiterungen</string>
+    <string name="extension_manage_active_title">Installiert</string>
     <string name="extension_manage_available_title">Verfügbare Erweiterungen</string>
     <string name="extension_manage_technical_title">Technische Angaben</string>
     <string name="extension_legacy_lane_title">Alte AniWorld-Daten</string>
@@ -127,4 +127,7 @@
     <string name="extension_provider_prefer">%1$s bevorzugen</string>
     <string name="extension_provider_unprefer">Präferenz für %1$s entfernen</string>
     <string name="extension_provider_visibility">Anbieter anzeigen: %1$s</string>
+    <string name="extension_manage_search">Extensions suchen</string>
+    <string name="extension_manage_no_results">Keine Treffer für „%1$s“</string>
+    <string name="extension_repository_actions">Repository-Aktionen</string>
 </resources>
