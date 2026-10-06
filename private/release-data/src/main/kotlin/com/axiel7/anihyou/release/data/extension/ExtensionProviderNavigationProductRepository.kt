@@ -108,7 +108,8 @@ class ExtensionProviderNavigationProductRepository(
             .onStart { emit(ProviderNavigationProductState(loading = true)) }
             .catch { error ->
                 if (error is CancellationException) throw error
-                emit(ProviderNavigationProductState(failure = NavigationUnavailableReason.PROVIDER_UNAVAILABLE))
+                emit(ProviderNavigationProductState(failure = NavigationUnavailableReason.PROVIDER_UNAVAILABLE,
+                    backlog = WatchBacklog.resolve(watchedProgress, basis, emptyList())))
             }.flowOn(Dispatchers.IO)
 
     /** R04: invalidation follows only the rows folded for the exact active source. */
@@ -183,8 +184,12 @@ class ExtensionProviderNavigationProductRepository(
                     facts += BacklogEpisodeEvidence(canonical, released = true)
                 } else if (state.underlyingPhase in setOf(ReleasePhase.EXPECTED, ReleasePhase.CONFIRMED)) {
                     // Prediction alone and absence from Recent never prove non-release.
-                    facts += BacklogEpisodeEvidence(canonical, released = false,
-                        forecastAt = state.forecastAt, observedAt = state.latestCompletedAt)
+                    val forecast = state.forecastEvidenceId?.let { database.reconciliationDao().evidenceById(it) }
+                    if (forecast != null && !forecast.approximateTime) {
+                        facts += BacklogEpisodeEvidence(canonical, released = false,
+                            forecastAt = state.forecastAt,
+                            observedAt = runCatching { java.time.Instant.parse(forecast.observedAt) }.getOrNull())
+                    }
                 }
             }
         }

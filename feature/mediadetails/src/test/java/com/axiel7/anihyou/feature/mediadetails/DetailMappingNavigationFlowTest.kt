@@ -35,6 +35,22 @@ class DetailMappingNavigationFlowTest {
     }
 
     @Test
+    fun airingMetadataChangeReobservesWithTheSameProgressWithoutRematching() = runBlocking {
+        val basis = com.axiel7.anihyou.release.core.navigation.AniListReleaseBasis("RELEASING", 26, 15, 1234L)
+        val input = MutableStateFlow(12 to basis)
+        var matches = 0
+        val values = input.observeNavigationAfterDetailMapping(
+            mediaId = 42,
+            request = DetailMappingRequest(mediaId = 42, titles = setOf("Example anime")),
+            ensureDetailMapping = { matches++ },
+            observe = { _, snapshot -> flowOf(snapshot.second.nextEpisode) },
+        ).onEach { if (it == 15) input.value = 12 to basis.copy(nextEpisode = 16) }
+            .take(2).toList()
+        assertEquals(listOf(15, 16), values)
+        assertEquals(1, matches)
+    }
+
+    @Test
     fun skipsMatchingForNonAnimeAndKeepsNavigationVisibleAfterLookupFailure() = runBlocking {
         var invoked = false
         val mangaNavigation = flowOf(7).observeNavigationAfterDetailMapping(

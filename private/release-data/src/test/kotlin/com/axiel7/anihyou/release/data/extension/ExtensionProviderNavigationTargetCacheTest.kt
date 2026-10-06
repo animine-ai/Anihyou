@@ -124,6 +124,33 @@ class ExtensionProviderNavigationTargetCacheTest {
     }
 
     @Test
+    fun missingActiveSourceKeepsAniListCountAndResolvesOnlyOnClick() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, ReleaseDatabase::class.java).allowMainThreadQueries().build()
+        database = db
+        val key = ExtensionSelectionKey("source-a", "fixture.extension", "publisher-a", "provider-a")
+        val gateway = CountingGateway(key, "a".repeat(64), episodeNavigation = true)
+        val directory = Files.createTempDirectory("anilist-backlog-fallback").toFile()
+        try {
+            val store = FileProviderNavigationStateStore(directory)
+            store.upsertSegment(ProviderEpisodeSegment(key, 42, "fixture-series", 1, 1, 1, 25))
+            val product = ExtensionProviderNavigationProductRepository(EmptySourceRepository(),
+                FileExtensionProductPolicyRepository(directory) { true }, gateway, store, db,
+                RoomReleaseReconciliationRepository(db), ExternalNavigationLauncher { true })
+            val basis = com.axiel7.anihyou.release.core.navigation.AniListReleaseBasis("FINISHED", 25, null, null)
+            val state = product.observe(42, 10, basis).first { !it.loading }
+            assertEquals(15, state.watchNextCount)
+            assertEquals(0, gateway.dispatchCount.get())
+            val next = product.watchNext(42, 10, basis) as ProviderNavigationResult.Ready
+            assertEquals("11", gateway.requestedEpisodes.last())
+            assertEquals(true, next.target.url.endsWith("/episode-11"))
+            gateway.failProviderRead = true
+            val failed = product.observe(42, 10, basis).first { !it.loading }
+            assertEquals(15, failed.watchNextCount)
+            assertEquals(NavigationUnavailableReason.PROVIDER_UNAVAILABLE, failed.failure)
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test
     fun ordinarySourceBindingOpensOnlyAConfirmedUnwatchedEpisodeAndResetRevokesIt() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(context, ReleaseDatabase::class.java).allowMainThreadQueries().build()
         database = db
@@ -228,6 +255,7 @@ class ExtensionProviderNavigationTargetCacheTest {
             assertEquals(beforeDispatch, gateway.dispatchCount.get())
             val thirteen = product.watchNext(42, 12, basis) as ProviderNavigationResult.Ready
             assertEquals("13", gateway.requestedEpisodes.last())
+            assertEquals(true, thirteen.target.url.endsWith("/episode-13"))
             product.launch(thirteen.target)
             assertEquals(2, launched.get())
             // A failed exact next target may try another enabled track, never a later episode.
@@ -245,6 +273,12 @@ class ExtensionProviderNavigationTargetCacheTest {
                 com.axiel7.anihyou.release.core.navigation.AniListReleaseBasis("FINISHED", 12, null, null))
             assertEquals(true, part is ProviderNavigationResult.Ready)
             assertEquals("13", gateway.requestedEpisodes.last())
+            gateway.packageGeneration = 10
+            gateway.onDispatch = { store.removeSegments(setOf(ProviderEpisodeSegment(key, 99, "fixture-series", 1, 13, 1, 12))) }
+            assertEquals(ProviderNavigationResult.Unavailable(NavigationUnavailableReason.STALE_RESULT),
+                product.watchNext(99, 0,
+                    com.axiel7.anihyou.release.core.navigation.AniListReleaseBasis("FINISHED", 12, null, null)))
+            assertEquals(2, launched.get())
         } finally { directory.deleteRecursively() }
     }
 
@@ -258,6 +292,8 @@ class ExtensionProviderNavigationTargetCacheTest {
         val dispatchedGenerations = mutableListOf<Long>()
         val requestedEpisodes = mutableListOf<String?>()
         var unavailableEpisodes = emptySet<String>()
+        var onDispatch: suspend () -> Unit = {}
+        var failProviderRead = false
 
         private fun provider() = NavigationProvider(
             key = key,
@@ -270,7 +306,10 @@ class ExtensionProviderNavigationTargetCacheTest {
             packageGeneration = packageGeneration,
         )
 
-        override suspend fun providers(): List<NavigationProvider> = listOf(provider())
+        override suspend fun providers(): List<NavigationProvider> {
+            check(!failProviderRead) { "fixture unavailable" }
+            return listOf(provider())
+        }
 
         override suspend fun dispatch(
             provider: NavigationProvider,
@@ -280,8 +319,10 @@ class ExtensionProviderNavigationTargetCacheTest {
             dispatchCount.incrementAndGet()
             dispatchedGenerations += provider.packageGeneration
             requestedEpisodes += request.providerEpisode
+            onDispatch()
             if (request.providerEpisode in unavailableEpisodes) return null
-            val path = "package-" + provider.packageGeneration + "/" + request.providerSeriesKey
+            val path = "package-" + provider.packageGeneration + "/" + request.providerSeriesKey +
+                (request.providerEpisode?.let { "/episode-$it" } ?: "")
             return ProviderNavigationTargetV1(
                 schemaVersion = 1,
                 extensionId = com.axiel7.anihyou.release.core.extension.ExtensionId.parse(key.extensionId),
