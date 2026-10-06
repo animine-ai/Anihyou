@@ -9,6 +9,7 @@ on:
   # Registers the workflow for manual dispatch from this branch; it only runs on a push that changes this file.
   push:
     branches:
+      - main
       - ep07/product-audit-candidate
     paths:
       - ".github/workflows/apk-debug-quick.yml"

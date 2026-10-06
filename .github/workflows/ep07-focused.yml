@@ -3,6 +3,7 @@ name: EP07 focused installer and Foss repair gate
 on:
   push:
     branches:
+      - main
       - ep07/update-ux-recovery
       - ep07/extension-update-ux
       - ep07/device-feedback-cutover

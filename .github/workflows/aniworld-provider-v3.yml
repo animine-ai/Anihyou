@@ -5,6 +5,7 @@ name: AniWorld Provider V3 Evidence Ingestion
 on:
   push:
     branches:
+      - main
       - feature/aniworld-provider-v3
       - ep03/user-added-sources
       - ep04/aniworld-v1
