@@ -202,7 +202,7 @@ jobs:
         run: ./gradlew --console=plain --stacktrace :private:release-data:testDebugUnitTest
 
       - name: Run upstream current-list regression tests
-        run: ./gradlew --continue --console=plain --stacktrace :core:model:testDebugUnitTest :core:ui:testDebugUnitTest :feature:home:testDebugUnitTest :feature:usermedialist:testDebugUnitTest
+        run: ./gradlew --continue --console=plain --stacktrace :core:model:testDebugUnitTest :core:ui:testDebugUnitTest :feature:explore:testDebugUnitTest :feature:home:testDebugUnitTest :feature:usermedialist:testDebugUnitTest
 
       - name: Run worker unit tests
         run: ./gradlew --continue --console=plain --stacktrace :feature:worker:testDebugUnitTest :feature:settings:testDebugUnitTest :feature:mediadetails:testDebugUnitTest

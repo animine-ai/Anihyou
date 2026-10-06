@@ -28,6 +28,9 @@ fun AiringContent(
     airingAnimeOnMyList: SnapshotStateList<ExploreMedia>,
     releaseByMediaId: Map<Int, List<ReleaseUiPresentation>> = emptyMap(),
     providerAiringRows: List<ReleaseUiCalendarItem> = emptyList(),
+    providerAiringMedia: Map<Int, ExploreMedia> = emptyMap(),
+    isLoadingProviderAiring: Boolean = false,
+    displayAdult: Boolean = false,
     isLoading: Boolean,
     onLongClickItem: (BasicMediaDetails, BasicMediaListEntry?) -> Unit,
     navigateToCalendar: () -> Unit,
@@ -41,10 +44,10 @@ fun AiringContent(
     if (airingOnMyList != null && providerAiringRows.isNotEmpty()) {
         ProviderOwnedAiringContent(
             providerRows = providerAiringRows,
-            metadata = if (airingOnMyList) airingAnimeOnMyList else airingAnime,
+            metadata = providerAiringMedia,
+            displayAdult = displayAdult,
             onMyList = airingOnMyList,
-            releaseByMediaId = releaseByMediaId,
-            isLoading = isLoading,
+            isLoading = isLoadingProviderAiring,
             onLongClickItem = onLongClickItem,
             navigateToMediaDetails = navigateToMediaDetails,
         )
@@ -153,31 +156,38 @@ fun AiringContent(
     }
 }
 
-private data class ProviderAiringGroup(
-    val media: ExploreMedia?,
+internal data class ProviderAiringGroup(
+    val media: ExploreMedia,
     val rows: List<ReleaseUiCalendarItem>,
 )
+
+/** Unknown metadata cannot prove membership or produce a usable anime card. The view model loads all mapped IDs. */
+internal fun providerAiringGroups(
+    rows: List<ReleaseUiCalendarItem>,
+    metadata: Map<Int, ExploreMedia>,
+    onMyList: Boolean,
+    displayAdult: Boolean,
+): List<ProviderAiringGroup> = rows.mapNotNull { row ->
+    if (!row.isAuthoritative) return@mapNotNull null
+    val media = row.mediaId?.let(metadata::get) ?: return@mapNotNull null
+    if (media.basicMediaDetails.title?.userPreferred.isNullOrBlank()) return@mapNotNull null
+    if (!displayAdult && media.basicMediaDetails.isAdult == true) return@mapNotNull null
+    if ((media.mediaListEntry != null) != onMyList) return@mapNotNull null
+    ProviderAiringGroup(media, listOf(row))
+}.distinctBy { it.rows.single().eventKey }
 
 @Composable
 private fun ProviderOwnedAiringContent(
     providerRows: List<ReleaseUiCalendarItem>,
-    metadata: List<ExploreMedia>,
+    metadata: Map<Int, ExploreMedia>,
+    displayAdult: Boolean,
     onMyList: Boolean,
-    releaseByMediaId: Map<Int, List<ReleaseUiPresentation>>,
     isLoading: Boolean,
     onLongClickItem: (BasicMediaDetails, BasicMediaListEntry?) -> Unit,
     navigateToMediaDetails: (mediaId: Int) -> Unit,
 ) {
     val blurAdult = LocalBlurAdult.current
-    val metadataById = metadata.associateBy { it.id }
-    val groups = providerRows.mapNotNull { row ->
-        val media = row.mediaId?.let(metadataById::get)
-        when {
-            onMyList && media?.mediaListEntry == null -> null
-            !onMyList && media?.mediaListEntry != null -> null
-            else -> ProviderAiringGroup(media = media, rows = listOf(row))
-        }
-    }.distinctBy { it.rows.single().eventKey } // a repeated list key would crash the row
+    val groups = providerAiringGroups(providerRows, metadata, onMyList, displayAdult)
 
     DiscoverLazyRow(
         minHeight = MEDIA_POSTER_SMALL_HEIGHT.dp,
@@ -189,22 +199,16 @@ private fun ProviderOwnedAiringContent(
         ) { group ->
             val item = group.media
             AiringAnimeHorizontalItem(
-                title = item?.basicMediaDetails?.title?.userPreferred.orEmpty()
-                    .ifBlank { stringResource(R.string.release_provider_only) },
+                title = item.basicMediaDetails.title?.userPreferred.orEmpty(),
                 subtitle = "",
                 releaseCalendarPresentations = group.rows,
-                blurImage = blurAdult && item?.basicMediaDetails?.isAdult == true,
-                imageUrl = item?.coverImage?.large,
-                score = item?.averageScore,
-                status = item?.mediaListEntry?.basicMediaListEntry?.status,
-                onClick = { item?.id?.let(navigateToMediaDetails) },
+                blurImage = blurAdult && item.basicMediaDetails.isAdult == true,
+                imageUrl = item.coverImage?.large,
+                score = item.averageScore,
+                status = item.mediaListEntry?.basicMediaListEntry?.status,
+                onClick = { navigateToMediaDetails(item.id) },
                 onLongClick = {
-                    item?.let {
-                        onLongClickItem(
-                            it.basicMediaDetails,
-                            it.mediaListEntry?.basicMediaListEntry,
-                        )
-                    }
+                    onLongClickItem(item.basicMediaDetails, item.mediaListEntry?.basicMediaListEntry)
                 },
             )
         }

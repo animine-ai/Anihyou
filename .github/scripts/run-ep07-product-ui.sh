@@ -63,7 +63,7 @@ assert match and int(match[1])>0 and 'INSTRUMENTATION_CODE: -1' in text, text[-2
 required={'ExtensionCalendarComposeTest','ExtensionUpdateComposeTest','ExtensionSourcesUserFlowTest',
           'MainNavigationProductComposeTest','MainNavigationChartChromeTest','ReleaseScheduleTextComposeTest','MediaDetailsNavigationComposeTest','MatchingManagementComposeTest',
           'ExtensionRefreshScheduleComposeTest','ScreenshotCaptureGuardTest',
-          'AniListCalendarEventComposeTest','NativeSettingsGroupsComposeTest'}
+          'AniListCalendarEventComposeTest','NativeSettingsGroupsComposeTest','ExploreSourceAiringComposeTest'}
 for name in required:
     assert name in text, (name,text[-20000:])
 assert 'INSTRUMENTATION_STATUS_CODE: -3' not in text and 'INSTRUMENTATION_STATUS_CODE: -4' not in text, 'skipped/assumption-failed test'
@@ -83,7 +83,7 @@ expected|={'manage-empty-add-dialog','postponements-search-no-results','provider
            'statistics-user-german-black-large','statistics-user-overview'}
 expected|={f'calendar-tracks-{style}-{state}' for style in ('standard','grid')
            for state in ('combined-planned','combined-confirmed','separate')}
-expected|={'home-sub-only-backlog','details-floating-actions'}
+expected|={'home-sub-only-backlog','details-floating-actions','explore-source-metadata-loaded','explore-source-list-filter'}
 names={p.stem for p in shots}
 assert names==expected, ('screenshot set differs', sorted(expected-names), sorted(names-expected))
 # Every stored picture carries the foreground facts that were verified before and after its capture.

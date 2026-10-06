@@ -18,7 +18,13 @@ import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
 import com.axiel7.anihyou.core.network.type.MediaSort
 import com.axiel7.anihyou.core.network.type.MediaType
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import com.axiel7.anihyou.release.core.log.AppLog
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
@@ -32,6 +38,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.milliseconds
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AnimeExploreViewModel(
     private val mediaRepository: MediaRepository,
     private val defaultPreferencesRepository: DefaultPreferencesRepository,
@@ -205,7 +212,7 @@ class AnimeExploreViewModel(
     }
 
     override fun refresh() {
-        mutableUiState.update { it.copy(isLoading = true) }
+        mutableUiState.update { it.copy(isLoading = true, providerMetadataRefresh = it.providerMetadataRefresh + 1) }
         mutableUiState.value.run {
             airingAnime.clear()
             airingAnimeOnMyList.clear()
@@ -240,7 +247,19 @@ class AnimeExploreViewModel(
         newListEntry: BasicMediaListEntry?
     ) {
         val selectedMediaId = uiState.value.selectedMediaDetails?.id ?: return
-        mutableUiState.update { it.copy(selectedMediaListEntry = newListEntry) }
+        mutableUiState.update { state ->
+            val updated = state.providerAiringMedia[selectedMediaId]?.copy(
+                mediaListEntry = newListEntry?.let {
+                    ExploreMedia.MediaListEntry(
+                        __typename = "ExploreMedia.MediaListEntry", id = it.id,
+                        mediaId = it.mediaId, basicMediaListEntry = it,
+                    )
+                },
+            )
+            state.copy(selectedMediaListEntry = newListEntry,
+                providerAiringMedia = if (updated == null) state.providerAiringMedia
+                    else state.providerAiringMedia + (selectedMediaId to updated))
+        }
 
         uiState.value.allLists.forEach { list ->
             list.indexOfFirstOrNull { it.id == selectedMediaId }?.let { index ->
@@ -259,6 +278,54 @@ class AnimeExploreViewModel(
     }
 
     init {
+        // Like the calendar, enrich every mapped source ID, including dubs outside the first AniList airing page.
+        // Keep this separate from AniList paging and from source release authority. Account changes cancel old reads.
+        viewModelScope.launch {
+            var initialized = false
+            var loadedAccount: Int? = null
+            var loadedRefresh = -1L
+            combine(
+                myUserId,
+                mutableUiState.map { state ->
+                    state.providerAiringRows.mapNotNull { it.mediaId }.toSet() to state.providerMetadataRefresh
+                }.distinctUntilChanged(),
+            ) { account, request -> Triple(account, request.first, request.second) }
+                .collectLatest { (account, ids, refresh) ->
+                    val accountChanged = !initialized || account != loadedAccount
+                    val forceRefresh = refresh != loadedRefresh
+                    initialized = true
+                    loadedAccount = account
+                    loadedRefresh = refresh
+                    if (accountChanged) {
+                        mutableUiState.update { it.copy(providerAiringMedia = emptyMap()) }
+                    }
+                    val missing = ids.filter { forceRefresh || it !in mutableUiState.value.providerAiringMedia }
+                    mutableUiState.update { it.copy(isLoadingProviderAiring = missing.isNotEmpty()) }
+                    try {
+                        missing.chunked(50).forEach { chunk ->
+                            val result = try {
+                                mediaRepository.getMediaByIdsPage(chunk, page = 1, perPage = 50)
+                                    .first { it !is PagedResult.Loading }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                AppLog.w("explore", failure) { "source metadata request failed count=${chunk.size}" }
+                                null
+                            }
+                            if (result is PagedResult.Success) {
+                                val loaded = result.list.filter { it.id in chunk }.associateBy { it.id }
+                                mutableUiState.update { it.copy(providerAiringMedia = it.providerAiringMedia + loaded) }
+                                AppLog.i("explore") { "source cover/title loaded=${loaded.size} requested=${chunk.size}" }
+                            } else {
+                                AppLog.w("explore") { "source cover/title unavailable count=${chunk.size}; retry on refresh" }
+                            }
+                        }
+                    } finally {
+                        mutableUiState.update { it.copy(isLoadingProviderAiring = false) }
+                    }
+                }
+        }
+
         mutableUiState
             .map { state ->
                 state.allLists.flatten().mapTo(mutableSetOf()) { it.id }

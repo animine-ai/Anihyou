@@ -215,6 +215,9 @@ private fun AnimeDiscoverContent(
                                 airingAnimeOnMyList = uiState.airingAnimeOnMyList,
                                 releaseByMediaId = uiState.releaseByMediaId,
                                 providerAiringRows = uiState.providerAiringRows,
+                                providerAiringMedia = uiState.providerAiringMedia,
+                                isLoadingProviderAiring = uiState.isLoadingProviderAiring,
+                                displayAdult = uiState.displayAdult,
                                 isLoading = uiState.isLoadingAiring,
                                 onLongClickItem = { details, listEntry ->
                                     event?.selectItem(details, listEntry)

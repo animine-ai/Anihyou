@@ -12,4 +12,7 @@ dependencies {
     implementation(project(":private:release-core"))
     implementation(project(":feature:editmedia"))
     implementation(project(":feature:genrestags"))
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
