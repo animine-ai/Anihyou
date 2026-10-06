@@ -82,7 +82,7 @@ class CalendarViewModel(
                 if (result is PagedResult.Success) {
                     val loaded = result.list.associateBy { it.id }
                     AppLog.i("calendar") { "cover and title loaded by id: ${loaded.size} of ${chunk.size} entries" }
-                    mutableUiState.update { it.copy(extraMedia = it.extraMedia + loaded) }
+                    mutableUiState.update { it.copy(extraMedia = it.extraMedia + loaded).withTodayFirstItemIndex() }
                 } else {
                     AppLog.w("calendar") { "cover and title by id unavailable for ${chunk.size} entries, asked again with the next rows" }
                     requestedMedia -= chunk.toSet()
@@ -128,7 +128,7 @@ class CalendarViewModel(
                         events.map { event ->
                             if (event.media.id == selectedItem.id) event.copy(media = updatedMedia) else event
                         }
-                    }.toMutableMap())
+                    }.toMutableMap()).withTodayFirstItemIndex()
                 }
             }
         }
