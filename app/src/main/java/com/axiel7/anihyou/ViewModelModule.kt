@@ -2,7 +2,9 @@ package com.axiel7.anihyou
 
 import com.axiel7.anihyou.feature.activitydetails.ActivityDetailsViewModel
 import com.axiel7.anihyou.feature.activitydetails.publish.PublishActivityViewModel
+import com.axiel7.anihyou.feature.addrecommendation.AddRecommendationViewModel
 import com.axiel7.anihyou.feature.calendar.CalendarViewModel
+import com.axiel7.anihyou.feature.calendar.PostponementsViewModel
 import com.axiel7.anihyou.feature.characterdetails.CharacterDetailsViewModel
 import com.axiel7.anihyou.feature.editmedia.EditMediaViewModel
 import com.axiel7.anihyou.feature.explore.anime.AnimeExploreViewModel
@@ -10,6 +12,7 @@ import com.axiel7.anihyou.feature.explore.charts.MediaChartViewModel
 import com.axiel7.anihyou.feature.explore.explore.ExploreViewModel
 import com.axiel7.anihyou.feature.explore.manga.MangaExploreViewModel
 import com.axiel7.anihyou.feature.explore.recommendations.RecommendationsViewModel
+import com.axiel7.anihyou.feature.addrecommendation.search.SimpleMediaSearchViewModel
 import com.axiel7.anihyou.feature.explore.search.SearchViewModel
 import com.axiel7.anihyou.feature.explore.season.SeasonAnimeViewModel
 import com.axiel7.anihyou.feature.genrestags.GenresTagsViewModel
@@ -27,6 +30,7 @@ import com.axiel7.anihyou.feature.profile.social.UserSocialViewModel
 import com.axiel7.anihyou.feature.profile.stats.UserStatsViewModel
 import com.axiel7.anihyou.feature.reviewdetails.ReviewDetailsViewModel
 import com.axiel7.anihyou.feature.settings.SettingsViewModel
+import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesViewModel
 import com.axiel7.anihyou.feature.settings.customlinks.CustomLinksViewModel
 import com.axiel7.anihyou.feature.settings.customlists.CustomListsViewModel
 import com.axiel7.anihyou.feature.settings.liststyle.ListStyleSettingsViewModel
@@ -47,6 +51,7 @@ val viewModelModule = module {
     viewModel<ActivityDetailsViewModel>()
     viewModel<PublishActivityViewModel>()
     viewModel<CalendarViewModel>()
+    viewModel<PostponementsViewModel>()
     viewModel<CharacterDetailsViewModel>()
     viewModel<EditMediaViewModel>()
     viewModel<SearchViewModel>()
@@ -70,6 +75,7 @@ val viewModelModule = module {
     viewModel<UserStatsViewModel>()
     viewModel<ReviewDetailsViewModel>()
     viewModel<SettingsViewModel>()
+    viewModel<ExtensionSourcesViewModel>()
     viewModel<CustomListsViewModel>()
     viewModel<CustomLinksViewModel>()
     viewModel<ListStyleSettingsViewModel>()
@@ -82,4 +88,6 @@ val viewModelModule = module {
     viewModel<ReorderFavoritesViewModel>()
     viewModel<PriorityColorViewModel>()
     viewModel<MediaCharactersViewModel>()
+    viewModel<AddRecommendationViewModel>()
+    viewModel<SimpleMediaSearchViewModel>()
 }

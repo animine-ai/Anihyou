@@ -4,8 +4,10 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.axiel7.anihyou.core.base.state.UiState
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
 import com.axiel7.anihyou.core.model.media.AnimeSeason
-import com.axiel7.anihyou.core.model.media.currentAnimeSeason
+import com.axiel7.anihyou.core.network.type.MediaSeason
 import com.axiel7.anihyou.core.network.fragment.BasicMediaDetails
 import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
@@ -13,10 +15,12 @@ import java.time.LocalDateTime
 
 @Stable
 data class AnimeExploreUiState(
-    val currentSeason: AnimeSeason = LocalDateTime.now().currentAnimeSeason(),
+    val currentSeason: AnimeSeason = AnimeSeason(2000, MediaSeason.WINTER),
     val infos: SnapshotStateList<AnimeDiscoverInfo>,
     val airingAnime: SnapshotStateList<ExploreMedia> = mutableStateListOf(),
     val airingAnimeOnMyList: SnapshotStateList<ExploreMedia> = mutableStateListOf(),
+    val releaseByMediaId: Map<Int, List<ReleaseUiPresentation>> = emptyMap(),
+    val providerAiringRows: List<ReleaseUiCalendarItem> = emptyList(),
     val thisSeasonAnime: SnapshotStateList<ExploreMedia> = mutableStateListOf(),
     val trendingAnime: SnapshotStateList<ExploreMedia> = mutableStateListOf(),
     val nextSeasonAnime: SnapshotStateList<ExploreMedia> = mutableStateListOf(),

@@ -1,0 +1,10 @@
+query MediaByIds($ids: [Int], $page: Int, $perPage: Int) {
+    Page(page: $page, perPage: $perPage) {
+        media(id_in: $ids, type: ANIME) {
+            ...ExploreMedia
+        }
+        pageInfo {
+            ...CommonPage
+        }
+    }
+}

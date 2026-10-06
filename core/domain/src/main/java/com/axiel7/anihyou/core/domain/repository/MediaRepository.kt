@@ -5,15 +5,17 @@ import com.apollographql.cache.normalized.fetchPolicy
 import com.axiel7.anihyou.core.model.media.AnimeSeason
 import com.axiel7.anihyou.core.model.media.AnimeThemes
 import com.axiel7.anihyou.core.model.media.AnimeThemes.Companion.toBo
+import com.axiel7.anihyou.core.model.media.CalendarAiringEvent
 import com.axiel7.anihyou.core.model.media.ChartType
 import com.axiel7.anihyou.core.model.media.MediaCharactersAndStaff
 import com.axiel7.anihyou.core.model.media.MediaRelationsAndRecommendations
+import com.axiel7.anihyou.core.model.media.adultFilter
 import com.axiel7.anihyou.core.model.media.isActive
+import com.axiel7.anihyou.core.model.media.onMyListCalendarFilter
 import com.axiel7.anihyou.core.network.MediaDetailsQuery
 import com.axiel7.anihyou.core.network.api.MalApi
 import com.axiel7.anihyou.core.network.api.MediaApi
 import com.axiel7.anihyou.core.network.api.model.CountryOfOriginDto
-import com.axiel7.anihyou.core.network.fragment.ExploreMedia
 import com.axiel7.anihyou.core.network.type.AiringSort
 import com.axiel7.anihyou.core.network.type.MediaSort
 import com.axiel7.anihyou.core.network.type.MediaType
@@ -22,7 +24,7 @@ import com.axiel7.anihyou.core.network.type.RecommendationSort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class MediaRepository (
+class MediaRepository(
     private val api: MediaApi,
     private val malApi: MalApi,
     defaultPreferencesRepository: DefaultPreferencesRepository,
@@ -49,14 +51,44 @@ class MediaRepository (
         .toFlow()
         .asPagedResult(page = { it.Page?.pageInfo?.commonPage }) { data ->
             val list = data.Page?.airingSchedules?.mapNotNull { it?.media?.exploreMedia }.orEmpty()
-            fun ExploreMedia.adultFilter() =
-                if (!isAdult) basicMediaDetails.isAdult == false else true
             when (onMyList) {
-                true -> list.filter { it.mediaListEntry != null && it.adultFilter() }
-                false -> list.filter { it.mediaListEntry == null && it.adultFilter() }
-                null -> list.filter { it.adultFilter() }
+                true -> list.filter { it.onMyListCalendarFilter() && it.adultFilter(isAdult) }
+                false -> list.filter { it.mediaListEntry == null && it.adultFilter(isAdult) }
+                null -> list.filter { it.adultFilter(isAdult) }
             }
         }
+
+    // Same query, fetch policy and paging as the existing media contract; only Calendar keeps event fields.
+    fun getCalendarAiringEventsPage(
+        airingAtGreater: Long? = null,
+        airingAtLesser: Long? = null,
+        sort: List<AiringSort> = listOf(AiringSort.TIME),
+        onMyList: Boolean? = null,
+        isAdult: Boolean = false,
+        page: Int,
+        perPage: Int = 25,
+        fetchFromNetwork: Boolean = false,
+    ) = api.airingAnimesQuery(
+        airingAtGreater = airingAtGreater, airingAtLesser = airingAtLesser,
+        sort = sort, page = page, perPage = perPage, fetchFromNetwork = fetchFromNetwork,
+    ).toFlow().asPagedResult(page = { it.Page?.pageInfo?.commonPage }) { data ->
+        data.Page?.airingSchedules.orEmpty().mapNotNull { schedule ->
+            val media = schedule?.media?.exploreMedia ?: return@mapNotNull null
+            val scheduleMedia = schedule.media
+            val eligible = when (onMyList) {
+                true -> media.onMyListCalendarFilter()
+                false -> media.mediaListEntry == null
+                null -> true
+            }
+            if (!eligible || !media.adultFilter(isAdult)) return@mapNotNull null
+            val titles = listOfNotNull(
+                scheduleMedia?.title?.romaji, scheduleMedia?.title?.english, scheduleMedia?.title?.native,
+                media.basicMediaDetails.title?.userPreferred,
+            ) + scheduleMedia?.synonyms.orEmpty().filterNotNull()
+            CalendarAiringEvent(schedule.id, schedule.episode, schedule.airingAt, media,
+                titles.map(String::trim).filter { it.isNotBlank() && it.length <= 512 }.toSet())
+        }
+    }
 
     fun getAiringAnimeOnMyListPage(
         page: Int,
@@ -66,10 +98,7 @@ class MediaRepository (
         .toFlow()
         .asPagedResult(page = { it.Page?.pageInfo?.commonPage }) { data ->
             data.Page?.media?.mapNotNull { it?.exploreMedia }
-                ?.filter {
-                    it.nextAiringEpisode != null
-                            && it.mediaListEntry?.basicMediaListEntry?.status?.isActive() == true
-                }
+                ?.filter { it.nextAiringEpisode != null && it.onMyListCalendarFilter() }
                 ?.sortedBy { it.nextAiringEpisode?.timeUntilAiring }
                 .orEmpty()
         }
@@ -101,6 +130,18 @@ class MediaRepository (
             data.Page?.media?.mapNotNull { it?.exploreMedia }.orEmpty()
         }
 
+    /** Cover, title and list entry of several anime at once; the same fragment as the other lists. */
+    fun getMediaByIdsPage(
+        ids: List<Int>,
+        page: Int = 1,
+        perPage: Int = 50,
+    ) = api
+        .mediaByIdsQuery(ids, page, perPage)
+        .toFlow()
+        .asPagedResult(page = { it.Page?.pageInfo?.commonPage }) { data ->
+            data.Page?.media?.mapNotNull { it?.exploreMedia }.orEmpty()
+        }
+
     fun getMediaChartPage(
         type: ChartType,
         isAdult: Boolean? = null,
@@ -126,6 +167,11 @@ class MediaRepository (
         .mediaDetailsQuery(mediaId)
         .toFlow()
         .asDataResult { it.Media }
+
+    suspend fun cachedMediaCoverUrl(mediaId: Int): String? = withContext(Dispatchers.IO) {
+        api.mediaDetailsQuery(mediaId).fetchPolicy(FetchPolicy.CacheOnly).execute()
+            .data?.Media?.coverImage?.large
+    }
 
     suspend fun updateMediaDetailsCache(media: MediaDetailsQuery.Media) {
         api.updateMediaDetailsCache(
@@ -224,16 +270,17 @@ class MediaRepository (
     suspend fun getAiringWidgetData(
         page: Int,
         perPage: Int = 25,
+        fetchPolicy: FetchPolicy = FetchPolicy.NetworkFirst,
     ) = api
         .airingWidgetQuery(page, perPage)
-        .fetchPolicy(FetchPolicy.NetworkFirst)
+        .fetchPolicy(fetchPolicy)
         .execute()
         .asDataResult { data ->
             data.Page?.media?.filterNotNull()
                 ?.filter {
-                        it.nextAiringEpisode != null
-                                && it.mediaListEntry?.status?.isActive() == true
-                    }
+                    it.nextAiringEpisode != null
+                            && it.mediaListEntry?.status?.isActive() == true
+                }
                 ?.sortedBy { it.nextAiringEpisode?.timeUntilAiring }
                 .orEmpty()
         }
@@ -246,7 +293,9 @@ class MediaRepository (
         mediaId = mediaId,
         mediaRecommendationId = mediaRecommendationId,
         rating = rating
-    ).toFlow().asDataResult()
+    ).toFlow().asDataResult {
+        it.SaveRecommendation?.mediaRecommended
+    }
 
 
     fun mediaRecommendations(

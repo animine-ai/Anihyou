@@ -32,10 +32,12 @@ kotlin {
 }
 
 dependencies {
+    api(project(":private:release-core"))
     api(project(":core:base"))
     api(project(":core:common"))
     api(project(":core:resources"))
     api(project(":core:model"))
+    api(project(":core:domain"))
     implementation(project(":core:network"))
 
     implementation(libs.androidx.core.ktx)

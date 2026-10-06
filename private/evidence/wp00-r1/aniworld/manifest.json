@@ -1,0 +1,125 @@
+{
+  "account_or_private_data_present": false,
+  "activation_scope": "PAGE_ROLE_PLUS_DE_DUB_TRACK_SELECTOR_EVIDENCED",
+  "capture_utc": "2026-09-11T05:38:07Z",
+  "de_sub_policy": "observed_separately_not_activated_for_confirmation",
+  "fixtures": [
+    {
+      "account_or_private_data_present": false,
+      "byte_size": 742,
+      "capture_timestamp_utc": "2026-09-11T05:38:07Z",
+      "expected_classification": "positive_de_dub",
+      "final_url": "https://aniworld.to/neue-episoden",
+      "http_status": 200,
+      "path": "fixtures/recent-positive-de-dub.html",
+      "raw_or_sanitized": "sanitized",
+      "sanitization_method": "canonical semantic extraction; DE_SUB placed before DE_DUB; keeps live flag class/title/alt/src and page anchor",
+      "selector_anchor_annotations": "page-role h1 plus semantic flag title/alt/src attributes; never flag position",
+      "sha256": "cd829360a927de896cb627f3076121babb44a276c8a40c7063485e0ce71deb09",
+      "source_role": "recent_current",
+      "source_url": "https://aniworld.to/neue-episoden"
+    },
+    {
+      "account_or_private_data_present": false,
+      "byte_size": 399,
+      "capture_timestamp_utc": "2026-09-11T05:38:07Z",
+      "expected_classification": "de_sub_observed_not_activated",
+      "final_url": "https://aniworld.to/neue-episoden",
+      "http_status": 200,
+      "path": "fixtures/recent-de-sub-separate.html",
+      "raw_or_sanitized": "sanitized",
+      "sanitization_method": "canonical semantic extraction of DE_SUB evidence only; no confirmation-policy activation",
+      "selector_anchor_annotations": "page-role h1 plus semantic flag title/alt/src attributes; never flag position",
+      "sha256": "fcb90a66e97f3ab8347ad4c56af667a5436495bc92080b3663bdc9ccfb67880b",
+      "source_role": "recent_current",
+      "source_url": "https://aniworld.to/neue-episoden"
+    },
+    {
+      "account_or_private_data_present": false,
+      "byte_size": 524,
+      "capture_timestamp_utc": "2026-09-11T05:38:07Z",
+      "expected_classification": "negative_forecast_only",
+      "final_url": "https://aniworld.to/animekalender",
+      "http_status": 200,
+      "path": "fixtures/future-calendar-forecast.html",
+      "raw_or_sanitized": "sanitized",
+      "sanitization_method": "canonical extraction of calendar anchor, forecast time context and live DE_DUB flag attributes",
+      "selector_anchor_annotations": "page-role h1 plus semantic flag title/alt/src attributes; never flag position",
+      "sha256": "eecf11c87ea1751dcb4e83f4caf8f795756601955e489f0780540414ff7e1144",
+      "source_role": "future_calendar",
+      "source_url": "https://aniworld.to/animekalender"
+    },
+    {
+      "account_or_private_data_present": false,
+      "byte_size": 605,
+      "capture_timestamp_utc": "2026-09-11T05:38:07Z",
+      "expected_classification": "support_recent_vs_future",
+      "final_url": "https://aniworld.to/support/frage/deutsche-synchro-sortieren",
+      "http_status": 200,
+      "path": "fixtures/support-page-roles.html",
+      "raw_or_sanitized": "sanitized",
+      "sanitization_method": "canonical extraction of short recent/future role text windows and support page anchor",
+      "selector_anchor_annotations": "page-role h1 plus semantic flag title/alt/src attributes; never flag position",
+      "sha256": "b32d1363dd972ee9a9eb440961dc207f44e8866d733c3b9f899ac1090d8019b9",
+      "source_role": "support_role_explanation",
+      "source_url": "https://aniworld.to/support/frage/deutsche-synchro-sortieren"
+    },
+    {
+      "account_or_private_data_present": false,
+      "byte_size": 719,
+      "capture_timestamp_utc": "2026-09-11T05:38:07Z",
+      "expected_classification": "negative_fail_closed_missing_page_anchor",
+      "final_url": "https://aniworld.to/neue-episoden",
+      "http_status": 200,
+      "path": "fixtures/recent-missing-page-anchor.html",
+      "raw_or_sanitized": "sanitized",
+      "sanitization_method": "derived from recent positive fixture by removing required h1 page anchor",
+      "selector_anchor_annotations": "page-role h1 plus semantic flag title/alt/src attributes; never flag position",
+      "sha256": "a372d17617a37100cdf4a86cff39b2fa9be048ab0f9eba24b5102796c79ee510",
+      "source_role": "recent_current",
+      "source_url": "https://aniworld.to/neue-episoden"
+    },
+    {
+      "account_or_private_data_present": false,
+      "byte_size": 575,
+      "capture_timestamp_utc": "2026-09-11T05:38:07Z",
+      "expected_classification": "negative_fail_closed_changed_flag_semantics",
+      "final_url": "https://aniworld.to/neue-episoden",
+      "http_status": 200,
+      "path": "fixtures/recent-changed-semantic-anchor.html",
+      "raw_or_sanitized": "sanitized",
+      "sanitization_method": "derived from recent positive fixture by replacing DE_DUB semantic flag attributes with unknown values",
+      "selector_anchor_annotations": "page-role h1 plus semantic flag title/alt/src attributes; never flag position",
+      "sha256": "8e943c817562cf044bd852ed1b1918431d3dd8803a7427a05c5aa2ca03d483a8",
+      "source_role": "recent_current",
+      "source_url": "https://aniworld.to/neue-episoden"
+    }
+  ],
+  "raw_capture_provenance": {
+    "calendar": {
+      "final_url": "https://aniworld.to/animekalender",
+      "http_status": 200,
+      "raw_sha256": "4f96f48f568b7544d17b3c89aa5275b9c7960568b25b970e2def212ca3fde311",
+      "raw_size": 668722,
+      "source_role": "future_calendar",
+      "source_url": "https://aniworld.to/animekalender"
+    },
+    "recent": {
+      "final_url": "https://aniworld.to/neue-episoden",
+      "http_status": 200,
+      "raw_sha256": "9bf3d66075ef2f35654e36220062eb809901e9941c8cf4a971ac80290b947817",
+      "raw_size": 202141,
+      "source_role": "recent_current",
+      "source_url": "https://aniworld.to/neue-episoden"
+    },
+    "support": {
+      "final_url": "https://aniworld.to/support/frage/deutsche-synchro-sortieren",
+      "http_status": 200,
+      "raw_sha256": "022f1c920144d2115a7ae47d4149b7bec757b83400e19e769a5b426cbf40cfb1",
+      "raw_size": 36860,
+      "source_role": "support_role_explanation",
+      "source_url": "https://aniworld.to/support/frage/deutsche-synchro-sortieren"
+    }
+  },
+  "schema": 1
+}

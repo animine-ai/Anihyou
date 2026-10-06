@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.feature.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -9,7 +10,9 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.Badge
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -22,6 +25,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import com.axiel7.anihyou.core.ui.common.navigation.Route
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -33,6 +38,7 @@ import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
 import com.axiel7.anihyou.core.ui.common.rememberSnackbarManager
 import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithSmallTopAppBar
 import com.axiel7.anihyou.core.ui.composables.IconButtonWithBadge
+import com.axiel7.anihyou.core.ui.composables.rememberTopBarContainerColor
 import com.axiel7.anihyou.feature.home.activity.ActivityFeedView
 import com.axiel7.anihyou.feature.home.current.CurrentView
 import com.axiel7.anihyou.feature.login.LoginView
@@ -51,6 +57,9 @@ fun HomeView(
     val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
         rememberTopAppBarState()
     )
+    val topAppBarColors = TopAppBarDefaults.topAppBarColors()
+    val appBarContainerColor by rememberTopBarContainerColor(topAppBarColors, topAppBarScrollBehavior)
+
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(defaultHomeTab.ordinal) }
     val snackbarManager = rememberSnackbarManager()
 
@@ -81,6 +90,8 @@ fun HomeView(
                 )
                 IconButtonWithBadge(
                     icon = R.drawable.notifications_24,
+                    modifier = Modifier.testTag("home-notifications"),
+                    contentDescription = stringResource(R.string.notifications),
                     badge = {
                         if (unreadNotificationCount > 0) {
                             Badge {
@@ -91,8 +102,14 @@ fun HomeView(
                     onClick = { navActionManager.toNotifications(unreadNotificationCount) }
                 )
             }
+            HomeAccountActions(
+                onSettings = { navActionManager.toSettings() },
+                onProfile = { navActionManager.navigate(Route.OwnProfile) },
+                onPostponements = navActionManager::toPostponements,
+            )
         },
         scrollBehavior = topAppBarScrollBehavior,
+        topAppBarColors = topAppBarColors,
         contentWindowInsets = WindowInsets.systemBars
             .only(WindowInsetsSides.Horizontal)
     ) { padding ->
@@ -101,37 +118,63 @@ fun HomeView(
         ) {
             PrimaryTabRow(
                 selectedTabIndex = selectedTabIndex,
+                containerColor = appBarContainerColor,
             ) {
                 HomeTab.entries.forEach { tab ->
                     Tab(
                         selected = selectedTabIndex == tab.ordinal,
                         onClick = { selectedTabIndex = tab.ordinal },
-                        text = { Text(text = tab.localized()) }
+                        text = { Text(text = tab.localized()) },
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            when (HomeTab.entries[selectedTabIndex]) {
-                HomeTab.ACTIVITY_FEED -> {
-                    if (isLoggedIn) {
-                        ActivityFeedView(
-                            modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
-                        )
-                    } else {
-                        LoginView()
+            AnimatedContent(
+                targetState = HomeTab.entries[selectedTabIndex]
+            ) { tab ->
+                when (tab) {
+                    HomeTab.ACTIVITY_FEED -> {
+                        if (isLoggedIn) {
+                            ActivityFeedView(
+                                modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+                            )
+                        } else {
+                            LoginView()
+                        }
                     }
-                }
 
-                HomeTab.CURRENT -> {
-                    if (isLoggedIn) {
-                        CurrentView(
-                            isLoggedIn = true,
-                            modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
-                        )
-                    } else {
-                        LoginView()
+                    HomeTab.CURRENT -> {
+                        if (isLoggedIn) {
+                            CurrentView(
+                                isLoggedIn = true,
+                                modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+                            )
+                        } else {
+                            LoginView()
+                        }
                     }
                 }
             }
         }//:Column
     }//:Scaffold
+}
+
+@Composable
+fun HomeAccountActions(
+    onSettings: () -> Unit,
+    onProfile: () -> Unit,
+    onPostponements: () -> Unit = {},
+) {
+    IconButton(onClick = onPostponements, modifier = Modifier.testTag("home-postponements")) {
+        Icon(
+            painterResource(R.drawable.schedule_24),
+            contentDescription = stringResource(R.string.postponements),
+        )
+    }
+    IconButton(onClick = onSettings, modifier = Modifier.testTag("home-settings")) {
+        Icon(painterResource(R.drawable.settings_24), contentDescription = stringResource(R.string.settings))
+    }
+    IconButton(onClick = onProfile, modifier = Modifier.testTag("home-profile")) {
+        Icon(painterResource(R.drawable.person_24), contentDescription = stringResource(R.string.profile))
+    }
 }

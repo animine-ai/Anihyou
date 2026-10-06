@@ -9,7 +9,13 @@ android {
 }
 
 dependencies {
+    implementation(project(":private:release-core"))
+    implementation(project(":core:domain"))
     implementation(libs.androidx.work.runtime)
 
     implementation(libs.koin.workmanager)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    implementation(project(":core:database"))
 }

@@ -40,12 +40,12 @@ fun BasicMediaListEntry.isUsingVolumeProgress() = progressVolumes != null && pro
         && (progress == null || progress == 0)
 
 fun CommonMediaListEntry.isBehind() =
-    (basicMediaListEntry.progress ?: 0) < (media?.nextAiringEpisode?.episode?.minus(1) ?: 0)
+    basicMediaListEntry.progress?.let { it < (media?.nextAiringEpisode?.episode?.minus(1) ?: 0) } ?: false
 
-fun BasicMediaListEntry.isBehind(nextAiringEpisode: Int) = (progress ?: 0) < (nextAiringEpisode - 1)
+fun BasicMediaListEntry.isBehind(nextAiringEpisode: Int) = progress?.let { it < (nextAiringEpisode - 1) } ?: false
 
 fun CommonMediaListEntry.episodesBehind() =
-    (media?.nextAiringEpisode?.episode?.minus(1) ?: 0) - (basicMediaListEntry.progress ?: 0)
+    basicMediaListEntry.progress?.let { ((media?.nextAiringEpisode?.episode?.minus(1) ?: 0) - it).coerceAtLeast(0) } ?: 0
 
 @Suppress("UNCHECKED_CAST")
 fun BasicMediaListEntry.advancedScoreNames() = (advancedScores as? LinkedHashMap<String, Any>)?.keys
@@ -64,6 +64,8 @@ val exampleBasicMediaListEntry = BasicMediaListEntry(
     progress = 999,
     progressVolumes = null,
     repeat = 2,
+    createdAt = 0,
+    updatedAt = 0,
     startedAt = null,
     completedAt = null,
     private = false,

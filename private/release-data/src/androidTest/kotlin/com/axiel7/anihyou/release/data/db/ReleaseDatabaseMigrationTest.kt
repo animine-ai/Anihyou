@@ -1,0 +1,1234 @@
+package com.axiel7.anihyou.release.data.db
+
+import android.content.ContentValues
+import android.database.sqlite.SQLiteDatabase
+import androidx.room.Room
+import androidx.room.testing.MigrationTestHelper
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.axiel7.anihyou.release.core.api.SourceResult
+import com.axiel7.anihyou.release.core.model.AniWorldIdentitySourceType
+import com.axiel7.anihyou.release.core.model.AbsencePolicySnapshot
+import com.axiel7.anihyou.release.core.model.AniWorldSiteIdentifier
+import com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity
+import com.axiel7.anihyou.release.core.model.CompletedObservationCycle
+import com.axiel7.anihyou.release.core.model.CycleResult
+import com.axiel7.anihyou.release.core.model.CycleSourceObservation
+import com.axiel7.anihyou.release.core.model.SourceHealthStatus
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
+import com.axiel7.anihyou.release.core.model.ConfidenceVector
+import com.axiel7.anihyou.release.core.model.Installment
+import com.axiel7.anihyou.release.core.model.LanguageTrack
+import com.axiel7.anihyou.release.core.model.ReleaseDecision
+import com.axiel7.anihyou.release.core.model.ReleaseEvidence
+import com.axiel7.anihyou.release.core.model.ReleaseEvidenceType
+import com.axiel7.anihyou.release.core.model.ReleaseForecastRevision
+import com.axiel7.anihyou.release.core.model.ReleasePhase
+import com.axiel7.anihyou.release.core.model.ReleaseSourceType
+import com.axiel7.anihyou.release.core.model.ScheduleCondition
+import com.axiel7.anihyou.release.core.state.AniWorldReleaseAuthorityReducer
+import com.axiel7.anihyou.release.data.ReleaseEvidenceFingerprintV2
+import com.axiel7.anihyou.release.data.repository.RoomReleaseDecisionRepository
+import com.axiel7.anihyou.release.data.repository.RoomReleaseReconciliationRepository
+import com.axiel7.anihyou.release.data.repository.RoomReleaseEvidenceRepository
+import com.axiel7.anihyou.release.data.repository.RoomReleaseIntelligencePersistence
+import java.time.Instant
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class ReleaseDatabaseMigrationTest {
+    private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+    private val databaseNames = listOf(
+        "release-persistence-v8-to-v11-test.db",
+        "release-persistence-v10-to-v11-test.db",
+        "release-persistence-invalid-id-test.db",
+        "release-persistence-mismatch-test.db",
+        "release-persistence-malformed-decision-test.db",
+        "release-persistence-orphan-revision-test.db",
+        "release-persistence-orphan-decision-test.db",
+        "release-persistence-invalid-boolean-test.db",
+        "release-persistence-opaque-duplicate-test.db",
+        "release-persistence-mismatched-revision-test.db",
+        "release-persistence-v11-to-v12-test.db",
+        "release-persistence-v10-to-v12-test.db",
+        "release-persistence-v8-to-v12-test.db",
+        "release-persistence-v11-invalid-marker-test.db",
+        "release-persistence-v12-to-v13-test.db",
+        "release-persistence-v11-to-v13-test.db",
+        "release-persistence-v10-to-v13-test.db",
+        "release-persistence-v8-to-v13-test.db",
+        "release-persistence-v12-fault-rollback-test.db",
+        "release-persistence-v12-name-collision-test.db",
+        "release-persistence-v12-bad-marker-test.db",
+        "release-persistence-v12-index-collision-test.db",
+        "release-persistence-v13-to-v14-test.db",
+        "release-persistence-v12-to-v14-test.db",
+        "release-persistence-v13-fault-rollback-test.db",
+        "release-persistence-v13-name-collision-test.db",
+        "release-persistence-v13-bad-marker-test.db",
+    )
+    private val observedAt = Instant.parse("2026-09-11T12:00:00Z")
+
+    @get:Rule
+    @JvmField
+    val migrationTestHelper = MigrationTestHelper(
+        InstrumentationRegistry.getInstrumentation(),
+        ReleaseDatabase::class.java,
+        emptyList(),
+    )
+
+    @After
+    fun cleanup() {
+        databaseNames.forEach(context::deleteDatabase)
+    }
+
+    @Test
+    fun wp04b_migration_v12_to_v13_preservesBaselineAndR2AndReopens() = runBlocking {
+        val name = databaseNames[14]
+        val v12 = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(v12, 12)
+        seedBaselineMarker(v12)
+        seedProviderSnapshot(v12)
+        v12.close()
+        val migrated = migrationTestHelper.runMigrationsAndValidate(name, 13, true, RELEASE_MIGRATION_12_13)
+        try {
+            assertEquals(13L, scalarLong(migrated,
+                "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(12L, scalarLong(migrated,
+                "SELECT schemaVersion FROM schema_meta WHERE key='BASELINE_IMPORT_COMPLETE'"))
+            assertEquals("v1", migrated.query(
+                "SELECT value FROM schema_meta WHERE key='BASELINE_IMPORT_COMPLETE'").use {
+                assertTrue(it.moveToFirst()); it.getString(0)
+            })
+            assertEquals("fixture-hash", migrated.query(
+                "SELECT sourceHash FROM provider_snapshot WHERE streamKey='aniworld/v13-preserve'").use {
+                assertTrue(it.moveToFirst()); it.getString(0)
+            })
+            assertEquals(0L, scalarLong(migrated,
+                "SELECT count(*) FROM v3_poll_generation"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_http_attempt"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_request_state"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_shadow_metric"))
+            migrated.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+        } finally { migrated.close() }
+
+        val reopened = Room.databaseBuilder(context, ReleaseDatabase::class.java, name)
+            .addMigrations(RELEASE_MIGRATION_12_13, RELEASE_MIGRATION_13_14).allowMainThreadQueries().build()
+        try {
+            assertEquals("fixture-hash", reopened.releaseDao().getProviderSnapshot("aniworld/v13-preserve")?.sourceHash)
+            assertEquals(12, reopened.releaseDao().getSchemaMeta("BASELINE_IMPORT_COMPLETE")?.schemaVersion)
+            assertEquals(14, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
+        } finally { reopened.close() }
+    }
+
+    @Test
+    fun wp04b_migration_v11_to_v13_usesCompleteChain() {
+        assertMigrationToV13(databaseNames[15], 11)
+    }
+
+    @Test
+    fun wp04b_migration_v10_to_v13_usesCompleteChain() {
+        assertMigrationToV13(databaseNames[16], 10)
+    }
+
+    @Test
+    fun wp04b_migration_v8_to_v13_usesCompleteChain() {
+        assertMigrationToV13(databaseNames[17], 8)
+    }
+
+    @Test
+    fun wp04b_migration_v12_faultAfterCreateRollsBackAllDdl() {
+        val name = databaseNames[18]
+        val db = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(db, 12)
+        try {
+            db.beginTransaction()
+            val failure = runCatching {
+                migrateReleaseDatabase12To13(db) { error("fault injected after first CREATE") }
+            }
+            assertTrue(failure.isFailure)
+        } finally {
+            if (db.inTransaction()) db.endTransaction()
+        }
+        try {
+            assertEquals(12L, scalarLong(db, "PRAGMA user_version"))
+            assertEquals(12L, scalarLong(db,
+                "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(0L, scalarLong(db,
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
+                    "('v3_poll_generation','v3_http_attempt','v3_request_state','v3_shadow_metric')"))
+        } finally { db.close() }
+    }
+
+    @Test
+    fun wp04b_migration_v12BadMarkerFailsBeforeAnyCreate() {
+        val name = databaseNames[20]
+        val db = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(db, 11)
+        db.close()
+        val failed = runCatching {
+            migrationTestHelper.runMigrationsAndValidate(name, 13, true, RELEASE_MIGRATION_12_13)
+        }
+        assertTrue(failed.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(12L, reopened.rawQuery("PRAGMA user_version", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
+                    "('v3_poll_generation','v3_http_attempt','v3_request_state','v3_shadow_metric')", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(11L, reopened.rawQuery(
+                "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { reopened.close() }
+    }
+
+    @Test
+    fun wp04b_migration_v12IndexNameCollisionFailsBeforeAnyCreate() {
+        val name = databaseNames[21]
+        val db = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(db, 12)
+        db.execSQL("CREATE INDEX idx_v3_http_attempt_root_time ON provider_snapshot(sourceHash)")
+        db.close()
+        val failed = runCatching {
+            migrationTestHelper.runMigrationsAndValidate(name, 13, true, RELEASE_MIGRATION_12_13)
+        }
+        assertTrue(failed.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(12L, reopened.rawQuery("PRAGMA user_version", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='v3_poll_generation'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(1L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_v3_http_attempt_root_time'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { reopened.close() }
+    }
+
+    @Test
+    fun wp04b_migration_v12NameCollisionFailsBeforeAnyCreate() {
+        val name = databaseNames[19]
+        val db = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(db, 12)
+        db.execSQL("CREATE TABLE v3_http_attempt (legacy TEXT NOT NULL)")
+        db.close()
+        val failed = runCatching {
+            migrationTestHelper.runMigrationsAndValidate(name, 13, true, RELEASE_MIGRATION_12_13)
+        }
+        assertTrue(failed.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(12L, reopened.rawQuery("PRAGMA user_version", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='v3_poll_generation'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(12L, reopened.rawQuery(
+                "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { reopened.close() }
+    }
+
+    private fun assertMigrationToV13(name: String, version: Int) {
+        val old = migrationTestHelper.createDatabase(name, version)
+        seedSchemaMarker(old, version)
+        old.close()
+        val chain = when (version) {
+            11 -> arrayOf(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+            10 -> arrayOf(RELEASE_MIGRATION_10_11, RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+            8 -> arrayOf(RELEASE_MIGRATION_8_9, RELEASE_MIGRATION_9_10, RELEASE_MIGRATION_10_11,
+                RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13)
+            else -> error("unsupported fixture schema")
+        }
+        val migrated = migrationTestHelper.runMigrationsAndValidate(name, 13, true, *chain)
+        try {
+            assertEquals(13L, scalarLong(migrated,
+                "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_poll_generation"))
+            migrated.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+        } finally { migrated.close() }
+    }
+
+    private fun seedBaselineMarker(db: SupportSQLiteDatabase) {
+        db.execSQL("INSERT INTO schema_meta(`key`,schemaVersion,value,updatedAt) " +
+            "VALUES('BASELINE_IMPORT_COMPLETE',12,'v1','2026-09-26T00:00:00Z')")
+    }
+
+    private fun seedProviderSnapshot(db: SupportSQLiteDatabase) {
+        val values = ContentValues().apply {
+            put("streamKey", "aniworld/v13-preserve")
+            put("providerId", "aniworld")
+            put("stableSeriesKey", "snapshot")
+            put("releaseKind", "EPISODE")
+            put("sourceSeason", 1)
+            put("languageTrack", "DE_SUB")
+            put("confirmationsPayload", "")
+            put("forecastsPayload", "")
+            put("freshnessStatus", "FRESH")
+            put("lastSuccessAt", observedAt.toString())
+            put("sourceHash", "fixture-hash")
+            put("sourcePresent", 1)
+            put("snapshotObservedAt", observedAt.toString())
+        }
+        assertTrue(db.insert("provider_snapshot", SQLiteDatabase.CONFLICT_NONE, values) > 0L)
+    }
+
+    @Test
+    fun genuineVersionElevenMigratesToTwelveWithoutChangingEvidenceTables() {
+        val name = databaseNames[10]
+        migrationTestHelper.createDatabase(name, 11).apply { seedSchemaMarker(this, 11) }.close()
+        val migrated = migrationTestHelper.runMigrationsAndValidate(name, 12, true,
+            RELEASE_MIGRATION_11_12)
+        try {
+            assertTrue(objectNames(migrated).containsAll(v11Objects))
+            assertTrue(objectNames(migrated).containsAll(setOf(
+                "v3_observation_cycle", "v3_cycle_source_observation", "v3_cycle_evidence_receipt",
+                "v3_reconciliation_event", "v3_canonical_release_projection")))
+            assertEquals(12L, scalarLong(migrated,
+                "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
+        } finally { migrated.close() }
+    }
+
+    @Test
+    fun genuineVersionTenAndEightReachTwelveThroughOriginalSchemas() {
+        val ten = databaseNames[11]
+        migrationTestHelper.createDatabase(ten, 10).apply { seedSchemaMarker(this, 10) }.close()
+        val migratedTen = migrationTestHelper.runMigrationsAndValidate(ten, 12, true,
+            RELEASE_MIGRATION_10_11, RELEASE_MIGRATION_11_12)
+        try {
+            assertEquals(12L, scalarLong(migratedTen,
+                "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
+        } finally { migratedTen.close() }
+
+        val eight = databaseNames[12]
+        migrationTestHelper.createDatabase(eight, 8).apply { seedSchemaMarker(this, 8) }.close()
+        val migratedEight = migrationTestHelper.runMigrationsAndValidate(eight, 12, true,
+            RELEASE_MIGRATION_8_9, RELEASE_MIGRATION_9_10, RELEASE_MIGRATION_10_11,
+            RELEASE_MIGRATION_11_12)
+        try {
+            assertEquals(12L, scalarLong(migratedEight,
+                "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
+        } finally { migratedEight.close() }
+    }
+
+    @Test
+    fun v11InvalidMarkerBlocksV12MigrationAndRollsBack() {
+        val name = databaseNames[13]
+        val old = migrationTestHelper.createDatabase(name, 11)
+        seedSchemaMarker(old, 999)
+        old.close()
+        val failed = runCatching { migrationTestHelper.runMigrationsAndValidate(name, 12, true,
+            RELEASE_MIGRATION_11_12) }
+        assertTrue(failed.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(11L, reopened.rawQuery("PRAGMA user_version", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE name='v3_observation_cycle'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { reopened.close() }
+    }
+
+    // R04 (Room v14): additive source-bound provenance. Mixed legacy rows keep their data and get no invented origin.
+
+    private val keyA = ExtensionSelectionKey("source-a", "de.aniworld", "publisher.a", "aniworld")
+    private val keyB = ExtensionSelectionKey("source-b", "de.aniworld", "publisher.b", "aniworld")
+
+    private fun r04Evidence(series: String, reportedAt: Instant, seenAt: Instant): ReleaseEvidence {
+        val item = ReleaseEvidence(
+            "r04-$series-$reportedAt", ReleaseSourceType.ANIWORLD_CALENDAR,
+            "https://aniworld.to/anime/stream/$series", "hash-$series-$reportedAt", "fixture",
+            seenAt, reportedAt, false, AniWorldSiteIdentifier(series), 2, 4,
+            Installment.Episode(1), LanguageTrack.DE_SUB, ReleaseEvidenceType.FORECAST,
+            ScheduleCondition.UNKNOWN, ConfidenceVector(1.0, 1.0, 1.0, 1.0, 1.0),
+        )
+        return item.copy(id = ReleaseEvidenceFingerprintV2.evidenceId(item))
+    }
+
+    /** Raw v13 rows: two cycles and two global projections of unknown (possibly mixed) origin. */
+    private fun seedMixedLegacyCanonicalRows(db: SupportSQLiteDatabase): List<String> {
+        val keys = listOf("legacy-shared", "legacy-other").mapIndexed { index, series ->
+            val identity = requireNotNull(CanonicalReleaseIdentity.from(r04Evidence(series, observedAt, observedAt)))
+            val cycleId = "legacy-cycle-$index"
+            db.insert("v3_observation_cycle", SQLiteDatabase.CONFLICT_NONE, ContentValues().apply {
+                put("cycleId", cycleId); put("commitSequence", index + 1L)
+                put("scopeId", "aniworld:extension:shadow:v1"); put("policyVersion", 1)
+                put("policyPayload", "v1:86400:1800:1800")
+                put("startedAt", observedAt.minusSeconds(60).toString()); put("completedAt", observedAt.toString())
+                put("completeness", "COMPLETE"); put("requestDigest", "legacy-digest-$index")
+            })
+            db.insert("v3_canonical_release_projection", SQLiteDatabase.CONFLICT_NONE, ContentValues().apply {
+                put("projectionKey", identity.key); put("bucketKey", identity.bucketKey)
+                put("underlyingPhase", "EXPECTED"); put("phase", "EXPECTED"); put("authority", "NONE")
+                put("scheduleCondition", "UNKNOWN"); putNull("scheduleEvidenceId"); putNull("releaseAt")
+                put("forecastAt", observedAt.toString()); putNull("forecastEvidenceId"); putNull("bindingKey")
+                put("conflictIdsPayload", "[]"); put("revision", 1L); put("lastAppliedSequence", index + 1L)
+                put("absenceCount", 0); putNull("lastAbsenceAt"); putNull("expectationEvidenceId")
+                put("navigationPayload", "[]"); putNull("latestCompletedAt")
+            })
+            identity.key
+        }
+        return keys
+    }
+
+    @Test
+    fun r04_migration_v13_to_v14_keepsMixedLegacyRowsWithoutOriginAndFoldsOnlyNewCommitsPerSource() = runBlocking {
+        val name = databaseNames[22]
+        val v13 = migrationTestHelper.createDatabase(name, 13)
+        seedSchemaMarker(v13, 13)
+        seedBaselineMarker(v13)
+        val legacyKeys = seedMixedLegacyCanonicalRows(v13)
+        v13.close()
+        val migrated = migrationTestHelper.runMigrationsAndValidate(name, 14, true, RELEASE_MIGRATION_13_14)
+        try {
+            assertEquals(14L, scalarLong(migrated, "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(2L, scalarLong(migrated, "SELECT count(*) FROM v3_observation_cycle"))
+            assertEquals(2L, scalarLong(migrated, "SELECT count(*) FROM v3_canonical_release_projection"))
+            assertEquals("the origin of legacy rows is never invented", 0L,
+                scalarLong(migrated, "SELECT count(*) FROM v3_cycle_provenance"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_source_projection"))
+            listOf("v3_source_series_label", "v3_source_mapping", "v3_mapping_fence", "v3_mapping_action",
+                "v3_mapping_action_entry").forEach { table ->
+                assertEquals("$table starts empty", 0L, scalarLong(migrated, "SELECT count(*) FROM $table"))
+            }
+            migrated.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+        } finally { migrated.close() }
+
+        val reopened = Room.databaseBuilder(context, ReleaseDatabase::class.java, name)
+            .addMigrations(RELEASE_MIGRATION_13_14).allowMainThreadQueries().build()
+        try {
+            val dao = reopened.reconciliationDao()
+            assertEquals(legacyKeys.sorted(), dao.projectionPage(256, 0).map { it.projectionKey }.sorted())
+            listOf(keyA, keyB).forEach { key ->
+                assertTrue("legacy rows are inactive for every source until it commits",
+                    dao.sourceProjectionPage(key.sourceId, key.extensionId, key.publisherId, key.providerId, 256, 0).isEmpty())
+            }
+            // A valid new commit of B folds B's own row; the legacy global row is not inherited as B's state.
+            val reported = Instant.parse("2026-09-28T10:00:00Z")
+            val completed = Instant.parse("2026-09-26T13:00:00Z")
+            val item = r04Evidence("legacy-shared", reported, completed)
+            RoomReleaseReconciliationRepository(reopened).persistCompletedCycle(CompletedObservationCycle(
+                "r04-b-cycle", "aniworld:extension:shadow:v1", completed.minusSeconds(30), completed,
+                AbsencePolicySnapshot(), listOf(CycleSourceObservation("r04-b-cycle:source", item.sourceType,
+                    requireNotNull(CanonicalReleaseIdentity.from(item)).key, item.languageTrack, CycleResult.SUCCESS,
+                    SourceHealthStatus.HEALTHY, observedAt = completed, evidence = listOf(item))),
+            ), keyB)
+            val rowB = dao.sourceProjectionPage(keyB.sourceId, keyB.extensionId, keyB.publisherId, keyB.providerId, 256, 0)
+            assertEquals(listOf(legacyKeys.first()), rowB.map { it.projectionKey })
+            assertEquals(reported.toString(), rowB.single().forecastAt)
+            assertTrue(dao.sourceProjectionPage(keyA.sourceId, keyA.extensionId, keyA.publisherId,
+                keyA.providerId, 256, 0).isEmpty())
+            assertEquals(keyB.sourceId, dao.provenance("r04-b-cycle")?.sourceId)
+            assertNull("legacy cycles stay without provenance", dao.provenance("legacy-cycle-0"))
+            assertEquals(2, dao.projectionPage(256, 0).size)
+        } finally { reopened.close() }
+    }
+
+    @Test
+    fun r04_migration_v12_to_v14_usesCompleteChain() {
+        val name = databaseNames[23]
+        val old = migrationTestHelper.createDatabase(name, 12)
+        seedSchemaMarker(old, 12)
+        old.close()
+        val migrated = migrationTestHelper.runMigrationsAndValidate(name, 14, true,
+            RELEASE_MIGRATION_12_13, RELEASE_MIGRATION_13_14)
+        try {
+            assertEquals(14L, scalarLong(migrated, "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_cycle_provenance"))
+            assertEquals(0L, scalarLong(migrated, "SELECT count(*) FROM v3_source_projection"))
+            listOf("v3_source_series_label", "v3_source_mapping", "v3_mapping_fence", "v3_mapping_action",
+                "v3_mapping_action_entry").forEach { table ->
+                assertEquals("$table starts empty", 0L, scalarLong(migrated, "SELECT count(*) FROM $table"))
+            }
+            migrated.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+        } finally { migrated.close() }
+    }
+
+    @Test
+    fun r04_migration_v13_faultAfterCreateRollsBackAllDdl() {
+        val name = databaseNames[24]
+        val db = migrationTestHelper.createDatabase(name, 13)
+        seedSchemaMarker(db, 13)
+        try {
+            db.beginTransaction()
+            val failure = runCatching {
+                migrateReleaseDatabase13To14(db) { error("fault injected after first CREATE") }
+            }
+            assertTrue(failure.isFailure)
+        } finally {
+            if (db.inTransaction()) db.endTransaction()
+        }
+        try {
+            assertEquals(13L, scalarLong(db, "PRAGMA user_version"))
+            assertEquals(13L, scalarLong(db, "SELECT schemaVersion FROM schema_meta WHERE key='release_schema'"))
+            assertEquals(0L, scalarLong(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
+                "('v3_cycle_provenance','v3_source_projection'," +
+                "'v3_source_series_label','v3_source_mapping','v3_mapping_fence','v3_mapping_action','v3_mapping_action_entry')"))
+        } finally { db.close() }
+    }
+
+    @Test
+    fun r04_migration_v13NameCollisionFailsBeforeAnyCreate() {
+        val name = databaseNames[25]
+        val db = migrationTestHelper.createDatabase(name, 13)
+        seedSchemaMarker(db, 13)
+        db.execSQL("CREATE TABLE v3_source_projection (legacy TEXT NOT NULL)")
+        db.close()
+        assertTrue(runCatching {
+            migrationTestHelper.runMigrationsAndValidate(name, 14, true, RELEASE_MIGRATION_13_14)
+        }.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(13L, reopened.rawQuery("PRAGMA user_version", null).use { assertTrue(it.moveToFirst()); it.getLong(0) })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='v3_cycle_provenance'", null).use {
+                assertTrue(it.moveToFirst()); it.getLong(0)
+            })
+        } finally { reopened.close() }
+    }
+
+    @Test
+    fun r04_migration_v13BadMarkerFailsBeforeAnyCreate() {
+        val name = databaseNames[26]
+        val db = migrationTestHelper.createDatabase(name, 13)
+        seedSchemaMarker(db, 12)
+        db.close()
+        assertTrue(runCatching {
+            migrationTestHelper.runMigrationsAndValidate(name, 14, true, RELEASE_MIGRATION_13_14)
+        }.isFailure)
+        val reopened = context.openOrCreateDatabase(name, android.content.Context.MODE_PRIVATE, null)
+        try {
+            assertEquals(13L, reopened.rawQuery("PRAGMA user_version", null).use { assertTrue(it.moveToFirst()); it.getLong(0) })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
+                    "('v3_cycle_provenance','v3_source_projection'," +
+                "'v3_source_series_label','v3_source_mapping','v3_mapping_fence','v3_mapping_action','v3_mapping_action_entry')", null).use { assertTrue(it.moveToFirst()); it.getLong(0) })
+        } finally { reopened.close() }
+    }
+
+    private fun seedSchemaMarker(db: SupportSQLiteDatabase, version: Int) {
+        val value = if (version == 10) "wp04a-intelligence" else "fixture"
+        db.execSQL("INSERT INTO schema_meta(`key`, schemaVersion, value, updatedAt) " +
+            "VALUES('release_schema', $version, '$value', '2026-09-26T00:00:00Z')")
+    }
+
+    @Test
+    fun realVersionEightPathPreservesR2DataAndReopensAtThirteen() {
+        val databaseName = databaseNames[0]
+        val versionEight = migrationTestHelper.createDatabase(databaseName, 8)
+        try {
+            val values = ContentValues().apply {
+                put("streamKey", "aniworld/snapshot/EPISODE/1/DE_DUB")
+                put("providerId", "aniworld")
+                put("stableSeriesKey", "snapshot")
+                put("releaseKind", "EPISODE")
+                put("sourceSeason", 1)
+                put("languageTrack", "DE_DUB")
+                put("confirmationsPayload", "[]")
+                put("forecastsPayload", "[]")
+                put("freshnessStatus", "FRESH")
+                put("lastAttemptAt", observedAt.toString())
+                put("lastSuccessAt", observedAt.toString())
+                put("freshnessObservedAt", observedAt.toString())
+                put("parserVersion", "wp03b1-test")
+                put("sourceHash", "hash")
+                putNull("freshnessDiagnostic")
+                putNull("mappingPayload")
+                put("sourcePresent", 1)
+                put("sourceRoot", "https://aniworld.to")
+                put("snapshotObservedAt", observedAt.toString())
+            }
+            assertTrue(versionEight.insert("provider_snapshot", SQLiteDatabase.CONFLICT_NONE, values) > 0L)
+        } finally {
+            versionEight.close()
+        }
+
+        val migrated = migrationTestHelper.runMigrationsAndValidate(
+            databaseName,
+            11,
+            true,
+            RELEASE_MIGRATION_1_2,
+            RELEASE_MIGRATION_2_3,
+            RELEASE_MIGRATION_3_4,
+            RELEASE_MIGRATION_4_5,
+            RELEASE_MIGRATION_5_6,
+            RELEASE_MIGRATION_6_7,
+            RELEASE_MIGRATION_7_8,
+            RELEASE_MIGRATION_8_9,
+            RELEASE_MIGRATION_9_10,
+            RELEASE_MIGRATION_10_11,
+        )
+        try {
+            val objects = objectNames(migrated)
+            assertTrue(objects.containsAll(v11Objects))
+            assertEquals(
+                "hash",
+                migrated.query(
+                    "SELECT sourceHash FROM provider_snapshot " +
+                        "WHERE streamKey = 'aniworld/snapshot/EPISODE/1/DE_DUB'",
+                ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null },
+            )
+            assertEquals("https://aniworld.to", migrated.query(
+                "SELECT sourceRoot FROM provider_snapshot " +
+                    "WHERE streamKey = 'aniworld/snapshot/EPISODE/1/DE_DUB'",
+            ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null })
+        } finally {
+            migrated.close()
+        }
+
+        val reopened = Room.databaseBuilder(
+            context,
+            ReleaseDatabase::class.java,
+            databaseName,
+        ).addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13, RELEASE_MIGRATION_13_14)
+            .allowMainThreadQueries().build()
+        try {
+            runBlocking {
+                assertEquals("hash", reopened.releaseDao()
+                    .getProviderSnapshot("aniworld/snapshot/EPISODE/1/DE_DUB")?.sourceHash)
+                assertEquals(14, reopened.releaseDao().getSchemaMeta("release_schema")?.schemaVersion)
+            }
+        } finally {
+            reopened.close()
+        }
+    }
+
+    @Test
+    fun realVersionTenPathConsolidatesAliasesArchivesAndRecoversMissingDecisionAfterRestart() = runBlocking {
+        val databaseName = databaseNames[1]
+        val calendarLegacy = legacyEvidence(
+            evidence("calendar-duplicate", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST, "calendar-sha-full-0001", observedAt,
+                Instant.parse("2026-09-12T20:00:00Z")),
+        )
+        val calendarV2 = v2Evidence(calendarLegacy.copy(
+            id = "pending",
+            observedAt = observedAt.plusSeconds(300),
+            parserVersion = "parser-v2",
+            siteIdentifier = calendarLegacy.siteIdentifier!!.copy(
+                lastValidatedAt = observedAt.plusSeconds(300),
+            ),
+        ))
+
+        val releasedLegacy = legacyEvidence(
+            evidence("released-duplicate", ReleaseSourceType.ANIWORLD_RECENT,
+                ReleaseEvidenceType.CONFIRMATION, "recent-sha-full-0001", observedAt,
+                observedAt.minusSeconds(30)),
+        )
+        val releasedV2 = v2Evidence(releasedLegacy.copy(
+            id = "pending",
+            observedAt = observedAt.plusSeconds(120),
+            parserVersion = "parser-v2",
+        ))
+
+        val recoveryLegacy = legacyEvidence(
+            evidence("recovery-duplicate", ReleaseSourceType.ANIWORLD_RECENT,
+                ReleaseEvidenceType.CONFIRMATION, "recovery-sha-full-0001", observedAt,
+                observedAt.minusSeconds(20)),
+        )
+        val recoveryV2 = v2Evidence(recoveryLegacy.copy(
+            id = "pending",
+            observedAt = observedAt.plusSeconds(180),
+            parserVersion = "parser-v2",
+        ))
+
+        val rewriteLegacy = legacyEvidence(
+            evidence("forecast-rewrite", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST, "rewrite-sha-full-0001", observedAt,
+                Instant.parse("2026-09-18T20:00:00Z")),
+        )
+        val rewriteV2 = v2Evidence(rewriteLegacy.copy(
+            id = "pending",
+            observedAt = observedAt.plusSeconds(240),
+            parserVersion = "parser-v2",
+        ))
+
+        val v2Singleton = v2Evidence(
+            evidence("v2-singleton", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST, "singleton-sha-full", observedAt,
+                Instant.parse("2026-09-15T20:00:00Z")),
+        )
+        val runtimeLegacy = legacyEvidence(
+            evidence("runtime-legacy-singleton", ReleaseSourceType.ANIWORLD_RECENT,
+                ReleaseEvidenceType.CONFIRMATION, "runtime-legacy-hash-full", observedAt,
+                observedAt.minusSeconds(15)),
+        )
+        val runtimeV2 = v2Evidence(runtimeLegacy.copy(
+            id = "pending",
+            observedAt = observedAt.plusSeconds(600),
+            parserVersion = "runtime-parser-v2",
+        ))
+        val sharedPrefix = "1234567890abcdef"
+        val prefixLegacy = legacyEvidence(
+            evidence("prefix-collision", ReleaseSourceType.ANIWORLD_RECENT,
+                ReleaseEvidenceType.CONFIRMATION, sharedPrefix + "a".repeat(48), observedAt,
+                observedAt.minusSeconds(5)),
+        )
+        val prefixV2 = v2Evidence(
+            evidence("prefix-collision", ReleaseSourceType.ANIWORLD_RECENT,
+                ReleaseEvidenceType.CONFIRMATION, sharedPrefix + "b".repeat(48), observedAt,
+                observedAt.minusSeconds(5)),
+        )
+
+        val calendarDecisionBase = AniWorldReleaseAuthorityReducer().reduce(null, calendarLegacy)
+        val aliasedDecision = calendarDecisionBase.copy(
+            contributingEvidenceIds = listOf(calendarLegacy.id, calendarV2.id),
+            authoritativeEvidenceIds = emptyList(),
+        )
+        val releasedDecision = AniWorldReleaseAuthorityReducer().reduce(null, releasedLegacy)
+        assertEquals(ReleasePhase.RELEASED, releasedDecision.phase)
+
+        val versionTen = migrationTestHelper.createDatabase(databaseName, 10)
+        try {
+            seedV10SchemaMetadata(versionTen)
+            listOf(
+                calendarLegacy, calendarV2, releasedLegacy, releasedV2,
+                recoveryLegacy, recoveryV2, rewriteLegacy, rewriteV2,
+                v2Singleton, runtimeLegacy, prefixLegacy, prefixV2,
+            ).forEach { seedEvidence(versionTen, it) }
+            // Insert v2 first to prove canonical evidence wins over earlier revision ID/time.
+            seedForecastRevision(versionTen, calendarV2)
+            seedForecastRevision(versionTen, calendarLegacy)
+            // This group has only a v2 revision, so the selected revision must be rewritten
+            // to the legacy canonical Evidence and its original values archived.
+            seedForecastRevision(versionTen, rewriteV2)
+            seedForecastRevision(versionTen, v2Singleton)
+            seedDecision(versionTen, aliasedDecision)
+            seedDecision(versionTen, releasedDecision)
+        } finally {
+            versionTen.close()
+        }
+
+        val migrated = migrationTestHelper.runMigrationsAndValidate(
+            databaseName,
+            11,
+            true,
+            RELEASE_MIGRATION_10_11,
+        )
+        try {
+            assertTrue(objectNames(migrated).containsAll(v11Objects))
+            assertEquals(8L, scalarLong(migrated, "SELECT COUNT(*) FROM v3_release_evidence"))
+            assertEquals(4L, scalarLong(migrated, "SELECT COUNT(*) FROM v3_evidence_alias"))
+            assertEquals(4L, scalarLong(migrated, "SELECT COUNT(*) FROM v3_evidence_duplicate_archive"))
+            assertEquals(3L, scalarLong(migrated, "SELECT COUNT(*) FROM v3_forecast_revision"))
+            assertEquals(2L, scalarLong(migrated, "SELECT COUNT(*) FROM v3_forecast_revision_archive"))
+            assertEquals(11L, scalarLong(migrated,
+                "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
+            migrated.query(
+                "SELECT canonicalFingerprint FROM v3_release_evidence WHERE identityKey = ?",
+                arrayOf(prefixLegacy.identityKey),
+            ).use { cursor ->
+                val fingerprints = buildList {
+                    while (cursor.moveToNext()) add(cursor.getString(0))
+                }
+                assertEquals(2, fingerprints.size)
+                assertEquals(2, fingerprints.distinct().size)
+            }
+
+            assertEquals(
+                calendarLegacy.id,
+                migrated.query(
+                    "SELECT canonicalEvidenceId FROM v3_evidence_alias WHERE aliasId = ?",
+                    arrayOf(calendarV2.id),
+                ).use { cursor -> assertTrue(cursor.moveToFirst()); cursor.getString(0) },
+            )
+            migrated.query(
+                "SELECT sourceUrl, parserVersion, observedAt FROM v3_evidence_duplicate_archive " +
+                    "WHERE originalId = ?",
+                arrayOf(calendarV2.id),
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(calendarV2.sourceUrl, cursor.getString(0))
+                assertEquals(calendarV2.parserVersion, cursor.getString(1))
+                assertEquals(calendarV2.observedAt.toString(), cursor.getString(2))
+            }
+            migrated.query(
+                "SELECT evidenceId, canonicalRevisionId FROM v3_forecast_revision_archive " +
+                    "WHERE evidenceId = ?",
+                arrayOf(calendarV2.id),
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(calendarV2.id, cursor.getString(0))
+            }
+            migrated.query(
+                "SELECT evidenceId, observedAt, parserVersion FROM v3_forecast_revision " +
+                    "WHERE evidenceId = ?",
+                arrayOf(rewriteLegacy.id),
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(rewriteLegacy.observedAt.toString(), cursor.getString(1))
+                assertEquals(rewriteLegacy.parserVersion, cursor.getString(2))
+            }
+            migrated.query(
+                "SELECT evidenceId, observedAt, parserVersion FROM v3_forecast_revision_archive " +
+                    "WHERE evidenceId = ?",
+                arrayOf(rewriteV2.id),
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(rewriteV2.observedAt.toString(), cursor.getString(1))
+                assertEquals(rewriteV2.parserVersion, cursor.getString(2))
+            }
+            migrated.query(
+                "SELECT contributingEvidenceIdsPayload FROM v3_release_decision WHERE identityKey = ?",
+                arrayOf(calendarLegacy.identityKey),
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(listOf(calendarLegacy.id), unpackFields(cursor.getString(0)))
+            }
+        } finally {
+            migrated.close()
+        }
+
+        var database = Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName)
+            .addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13, RELEASE_MIGRATION_13_14)
+            .allowMainThreadQueries().build()
+        try {
+            val evidenceRepository = RoomReleaseEvidenceRepository(database)
+            assertEquals(14L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT schemaVersion FROM schema_meta WHERE key = 'release_schema'"))
+            assertEquals(4L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT COUNT(*) FROM v3_evidence_alias"))
+            assertEquals(4L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT COUNT(*) FROM v3_evidence_duplicate_archive"))
+            assertEquals(2L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT COUNT(*) FROM v3_forecast_revision_archive"))
+            assertEquals(calendarLegacy, evidenceRepository.findById(calendarV2.id))
+            assertFalse(evidenceRepository.append(calendarV2))
+            assertFalse(evidenceRepository.append(runtimeV2))
+            assertEquals(runtimeLegacy, evidenceRepository.findById(runtimeV2.id))
+            assertEquals("RUNTIME_V2", scalarString(database.openHelper.writableDatabase,
+                "SELECT aliasKind FROM v3_evidence_alias WHERE aliasId = ?", arrayOf(runtimeV2.id)))
+            assertEquals(runtimeLegacy.observedAt.toString(), scalarString(
+                database.openHelper.writableDatabase,
+                "SELECT observedAt FROM v3_release_evidence WHERE id = ?",
+                arrayOf(runtimeLegacy.id),
+            ))
+            assertEquals(runtimeLegacy.parserVersion, scalarString(
+                database.openHelper.writableDatabase,
+                "SELECT parserVersion FROM v3_release_evidence WHERE id = ?",
+                arrayOf(runtimeLegacy.id),
+            ))
+            assertEquals(releasedLegacy, evidenceRepository.findById(releasedLegacy.id))
+            val releasedAfterMigration = RoomReleaseDecisionRepository(database)
+                .get(releasedLegacy.identityKey)
+            assertEquals(ReleasePhase.RELEASED, releasedAfterMigration?.phase)
+            assertEquals(listOf(releasedLegacy.id), releasedAfterMigration?.authoritativeEvidenceIds)
+
+            val recovered = RoomReleaseIntelligencePersistence(
+                database,
+                AniWorldReleaseAuthorityReducer(),
+            ).persist(listOf(SourceResult.Success(value = listOf(recoveryV2))))
+            assertEquals(1, recovered.size)
+            val recoveredDecision = RoomReleaseDecisionRepository(database)
+                .get(recoveryLegacy.identityKey)
+            assertNotNull(recoveredDecision)
+            assertEquals(listOf(recoveryLegacy.id), recoveredDecision?.contributingEvidenceIds)
+            assertEquals(1L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT COUNT(*) FROM v3_release_decision WHERE identityKey = '${recoveryLegacy.identityKey}'"))
+            val stableRevision = recoveredDecision?.revision
+            val aliasCreatedAt = scalarString(database.openHelper.writableDatabase,
+                "SELECT createdAt FROM v3_evidence_alias WHERE aliasId = ?", arrayOf(recoveryV2.id))
+
+            database.close()
+            database = Room.databaseBuilder(context, ReleaseDatabase::class.java, databaseName)
+                .addMigrations(RELEASE_MIGRATION_11_12, RELEASE_MIGRATION_12_13, RELEASE_MIGRATION_13_14)
+                .allowMainThreadQueries().build()
+            val replay = RoomReleaseIntelligencePersistence(
+                database,
+                AniWorldReleaseAuthorityReducer(),
+            ).persist(listOf(SourceResult.Success(value = listOf(recoveryV2))))
+            val afterReplay = RoomReleaseDecisionRepository(database).get(recoveryLegacy.identityKey)
+            assertEquals(listOf(recoveryLegacy.id), afterReplay?.contributingEvidenceIds)
+            assertEquals(stableRevision, afterReplay?.revision)
+            assertEquals(aliasCreatedAt, scalarString(database.openHelper.writableDatabase,
+                "SELECT createdAt FROM v3_evidence_alias WHERE aliasId = ?", arrayOf(recoveryV2.id)))
+            assertEquals(8L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT COUNT(*) FROM v3_release_evidence"))
+            assertEquals(5L, scalarLong(database.openHelper.writableDatabase,
+                "SELECT COUNT(*) FROM v3_evidence_alias"))
+            assertEquals(1, replay.size)
+            assertEquals(stableRevision, replay.single().revision)
+            assertEquals(1, RoomReleaseEvidenceRepository(database)
+                .observeForecastFor(calendarLegacy.identityKey).first().size)
+
+            val sequenceEvidence = v2Evidence(
+                evidence("post-migration-sequence", ReleaseSourceType.ANIWORLD_CALENDAR,
+                    ReleaseEvidenceType.FORECAST, "sequence-sha-full", observedAt.plusSeconds(900),
+                    Instant.parse("2026-09-20T20:00:00Z")),
+            )
+            assertTrue(RoomReleaseEvidenceRepository(database).append(sequenceEvidence))
+            assertTrue(scalarLong(database.openHelper.writableDatabase,
+                "SELECT MAX(revisionId) FROM v3_forecast_revision") > 4L)
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun invalidV2SuffixRollsBackAndV10DatabaseCanBeReopened() {
+        assertMigrationRollsBack(databaseNames[2]) { db ->
+            val valid = evidence("invalid-v2", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST, "invalid-suffix-full-hash", observedAt,
+                observedAt.plusSeconds(600))
+            val corrupted = valid.copy(
+                id = "aniworld-v3:ANIWORLD_CALENDAR:" + "0".repeat(64),
+            )
+            seedEvidence(db, corrupted)
+        }
+    }
+
+    @Test
+    fun nonHashedSemanticMismatchFailsClosed() {
+        assertMigrationRollsBack(databaseNames[3]) { db ->
+            val legacy = legacyEvidence(evidence("url-mismatch", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST, "same-fingerprint-hash", observedAt,
+                observedAt.plusSeconds(600)))
+            val v2 = v2Evidence(legacy.copy(
+                id = "pending",
+                sourceUrl = "https://aniworld.to/anime/stream/different-url",
+            ))
+            seedEvidence(db, legacy)
+            seedEvidence(db, v2)
+        }
+    }
+
+    @Test
+    fun malformedPackedDecisionFailsClosed() {
+        assertMigrationRollsBack(databaseNames[4]) { db ->
+            val evidence = v2Evidence(evidence("bad-list", ReleaseSourceType.ANIWORLD_RECENT,
+                ReleaseEvidenceType.CONFIRMATION, "bad-list-hash", observedAt,
+                observedAt.minusSeconds(30)))
+            seedEvidence(db, evidence)
+            val valid = AniWorldReleaseAuthorityReducer().reduce(null, evidence).toEntity()
+            seedDecisionEntity(db, valid.copy(contributingEvidenceIdsPayload = "not-packed"))
+        }
+    }
+
+    @Test
+    fun orphanForecastRevisionFailsClosed() {
+        assertMigrationRollsBack(databaseNames[5]) { db ->
+            val evidence = v2Evidence(evidence("orphan-revision", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST, "orphan-revision-hash", observedAt,
+                observedAt.plusSeconds(600)))
+            seedEvidence(db, evidence)
+            val orphan = ReleaseForecastRevision.fromEvidence(evidence)!!.copy(
+                id = "missing-evidence",
+                evidenceId = "missing-evidence",
+            )
+            seedForecastRevisionEntity(db, orphan.toEntity())
+        }
+    }
+
+    @Test
+    fun mismatchedForecastRevisionFailsClosed() {
+        assertMigrationRollsBack(databaseNames[9]) { db ->
+            val evidence = v2Evidence(evidence(
+                "mismatched-revision", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST, "mismatched-revision-hash", observedAt,
+                observedAt.plusSeconds(600),
+            ))
+            seedEvidence(db, evidence)
+            val revision = ReleaseForecastRevision.fromEvidence(evidence)!!
+                .toEntity()
+                .copy(sourceHash = "different-revision-hash")
+            seedForecastRevisionEntity(db, revision)
+        }
+    }
+
+    @Test
+    fun orphanDecisionReferenceFailsClosed() {
+        assertMigrationRollsBack(databaseNames[6]) { db ->
+            val evidence = v2Evidence(evidence("orphan-decision", ReleaseSourceType.ANIWORLD_RECENT,
+                ReleaseEvidenceType.CONFIRMATION, "orphan-decision-hash", observedAt,
+                observedAt.minusSeconds(30)))
+            seedEvidence(db, evidence)
+            val row = AniWorldReleaseAuthorityReducer().reduce(null, evidence)
+            seedDecision(db, row.copy(
+                contributingEvidenceIds = listOf("missing-evidence"),
+                authoritativeEvidenceIds = listOf("missing-evidence"),
+            ))
+        }
+    }
+
+    @Test
+    fun invalidBooleanStorageFailsClosed() {
+        assertMigrationRollsBack(databaseNames[7]) { db ->
+            val evidence = v2Evidence(evidence("invalid-boolean", ReleaseSourceType.ANIWORLD_CALENDAR,
+                ReleaseEvidenceType.FORECAST, "invalid-boolean-hash", observedAt,
+                observedAt.plusSeconds(600)))
+            seedEvidence(db, evidence, approximateOverride = 2)
+        }
+    }
+
+    @Test
+    fun ambiguousOpaqueDuplicateGroupFailsClosed() {
+        assertMigrationRollsBack(databaseNames[8]) { db ->
+            val base = evidence("opaque-duplicate", ReleaseSourceType.ANIWORLD_RECENT,
+                ReleaseEvidenceType.CONFIRMATION, "opaque-duplicate-hash", observedAt,
+                observedAt.minusSeconds(10))
+            seedEvidence(db, base.copy(id = "opaque-history-a"))
+            seedEvidence(db, base.copy(id = "opaque-history-b"))
+        }
+    }
+
+    private fun seedV10SchemaMetadata(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            "INSERT INTO schema_meta (key, schemaVersion, value, updatedAt) VALUES (?, ?, ?, ?)",
+            arrayOf<Any?>("release_schema", 10, "wp04a-intelligence", observedAt.toString()),
+        )
+    }
+
+    private fun assertMigrationRollsBack(
+        databaseName: String,
+        seed: (SupportSQLiteDatabase) -> Unit,
+    ) {
+        val versionTen = migrationTestHelper.createDatabase(databaseName, 10)
+        try {
+            seedV10SchemaMetadata(versionTen)
+            seed(versionTen)
+        } finally {
+            versionTen.close()
+        }
+
+        var failure: Throwable? = null
+        try {
+            migrationTestHelper.runMigrationsAndValidate(
+                databaseName,
+                11,
+                true,
+                RELEASE_MIGRATION_10_11,
+            ).close()
+        } catch (error: Throwable) {
+            failure = error
+        }
+        assertNotNull("corrupt v10 data must reject the migration", failure)
+
+        val reopened = SQLiteDatabase.openDatabase(
+            context.getDatabasePath(databaseName).absolutePath,
+            null,
+            SQLiteDatabase.OPEN_READWRITE,
+        )
+        try {
+            assertEquals(10L, reopened.rawQuery("PRAGMA user_version", null).use {
+                assertTrue(it.moveToFirst())
+                it.getLong(0)
+            })
+            assertTrue(reopened.rawQuery(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'v3_release_evidence'",
+                null,
+            ).use { it.moveToFirst() })
+            assertEquals(0L, reopened.rawQuery(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' " +
+                    "AND name = 'v3_evidence_alias'",
+                null,
+            ).use { it.moveToFirst(); it.getLong(0) })
+        } finally {
+            reopened.close()
+        }
+    }
+
+    private fun seedEvidence(
+        database: SupportSQLiteDatabase,
+        evidence: ReleaseEvidence,
+        approximateOverride: Int? = null,
+    ) {
+        val row = evidence.toEntity()
+        val values = ContentValues().apply {
+            put("id", row.id)
+            put("identityKey", row.identityKey)
+            put("sourceType", row.sourceType)
+            put("sourceUrl", row.sourceUrl)
+            put("sourceHash", row.sourceHash)
+            put("parserVersion", row.parserVersion)
+            put("observedAt", row.observedAt)
+            putNullableString("sourceReportedAt", row.sourceReportedAt)
+            put("approximateTime", approximateOverride ?: if (row.approximateTime) 1 else 0)
+            putNullableString("siteIdentifierPayload", row.siteIdentifierPayload)
+            putNullableInt("sourceSeason", row.sourceSeason)
+            putNullableInt("navigationSeason", row.navigationSeason)
+            put("installmentPayload", row.installmentPayload)
+            putNullableString("languageTrack", row.languageTrack)
+            put("evidenceType", row.evidenceType)
+            put("scheduleCondition", row.scheduleCondition)
+            put("confidenceSource", row.confidenceSource)
+            put("confidenceIdentity", row.confidenceIdentity)
+            put("confidenceInstallment", row.confidenceInstallment)
+            put("confidenceLanguageTrack", row.confidenceLanguageTrack)
+            put("confidenceTiming", row.confidenceTiming)
+        }
+        assertTrue(database.insert("v3_release_evidence", SQLiteDatabase.CONFLICT_NONE, values) > 0L)
+    }
+
+    private fun seedDecision(database: SupportSQLiteDatabase, decision: ReleaseDecision) =
+        seedDecisionEntity(database, decision.toEntity())
+
+    private fun seedDecisionEntity(database: SupportSQLiteDatabase, row: ReleaseDecisionEntity) {
+        val values = ContentValues().apply {
+            put("identityKey", row.identityKey)
+            putNullableString("siteIdentifierPayload", row.siteIdentifierPayload)
+            putNullableInt("sourceSeason", row.sourceSeason)
+            putNullableInt("navigationSeason", row.navigationSeason)
+            put("installmentPayload", row.installmentPayload)
+            putNullableString("languageTrack", row.languageTrack)
+            put("phase", row.phase)
+            put("scheduleCondition", row.scheduleCondition)
+            put("authority", row.authority)
+            put("contributingEvidenceIdsPayload", row.contributingEvidenceIdsPayload)
+            put("authoritativeEvidenceIdsPayload", row.authoritativeEvidenceIdsPayload)
+            putNullableString("releaseAt", row.releaseAt)
+            putNullableString("lastObservedAt", row.lastObservedAt)
+            put("decidedAt", row.decidedAt)
+            put("revision", row.revision)
+            put("diagnosticsPayload", row.diagnosticsPayload)
+        }
+        assertTrue(database.insert(DECISION_TABLE, SQLiteDatabase.CONFLICT_NONE, values) > 0L)
+    }
+
+    private fun seedForecastRevision(database: SupportSQLiteDatabase, evidence: ReleaseEvidence) {
+        val revision = ReleaseForecastRevision.fromEvidence(evidence)!!
+        seedForecastRevisionEntity(database, revision.toEntity())
+    }
+
+    private fun seedForecastRevisionEntity(
+        database: SupportSQLiteDatabase,
+        row: ReleaseForecastRevisionEntity,
+    ) {
+        val values = ContentValues().apply {
+            put("identityKey", row.identityKey)
+            put("evidenceId", row.evidenceId)
+            put("forecastAt", row.forecastAt)
+            put("observedAt", row.observedAt)
+            put("approximateTime", if (row.approximateTime) 1 else 0)
+            put("sourceHash", row.sourceHash)
+            put("parserVersion", row.parserVersion)
+        }
+        assertTrue(database.insert(FORECAST_TABLE, SQLiteDatabase.CONFLICT_NONE, values) > 0L)
+    }
+
+    private fun evidence(
+        slug: String,
+        sourceType: ReleaseSourceType,
+        evidenceType: ReleaseEvidenceType,
+        sourceHash: String,
+        observedAt: Instant,
+        sourceReportedAt: Instant,
+    ): ReleaseEvidence {
+        val identitySource = when (sourceType) {
+            ReleaseSourceType.ANIWORLD_CALENDAR -> AniWorldIdentitySourceType.CALENDAR
+            ReleaseSourceType.ANIWORLD_RECENT -> AniWorldIdentitySourceType.RECENT
+            else -> error("unsupported migration fixture source")
+        }
+        return ReleaseEvidence(
+            id = "pending",
+            sourceType = sourceType,
+            sourceUrl = "https://aniworld.to/anime/stream/$slug",
+            sourceHash = sourceHash,
+            parserVersion = "parser-v1",
+            observedAt = observedAt,
+            sourceReportedAt = sourceReportedAt,
+            approximateTime = sourceType == ReleaseSourceType.ANIWORLD_CALENDAR,
+            siteIdentifier = AniWorldSiteIdentifier(
+                slug = slug,
+                sourceType = identitySource,
+                firstSeenAt = observedAt,
+                lastValidatedAt = observedAt,
+            ),
+            sourceSeason = 1,
+            navigationSeason = 1,
+            installment = Installment.Episode(1),
+            languageTrack = LanguageTrack.DE_SUB,
+            evidenceType = evidenceType,
+            scheduleCondition = ScheduleCondition.UNKNOWN,
+            confidence = ConfidenceVector(1.0, 1.0, 1.0, 1.0, 1.0),
+        )
+    }
+
+    private fun v2Evidence(evidence: ReleaseEvidence): ReleaseEvidence =
+        evidence.copy(id = ReleaseEvidenceFingerprintV2.evidenceId(evidence))
+
+    private fun legacyEvidence(evidence: ReleaseEvidence): ReleaseEvidence =
+        evidence.copy(id = legacyEvidenceId(evidence)!!)
+
+    private fun objectNames(database: SupportSQLiteDatabase): Set<String> = buildSet {
+        database.query("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')").use { cursor ->
+            while (cursor.moveToNext()) add(cursor.getString(0))
+        }
+    }
+
+    private fun scalarLong(
+        database: SupportSQLiteDatabase,
+        sql: String,
+        args: Array<out Any?> = emptyArray(),
+    ): Long = database.query(sql, args).use { cursor ->
+        assertTrue(cursor.moveToFirst())
+        cursor.getLong(0)
+    }
+
+    private fun scalarString(
+        database: SupportSQLiteDatabase,
+        sql: String,
+        args: Array<out Any?> = emptyArray(),
+    ): String? = database.query(sql, args).use { cursor ->
+        assertTrue(cursor.moveToFirst())
+        cursor.getString(0)
+    }
+
+    private fun ContentValues.putNullableString(key: String, value: String?) {
+        if (value == null) putNull(key) else put(key, value)
+    }
+
+    private fun ContentValues.putNullableInt(key: String, value: Int?) {
+        if (value == null) putNull(key) else put(key, value)
+    }
+
+    private companion object {
+        const val DECISION_TABLE = "v3_release_decision"
+        const val FORECAST_TABLE = "v3_forecast_revision"
+        val v11Objects = setOf(
+            "v3_release_evidence",
+            "v3_release_decision",
+            "v3_source_health",
+            "v3_forecast_revision",
+            "v3_evidence_alias",
+            "v3_evidence_duplicate_archive",
+            "v3_forecast_revision_archive",
+            "idx_v3_evidence_identity_observed",
+            "idx_v3_evidence_source_observed",
+            "idx_v3_evidence_hash",
+            "idx_v3_evidence_type_observed",
+            "idx_v3_evidence_fingerprint",
+            "idx_v3_alias_canonical_evidence",
+            "idx_v3_alias_fingerprint",
+            "idx_v3_evidence_archive_canonical",
+            "idx_v3_forecast_archive_canonical",
+            "idx_v3_forecast_evidence",
+        )
+    }
+}

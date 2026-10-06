@@ -1,0 +1,16 @@
+TEST FIXTURE PROVENANCE
+
+Original signed package fixture supplied in ep03-fixture-evidence.zip.
+Source repository: https://github.com/animine-ai/release-extentions
+Source commit: 348a9a0c6033bee0e5cbeddf1e8e64554d182e25
+CI run: 36633058098
+Original archive SHA-256: 86a42b6f6445e3c00240b3d0ede218d25746565c2b04403ff28dc3f783c21afa
+Original fixed verification time: 2026-09-29T12:00:00Z
+
+The v2 package reuses only the supplied fixture module/provenance/NOTICE, changes
+version to 0.2.0 and releaseSequence to 2, then calls the public TEST ONLY
+release-extensions/tools/arex.py assemble_package(..., test_key(4)). The v2 index
+and metadata-negative vectors are signed with test_key(3). Root and pin are
+unchanged from the exact supplied original JSON. These deterministic test keys
+are public and must never be used for production trust. fixture.arex.b64 is the
+original archive encoded as one-line base64 to preserve the exact supplied bytes.

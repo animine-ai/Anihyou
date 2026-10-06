@@ -1,4 +1,7 @@
 <resources>
+    <string name="calendar_combine_tracks">Combine SUB and DUB</string>
+    <string name="calendar_combine_tracks_summary">Show simultaneous releases of the same episode together. Only SUB decides whether the episode is confirmed.</string>
+    <string name="release_calendar_confirmed">Release confirmed</string>
     <string name="home">Home</string>
     <string name="anime">Anime</string>
     <string name="manga">Manga</string>
@@ -23,7 +26,7 @@
     <string name="unknown">Unknown</string>
     <string name="airing_soon">Airing Soon</string>
     <string name="mean_score">Mean score</string>
-    <string name="airing_in">Airing in %s</string>
+    <string name="airing_in">In %s</string>
     <string name="winter">Winter</string>
     <string name="spring">Spring</string>
     <string name="summer">Summer</string>
@@ -81,8 +84,8 @@
     <string name="airing">Airing</string>
     <string name="lorem_ipsun" translatable="false">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</string>
     <plurals name="num_episodes_behind">
-        <item quantity="one">%d episode behind</item>
-        <item quantity="other">%d episodes behind</item>
+        <item quantity="one">%d behind</item>
+        <item quantity="other">%d behind</item>
     </plurals>
     <string name="information">Information</string>
     <string name="duration">Duration</string>
@@ -200,6 +203,36 @@
     <string name="following">Following</string>
     <string name="trailer">Trailer</string>
     <string name="streaming_sites">Streaming sites</string>
+    <string name="provider_sources">Providers</string>
+    <string name="active_release_source">Active source</string>
+    <string name="watch_next">Watch next</string>
+    <string name="watch_next_behind_count">Watch next (%1$d available)</string>
+    <string name="choose_watch_next_provider">Choose provider for Watch next</string>
+    <string name="provider_navigation_loading">Resolving provider navigation…</string>
+    <string name="navigation_no_active_source">Choose an active release source to use Watch next.</string>
+    <string name="navigation_release_source_unavailable">The active release source is unavailable.</string>
+    <string name="navigation_provider_unavailable">No available provider can handle this navigation.</string>
+    <string name="navigation_choose_provider">Choose a provider for Watch next.</string>
+    <string name="navigation_no_released_episode">There are no released unwatched episodes.</string>
+    <string name="navigation_missing_mapping">No exact episode mapping is available.</string>
+    <string name="navigation_track_unavailable">No preferred audio or subtitle track is available.</string>
+    <string name="navigation_invalid_target">The provider returned an invalid destination.</string>
+    <string name="navigation_stale_result">Provider settings changed. Try again.</string>
+    <string name="navigation_launch_failed">Could not open the provider destination.</string>
+    <string name="episode_mapping_for_provider">%1$s · Episode mapping</string>
+    <string name="episode_mapping_dialog_title">Map episodes for %1$s</string>
+    <string name="episode_mapping_help">Map a provider season and episode range to AniList episodes. Example: provider S2E3 maps to AniList E15.</string>
+    <string name="episode_mapping_series_key">Provider series key</string>
+    <string name="episode_mapping_series_key_help">Enter the provider’s opaque series ID. Do not enter a website URL.</string>
+    <string name="episode_mapping_invalid_series_key">Enter a 1–128 character series ID, not a URL, host name, or path.</string>
+    <string name="episode_mapping_provider_season">Provider season</string>
+    <string name="episode_mapping_provider_episode_first">First provider episode</string>
+    <string name="episode_mapping_anilist_episode_first">First AniList episode</string>
+    <string name="episode_mapping_episode_count">Episodes in this segment</string>
+    <string name="episode_mapping_validation">Use values from 1 to 9999. The full episode range must end at 9999 or earlier.</string>
+    <string name="episode_mapping_saving">Saving episode mapping…</string>
+    <string name="episode_mapping_saved">Episode mapping saved.</string>
+    <string name="episode_mapping_save_failed">Could not save this episode mapping. Check the values and provider availability.</string>
     <string name="external_links">External links</string>
     <string name="standard">Standard</string>
     <string name="compact">Compact</string>
@@ -223,6 +256,19 @@
     <string name="format_distribution">Format Distribution</string>
     <string name="notes">Notes</string>
     <string name="calendar">Calendar</string>
+    <string name="jump_to_today">Today</string>
+    <string name="postponements">Schedule changes</string>
+    <string name="postponements_empty">No schedule changes from the active extension.</string>
+    <string name="postponements_unassigned">Without a verified AniList match</string>
+    <string name="postponements_last_updated">Last updated: %1$s</string>
+    <string name="postponements_season">S%1$d</string>
+    <string name="postponements_episode">E%1$s</string>
+    <string name="postponements_film">Film %1$s</string>
+    <string name="postponements_installment">Installment %1$s</string>
+    <string name="postponements_track_unknown">Track unknown</string>
+    <string name="postponements_postponed">Postponed</string>
+    <string name="postponements_rescheduled">Rescheduled</string>
+    <string name="postponements_cancelled">Cancelled</string>
     <string name="monday">Monday</string>
     <string name="tuesday">Tuesday</string>
     <string name="wednesday">Wednesday</string>
@@ -230,7 +276,7 @@
     <string name="friday">Friday</string>
     <string name="saturday">Saturday</string>
     <string name="sunday">Sunday</string>
-    <string name="episode_airing_at">Ep %d airing at %s</string>
+    <string name="episode_airing_at">Ep %d · %s</string>
     <string name="filter">Filter</string>
     <string name="notifications">Notifications</string>
     <string name="threads">Threads</string>
@@ -618,6 +664,7 @@
     <string name="openings">Openings</string>
     <string name="endings">Endings</string>
     <string name="list_name">List name</string>
+    <string name="link_name">Link name</string>
     <string name="anime_behind">Anime Behind</string>
     <string name="default_tab">Default tab</string>
     <string name="last_used">Last used</string>
@@ -682,9 +729,11 @@
     <string name="separate_novels_and_manga">Separate novels and manga</string>
     <string name="novels">Novels</string>
     <plurals name="notification_episode_aired">
-        <item quantity="one">Episode %d of %s aired.</item>
-        <item quantity="other">Episode %d of %s aired.</item>
+        <item quantity="one">Episode %1$d of %2$s aired.</item>
+        <item quantity="other">Episode %1$d of %2$s aired.</item>
     </plurals>
+    <string name="notification_start_episode_aired">%1$s started airing</string>
+    <string name="notification_end_episode_aired">%1$s finished airing.</string>
     <string name="notification_activity_liked">%s liked your activity.</string>
     <string name="notification_activity_reply_liked">%s liked your activity reply.</string>
     <string name="notification_activity_reply">%s replied to your activity.</string>
@@ -698,4 +747,80 @@
     <string name="widget_config_title">Widget configuration</string>
     <string name="style_colored">Colored</string>
     <string name="style_monochrome">Monochrome</string>
+
+    <string name="release_notification_text">%1$s · %2$s</string>
+    <string name="release_notification_unknown_title">AniWorld release</string>
+    <string name="release_notification_episode">Episode %1$s</string>
+    <string name="release_notification_film">Film</string>
+    <string name="release_notification_special">Special</string>
+    <string name="release_notification_unknown_installment">New installment</string>
+
+    <string name="release_schedule_confirmed_through">Confirmed through episode %1$d</string>
+    <plurals name="release_schedule_pending">
+        <item quantity="one">%d pending release</item>
+        <item quantity="other">%d pending releases</item>
+    </plurals>
+    <string name="release_schedule_next">Next %1$s</string>
+    <string name="release_schedule_next_at">Next %1$s · %2$s</string>
+    <string name="release_schedule_confirmed_installment">%1$s confirmed</string>
+    <string name="release_schedule_available">Release status available</string>
+    <string name="release_installment_episode">Episode %1$d</string>
+    <string name="release_installment_episode_fraction">Episode %1$d.%2$d</string>
+    <string name="release_installment_film">Film</string>
+    <string name="release_installment_film_number">Film %1$d</string>
+    <string name="release_installment_special">Special</string>
+    <string name="release_installment_special_number">Special %1$d</string>
+    <string name="release_installment_ova">OVA</string>
+    <string name="release_installment_ona">ONA</string>
+
+
+    <string name="release_relative_now">now</string>
+    <plurals name="release_relative_seconds">
+        <item quantity="one">in %d second</item>
+        <item quantity="other">in %d seconds</item>
+    </plurals>
+    <plurals name="release_relative_minutes">
+        <item quantity="one">in %d minute</item>
+        <item quantity="other">in %d minutes</item>
+    </plurals>
+    <plurals name="release_relative_hours">
+        <item quantity="one">in %d hour</item>
+        <item quantity="other">in %d hours</item>
+    </plurals>
+    <plurals name="release_relative_days">
+        <item quantity="one">in %d day</item>
+        <item quantity="other">in %d days</item>
+    </plurals>
+
+
+    <string name="release_provider_only">Provider release</string>
+
+
+    <string name="release_provider_enabled">Use AniWorld release data</string>
+    <string name="release_provider_enabled_summary">Provider-valid rows replace the complete AniList release presentation.</string>
+    <string name="release_preferred_track">Preferred German track</string>
+    <string name="release_track_de_sub">German subtitles</string>
+    <string name="release_track_de_dub">German dub</string>
+    <string name="release_notifications_enabled">Release notifications</string>
+    <string name="release_notifications_enabled_summary">Keep release notifications separate from AniList notifications.</string>
+    <string name="release_provider_status">AniWorld release status</string>
+    <string name="release_provider_status_enabled">Enabled</string>
+    <string name="release_provider_status_disabled">Disabled</string>
+    <string name="release_mapping_title">AniWorld mappings</string>
+    <string name="release_mapping_summary">Manual: %1$d · automatic: %2$d · unresolved: %3$d</string>
+    <string name="release_mapping_empty">No stored mappings yet.</string>
+    <string name="release_mapping_manual_media">Manual mapping · AniList media %1$d</string>
+    <string name="release_mapping_automatic_media">Automatic mapping · AniList media %1$d</string>
+    <string name="release_mapping_unresolved">Unresolved source %1$d</string>
+    <string name="release_mapping_reset">Reset to automatic</string>
+    <string name="release_mapping_rematch">Rematch automatic mappings</string>
+    <string name="release_mapping_manual_title">Manual AniWorld mapping</string>
+    <string name="release_mapping_media_id">AniList media ID</string>
+    <string name="release_mapping_evidence">Evidence</string>
+    <string name="allow_start_notification">Allow start notification</string>
+    <string name="allow_airing_notification">Allow airing notification</string>
+    <string name="allow_end_notification">Allow finished notification</string>
+    <string name="postponements_search">Search postponements</string>
+    <string name="postponements_no_results">No results for “%1$s”</string>
+    <string name="navigation_unknown_progress">Watched progress is unknown. Add or update your list entry.</string>
 </resources>

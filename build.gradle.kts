@@ -1,5 +1,5 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
-val appPackageName by extra { "com.axiel7.anihyou" }
+extra.set("appPackageName", "com.axiel7.anihyou")
 
 plugins {
     alias(libs.plugins.android.application) apply false
@@ -11,4 +11,6 @@ plugins {
     alias(libs.plugins.jetbrains.kotlin.jvm) apply false
     alias(libs.plugins.koin.compiler) apply false
     alias(libs.plugins.stability.analyzer) apply false
+    alias(libs.plugins.androidx.room) apply false
+    alias(libs.plugins.ksp) apply false
 }

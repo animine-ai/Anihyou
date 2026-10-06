@@ -1,10 +1,28 @@
 package com.axiel7.anihyou.feature.worker
 
 import androidx.work.WorkManager
+import com.axiel7.anihyou.release.core.api.ReleaseForecastRecheckScheduler
+import com.axiel7.anihyou.release.core.api.ReleaseOutboxScheduler
 import org.koin.dsl.module
 import org.koin.plugin.module.dsl.worker
 
 val workerModule = module {
     single { WorkManager.getInstance(get()) }
     worker<NotificationWorker>()
+    worker<ReleaseOutboxDispatcherWorker>()
+    worker<ForecastRecheckWorker>()
+    worker<AniWorldShadowWorker>()
+    worker<ExtensionSourceRefreshWorker>()
+    worker<ExtensionReleaseRefreshWorker>()
+    single<com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler> {
+        WorkManagerExtensionReleaseRefreshScheduler(get(), get())
+    }
+    single<ReleaseOutboxScheduler> { WorkManagerReleaseOutboxScheduler(get()) }
+    single<ReleaseForecastRecheckScheduler> { WorkManagerReleaseForecastRecheckScheduler(get()) }
+    single<com.axiel7.anihyou.release.core.api.AniWorldShadowScheduler> {
+        WorkManagerAniWorldShadowScheduler(get())
+    }
+    single<com.axiel7.anihyou.release.core.source.ExtensionSourceScheduler> {
+        WorkManagerExtensionSourceScheduler(get())
+    }
 }

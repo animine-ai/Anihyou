@@ -33,7 +33,7 @@ import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithSmallTopAppBar
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.core.ui.composables.common.ErrorDialogHandler
 import com.axiel7.anihyou.core.ui.composables.common.NotificationIconButton
-import com.axiel7.anihyou.core.ui.composables.common.OpenInBrowserIconButton
+import com.axiel7.anihyou.core.ui.composables.common.ShareIconButton
 import com.axiel7.anihyou.core.ui.composables.list.OnBottomReached
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.feature.thread.comment.ThreadCommentView
@@ -82,7 +82,7 @@ private fun ThreadDetailsContent(
                 isActive = uiState.isSubscribed,
                 onClick = { event?.subscribeToThread(!uiState.isSubscribed) }
             )
-            OpenInBrowserIconButton(
+            ShareIconButton(
                 url = ANILIST_THREAD_URL + uiState.details?.basicThreadDetails?.id
             )
         },
@@ -91,7 +91,13 @@ private fun ThreadDetailsContent(
         PullToRefreshBox(
             isRefreshing = uiState.fetchFromNetwork,
             onRefresh = { event?.refresh() },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = padding.calculateStartPadding(LocalLayoutDirection.current),
+                    top = padding.calculateTopPadding(),
+                    end = padding.calculateEndPadding(LocalLayoutDirection.current)
+                ),
             state = pullRefreshState,
             indicator = {
                 PullToRefreshDefaults.LoadingIndicator(
@@ -102,13 +108,7 @@ private fun ThreadDetailsContent(
             }
         ) {
             LazyColumn(
-                modifier = Modifier
-                    .padding(
-                        start = padding.calculateStartPadding(LocalLayoutDirection.current),
-                        top = padding.calculateTopPadding(),
-                        end = padding.calculateEndPadding(LocalLayoutDirection.current)
-                    )
-                    .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+                modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
                 state = listState,
                 contentPadding = PaddingValues(
                     bottom = padding.calculateBottomPadding()

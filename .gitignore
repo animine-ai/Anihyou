@@ -12,6 +12,8 @@
 local.properties
 /fastlane/report.xml
 .kotlin
+__pycache__/
+*.pyc
 
 # AI project context is centralized in animine-ai/master-context.
 /.ai/*

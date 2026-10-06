@@ -2,8 +2,17 @@ query AiringAnimes($page: Int, $perPage: Int, $sort: [AiringSort], $airingAtGrea
     Page(page: $page, perPage: $perPage) {
         airingSchedules(sort: $sort, airingAt_greater: $airingAtGreater, airingAt_lesser: $airingAtLesser) {
             id
+            episode
+            airingAt
             media {
                 ...ExploreMedia
+                # Every title the matcher compares against; the fragment carries only the preferred one.
+                title {
+                    romaji
+                    english
+                    native
+                }
+                synonyms
             }
         }
         pageInfo {

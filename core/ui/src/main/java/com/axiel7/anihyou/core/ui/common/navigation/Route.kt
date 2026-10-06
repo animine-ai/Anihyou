@@ -61,6 +61,10 @@ sealed interface Route : NavKey {
 
     @Serializable
     @Immutable
+    object Postponements: Route
+
+    @Serializable
+    @Immutable
     data class MediaDetails(
         val id: Int,
         val isLoggedIn: Boolean = false,
@@ -80,6 +84,31 @@ sealed interface Route : NavKey {
     @Serializable
     @Immutable
     object Calendar: Route
+
+    @Serializable
+    object CalendarMain: Route
+
+    @Serializable
+    data class CurrentListMain(val listType: CurrentListType): Route
+
+    @Serializable
+    data class ChartMain(val type: String): Route
+
+    /** Relative season identity stays stable across dates and configuration edits. */
+    @Serializable
+    data class SeasonMain(val next: Boolean): Route
+
+    @Serializable
+    object OwnProfile: Route
+
+    @Serializable
+    object MainNavigationSettings: Route
+
+    @Serializable
+    object ExtensionCenter: Route
+
+    @Serializable
+    data class ExtensionCenterPage(val page: String): Route
 
     @Serializable
     @Immutable
@@ -175,6 +204,12 @@ sealed interface Route : NavKey {
     data class ReorderFavorites(
         val userId: Int,
         val type: FavoritesType
+    ) : Route
+
+    @Serializable
+    @Immutable
+    data class AddRecommendation(
+        val mediaId: Int = 0
     ) : Route
 
     @Serializable

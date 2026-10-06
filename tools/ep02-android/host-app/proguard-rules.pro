@@ -1,0 +1,3 @@
+-keep public class de.kiyori.ep02.RuntimeProofInstrumentation { public <init>(); }
+-keep class de.kiyori.ep02.FixturePackageBridge { *; }
+-keep public class de.kiyori.ep02.Ep07RestartInstrumentation { public <init>(); }

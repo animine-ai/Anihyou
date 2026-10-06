@@ -43,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.model.CurrentListType
 import com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
@@ -59,6 +60,8 @@ import com.axiel7.anihyou.feature.editmedia.EditMediaSheet
 import com.axiel7.anihyou.feature.editmedia.composables.SetScoreDialog
 import com.axiel7.anihyou.feature.home.current.composables.CurrentListItem
 import com.axiel7.anihyou.feature.home.current.composables.CurrentListItemPlaceholder
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 import org.koin.compose.viewmodel.koinActivityViewModel
 
 @Composable
@@ -158,7 +161,7 @@ private fun CurrentContent(
                     .padding(bottom = 16.dp)
             ) {
                 CurrentListType.entries.forEach { type ->
-                    val list = uiState.getListFromType(type)
+                    val list = uiState.getListFromType(type).toImmutableList()
                     if (list.isNotEmpty()) {
                         HorizontalListHeader(
                             text = type.localized(),
@@ -169,6 +172,7 @@ private fun CurrentContent(
                             items = list,
                             isLoading = uiState.isLoading,
                             isPlusEnabled = !uiState.isLoadingPlusOne,
+                            releaseByMediaId = uiState.releaseByMediaId,
                             showLowPriority = uiState.showLowPriority,
                             allPriorityColors = allPriorityColors,
                             onClick = { navActionManager.toMediaDetails(it.mediaId) },
@@ -204,9 +208,10 @@ private fun CurrentContent(
 
 @Composable
 private fun CurrentLazyGrid(
-    items: List<CommonMediaListEntry>,
+    items: ImmutableList<CommonMediaListEntry>,
     isLoading: Boolean,
     isPlusEnabled: Boolean,
+    releaseByMediaId: Map<Int, List<ReleaseUiPresentation>>,
     showLowPriority: Boolean,
     allPriorityColors: AllPriorityColors,
     onClick: (CommonMediaListEntry) -> Unit,
@@ -239,6 +244,7 @@ private fun CurrentLazyGrid(
             CurrentListItem(
                 modifier = Modifier.width(350.dp),
                 item = item,
+                releasePresentations = releaseByMediaId[item.mediaId].orEmpty(),
                 isPlusEnabled = isPlusEnabled,
                 showLowPriority = showLowPriority,
                 allPriorityColors = allPriorityColors,

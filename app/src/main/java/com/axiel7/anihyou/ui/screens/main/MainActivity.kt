@@ -1,5 +1,7 @@
 package com.axiel7.anihyou.ui.screens.main
 
+import androidx.compose.ui.platform.LocalContext
+
 import android.appwidget.AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN
 import android.content.Intent
 import android.os.Build
@@ -52,14 +54,17 @@ import com.axiel7.anihyou.core.model.NovelTab
 import com.axiel7.anihyou.core.model.Theme
 import com.axiel7.anihyou.core.resources.dark_scrim
 import com.axiel7.anihyou.core.resources.light_scrim
+import com.axiel7.anihyou.core.ui.common.navigation.MainNavigationConfigStore
+import com.axiel7.anihyou.core.ui.common.navigation.MainNavigationResolver
 import com.axiel7.anihyou.core.ui.common.BottomDestination
-import com.axiel7.anihyou.core.ui.common.BottomDestination.Companion.isBottomDestination
+import com.axiel7.anihyou.core.ui.common.BottomDestination.Companion.showsBottomBar
 import com.axiel7.anihyou.core.ui.common.BottomDestination.Companion.toBottomDestinationRoute
 import com.axiel7.anihyou.core.ui.common.LocalBlurAdult
 import com.axiel7.anihyou.core.ui.common.LocalHideScores
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
 import com.axiel7.anihyou.core.ui.common.LocalScoreFormat
 import com.axiel7.anihyou.core.ui.common.navigation.NavActionManager
+import com.axiel7.anihyou.core.ui.common.navigation.Route
 import com.axiel7.anihyou.core.ui.common.navigation.Navigator
 import com.axiel7.anihyou.core.ui.common.navigation.rememberNavigationState
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
@@ -159,6 +164,7 @@ class MainActivity : AppCompatActivity() {
                             novelTab = novelTab,
                             exploreTab = exploreTab,
                             deepLink = deepLink,
+                            theme = theme,
                             blackColors = useBlackColors,
                             paletteStyle = paletteStyle,
                             setNavigationBarContrastEnforced = {
@@ -189,7 +195,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 DeepLink(
                     type = type,
-                    id = intent.getIntExtra("content_id", 0).toString()
+                    id = intent.getStringExtra("content_id").orEmpty()
                 )
             }
             // Login intent or anilist link
@@ -242,17 +248,27 @@ fun MainView(
     novelTab: NovelTab,
     exploreTab: ExploreTab,
     deepLink: DeepLink?,
+    theme: Theme,
     blackColors: Boolean,
     paletteStyle: PaletteStyle,
     setNavigationBarContrastEnforced: (Boolean) -> Unit,
 ) {
-    val startKey = remember(tabToOpen) {
-        tabToOpen.toBottomDestinationRoute() ?: BottomDestination.Home.route
+    val navigationConfigStore = MainNavigationConfigStore.get(LocalContext.current)
+    val mainConfig by navigationConfigStore.config.collectAsStateWithLifecycle()
+    val destinations = MainNavigationResolver.destinations(mainConfig)
+    // The stable universe never depends on the editor config or a date-dependent season.
+    val navigationState = rememberNavigationState(Route.Home, MainNavigationResolver.allRoutes)
+    val navigator = remember(navigationState) { Navigator(navigationState) }
+    LaunchedEffect(tabToOpen) {
+        val requested = tabToOpen.toBottomDestinationRoute()
+        if (destinations.any { it.route == requested } && requested != null) navigator.navigate(requested)
     }
-    val navigationState = rememberNavigationState(startKey, BottomDestination.routes)
-    val navigator = remember { Navigator(navigationState) }
+    LaunchedEffect(mainConfig) {
+        navigationState.topLevelRoute = MainNavigationResolver.visibleRoot(navigationState.topLevelRoute, mainConfig)
+    }
+    // The bottom bar follows one rule (promoted charts and seasons own the full height, see showsBottomBar).
     val isBottomDestination by remember {
-        derivedStateOf { navigationState.getCurrentRoute()?.isBottomDestination() == true }
+        derivedStateOf { navigationState.getCurrentRoute()?.showsBottomBar() == true }
     }
     val navActionManager = remember { NavActionManager(navigator) }
     val isCompactScreen = windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact
@@ -267,6 +283,7 @@ fun MainView(
                 if (isCompactScreen) {
                     MainBottomNavBar(
                         currentTopRoute = navigator.state.topLevelRoute,
+                        destinations = destinations,
                         isVisible = isBottomDestination,
                         onItemSelected = { event?.saveLastTab(it) }
                     )
@@ -285,6 +302,7 @@ fun MainView(
                     homeTab = homeTab,
                     novelTab = novelTab,
                     exploreTab = exploreTab,
+                    theme = theme,
                     blackColors = blackColors,
                     paletteStyle = paletteStyle,
                     padding = padding,
@@ -295,6 +313,7 @@ fun MainView(
                 ) {
                     MainNavigationRail(
                         navigator = navigator,
+                        destinations = destinations,
                         onItemSelected = { event?.saveLastTab(it) },
                     )
                     MainNavigation(
@@ -305,12 +324,15 @@ fun MainView(
                         homeTab = homeTab,
                         novelTab = novelTab,
                         exploreTab = exploreTab,
+                        theme = theme,
                         blackColors = blackColors,
                         paletteStyle = paletteStyle,
                     )
                 }
             }
-            ReportDrawn()
+            // TODO: uncomment when generating baseline profiles
+            // this causes some crashes on older android versions
+            //ReportDrawn()
         }
     }
 }
@@ -331,6 +353,7 @@ private fun MainPreview() {
             novelTab = NovelTab.MANGA,
             exploreTab = ExploreTab.ANIME,
             deepLink = null,
+            theme = Theme.FOLLOW_SYSTEM,
             blackColors = false,
             paletteStyle = PaletteStyle.TonalSpot,
             setNavigationBarContrastEnforced = {},

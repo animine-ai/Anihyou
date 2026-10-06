@@ -9,5 +9,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":private:release-core"))
     implementation(project(":feature:editmedia"))
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
 }

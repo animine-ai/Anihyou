@@ -1,4 +1,6 @@
 import java.util.Properties
+import java.security.MessageDigest
+import java.net.URI
 
 plugins {
     alias(libs.plugins.android.application)
@@ -9,6 +11,51 @@ plugins {
 }
 
 val appPackageName = rootProject.extra["appPackageName"] as String
+val aniWorldShadowCanaryDebugValue = providers.gradleProperty("aniworldShadowCanary").orNull?.also {
+    require(it == "true" || it == "false") { "aniworldShadowCanary must be exactly true or false" }
+} ?: "false"
+// Public independently reviewed trust material only. No TEST trust or private signing key is a build input.
+val extensionBuildProfile = providers.gradleProperty("extensionBuildProfile").orNull ?: "unprovisioned"
+require(extensionBuildProfile in setOf("unprovisioned", "reviewed")) {
+    "extensionBuildProfile must be unprovisioned or reviewed; TEST trust is not a product profile"
+}
+val extensionPublicFields = listOf("extensionRepositoryId", "extensionRootSha256",
+    "extensionDistributionOrigins", "extensionAllowedHosts", "extensionPublisherId", "extensionSigningKeyId")
+    .associateWith { providers.gradleProperty(it).orNull.orEmpty() }
+require(if (extensionBuildProfile == "reviewed") extensionPublicFields.values.all(String::isNotEmpty)
+    else extensionPublicFields.values.all(String::isEmpty)) {
+    "The reviewed profile requires all six public trust inputs; unprovisioned accepts none"
+}
+require(extensionPublicFields.values.all { it.matches(Regex("[A-Za-z0-9._:/,-]*")) }) {
+    "Invalid extension public build field"
+}
+if (extensionBuildProfile == "reviewed") {
+    require(extensionPublicFields.getValue("extensionRootSha256").matches(Regex("[0-9a-f]{64}"))) {
+        "extensionRootSha256 must be the independently reviewed root SHA256"
+    }
+    for (name in listOf("extensionRepositoryId", "extensionPublisherId", "extensionSigningKeyId")) {
+        require(extensionPublicFields.getValue(name).matches(Regex("[A-Za-z0-9._-]{1,128}"))) {
+            "Invalid public identity: $name"
+        }
+    }
+    val origins = extensionPublicFields.getValue("extensionDistributionOrigins").split(',')
+    require(origins.distinct().size == origins.size && origins.all { origin ->
+        val uri = URI(origin)
+        uri.scheme == "https" && uri.host != null && uri.rawAuthority == uri.host &&
+            uri.path.isEmpty() && uri.rawQuery == null && uri.rawFragment == null
+    }) { "Distribution origins must be unique canonical HTTPS origins without credentials/path/query" }
+    val hosts = extensionPublicFields.getValue("extensionAllowedHosts").split(',')
+    require(hosts.distinct().size == hosts.size && hosts.all { host ->
+        host.length <= 253 && host.split('.').all { label ->
+            label.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"))
+        }
+    }) { "Allowed hosts must be unique lowercase DNS hosts" }
+}
+val extensionBuildFields = mapOf("EXTENSION_REPOSITORY_ID" to "extensionRepositoryId",
+    "EXTENSION_ROOT_SHA256" to "extensionRootSha256",
+    "EXTENSION_DISTRIBUTION_ORIGINS" to "extensionDistributionOrigins",
+    "EXTENSION_ALLOWED_HOSTS" to "extensionAllowedHosts",
+    "EXTENSION_PUBLISHER_ID" to "extensionPublisherId", "EXTENSION_SIGNING_KEY_ID" to "extensionSigningKeyId")
 
 val versionProps = Properties().also {
     it.load(project.rootProject.file("version.properties").reader())
@@ -22,6 +69,11 @@ android {
         applicationId = appPackageName
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
+        buildConfigField("String", "EXTENSION_BUILD_PROFILE", "\"$extensionBuildProfile\"")
+        buildConfigField("boolean", "PERFORMANCE_LOGGING", "false")
+        extensionBuildFields.forEach { (field, property) ->
+            buildConfigField("String", field, "\"${extensionPublicFields.getValue(property)}\"")
+        }
         versionCode = versionProps.getProperty("code").toInt()
         versionName = versionProps.getProperty("name")
 
@@ -56,8 +108,11 @@ android {
 
     buildTypes {
         debug {
+            buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", aniWorldShadowCanaryDebugValue)
             applicationIdSuffix = ".debug"
-            versionNameSuffix = "-DEBUG"
+            // The commit of the build is part of the version name, so a tester can tell two debug APKs apart in the
+            // app's info screen and in the log (the version code stays the same).
+            versionNameSuffix = "-DEBUG-" + (System.getenv("GITHUB_SHA")?.take(8) ?: "local")
             isDebuggable = true
             isMinifyEnabled = false
             isShrinkResources = false
@@ -67,9 +122,10 @@ android {
             )
         }
         release {
+            buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", "false")
             isDebuggable = false
             isMinifyEnabled = true
-            isShrinkResources = false
+            isShrinkResources = true
             isCrunchPngs = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -79,10 +135,25 @@ android {
                 debugSymbolLevel = "SYMBOL_TABLE"
             }
         }
+        create("performance") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-PERF-" + (System.getenv("GITHUB_SHA")?.take(8) ?: "local")
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            buildConfigField("boolean", "PERFORMANCE_LOGGING", "true")
+            // Temporary test signing, production-like execution, and all existing diagnostic data retained.
+            proguardFile("proguard-performance.pro")
+        }
         create("benchmarkRelease") {
+            buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", "false")
             matchingFallbacks += listOf("release")
         }
         create("nonMinifiedRelease") {
+            buildConfigField("boolean", "ANIWORLD_SHADOW_CANARY", "false")
             matchingFallbacks += listOf("debug")
         }
     }
@@ -119,12 +190,85 @@ android {
         shaders = false
     }
     packaging {
+        jniLibs.keepDebugSymbols += "**/libarex_runtime.so"
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
     dependenciesInfo {
         includeInApk = false
+    }
+}
+
+val verifyExtensionNativeRuntime = tasks.register("verifyExtensionNativeRuntime") {
+    group = "verification"
+    description = "Requires the pinned, verified Wasmtime runtime for product APKs and bundles"
+    val nativeDirectory = rootProject.file("tools/ep02-android/native-out")
+    val nativePaths = listOf("Cargo.lock", "arm64-v8a/libarex_runtime.so", "x86_64/libarex_runtime.so")
+    inputs.files(nativePaths.map { nativeDirectory.resolve(it) })
+    inputs.file(nativeDirectory.resolve("SHA256SUMS"))
+    doLast {
+        fun sha256(file: java.io.File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { stream ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+        }
+        val manifest = nativeDirectory.resolve("SHA256SUMS")
+        check(manifest.isFile) {
+            "Missing verified extension native runtime. Run tools/ep02-android/build-native.sh and " +
+                ".github/scripts/verify-extension-native-packaging.py --write-checksums before packaging."
+        }
+        val expected = manifest.readLines().filter(String::isNotBlank).map { line ->
+            val match = Regex("([0-9a-f]{64})  (Cargo\\.lock|(?:arm64-v8a|x86_64)/libarex_runtime\\.so)")
+                .matchEntire(line) ?: error("Invalid extension native checksum record")
+            match.groupValues[2] to match.groupValues[1]
+        }
+        check(expected.size == nativePaths.size && expected.map { it.first }.toSet() == nativePaths.toSet()) {
+            "Incomplete or duplicate extension native checksums"
+        }
+        for ((path, digest) in expected) {
+            val file = nativeDirectory.resolve(path)
+            check(file.isFile && file.length() > 0 && sha256(file) == digest) {
+                "Missing or modified extension native runtime input: $path"
+            }
+        }
+        check(sha256(nativeDirectory.resolve("Cargo.lock")) ==
+            "0f1caff29b8444068b46e96c3a3641d3d805d86c827a4b2ed9189b86a00fd7df") {
+            "Extension native dependency graph drift"
+        }
+    }
+}
+
+// Compile/unit-test/schema tasks remain usable without native artifacts. Packaging fails closed.
+tasks.configureEach {
+    if ((name.startsWith("merge") && name.endsWith("NativeLibs")) ||
+        name.matches(Regex("(assemble|bundle)(Foss|Gms)?(Debug|Release|Performance|BenchmarkRelease|NonMinifiedRelease)?"))) {
+        dependsOn(verifyExtensionNativeRuntime)
+    }
+}
+
+androidComponents {
+    beforeVariants {
+        if (it.buildType == "release" && it.flavorName == "foss") {
+            it.shrinkResources = false
+        }
+    }
+    onVariants {
+        if (it.buildType == "release" && it.flavorName == "gms") {
+            // Disable ABI splits for GMS (fix for building bundle)
+            it.outputs.forEach { output ->
+                if (output.filters.isNotEmpty()) {
+                    output.enabled.set(false)
+                }
+            }
+        }
     }
 }
 
@@ -146,7 +290,19 @@ baselineProfile {
     dexLayoutOptimization = true
 }
 
+koinCompiler {
+    compileSafety = false
+    // The view models default their release presentation repository (and clock, provider navigation) to an empty or
+    // system implementation for tests. With the plugin's default (skip parameters that have a default value) the app
+    // never injected the real repository: calendar, Behind, details and lists showed AniList only, whatever the
+    // extension had synced.
+    skipDefaultValues = false
+}
+
 dependencies {
+    implementation(project(":private:release-core"))
+    implementation(project(":private:release-data"))
+    implementation("androidx.room:room-runtime:2.8.5")
     implementation(project(":core:network"))
     implementation(project(":core:domain"))
     implementation(project(":core:ui"))
@@ -169,6 +325,7 @@ dependencies {
     implementation(project(":feature:usermedialist"))
     implementation(project(":feature:widget"))
     implementation(project(":feature:worker"))
+    implementation(project(":feature:addrecommendation"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
@@ -178,8 +335,10 @@ dependencies {
     implementation(libs.androidx.core.performance)
 
     implementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.compose.animation.graphics)
 
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material3.window.sizeclass)

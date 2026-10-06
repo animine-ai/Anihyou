@@ -55,6 +55,8 @@ class MediaListApi(
         fetchFromNetwork: Boolean,
         page: Int?,
         perPage: Int?,
+        cacheOnly: Boolean = false,
+        mediaIds: List<Int>? = null,
     ) = client
         .query(
             UserMediaListQuery(
@@ -65,9 +67,16 @@ class MediaListApi(
                 scoreFormat = Optional.present(scoreFormat),
                 page = Optional.presentIfNotNull(page),
                 perPage = Optional.presentIfNotNull(perPage),
+                mediaIdIn = Optional.presentIfNotNull(mediaIds),
             )
         )
-        .fetchPolicy(if (fetchFromNetwork) FetchPolicy.NetworkFirst else FetchPolicy.CacheFirst)
+        .fetchPolicy(
+            when {
+                cacheOnly -> FetchPolicy.CacheOnly
+                fetchFromNetwork -> FetchPolicy.NetworkFirst
+                else -> FetchPolicy.CacheFirst
+            },
+        )
 
     fun mySeasonalAnimeQuery(
         season: MediaSeason,

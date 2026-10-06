@@ -1,0 +1,136 @@
+# 2026-10-06: readable extension catalog names and stable AniWorld 1.0 presentation.
+name: Performance APK (temporary signed)
+# Optimized ARM64 test APK with temporary debug signing and complete data-decision logging. No tests, lint or emulator.
+# R8/resource shrinking reduce download size. Product gates remain separate; full logging and native packaging are verified.
+# Final device-log repair: show next episode and Behind together, with field-specific source priority and full logging.
+
+on:
+  workflow_dispatch:
+  # Registers the workflow for manual dispatch from this branch; it only runs on a push that changes this file.
+  push:
+    branches:
+      - ep07/product-audit-candidate
+    paths:
+      - ".github/workflows/apk-debug-quick.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-debug-quick-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-runtime:
+    name: Pinned Wasmtime product native runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Build accepted production native runtime
+        run: bash tools/ep02-android/build-native.sh
+      - name: Verify ELF, JNI exports and portable native checksums
+        run: |
+          git rev-parse HEAD > tools/ep02-android/results/native/source-commit.txt
+          python3 .github/scripts/verify-extension-native-packaging.py \
+            --write-checksums \
+            --readelf "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
+            --report tools/ep02-android/results/native/product-native-verification.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: quick-native-runtime
+          path: tools/ep02-android/native-out/
+          if-no-files-found: error
+          retention-days: 3
+
+  debug-apk:
+    name: Foss performance APK
+    needs: native-runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Install compile SDK 37
+        run: android sdk install platforms/android-37.0
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+      - name: Stage pinned native runtime
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: quick-native-runtime
+          path: tools/ep02-android/native-out
+      - name: Verify staged native checksums
+        run: python3 .github/scripts/verify-extension-native-packaging.py
+      - name: Verify full logging build contract
+        run: |
+          python3 .github/scripts/test-performance-logging.py
+          python3 .github/scripts/verify-performance-logging.py
+      - name: Assemble Foss performance APK
+        run: ./gradlew --console=plain --stacktrace :app:assembleFossPerformance
+      - name: Collect the ARM64 APK and record its digest
+        run: |
+          set -eu
+          mkdir -p out
+          ls -l app/build/outputs/apk/foss/performance/
+          for apk in app/build/outputs/apk/foss/performance/*arm64-v8a*.apk; do
+            cp "$apk" "out/AniHyou-PERF-${GITHUB_SHA::8}-$(basename "$apk")"
+          done
+          (cd out && sha256sum *.apk > SHA256.txt)
+          {
+            echo "## ARM64 performance test APK"
+            echo ""
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Install the \`arm64-v8a\` file on a current phone."
+            echo "- Temporary debug signing, R8/resource shrinking, all AppLog levels retained. Not a product gate; no tests, lint or emulator."
+            echo ""
+            echo '```'
+            cat out/SHA256.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify performance APK native runtime, logging and signature
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/verify-extension-native-packaging.py \
+            --apk-dir app/build/outputs/apk/foss/performance \
+            --report out/apk-native-verification.json
+          python3 .github/scripts/verify-performance-logging.py \
+            --apk-dir out --r8-config app/build/outputs/mapping/fossPerformance/configuration.txt \
+            --report out/performance-logging-verification.json
+          gzip -n -c app/build/outputs/mapping/fossPerformance/mapping.txt > out/r8-mapping.txt.gz
+          apksigner_path="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [ ! -x "$apksigner_path" ]; then
+            echo "::error::No executable apksigner found in Android SDK build-tools"
+            exit 1
+          fi
+          for apk in out/*.apk; do
+            "$apksigner_path" verify --print-certs "$apk" > out/signature-verification.txt
+          done
+      - name: Preserve logging verification evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: performance-logging-evidence-${{ github.sha }}
+          path: |
+            app/build/outputs/mapping/fossPerformance/configuration.txt
+            out/*verification*
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Upload the ARM64 performance APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: performance-apk-${{ github.sha }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+
+# One-time authorized build request: native grouped settings and search fixes, 2026-10-05.
+# Follow-up device build: transparent postponement list and aligned search layout, 2026-10-05.
+
+# Master default from 2026-10-05: optimized temporary-signed tests, full diagnostic logging preserved.
+# Include the corrected settings navigation test setup in the first performance device build.
+# Follow-up: allow unrelated consumer optimizations while rejecting diagnostic log removal; retain all UI captures.

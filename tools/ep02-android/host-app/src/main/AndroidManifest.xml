@@ -1,0 +1,23 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- This standalone EP02 harness app, not the production app, owns local fixture networking. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:allowBackup="false"
+        android:label="EP02 Runtime Host Proof"
+        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/ep02_test_network_security_config">
+        <!-- TEST factory injects the actual product coordinator into the actual product Worker. -->
+        <provider android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup" tools:node="merge">
+            <meta-data android:name="androidx.work.WorkManagerInitializer" tools:node="remove" />
+        </provider>
+    </application>
+    <instrumentation
+        android:name=".RuntimeProofInstrumentation"
+        android:targetPackage="de.kiyori.ep02"
+        android:label="EP02 Kotlin Host Runtime Proof" />
+    <instrumentation
+        android:name=".Ep07RestartInstrumentation"
+        android:targetPackage="de.kiyori.ep02"
+        android:label="EP07 retained data after process kill" />
+</manifest>

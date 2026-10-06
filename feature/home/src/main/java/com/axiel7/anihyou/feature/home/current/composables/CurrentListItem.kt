@@ -26,6 +26,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.axiel7.anihyou.core.common.utils.NumberUtils.isGreaterThanZero
+import com.axiel7.anihyou.core.model.media.episodesBehind
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
+import com.axiel7.anihyou.release.core.api.ReleaseUiSelection
 import com.axiel7.anihyou.core.model.media.exampleCommonMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
 import com.axiel7.anihyou.core.network.type.MediaType
@@ -34,6 +37,7 @@ import com.axiel7.anihyou.core.ui.common.LocalScoreFormat
 import com.axiel7.anihyou.core.ui.composables.IncrementOneButton
 import com.axiel7.anihyou.core.ui.composables.defaultPlaceholder
 import com.axiel7.anihyou.core.ui.composables.media.AiringScheduleText
+import com.axiel7.anihyou.core.ui.composables.media.ReleaseScheduleText
 import com.axiel7.anihyou.core.ui.composables.media.AllPriorityColors
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_COMPACT_HEIGHT
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_COMPACT_WIDTH
@@ -48,6 +52,8 @@ import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 fun CurrentListItem(
     modifier: Modifier = Modifier,
     item: CommonMediaListEntry,
+    releasePresentations: List<ReleaseUiPresentation> = emptyList(),
+    releasePresentation: ReleaseUiPresentation? = null,
     isPlusEnabled: Boolean,
     showLowPriority: Boolean,
     allPriorityColors: AllPriorityColors,
@@ -56,6 +62,11 @@ fun CurrentListItem(
     onClickPlus: (Int) -> Unit,
     blockPlus: () -> Unit,
 ) {
+    val presentations = if (releasePresentations.isNotEmpty()) {
+        releasePresentations
+    } else {
+        releasePresentation?.let(::listOf).orEmpty()
+    }
     val scoreFormat = LocalScoreFormat.current
     val blurAdult = LocalBlurAdult.current
     val singleEpisode =
@@ -73,7 +84,8 @@ fun CurrentListItem(
         Row(
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box {
@@ -110,8 +122,9 @@ fun CurrentListItem(
 
             Column(
                 modifier = Modifier
+                    .weight(1f)
                     .padding(start = 16.dp, end = 0.dp)
-                    .height(IntrinsicSize.Min),
+                    .fillMaxHeight(),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
@@ -123,9 +136,20 @@ fun CurrentListItem(
                     maxLines = 2
                 )
                 
-                AiringScheduleText(
-                    item = item,
-                )
+                val providerRows = ReleaseUiSelection.authoritative(presentations)
+                if (providerRows.isEmpty()) {
+                    AiringScheduleText(item = item)
+                } else {
+                    providerRows.forEach { presentation ->
+                        ReleaseScheduleText(
+                            presentation = presentation,
+                            progress = item.basicMediaListEntry.progress,
+                            fallbackCountdown = { AiringScheduleText(item = item, showBehind = false) },
+                            fallbackPending = item.episodesBehind(),
+                            fallback = { AiringScheduleText(item = item) },
+                        )
+                    }
+                }
 
                 Row(
                     modifier = Modifier

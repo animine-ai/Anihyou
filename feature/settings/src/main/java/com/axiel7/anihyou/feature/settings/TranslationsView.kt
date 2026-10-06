@@ -67,9 +67,9 @@ fun TranslationsView() {
     ) { padding ->
         Column(
             modifier = Modifier
-                .padding(padding)
                 .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
                 .verticalScroll(rememberScrollState())
+                .padding(padding)
         ) {
             PlainPreference(
                 title = "Crowdin",

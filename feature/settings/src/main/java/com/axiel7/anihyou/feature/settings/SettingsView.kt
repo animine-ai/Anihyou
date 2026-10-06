@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -66,14 +67,20 @@ import com.axiel7.anihyou.core.ui.composables.common.SmallCircularProgressIndica
 import com.axiel7.anihyou.core.ui.composables.middleShape
 import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.core.ui.composables.topShape
+import com.axiel7.anihyou.core.ui.composables.preferenceShape
+import com.axiel7.anihyou.feature.settings.source.ExtensionCenterPage
+import com.axiel7.anihyou.core.ui.common.navigation.Route
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.feature.settings.composables.CustomColorPreference
 import com.axiel7.anihyou.feature.settings.composables.LanguagePreference
+import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesSettingsSection
+import com.axiel7.anihyou.feature.settings.source.ExtensionSourcesViewModel
 import com.axiel7.anihyou.feature.worker.NotificationWorker.Companion.createDefaultNotificationChannels
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionState
 import com.google.accompanist.permissions.rememberPermissionState
 import com.materialkolor.PaletteStyle
+import kotlinx.collections.immutable.toImmutableList
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val versionString = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
@@ -81,25 +88,56 @@ private const val versionString = "${BuildConfig.VERSION_NAME} (${BuildConfig.VE
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun SettingsView() {
+    val navActionManager = LocalNavActionManager.current
     val viewModel: SettingsViewModel = koinViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val notificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS)
     } else null
 
-    SettingsContent(
+    SettingsViewContent(
         uiState = uiState,
         event = viewModel,
         notificationPermission = notificationPermission,
     )
 }
 
+@Composable
+fun SettingsSourceNavigationPreferences() {
+    val nav = LocalNavActionManager.current
+    PreferencesTitle(text = stringResource(com.axiel7.anihyou.feature.settings.R.string.settings_navigation_section))
+    PlainPreference(
+        title = stringResource(com.axiel7.anihyou.feature.settings.R.string.main_navigation_title),
+        icon = R.drawable.explore_24,
+        onClick = { nav.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.MainNavigationSettings) },
+        shape = singleShape,
+    )
+    PreferencesTitle(text = stringResource(com.axiel7.anihyou.feature.settings.R.string.settings_sources_section))
+    val pages = listOf(ExtensionCenterPage.MANAGE, ExtensionCenterPage.SOURCE, ExtensionCenterPage.MATCHING, ExtensionCenterPage.PROVIDERS)
+    pages.forEachIndexed { index, page ->
+        PlainPreference(
+            title = stringResource(page.title), icon = page.icon,
+            onClick = { nav.navigate(Route.ExtensionCenterPage(page.id)) },
+            shape = preferenceShape(index, pages.size + 1),
+            modifier = Modifier.testTag("extension-center-${page.id}"),
+        )
+    }
+    PlainPreference(
+        title = stringResource(com.axiel7.anihyou.feature.settings.R.string.extension_center_title),
+        icon = R.drawable.link_24,
+        onClick = { nav.navigate(com.axiel7.anihyou.core.ui.common.navigation.Route.ExtensionCenter) },
+        shape = preferenceShape(pages.size, pages.size + 1),
+        modifier = Modifier.testTag("extension-center-root"),
+    )
+}
+
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsContent(
+fun SettingsViewContent(
     uiState: SettingsUiState,
     event: SettingsEvent?,
     notificationPermission: PermissionState?,
+    extensionSourcesContent: @Composable () -> Unit = { SettingsSourceNavigationPreferences() },
 ) {
     val navActionManager = LocalNavActionManager.current
     val isEnglishLocale = LocalIsLanguageEn.current
@@ -208,7 +246,7 @@ private fun SettingsContent(
 
             ListPreference(
                 title = stringResource(R.string.color_palette),
-                values = PaletteStyle.entries.map { it.name },
+                values = PaletteStyle.entries.map { it.name }.toImmutableList(),
                 preferenceValue = uiState.colorPaletteStyle,
                 icon = R.drawable.format_paint_24,
                 onValueChange = { event?.setColorPalette(it) },
@@ -287,7 +325,7 @@ private fun SettingsContent(
                 preferenceValue = uiState.blurAdultContent,
                 icon = R.drawable.blur_on_24,
                 onValueChange = { event?.setBlurAdultContent(it) },
-                shape = middleShape
+                shape = if (uiState.isLoggedIn) middleShape else topShape,
             )
 
             SwitchPreference(
@@ -313,6 +351,17 @@ private fun SettingsContent(
                 icon = R.drawable.add_link_24,
                 onClick = navActionManager::toCustomLinks,
                 shape = bottomShape
+            )
+
+            PreferencesTitle(text = stringResource(R.string.calendar))
+            SwitchPreference(
+                title = stringResource(R.string.calendar_combine_tracks),
+                subtitle = stringResource(R.string.calendar_combine_tracks_summary),
+                preferenceValue = uiState.calendarCombineTracks,
+                icon = R.drawable.calendar_today_24,
+                onValueChange = { event?.setCalendarCombineTracks(it) },
+                shape = singleShape,
+                modifier = Modifier.testTag("calendar-combine-tracks"),
             )
 
             if (uiState.isLoggedIn) {
@@ -453,6 +502,8 @@ private fun SettingsContent(
                 )
             }
 
+            extensionSourcesContent()
+
             PreferencesTitle(text = stringResource(R.string.information))
 
             PlainPreference(
@@ -545,7 +596,7 @@ private fun SettingsContent(
 private fun SettingsViewPreview() {
     AniHyouTheme {
         Surface {
-            SettingsContent(
+            SettingsViewContent(
                 uiState = SettingsUiState(isLoggedIn = true),
                 event = null,
                 notificationPermission = null,

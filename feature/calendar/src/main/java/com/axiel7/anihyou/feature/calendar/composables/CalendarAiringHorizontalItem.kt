@@ -23,15 +23,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.axiel7.anihyou.core.resources.R
+import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
 import com.axiel7.anihyou.core.model.media.icon
 import com.axiel7.anihyou.core.model.media.localized
 import com.axiel7.anihyou.core.model.stats.overview.StatusDistribution.Companion.asStat
 import com.axiel7.anihyou.core.network.type.MediaListStatus
 import com.axiel7.anihyou.core.ui.composables.defaultPlaceholder
+import com.axiel7.anihyou.core.ui.composables.media.ReleaseCalendarGroupScheduleText
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_COMPACT_WIDTH
 import com.axiel7.anihyou.core.ui.composables.media.MediaPoster
 import com.axiel7.anihyou.core.ui.composables.scores.SmallScoreIndicator
@@ -43,6 +47,8 @@ import com.materialkolor.ktx.harmonize
 fun CalendarAiringHorizontalItem(
     title: String,
     subtitle: String,
+    releasePresentations: List<ReleaseUiCalendarItem> = emptyList(),
+    releasePresentation: ReleaseUiCalendarItem? = null,
     blurImage: Boolean = false,
     imageUrl: String?,
     modifier: Modifier = Modifier,
@@ -51,6 +57,12 @@ fun CalendarAiringHorizontalItem(
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {},
 ) {
+    val presentations = if (releasePresentations.isNotEmpty()) {
+        releasePresentations
+    } else {
+        releasePresentation?.let(::listOf).orEmpty()
+    }
+
     Surface(
         shape = MaterialTheme.shapes.large,
         color = Color.Transparent,
@@ -121,12 +133,23 @@ fun CalendarAiringHorizontalItem(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(bottom = 8.dp),
+                    ) {
+                        if (presentations.isEmpty()) {
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            ReleaseCalendarGroupScheduleText(
+                                presentations = presentations, fallback = {},
+                            )
+                        }
+                    }
                     if (score != null) {
                         SmallScoreIndicator(
                             score = score
@@ -180,7 +203,7 @@ fun CalendarAiringHorizontalItemPlaceholder(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "Ep 11 airing at 11:30",
+                    text = stringResource(R.string.episode_airing_at, 11, "11:30"),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
@@ -203,7 +226,7 @@ private fun AiringAnimeHorizontalItemPreview() {
         Surface {
             CalendarAiringHorizontalItem(
                 title = "Kimetsu no Yaiba: Katanakaji no Sato-hen",
-                subtitle = "Ep 11 airing at 11:30",
+                subtitle = stringResource(R.string.episode_airing_at, 11, "11:30"),
                 imageUrl = null,
                 score = 79,
                 status = MediaListStatus.COMPLETED,

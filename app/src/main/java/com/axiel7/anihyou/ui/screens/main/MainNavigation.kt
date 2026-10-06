@@ -33,6 +33,7 @@ import com.axiel7.anihyou.core.model.DeepLink
 import com.axiel7.anihyou.core.model.ExploreTab
 import com.axiel7.anihyou.core.model.HomeTab
 import com.axiel7.anihyou.core.model.NovelTab
+import com.axiel7.anihyou.core.model.Theme
 import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.ui.common.LocalMarkdownUriHandler
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
@@ -43,7 +44,9 @@ import com.axiel7.anihyou.core.ui.composables.markdown.MarkdownUriHandler
 import com.axiel7.anihyou.core.ui.composables.markdown.SpoilerSheet
 import com.axiel7.anihyou.feature.activitydetails.ActivityDetailsView
 import com.axiel7.anihyou.feature.activitydetails.publish.PublishActivityView
+import com.axiel7.anihyou.feature.addrecommendation.AddRecommendationView
 import com.axiel7.anihyou.feature.calendar.CalendarView
+import com.axiel7.anihyou.feature.calendar.PostponementsView
 import com.axiel7.anihyou.feature.characterdetails.CharacterDetailsView
 import com.axiel7.anihyou.feature.explore.charts.MediaChartListView
 import com.axiel7.anihyou.feature.explore.explore.ExploreView
@@ -60,6 +63,12 @@ import com.axiel7.anihyou.feature.profile.ProfileView
 import com.axiel7.anihyou.feature.profile.favorites.reorder.ReorderFavoritesView
 import com.axiel7.anihyou.feature.reviewdetails.ReviewDetailsView
 import com.axiel7.anihyou.feature.settings.ContributorsView
+import com.axiel7.anihyou.feature.settings.MainNavigationSettingsView
+import com.axiel7.anihyou.feature.settings.source.ExtensionCenterView
+import com.axiel7.anihyou.feature.settings.source.ExtensionCenterPageView
+import com.axiel7.anihyou.core.model.media.currentAnimeSeason
+import com.axiel7.anihyou.core.model.media.nextAnimeSeason
+import java.time.LocalDateTime
 import com.axiel7.anihyou.feature.settings.SettingsView
 import com.axiel7.anihyou.feature.settings.TranslationsView
 import com.axiel7.anihyou.feature.settings.customlinks.CustomLinksView
@@ -74,7 +83,7 @@ import com.axiel7.anihyou.feature.thread.publish.PublishCommentView
 import com.axiel7.anihyou.feature.usermedialist.UserMediaListHostView
 import com.materialkolor.PaletteStyle
 
-private val topNavigationTransitionSpec = NavDisplay.transitionSpec {
+internal val topNavigationTransitionSpec = NavDisplay.transitionSpec {
     ContentTransform(
         fadeIn(animationSpec = tween()),
         fadeOut(animationSpec = tween()),
@@ -100,6 +109,7 @@ fun MainNavigation(
     novelTab: NovelTab,
     exploreTab: ExploreTab,
     deepLink: DeepLink?,
+    theme: Theme,
     blackColors: Boolean,
     paletteStyle: PaletteStyle,
     padding: PaddingValues = PaddingValues(),
@@ -163,6 +173,8 @@ fun MainNavigation(
                 DeepLink.Type.ACTIVITY -> {
                     deepLink.id.toIntOrNull()?.let { navActionManager.toActivityDetails(it) }
                 }
+
+                DeepLink.Type.CALENDAR -> navActionManager.toCalendar()
             }
         }
     }
@@ -238,6 +250,34 @@ fun MainNavigation(
             )
         }
 
+        entry<Route.CalendarMain>(metadata = topNavigationTransitionSpec) {
+            CalendarView(isLoggedIn = isLoggedIn, isMain = true,
+                modifier = if (isCompactScreen) Modifier.padding(bottom = bottomPadding) else Modifier)
+        }
+        entry<Route.CurrentListMain>(metadata = topNavigationTransitionSpec) {
+            if (isLoggedIn) CurrentFullListView(
+                listType = it.listType, isLoggedIn = true, isMain = true,
+                modifier = if (isCompactScreen) Modifier.padding(bottom = bottomPadding) else Modifier,
+            ) else LoginView()
+        }
+        entry<Route.ChartMain>(metadata = topNavigationTransitionSpec) {
+            androidx.compose.foundation.layout.Box(
+                modifier = if (isCompactScreen) Modifier.padding(bottom = bottomPadding) else Modifier,
+            ) { MediaChartListView(arguments = Route.MediaChartList(it.type), isLoggedIn = isLoggedIn, isMain = true) }
+        }
+        entry<Route.SeasonMain>(metadata = topNavigationTransitionSpec) { route ->
+            val season = remember(route) {
+                if (route.next) LocalDateTime.now().nextAnimeSeason() else LocalDateTime.now().currentAnimeSeason()
+            }
+            androidx.compose.foundation.layout.Box(
+                modifier = if (isCompactScreen) Modifier.padding(bottom = bottomPadding) else Modifier,
+            ) { SeasonAnimeView(arguments = Route.SeasonAnime(season.season.rawValue, season.year), isLoggedIn = isLoggedIn, isMain = true) }
+        }
+        entry<Route.OwnProfile> {
+            if (isLoggedIn) ProfileView(arguments = Route.UserDetails(null, null))
+            else LoginView(showSettingsButton = true, navigateToSettings = navActionManager::toSettings)
+        }
+
         entry<Route.UserDetails> {
             ProfileView(
                 arguments = it,
@@ -279,9 +319,14 @@ fun MainNavigation(
             }
         }
 
+        entry<Route.Postponements> {
+            PostponementsView()
+        }
+
         entry<Route.MediaDetails> {
             MediaDetailsView(
                 arguments = it.copy(isLoggedIn = isLoggedIn),
+                theme = theme,
                 blackColors = blackColors,
                 paletteStyle = paletteStyle,
             )
@@ -348,6 +393,9 @@ fun MainNavigation(
         entry<Route.Settings> {
             SettingsView()
         }
+        entry<Route.MainNavigationSettings> { MainNavigationSettingsView() }
+        entry<Route.ExtensionCenter> { ExtensionCenterView() }
+        entry<Route.ExtensionCenterPage> { ExtensionCenterPageView(it.page) }
         entry<Route.ListStyleSettings> {
             ListStyleSettingsView()
         }
@@ -425,6 +473,12 @@ fun MainNavigation(
 
         entry<Route.PriorityColors> {
             PriorityColorView()
+        }
+
+        entry<Route.AddRecommendation> {
+            AddRecommendationView(
+                arguments = it
+            )
         }
     }
 

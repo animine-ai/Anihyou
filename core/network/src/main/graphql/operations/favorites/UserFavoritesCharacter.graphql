@@ -2,13 +2,17 @@ query UserFavoritesCharacter($userId: Int, $page: Int, $perPage: Int) {
     User(id: $userId) {
         favourites {
             characters(page: $page, perPage: $perPage) {
-                nodes {
+                edges {
                     id
-                    name {
-                        userPreferred
-                    }
-                    image {
-                        large
+                    favouriteOrder
+                    node {
+                        id
+                        name {
+                            userPreferred
+                        }
+                        image {
+                            large
+                        }
                     }
                 }
                 pageInfo {

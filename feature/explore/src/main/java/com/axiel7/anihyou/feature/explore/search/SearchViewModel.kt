@@ -17,6 +17,8 @@ import com.axiel7.anihyou.core.network.type.MediaSeason
 import com.axiel7.anihyou.core.network.type.MediaSort
 import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.ui.common.navigation.Route
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -42,16 +44,10 @@ class SearchViewModel(
         SearchUiState(
             searchType = if (mediaType == MediaType.MANGA) SearchType.MANGA else SearchType.ANIME,
             mediaSort = mediaSort ?: MediaSort.SEARCH_MATCH,
-            genresAndTagsForSearch = GenresAndTagsForSearch(
-                genreIn = setOfNotNull(arguments.genre),
-                tagIn = setOfNotNull(arguments.tag),
-            ),
             onMyList = arguments.onList,
             isLoggedIn = isLoggedIn,
             isAdult = if (isLoggedIn) null else false,
-            hasNextPage = arguments.genre != null
-                    || arguments.tag != null
-                    || arguments.mediaSort != null
+            hasNextPage = arguments.mediaSort != null
         )
 
     override fun setQuery(value: String) {
@@ -69,7 +65,7 @@ class SearchViewModel(
     override fun setSearchType(value: SearchType) = mutableUiState.update {
         it.copy(
             searchType = value,
-            selectedMediaFormats = emptyList(),
+            selectedMediaFormats = persistentListOf(),
             page = 1,
             hasNextPage = true
         )
@@ -81,7 +77,7 @@ class SearchViewModel(
 
     override fun setMediaFormats(values: List<MediaFormatLocalizable>) = mutableUiState.update {
         it.copy(
-            selectedMediaFormats = values,
+            selectedMediaFormats = values.toImmutableList(),
             page = 1,
             hasNextPage = true,
             isLoading = true,
@@ -91,7 +87,7 @@ class SearchViewModel(
 
     override fun setMediaStatuses(values: List<MediaStatusLocalizable>) = mutableUiState.update {
         it.copy(
-            selectedMediaStatuses = values,
+            selectedMediaStatuses = values.toImmutableList(),
             page = 1,
             hasNextPage = true,
             isLoading = true,
@@ -111,12 +107,12 @@ class SearchViewModel(
         it.copy(season = value, page = 1, hasNextPage = true, isLoading = true)
     }
 
-    override fun setEpCh(value: IntRange?) = mutableUiState.update {
-        it.copy(minEpCh = value?.start, maxEpCh = value?.endInclusive)
+    override fun setEpisodesChapters(value: IntRange?) = mutableUiState.update {
+        it.copy(episodesChaptersRange = value)
     }
 
-    override fun setDuration(value: IntRange?) = mutableUiState.update {
-        it.copy(minDuration = value?.start, maxDuration = value?.endInclusive)
+    override fun setDurationVolumes(value: IntRange?) = mutableUiState.update {
+        it.copy(durationVolumesRange = value)
     }
 
     override fun setOnMyList(value: Boolean?) = mutableUiState.update {
@@ -137,7 +133,7 @@ class SearchViewModel(
 
     override fun setSources(values: List<MediaSourceLocalizable>) = mutableUiState.update {
         it.copy(
-            selectedSources = values,
+            selectedSources = values.toImmutableList(),
             page = 1,
             hasNextPage = true,
             isLoading = true,
@@ -160,8 +156,8 @@ class SearchViewModel(
         it.copy(
             genresAndTagsForSearch = GenresAndTagsForSearch(),
             genresOrTagsChanged = true,
-            selectedMediaFormats = emptyList(),
-            selectedMediaStatuses = emptyList(),
+            selectedMediaFormats = persistentListOf(),
+            selectedMediaStatuses = persistentListOf(),
             startYear = null,
             endYear = null,
             onMyList = null,
@@ -169,7 +165,7 @@ class SearchViewModel(
             isAdult = null,
             country = null,
             season = null,
-            selectedSources = emptyList(),
+            selectedSources = persistentListOf(),
             clearedFilters = true,
             page = 1,
             hasNextPage = true,
@@ -209,6 +205,15 @@ class SearchViewModel(
             }
             .launchIn(viewModelScope)
 
+        if (arguments.genre != null || arguments.tag != null) {
+            onGenreTagStateChanged(
+                genresAndTagsForSearch = GenresAndTagsForSearch(
+                    genreIn = setOfNotNull(arguments.genre),
+                    tagIn = setOfNotNull(arguments.tag),
+                )
+            )
+        }
+
         // media search
         mutableUiState
             .filter { it.searchType.isSearchMedia && it.hasNextPage }
@@ -220,10 +225,8 @@ class SearchViewModel(
                         && old.startYear == new.startYear
                         && old.endYear == new.endYear
                         && old.season == new.season
-                        && old.minEpCh == new.minEpCh
-                        && old.maxEpCh == new.maxEpCh
-                        && old.minDuration == new.minDuration
-                        && old.maxDuration == new.maxDuration
+                        && old.episodesChaptersRange == new.episodesChaptersRange
+                        && old.durationVolumesRange == new.durationVolumesRange
                         && old.onMyList == new.onMyList
                         && old.isDoujin == new.isDoujin
                         && old.isAdult == new.isAdult
@@ -245,14 +248,14 @@ class SearchViewModel(
                     minimumTagPercentage = uiState.genresAndTagsForSearch.minimumTagPercentage,
                     formatIn = uiState.selectedMediaFormats.map { it.value },
                     statusIn = uiState.selectedMediaStatuses.map { it.value },
-                    episodesLesser = uiState.maxEpCh.takeIf { uiState.isAnime },
-                    episodesGreater = uiState.minEpCh?.minus(1).takeIf { uiState.isAnime },
-                    durationLesser = uiState.maxDuration.takeIf { uiState.isAnime },
-                    durationGreater = uiState.minDuration?.minus(1).takeIf { uiState.isAnime },
-                    chaptersLesser = uiState.maxEpCh.takeIf { uiState.isManga },
-                    chaptersGreater = uiState.minEpCh?.minus(1).takeIf { uiState.isManga },
-                    volumesLesser = uiState.maxDuration.takeIf { uiState.isManga },
-                    volumesGreater = uiState.minDuration?.minus(1).takeIf { uiState.isManga },
+                    episodesLesser = uiState.episodesChaptersRange?.endInclusive.takeIf { uiState.isAnime },
+                    episodesGreater = uiState.episodesChaptersRange?.start?.minus(1).takeIf { uiState.isAnime },
+                    durationLesser = uiState.durationVolumesRange?.endInclusive.takeIf { uiState.isAnime },
+                    durationGreater = uiState.durationVolumesRange?.start?.minus(1).takeIf { uiState.isAnime },
+                    chaptersLesser = uiState.episodesChaptersRange?.endInclusive.takeIf { uiState.isManga },
+                    chaptersGreater = uiState.episodesChaptersRange?.start?.minus(1).takeIf { uiState.isManga },
+                    volumesLesser = uiState.durationVolumesRange?.endInclusive.takeIf { uiState.isManga },
+                    volumesGreater = uiState.durationVolumesRange?.start?.minus(1).takeIf { uiState.isManga },
                     startYear = uiState.startYear,
                     endYear = uiState.endYear,
                     season = uiState.season,

@@ -82,6 +82,7 @@ fragment MessageActivityFragment on MessageActivity {
 }
 
 fragment ActivityUser on User {
+    id
     name
     avatar {
         medium

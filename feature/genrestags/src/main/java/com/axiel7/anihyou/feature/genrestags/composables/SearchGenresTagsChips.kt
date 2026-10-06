@@ -6,11 +6,10 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.SheetValue
@@ -25,10 +24,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.axiel7.anihyou.core.model.genre.Genre
 import com.axiel7.anihyou.core.model.genre.GenresAndTagsForSearch
 import com.axiel7.anihyou.core.model.genre.SelectableGenre.Companion.genreTagLocalized
-import com.axiel7.anihyou.core.model.genre.Tag
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.composables.common.InputChipError
 import com.axiel7.anihyou.feature.genrestags.GenresTagsSheet
@@ -40,9 +37,8 @@ import org.koin.core.parameter.parametersOf
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SearchGenresTagsChips(
-    externalGenre: Genre? = null,
-    externalTag: Tag? = null,
-    viewModel: GenresTagsViewModel = koinViewModel { parametersOf(externalGenre, externalTag) },
+    modifier: Modifier = Modifier,
+    viewModel: GenresTagsViewModel = koinViewModel { parametersOf(GenresAndTagsForSearch()) },
     clearedFilters: Boolean,
     onGenreTagStateChanged: (GenresAndTagsForSearch) -> Unit
 ) {
@@ -81,7 +77,7 @@ fun SearchGenresTagsChips(
     }
 
     FlowRow(
-        modifier = Modifier.padding(horizontal = 16.dp),
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         selectedGenres.forEach { genre ->
@@ -152,14 +148,15 @@ fun SearchGenresTagsChips(
                 iconDescription = stringResource(R.string.delete)
             )
         }
-        AssistChip(
+        FilterChip(
+            selected = false,
             onClick = { scope.launch { sheetState.show() } },
             label = { Text(text = stringResource(R.string.genres)) },
             leadingIcon = {
                 Icon(
                     painter = painterResource(R.drawable.add_20),
                     contentDescription = stringResource(R.string.add),
-                    modifier = Modifier.size(AssistChipDefaults.IconSize),
+                    modifier = Modifier.size(FilterChipDefaults.IconSize),
                 )
             }
         )

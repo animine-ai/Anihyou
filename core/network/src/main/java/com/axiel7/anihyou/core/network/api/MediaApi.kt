@@ -14,6 +14,7 @@ import com.axiel7.anihyou.core.network.MediaActivityQuery
 import com.axiel7.anihyou.core.network.MediaCharactersAndStaffQuery
 import com.axiel7.anihyou.core.network.MediaCharactersQuery
 import com.axiel7.anihyou.core.network.MediaChartQuery
+import com.axiel7.anihyou.core.network.MediaByIdsQuery
 import com.axiel7.anihyou.core.network.MediaDetailsQuery
 import com.axiel7.anihyou.core.network.MediaFollowingQuery
 import com.axiel7.anihyou.core.network.MediaRecommendationsQuery
@@ -197,6 +198,16 @@ class MediaApi(
                 sort = Optional.present(sort),
                 country = Optional.presentIfNotNull(country),
                 isAdult = Optional.presentIfNotNull(isAdult),
+            )
+        )
+
+    /** The list entries of several media in one request, for what a screen shows about entries that no other query loaded. */
+    fun mediaByIdsQuery(ids: List<Int>, page: Int, perPage: Int) = client
+        .query(
+            MediaByIdsQuery(
+                ids = Optional.present(ids),
+                page = Optional.present(page),
+                perPage = Optional.present(perPage),
             )
         )
 

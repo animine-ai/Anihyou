@@ -272,6 +272,45 @@ data class GenericNotification(
                         )
                     )
                 }
+                aniListNotification.onMediaSubmissionUpdateNotification?.let { noti ->
+                    tempList.add(
+                        GenericNotification(
+                            id = noti.id,
+                            text = noti.contexts?.joinToString(" ").orEmpty(),
+                            imageUrl = noti.media?.coverImage?.medium,
+                            largeImageUrl = noti.media?.coverImage?.large,
+                            contentId = noti.media?.id ?: 0,
+                            type = noti.type,
+                            createdAt = noti.createdAt,
+                        )
+                    )
+                }
+                aniListNotification.onStaffSubmissionUpdateNotification?.let { noti ->
+                    tempList.add(
+                        GenericNotification(
+                            id = noti.id,
+                            text = noti.contexts?.joinToString(" ").orEmpty(),
+                            imageUrl = noti.staff?.image?.medium,
+                            largeImageUrl = noti.staff?.image?.large,
+                            contentId = noti.staff?.id ?: 0,
+                            type = noti.type,
+                            createdAt = noti.createdAt,
+                        )
+                    )
+                }
+                aniListNotification.onCharacterSubmissionUpdateNotification?.let { noti ->
+                    tempList.add(
+                        GenericNotification(
+                            id = noti.id,
+                            text = noti.contexts?.joinToString(" ").orEmpty(),
+                            imageUrl = noti.character?.image?.medium,
+                            largeImageUrl = noti.character?.image?.large,
+                            contentId = noti.character?.id ?: 0,
+                            type = noti.type,
+                            createdAt = noti.createdAt,
+                        )
+                    )
+                }
             }
             return tempList
         }
@@ -287,16 +326,36 @@ data class GenericNotification(
         private val mediaDeletedRegex = "(.+) was deleted from the site".toRegex()
         private val forumMentionRegex = "(.+) mentioned you, in the forum thread (.+)".toRegex()
 
-        fun GenericNotification.localizedText(resources: Resources) = when (type) {
+        fun GenericNotification.localizedText(
+            resources: Resources,
+            startNotification: Boolean = true,
+            airingNotification: Boolean = true,
+            endNotification: Boolean = false,
+            episodeCount: Int? = null,
+        ): String? = when (type) {
             NotificationType.AIRING -> {
                 val episode = numEpisode() ?: 0
                 val title = mediaTitle().orEmpty()
-                resources.getQuantityString(
-                    R.plurals.notification_episode_aired,
-                    episode,
-                    episode,
-                    title
-                )
+                if (episode == 1 && startNotification) {
+                    resources.getString(
+                        R.string.notification_start_episode_aired,
+                        title
+                    )
+                } else if (episodeCount != null && episode == episodeCount && endNotification) {
+                    resources.getString(
+                        R.string.notification_end_episode_aired,
+                        title,
+                    )
+                } else if (airingNotification) {
+                    resources.getQuantityString(
+                        R.plurals.notification_episode_aired,
+                        episode,
+                        episode,
+                        title,
+                    )
+                } else {
+                    null
+                }
             }
 
             NotificationType.ACTIVITY_LIKE -> {

@@ -1,0 +1,268 @@
+name: EP02 Production Runtime Android Proof
+on:
+  push:
+    branches: [feature/aniworld-provider-v3, ep03/user-added-sources, ep04/aniworld-v1, ep06/provider-navigation-watch-next, ep07/extension-update-ux]
+    paths:
+      - "app/**"
+      - "core/**"
+      - "feature/**"
+      - "gradle/**"
+      - "settings.gradle.kts"
+      - "app/src/main/java/com/axiel7/anihyou/AnimetrackerReleaseModule.kt"
+      - ".github/workflows/aniworld-provider-v3.yml"
+      - "tools/ep02-android/**"
+      - "private/release-core/**"
+      - "private/release-data/**"
+      - ".github/workflows/ep02-runtime-android-proof.yml"
+  workflow_dispatch:
+    inputs:
+      series:
+        description: "full: the four EP02 variants. api35-release-x3: only API 35 release, three attempts in a row, each on a fresh runner and a fresh emulator."
+        required: false
+        default: full
+        type: choice
+        options: [full, api35-release-x3]
+permissions:
+  contents: read
+concurrency:
+  group: ep02-runtime-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: EP02 variant plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      parallel: ${{ steps.plan.outputs.parallel }}
+    steps:
+      - id: plan
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.series || 'full' }}" == api35-release-x3 ]]; then
+            # Consecutive attempts, never in parallel: each one is a separate runner with a freshly booted emulator.
+            echo 'matrix={"include":[{"api":35,"variant":"release","suffix":" series 1 of 3","artifact":"-series-1"},{"api":35,"variant":"release","suffix":" series 2 of 3","artifact":"-series-2"},{"api":35,"variant":"release","suffix":" series 3 of 3","artifact":"-series-3"}]}' >> "$GITHUB_OUTPUT"
+            echo 'parallel=1' >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix={"include":[{"api":24,"variant":"debug","suffix":"","artifact":""},{"api":24,"variant":"release","suffix":"","artifact":""},{"api":35,"variant":"debug","suffix":"","artifact":""},{"api":35,"variant":"release","suffix":"","artifact":""}]}' >> "$GITHUB_OUTPUT"
+            echo 'parallel=4' >> "$GITHUB_OUTPUT"
+          fi
+
+  host-contract:
+    name: EP02 Kotlin host contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Install compile SDK
+        run: android sdk install platforms/android-37.0
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+      - name: Run strict release/navigation/package tests
+        run: ./gradlew --console=plain :private:release-core:test :private:release-data:testDebugUnitTest
+      - name: Prove runtime path has no provider-specific fallback
+        run: |
+          ! grep -R -n -E 'AniWorld|de\.aniworld'             private/release-data/src/main/kotlin/com/axiel7/anihyou/release/data/extension/ExtensionHostCoordinator.kt             private/release-data/src/main/kotlin/com/axiel7/anihyou/release/data/extension/WasmtimeExtensionRuntime.kt
+      - name: Upload host reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ep02-runtime-host-contracts
+          path: |
+            private/release-core/build/reports/tests/
+            private/release-data/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 14
+
+  native:
+    name: Wasmtime 48.0.3 LTS Android API 24 x86_64 + arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Build production native runtime
+        run: bash tools/ep02-android/build-native.sh
+      - name: Verify exact production pin
+        run: |
+          grep -F 'wasmtime v48.0.3' tools/ep02-android/results/native/dependencies.txt
+          grep -F 'cranelift-codegen v0.135.3' tools/ep02-android/results/native/dependencies.txt
+      - name: Upload production runtime and exact lock
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ep02-native-wasmtime-48.0.3-android
+          path: |
+            tools/ep02-android/native-out/
+            tools/ep02-android/results/native/
+          if-no-files-found: error
+          retention-days: 14
+
+  guest:
+    name: Pinned signed TEST AniWorld guest and inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: animine-ai/release-extentions
+          ref: bab4da3121b3fe9966f5204d59280c230402bf32
+      - name: Build accepted guest with hermetic signed TEST chain
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = bab4da3121b3fe9966f5204d59280c230402bf32
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup target add --toolchain 1.95.0 wasm32v1-none
+          bash tools/install_binaryen.sh "$RUNNER_TEMP/ep07-binaryen"
+          export PATH="$RUNNER_TEMP/ep07-binaryen/bin:$PATH"
+          bash tools/build_aniworld.sh build/aniworld-android
+          python3 tools/aniworld_vectors.py build/aniworld-inputs
+          python3 -m pip install -r requirements.txt
+          python3 tools/arex.py test-aniworld-chain --module build/aniworld-android/wasm32v1-none/release/arex_aniworld.wasm --output build/aniworld-chain --source-repository https://github.com/animine-ai/release-extentions --source-commit bab4da3121b3fe9966f5204d59280c230402bf32
+          mkdir -p build/android-assets
+          cp build/aniworld-android/wasm32v1-none/release/arex_aniworld.wasm build/android-assets/aniworld.wasm
+          cp sources/aniworld/fixtures/recent.html build/android-assets/aniworld-recent.html
+          cp sources/aniworld/fixtures/episode.html build/android-assets/aniworld-episode.html
+          cp -R build/aniworld-inputs build/aniworld-chain build/android-assets/
+          git rev-parse HEAD > build/android-assets/aniworld-source-commit.txt
+          (cd build/android-assets && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+      - name: Upload pinned TEST guest assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ep07-pinned-aniworld-test-assets
+          path: build/android-assets/
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    needs: [plan, native, host-contract, guest]
+    name: EP02 Kotlin Host API ${{ matrix.api }} ${{ matrix.variant }}${{ matrix.suffix }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.plan.outputs.parallel) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Install compile SDK
+        run: android sdk install platforms/android-37.0
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: ep02-native-wasmtime-48.0.3-android
+          path: tools/ep02-android/native-artifact
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: ep07-pinned-aniworld-test-assets
+          path: tools/ep02-android/host-app/src/main/assets
+      - name: Build deterministic fixture and Kotlin-host APK
+        shell: bash
+        run: |
+          native_x86=tools/ep02-android/native-artifact/native-out/x86_64/libarex_runtime.so
+          native_arm64=tools/ep02-android/native-artifact/native-out/arm64-v8a/libarex_runtime.so
+          native_lock=tools/ep02-android/native-artifact/native-out/Cargo.lock
+          test -f "$native_x86"
+          test -f "$native_arm64"
+          test -f "$native_lock"
+          mkdir -p \
+            tools/ep02-android/host-app/src/main/jniLibs/x86_64 \
+            tools/ep02-android/host-app/src/main/jniLibs/arm64-v8a
+          cp "$native_x86" tools/ep02-android/host-app/src/main/jniLibs/x86_64/
+          cp "$native_arm64" tools/ep02-android/host-app/src/main/jniLibs/arm64-v8a/
+          bash tools/ep02-android/generate-test-https-material.sh
+          bash tools/ep02-android/build-fixture.sh
+          (cd tools/ep02-android/host-app/src/main/assets && sha256sum --check --strict SHA256SUMS)
+          if grep -R -n -E 'ep02_test_ca|ep02_test_server|EP02 Ephemeral Android HTTPS Test CA' app/src/main private/release-data/src/main; then
+            echo 'EP02 test CA leaked into production app or transport sources' >&2
+            exit 1
+          fi
+          git rev-parse HEAD > tools/ep02-android/source-commit.txt
+          task=":tools:ep02-runtime-app:assemble${{ matrix.variant == 'release' && 'Release' || 'Debug' }}"
+          ./gradlew --console=plain --stacktrace "$task"
+          sha256sum tools/ep02-android/host-app/build/outputs/apk/${{ matrix.variant }}/*.apk > tools/ep02-android/apk.sha256
+          if [[ "${{ matrix.variant }}" == release ]]; then
+            test -f tools/ep02-android/host-app/build/outputs/mapping/release/mapping.txt
+          fi
+      - name: Release build daemons before the emulator starts
+        # Build daemons stay resident after the APK build and compete with the emulator for runner memory.
+        # This is a hypothesis-driven mitigation. The diagnosis below stays in place to confirm or reject it.
+        run: |
+          ./gradlew --stop || true
+          free -m
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start hermetic DNS and public-address fixture route
+        run: |
+          sudo ip address add 8.8.8.8/32 dev lo
+          sudo python3 -u tools/ep02-android/test-dns-server.py "$RUNNER_TEMP/ep02-dns-ready" > "$RUNNER_TEMP/ep02-dns.log" 2>&1 &
+          for attempt in {1..10}; do
+            if [[ -f "$RUNNER_TEMP/ep02-dns-ready" ]]; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/ep02-dns.log"
+          echo 'Hermetic Android fixture DNS did not start' >&2
+          exit 1
+      - name: Execute Kotlin Host -> Production Runtime -> isolated Wasmtime fixture
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.api }}
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 900
+          disable-animations: true
+          ram-size: ${{ matrix.api == 24 && '3072M' || '' }}
+          heap-size: ${{ matrix.api == 24 && '512M' || '' }}
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save -camera-back none -dns-server 127.0.0.1
+          script: bash tools/ep02-android/run-device.sh ${{ matrix.variant }} ${{ matrix.api }}
+      - name: Runner kill evidence on failure
+        if: failure()
+        run: |
+          echo "EP02 DIAG runner memory after failure"
+          free -m || true
+          ps -eo pid,rss,comm --sort=-rss | head -10 || true
+          echo "EP02 DIAG kernel kill messages"
+          sudo dmesg 2>/dev/null | grep -iE 'killed process|out of memory|oom-kill|oom_reaper' | tail -20 || true
+      - name: Stop hermetic fixture DNS and remove runner route
+        if: always()
+        run: |
+          if [[ -s "$RUNNER_TEMP/ep02-dns-ready" ]]; then
+            sudo kill "$(cat "$RUNNER_TEMP/ep02-dns-ready")" 2>/dev/null || true
+          fi
+          sudo ip address del 8.8.8.8/32 dev lo 2>/dev/null || true
+      - name: Collect checksums and diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}
+          cp tools/ep02-android/source-commit.txt tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}/ 2>/dev/null || true
+          cp tools/ep02-android/apk.sha256 tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}/ 2>/dev/null || true
+          cp tools/ep02-android/native-artifact/native-out/Cargo.lock tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}/ 2>/dev/null || true
+          timeout 15 adb logcat -d > tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}/cleanup-logcat.txt 2>&1 || true
+      - name: Upload EP02 host APK, R8 and runtime evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ep02-kotlin-host-api-${{ matrix.api }}-${{ matrix.variant }}${{ matrix.artifact }}
+          path: |
+            tools/ep02-android/host-app/build/outputs/apk/
+            tools/ep02-android/host-app/build/outputs/mapping/
+            tools/ep02-android/results/android-${{ matrix.api }}-${{ matrix.variant }}/
+            tools/ep02-android/host-app/src/main/assets/fixture.wasm.sha256
+            tools/ep02-android/host-app/src/main/assets/SHA256SUMS
+            tools/ep02-android/host-app/src/main/assets/aniworld-source-commit.txt
+          if-no-files-found: warn
+          retention-days: 14

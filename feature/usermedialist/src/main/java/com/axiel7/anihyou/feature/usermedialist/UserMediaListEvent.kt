@@ -42,6 +42,8 @@ interface UserMediaListEvent : UiEvent {
 
     fun toggleScoreDialog(open: Boolean)
 
+    fun resetPrioritizeSearchMatches()
+
     fun getRandomEntry()
 
     fun onRandomEntryOpened()
@@ -57,6 +59,10 @@ interface UserMediaListEvent : UiEvent {
     fun setYear(value: Int?)
 
     fun onGenreTagStateChanged(value: GenresAndTagsForSearch)
+
+    fun setEpisodesChapters(value: IntRange?)
+
+    fun setDurationVolumes(value: IntRange?)
 
     fun clearFilters()
 }

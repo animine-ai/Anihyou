@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <include domain="file" path="datastore/"/>
+    <!-- Release DB contains account-scoped projections and outbox work. It is rebuilt and reconciled after restore. -->
+    <exclude domain="database" path="release-data.db"/>
 </full-backup-content>

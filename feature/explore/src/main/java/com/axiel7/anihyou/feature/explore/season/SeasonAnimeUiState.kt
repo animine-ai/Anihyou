@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.axiel7.anihyou.core.base.state.PagedUiState
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.model.ListStyle
 import com.axiel7.anihyou.core.model.media.AnimeSeason
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
@@ -14,8 +15,9 @@ data class SeasonAnimeUiState(
     val season: AnimeSeason? = null,
     val sort: MediaSort = MediaSort.POPULARITY_DESC,
     val animeSeasonal: SnapshotStateList<ExploreMedia> = mutableStateListOf(),
+    val releaseByMediaId: Map<Int, List<ReleaseUiPresentation>> = emptyMap(),
     val selectedItem: ExploreMedia? = null,
-    val listStyle: ListStyle = ListStyle.GRID,
+    val listStyle: ListStyle? = null,
     val displayAdult: Boolean = false,
     override val page: Int = 1,
     override val hasNextPage: Boolean = true,

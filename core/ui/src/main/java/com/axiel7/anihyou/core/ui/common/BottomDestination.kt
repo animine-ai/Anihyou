@@ -2,10 +2,12 @@ package com.axiel7.anihyou.core.ui.common
 
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.navigation3.runtime.NavKey
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.axiel7.anihyou.core.model.CurrentListType
+import com.axiel7.anihyou.core.model.media.ChartType
+import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.common.navigation.Route
 
@@ -14,66 +16,107 @@ sealed class BottomDestination(
     val route: Route,
     @param:StringRes val title: Int,
     @param:DrawableRes val icon: Int,
-    @param:DrawableRes val iconSelected: Int,
+    val stableId: String,
+    val topLevelEligible: Boolean = true,
+    val animatedIcon: Boolean = true,
 ) {
-    data object Home : BottomDestination(
-        index = 0,
-        route = Route.Home,
-        title = R.string.home,
-        icon = R.drawable.home_24,
-        iconSelected = R.drawable.home_filled_24
-    )
-
-    data object AnimeList : BottomDestination(
-        index = 1,
-        route = Route.AnimeTab,
-        title = R.string.anime,
-        icon = R.drawable.live_tv_24,
-        iconSelected = R.drawable.live_tv_filled_24
-    )
-
-    data object MangaList : BottomDestination(
-        index = 2,
-        route = Route.MangaTab,
-        title = R.string.manga,
-        icon = R.drawable.book_24,
-        iconSelected = R.drawable.book_filled_24
-    )
-
-    data object Profile : BottomDestination(
-        index = 3,
-        route = Route.Profile,
-        title = R.string.profile,
-        icon = R.drawable.person_24,
-        iconSelected = R.drawable.person_filled_24
-    )
-
-    data object Explore : BottomDestination(
-        index = 4,
-        route = Route.Explore,
-        title = R.string.explore,
-        icon = R.drawable.explore_24,
-        iconSelected = R.drawable.explore_filled_24
-    )
-
     @Composable
-    fun Icon(selected: Boolean) {
-        androidx.compose.material3.Icon(
-            painter = painterResource(if (selected) iconSelected else icon),
-            contentDescription = stringResource(title)
+    fun displayTitle(): String {
+        val chart = (route as? Route.ChartMain)?.let { ChartType.valueOf(it.type) }
+        return if (chart == null) stringResource(title) else stringResource(
+            R.string.main_navigation_chart_label,
+            stringResource(if (chart.mediaType == MediaType.ANIME) R.string.anime else R.string.manga),
+            stringResource(title),
         )
     }
 
+    data object Home : BottomDestination(
+        stableId = "home",
+        index = 0,
+        route = Route.Home,
+        title = R.string.home,
+        icon = R.drawable.anim_home,
+    )
+
+    data object AnimeList : BottomDestination(
+        stableId = "anime",
+        index = 1,
+        route = Route.AnimeTab,
+        title = R.string.anime,
+        icon = R.drawable.anim_tv,
+    )
+
+    data object MangaList : BottomDestination(
+        stableId = "manga",
+        index = 2,
+        route = Route.MangaTab,
+        title = R.string.manga,
+        icon = R.drawable.anim_book,
+    )
+
+    data object Profile : BottomDestination(
+        stableId = "profile",
+        index = 3,
+        route = Route.Profile,
+        title = R.string.profile,
+        icon = R.drawable.anim_person,
+    )
+
+    data object Explore : BottomDestination(
+        stableId = "explore",
+        index = 4,
+        route = Route.Explore,
+        title = R.string.explore,
+        icon = R.drawable.anim_explore,
+    )
+
+    data object Calendar : BottomDestination(5, Route.CalendarMain, R.string.calendar,
+        R.drawable.calendar_month_24, "calendar", animatedIcon = false)
+
+    data class Shortcut(val id: String, val key: Route, val label: Int, val drawable: Int, val legacyIndex: Int) :
+        BottomDestination(legacyIndex, key, label, drawable, id, animatedIcon = false)
+
     companion object {
-        val routes = setOf(Home.route, AnimeList.route, MangaList.route, Profile.route, Explore.route)
+        val values = listOf(Home, AnimeList, MangaList, Explore, Calendar)
+        val railValues = values
+        val catalog: List<BottomDestination> = listOf(Home, AnimeList, MangaList, Explore, Calendar, Profile) +
+            CurrentListType.entries.mapIndexed { index, type ->
+                Shortcut("current_" + type.name.lowercase(java.util.Locale.ROOT), Route.CurrentListMain(type), when(type) {
+                    CurrentListType.AIRING -> R.string.airing
+                    CurrentListType.BEHIND -> R.string.anime_behind
+                    CurrentListType.ANIME -> R.string.watching
+                    CurrentListType.MANGA -> R.string.reading
+                    CurrentListType.NEXT_SEASON -> R.string.next_season
+                }, R.drawable.play_arrow_24, 100 + index)
+            } + ChartType.entries.mapIndexed { index, type ->
+                Shortcut("chart_" + type.name.lowercase(java.util.Locale.ROOT), Route.ChartMain(type.name), when(type) {
+                    ChartType.TOP_ANIME, ChartType.TOP_MANGA -> R.string.top_100
+                    ChartType.POPULAR_ANIME, ChartType.POPULAR_MANGA -> R.string.top_popular
+                    ChartType.POPULAR_MANHWA -> R.string.popular_manhwa
+                    ChartType.UPCOMING_ANIME, ChartType.UPCOMING_MANGA -> R.string.upcoming
+                    ChartType.AIRING_ANIME -> R.string.airing
+                    ChartType.TOP_MOVIES -> R.string.top_movies
+                    ChartType.PUBLISHING_MANGA -> R.string.publishing
+                }, type.icon(), 200 + index)
+            } + listOf(
+                Shortcut("season_current", Route.SeasonMain(false), R.string.season, R.drawable.calendar_today_24, 300),
+                Shortcut("season_next", Route.SeasonMain(true), R.string.next_season, R.drawable.calendar_today_24, 301),
+            )
+        val routes = catalog.mapTo(linkedSetOf()) { it.route }
 
-        val values = listOf(Home, AnimeList, MangaList, Profile, Explore)
+        fun Int.toBottomDestinationRoute(): Route? = catalog.find { it.index == this }?.route
 
-        val railValues = listOf(Home, AnimeList, MangaList, Profile)
+        fun NavKey.isBottomDestination() = catalog.any { it.route == this }
 
-        fun Int.toBottomDestinationRoute(): Route? = values.find { it.index == this }?.route
-
-        fun NavKey.isBottomDestination() = values.any { it.route == this }
+        /**
+         * Whether the bottom main navigation bar is shown for the route that is on screen.
+         * - Original roots (Home, Anime, Manga, Explore, Profile) and the promoted Calendar and current lists: shown.
+         * - Promoted chart and season destinations (Top 100, popular, upcoming, season, next season, ...): hidden, they
+         *   own the full height like their nested form. Back and predictive back lead to Home, where the bar is shown.
+         * - Every nested page (details, settings, dialogs): hidden, as before.
+         * A wide layout keeps its navigation rail for every main destination; only the bottom bar follows this rule.
+         */
+        fun NavKey.showsBottomBar() = isBottomDestination() && this !is Route.ChartMain && this !is Route.SeasonMain
 
         val BottomDestination.testTag
             get() = when (this) {
@@ -82,6 +125,8 @@ sealed class BottomDestination(
                 is MangaList -> "MangaListTab"
                 is Profile -> "ProfileTab"
                 is Explore -> "ExploreTab"
+                is Calendar -> "CalendarTab"
+                is Shortcut -> "MainTab-$stableId"
             }
     }
 }

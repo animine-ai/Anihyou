@@ -1,5 +1,6 @@
 fragment ExploreMedia on Media {
     ...BasicMediaDetails
+    status
     coverImage {
         large
         color

@@ -5,8 +5,10 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.graphics.Color
 import com.axiel7.anihyou.core.base.state.UiState
+import com.axiel7.anihyou.release.core.api.ReleaseUiPresentation
 import com.axiel7.anihyou.core.model.ItemsPerRow
 import com.axiel7.anihyou.core.model.ListStyle
+import com.axiel7.anihyou.core.model.TranslatorApp
 import com.axiel7.anihyou.core.model.genre.GenresAndTagsForSearch
 import com.axiel7.anihyou.core.model.media.CountryOfOrigin
 import com.axiel7.anihyou.core.model.media.MediaFormatLocalizable
@@ -26,6 +28,7 @@ data class UserMediaListUiState(
     val entries: SnapshotStateList<CommonMediaListEntry> = mutableStateListOf(),
     val mangaEntries: SnapshotStateList<CommonMediaListEntry> = mutableStateListOf(),
     val novelEntries: SnapshotStateList<CommonMediaListEntry> = mutableStateListOf(),
+    val releaseByMediaId: Map<Int, List<ReleaseUiPresentation>> = emptyMap(),
     val status: MediaListStatus? = null,
     val isMyList: Boolean = true,
     val showLowPriority: Boolean = false,
@@ -44,14 +47,19 @@ data class UserMediaListUiState(
     val country: CountryOfOrigin? = null,
     val year: Int? = null,
     val genresAndTagsForSearch: GenresAndTagsForSearch = GenresAndTagsForSearch(),
+    val episodesChaptersRange: IntRange? = null,
+    val durationVolumesRange: IntRange? = null,
     val query: String = "",
     val isFuzzySearchEnabled: Boolean = false,
+    val isSearchSortModified: Boolean = false,
+    val filteredEntriesCache: List<Pair<CommonMediaListEntry, Int>> = emptyList(),
     val separateNovelsAndManga: Boolean = false,
     val fetchFromNetwork: Boolean = false,
     val sortMenuExpanded: Boolean = false,
     val openNotesDialog: Boolean = false,
     val openSetScoreDialog: Boolean = false,
     val clearedFilters: Boolean = false,
+    val translatorApp: TranslatorApp = TranslatorApp.DEFAULT,
     val randomEntryId: Int? = null,
     val isLoadingRandom: Boolean = false,
     val isLoadingPlusOne: Boolean = false,
@@ -62,6 +70,6 @@ data class UserMediaListUiState(
     override fun setError(value: String?) = copy(error = value)
     override fun setLoading(value: Boolean) = copy(isLoading = value)
     val filterCount =
-        listOf(mediaFormat, mediaStatus, country, year).count { it != null } +
-                genresAndTagsForSearch.totalSize
+        listOf(mediaFormat, mediaStatus, country, year, episodesChaptersRange, durationVolumesRange)
+            .count { it != null } + genresAndTagsForSearch.totalSize
 }

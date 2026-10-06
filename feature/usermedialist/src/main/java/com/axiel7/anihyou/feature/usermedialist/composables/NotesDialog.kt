@@ -9,19 +9,28 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import com.axiel7.anihyou.core.model.TranslatorApp
 import com.axiel7.anihyou.core.resources.R
+import com.axiel7.anihyou.core.ui.composables.common.TranslateIconButton
 
 @Composable
 fun NotesDialog(
     note: String,
+    translatorApp: TranslatorApp,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text(text = stringResource(R.string.ok))
+                Text(text = stringResource(R.string.close))
             }
+        },
+        dismissButton = {
+            TranslateIconButton(
+                text = note,
+                app = translatorApp,
+            )
         },
         title = {
             Text(text = stringResource(R.string.notes))

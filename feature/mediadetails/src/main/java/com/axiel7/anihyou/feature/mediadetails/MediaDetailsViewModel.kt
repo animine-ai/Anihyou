@@ -4,21 +4,43 @@ import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.core.base.DataResult
 import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.common.viewmodel.UiStateViewModel
+import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.MatchingManagementRepository
+import com.axiel7.anihyou.release.core.api.DetailMappingRequest
+import com.axiel7.anihyou.core.model.media.isAnime
+import com.axiel7.anihyou.core.domain.repository.AnimeNotificationsRepository
+import com.axiel7.anihyou.core.domain.repository.CustomLinksRepository
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.FavoriteRepository
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
 import com.axiel7.anihyou.core.model.stats.overview.ScoreDistribution.Companion.asStat
 import com.axiel7.anihyou.core.model.stats.overview.StatusDistribution.Companion.asStat
 import com.axiel7.anihyou.core.network.MediaDetailsQuery
+import com.axiel7.anihyou.core.network.MediaRelationsAndRecommendationsQuery
 import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.MediaCharacter
+import com.axiel7.anihyou.core.network.fragment.MediaRecommended
 import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.RecommendationRating
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.common.navigation.Route
+import com.axiel7.anihyou.release.core.navigation.EmptyProviderNavigationProductRepository
+import com.axiel7.anihyou.release.core.navigation.NavigationUnavailableReason
+import com.axiel7.anihyou.release.core.navigation.ProviderNavigationProductRepository
+import com.axiel7.anihyou.release.core.navigation.ProviderNavigationResult
+import com.axiel7.anihyou.release.core.navigation.ProviderEpisodeSegment
+import com.axiel7.anihyou.release.core.navigation.WatchNextState
+import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
+import com.axiel7.anihyou.release.core.extension.NavigationCapability
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onEach
@@ -26,15 +48,178 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.InjectedParam
+import java.math.BigDecimal
 
 class MediaDetailsViewModel(
     @InjectedParam private val arguments: Route.MediaDetails,
     defaultPreferencesRepository: DefaultPreferencesRepository,
+    customLinksRepository: CustomLinksRepository,
     private val mediaRepository: MediaRepository,
     private val favoriteRepository: FavoriteRepository,
+    private val animeNotificationsRepository: AnimeNotificationsRepository,
+    private val matchingManagementRepository: MatchingManagementRepository,
+    private val releasePresentationRepository: ReleasePresentationRepository = EmptyReleasePresentationRepository,
+    private val providerNavigationProductRepository: ProviderNavigationProductRepository =
+        EmptyProviderNavigationProductRepository,
 ) : UiStateViewModel<MediaDetailsUiState>(), MediaDetailsEvent {
 
     override val initialState = MediaDetailsUiState(isLoggedIn = arguments.isLoggedIn)
+
+    private var notificationAllowanceBaseline: Triple<Boolean, Boolean, Boolean>? = null
+    private var navigationActionJob: Job? = null
+    private var navigationActionId = 0L
+    private var navigationActionActive = false
+    private var navigationActionFailure: NavigationUnavailableReason? = null
+    private var episodeMappingJob: Job? = null
+
+    override fun openProviderOverview(key: ExtensionSelectionKey) {
+        val state = mutableUiState.value
+        val mediaId = state.details?.id ?: return
+        val provider = state.extensionNavigation.providers.singleOrNull { it.key == key } ?: return
+        if (NavigationCapability.OVERVIEW_NAVIGATION !in provider.capabilities) return
+
+        runNavigationAction {
+            when (val resolved = providerNavigationProductRepository.overview(mediaId, key)) {
+                is ProviderNavigationResult.Ready -> providerNavigationProductRepository.launch(resolved.target)
+                    .unavailableReasonOrNull()
+                is ProviderNavigationResult.Unavailable -> resolved.reason
+            }
+        }
+    }
+
+    override fun openWatchNext() {
+        val currentState = mutableUiState.value
+        val details = currentState.details ?: return
+        val mediaId = details.id
+        val watchedProgress = details.mediaListEntry?.basicMediaListEntry?.progress ?: return
+        val navigation = currentState.extensionNavigation
+        val candidate = navigation.watchNext as? WatchNextState.Candidate ?: return
+        if (candidate.behindCount <= 0) return
+        if (candidate.episode <= BigDecimal(watchedProgress)) return
+        val observedTarget = navigation.watchTarget ?: return
+        if (observedTarget.provider.key != candidate.provider.key || candidate.coordinate.mediaId != mediaId) return
+
+        // Resolve from the click-time ID and progress because observe() may still expose an older target.
+        runNavigationAction {
+            val resolved = providerNavigationProductRepository.watchNext(mediaId, watchedProgress)
+            val latestDetails = mutableUiState.value.details
+            val latestProgress = latestDetails?.mediaListEntry?.basicMediaListEntry?.progress
+            if (latestDetails?.id != mediaId || latestProgress != watchedProgress) {
+                return@runNavigationAction NavigationUnavailableReason.STALE_RESULT
+            }
+
+            when (resolved) {
+                is ProviderNavigationResult.Ready ->
+                    providerNavigationProductRepository.launch(resolved.target).unavailableReasonOrNull()
+                is ProviderNavigationResult.Unavailable -> resolved.reason
+            }
+        }
+    }
+
+    override fun chooseNavigationProvider(key: ExtensionSelectionKey) {
+        val choices = (mutableUiState.value.extensionNavigation.watchNext as? WatchNextState.ChooseProvider)
+            ?.providers ?: return
+        if (choices.size <= 1 || choices.none { it.key == key }) return
+
+        runNavigationAction(failureOnException = NavigationUnavailableReason.PROVIDER_UNAVAILABLE) {
+            providerNavigationProductRepository.preferProvider(key)
+            null
+        }
+    }
+
+    override fun saveProviderEpisodeMapping(
+        key: ExtensionSelectionKey,
+        seriesKey: String,
+        providerSeason: Int,
+        providerFirstEpisode: Int,
+        anilistFirstEpisode: Int,
+        episodeCount: Int,
+    ) {
+        val state = mutableUiState.value
+        if (state.episodeMappingSaveState == EpisodeMappingSaveState.SAVING) return
+        val mediaId = state.details?.id ?: return
+        val provider = state.extensionNavigation.mappingProviders.singleOrNull { it.key == key }
+        if (provider == null || NavigationCapability.EPISODE_NAVIGATION !in provider.capabilities ||
+            !isValidProviderSeriesKey(seriesKey)
+        ) {
+            mutableUiState.update { it.copy(episodeMappingSaveState = EpisodeMappingSaveState.FAILED) }
+            return
+        }
+
+        val segment = try {
+            ProviderEpisodeSegment(
+                key = key,
+                mediaId = mediaId,
+                seriesKey = seriesKey,
+                sourceSeason = providerSeason,
+                providerFirst = providerFirstEpisode,
+                canonicalFirst = anilistFirstEpisode,
+                count = episodeCount,
+            )
+        } catch (_: IllegalArgumentException) {
+            mutableUiState.update { it.copy(episodeMappingSaveState = EpisodeMappingSaveState.FAILED) }
+            return
+        }
+
+        episodeMappingJob?.cancel()
+        mutableUiState.update { it.copy(episodeMappingSaveState = EpisodeMappingSaveState.SAVING) }
+        episodeMappingJob = viewModelScope.launch {
+            try {
+                providerNavigationProductRepository.setEpisodeMapping(segment)
+                mutableUiState.update { it.copy(episodeMappingSaveState = EpisodeMappingSaveState.SAVED) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                mutableUiState.update { it.copy(episodeMappingSaveState = EpisodeMappingSaveState.FAILED) }
+            }
+        }
+    }
+
+    override fun clearEpisodeMappingFeedback() {
+        mutableUiState.update { state ->
+            if (state.episodeMappingSaveState == EpisodeMappingSaveState.SAVING) state
+            else state.copy(episodeMappingSaveState = EpisodeMappingSaveState.IDLE)
+        }
+    }
+
+    private fun ProviderNavigationResult.unavailableReasonOrNull() =
+        (this as? ProviderNavigationResult.Unavailable)?.reason
+
+    private fun runNavigationAction(
+        failureOnException: NavigationUnavailableReason = NavigationUnavailableReason.LAUNCH_FAILED,
+        action: suspend () -> NavigationUnavailableReason?,
+    ) {
+        navigationActionJob?.cancel()
+        val actionId = ++navigationActionId
+        navigationActionActive = true
+        navigationActionFailure = null
+        mutableUiState.update { state ->
+            state.copy(extensionNavigation = state.extensionNavigation.copy(loading = true, failure = null))
+        }
+        navigationActionJob = viewModelScope.launch {
+            var failure: NavigationUnavailableReason? = null
+            try {
+                failure = action()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                failure = failureOnException
+            } finally {
+                if (navigationActionId == actionId) {
+                    navigationActionActive = false
+                    navigationActionFailure = failure
+                    mutableUiState.update { state ->
+                        state.copy(
+                            extensionNavigation = state.extensionNavigation.copy(
+                                loading = false,
+                                failure = failure,
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     override fun onUpdateListEntry(newListEntry: BasicMediaListEntry?) {
         if (mutableUiState.value.details?.mediaListEntry?.basicMediaListEntry != newListEntry) {
@@ -51,13 +236,62 @@ class MediaDetailsViewModel(
                                     mediaId = uiState.details.id,
                                     basicMediaListEntry = newListEntry,
                                 )
-                        }
-                        else null
+                        } else null
                     )
                 )
             }
         }
     }
+
+    override fun changeNotificationAllowance(type: AiringNotificationType, value: Boolean) {
+        mutableUiState.update { state ->
+            if (!state.notificationAllowancesLoaded || state.notificationAllowancesSaving) {
+                return@update state
+            }
+            val changed = when (type) {
+                AiringNotificationType.START -> state.copy(allowStartNotifications = value)
+                AiringNotificationType.AIRING -> state.copy(allowAiringNotifications = value)
+                AiringNotificationType.END -> state.copy(allowEndNotifications = value)
+            }
+            changed.copy(
+                notificationAllowancesDirty = changed.notificationAllowances() != notificationAllowanceBaseline,
+            )
+        }
+    }
+
+    override fun writeNotificationAllowanceToDatabase() {
+        val state = mutableUiState.value
+        if (!state.notificationAllowancesLoaded || !state.notificationAllowancesDirty ||
+            state.notificationAllowancesSaving
+        ) return
+        // Freeze editing while the saved snapshot is in flight.
+        mutableUiState.update { it.copy(notificationAllowancesSaving = true) }
+        viewModelScope.launch {
+            try {
+                animeNotificationsRepository.upsertNotification(
+                    animeId = arguments.id,
+                    allowStartAiring = state.allowStartNotifications,
+                    allowAiringEpisode = state.allowAiringNotifications,
+                    allowFinishAiring = state.allowEndNotifications,
+                    episodeCount = state.details?.basicMediaDetails?.episodes,
+                )
+                notificationAllowanceBaseline = state.notificationAllowances()
+                mutableUiState.update {
+                    it.copy(notificationAllowancesDirty = false, notificationAllowancesSaving = false)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableUiState.update {
+                    it.copy(notificationAllowancesSaving = false, error = error.message,
+                        errorId = if (error.message == null) R.string.unknown else null)
+                }
+            }
+        }
+    }
+
+    private fun MediaDetailsUiState.notificationAllowances() =
+        Triple(allowStartNotifications, allowAiringNotifications, allowEndNotifications)
 
     override fun toggleFavorite() {
         mutableUiState.value.details?.let { details ->
@@ -127,9 +361,11 @@ class MediaDetailsViewModel(
                             uiState.copy(
                                 isSuccessStats = true,
                                 mediaStatusDistribution = result.data?.stats?.statusDistribution
-                                    ?.mapNotNull { it?.asStat() }.orEmpty(),
+                                    ?.mapNotNull { it?.asStat() }?.toImmutableList()
+                                    ?: persistentListOf(),
                                 mediaScoreDistribution = result.data?.stats?.scoreDistribution
-                                    ?.mapNotNull { it?.asStat() }.orEmpty(),
+                                    ?.mapNotNull { it?.asStat() }?.toImmutableList()
+                                    ?: persistentListOf(),
                                 mediaRankings = result.data?.rankings?.filterNotNull().orEmpty()
                             )
                         }
@@ -207,7 +443,9 @@ class MediaDetailsViewModel(
     override fun showVoiceActorsSheet(character: MediaCharacter) {
         mutableUiState.update { uiState ->
             uiState.copy(
-                selectedCharacterVoiceActors = character.voiceActors?.mapNotNull { it?.commonVoiceActor },
+                selectedCharacterVoiceActors = character.voiceActors
+                    ?.mapNotNull { it?.commonVoiceActor }
+                    ?.toImmutableList(),
                 showVoiceActorsSheet = true
             )
         }
@@ -217,17 +455,24 @@ class MediaDetailsViewModel(
         mutableUiState.update { it.copy(showVoiceActorsSheet = false) }
     }
 
-    override fun onVoteClick(recommendedMediaId: Int, recommendationId: Int, rating: RecommendationRating) {
+    override fun onVoteClick(
+        recommendedMediaId: Int,
+        recommendationId: Int,
+        rating: RecommendationRating
+    ) {
         if (!arguments.isLoggedIn) {
             mutableUiState.update { it.copy(errorId = R.string.not_logged_text) }
             return
         }
 
         val recommendations = mutableUiState.value.relationsAndRecommendations?.recommendations
-        val targetNode = recommendations?.find { it.mediaRecommended.id == recommendationId } ?: return
+        val targetNode =
+            recommendations?.find { it.mediaRecommended.id == recommendationId } ?: return
 
         val previousUserRating = targetNode.mediaRecommended.userRating
-        val newRating = if (previousUserRating == rating) RecommendationRating.NO_RATING else rating // if the new rating is the same as the old one remove the rating
+        // if the new rating is the same as the old one remove the rating
+        val newRating =
+            if (previousUserRating == rating) RecommendationRating.NO_RATING else rating
 
         mediaRepository.saveRecommendation(
             mediaId = arguments.id, // base media id
@@ -241,10 +486,8 @@ class MediaDetailsViewModel(
                         if (node.mediaRecommended.id == recommendationId) {
                             node.copy(
                                 mediaRecommended = node.mediaRecommended.copy(
-                                    rating = result.data.SaveRecommendation?.rating
-                                        ?: node.mediaRecommended.rating,
-                                    userRating = result.data.SaveRecommendation?.userRating
-                                        ?: newRating
+                                    rating = result.data?.rating ?: node.mediaRecommended.rating,
+                                    userRating = result.data?.userRating ?: newRating
                                 )
                             )
                         } else node
@@ -259,6 +502,25 @@ class MediaDetailsViewModel(
         }.launchIn(viewModelScope)
     }
 
+    override fun addRecommendation(media: MediaRecommended) {
+        val newRecommendation = MediaRelationsAndRecommendationsQuery.Node(
+            __typename = "MediaRelationsAndRecommendationsQuery.Node",
+            id = media.id,
+            mediaRecommended = media
+        )
+
+        mutableUiState.update { state ->
+            val currentRelAndRecs = state.relationsAndRecommendations
+            if (currentRelAndRecs != null) {
+                val updatedRecs = listOf(newRecommendation) + currentRelAndRecs.recommendations
+                    .filterNot { media.mediaRecommendation?.id == it.mediaRecommended.mediaRecommendation?.id }
+                state.copy(relationsAndRecommendations = currentRelAndRecs.copy(recommendations = updatedRecs))
+            } else {
+                state
+            }
+        }
+    }
+
     private suspend fun fetchAnimeThemes(idMal: Int) {
         mediaRepository.getAnimeThemes(idMal = idMal)?.let {
             mutableUiState.update { state ->
@@ -271,6 +533,101 @@ class MediaDetailsViewModel(
     }
 
     init {
+        viewModelScope.launch {
+            try {
+                val saved = animeNotificationsRepository.getAnimeNotificationById(arguments.id)
+                val baseline = Triple(
+                    saved?.allowStartAiring ?: true,
+                    saved?.allowNewEpisode ?: true,
+                    saved?.allowFinishAiring ?: false,
+                )
+                notificationAllowanceBaseline = baseline
+                mutableUiState.update { state ->
+                    // Controls and event handler remain disabled until this snapshot is loaded.
+                    if (state.notificationAllowancesDirty) state else state.copy(
+                        notificationAllowancesLoaded = true,
+                        allowStartNotifications = baseline.first,
+                        allowAiringNotifications = baseline.second,
+                        allowEndNotifications = baseline.third,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableUiState.update {
+                    it.copy(error = error.message,
+                        errorId = if (error.message == null) R.string.unknown else null)
+                }
+            }
+        }
+
+        defaultPreferencesRepository.userId
+            .distinctUntilChanged()
+            .flatMapLatest { accountId ->
+                releasePresentationRepository.observeForMedia(
+                    accountId = accountId?.toLong(),
+                    mediaIds = setOf(arguments.id),
+                )
+            }
+            .onEach { rows ->
+                mutableUiState.update { it.copy(releasePresentations = rows[arguments.id].orEmpty()) }
+            }
+            .launchIn(viewModelScope)
+
+        mutableUiState
+            .mapNotNull { state ->
+                state.details?.let { details ->
+                    val request = if (details.basicMediaDetails.isAnime()) DetailMappingRequest(
+                        mediaId = details.id,
+                        titles = (setOfNotNull(details.title?.userPreferred, details.title?.romaji,
+                            details.title?.english, details.title?.native) + details.synonyms.orEmpty().filterNotNull())
+                            .map(String::trim).filter { it.isNotBlank() && it.length <= 512 }.take(64).toSet(),
+                        format = details.basicMediaDetails.format?.name,
+                        startYear = details.startDate?.fuzzyDate?.year,
+                    ) else null
+                    details.id to request
+                }
+            }
+            .distinctUntilChanged()
+            .flatMapLatest { (mediaId, request) ->
+                val progress = mutableUiState.mapNotNull { state ->
+                    state.details?.takeIf { it.id == mediaId }?.let {
+                        it.mediaListEntry?.basicMediaListEntry?.progress ?: -1
+                    }
+                }
+                progress.observeNavigationAfterDetailMapping(
+                    mediaId = mediaId,
+                    request = request,
+                    ensureDetailMapping = { detailRequest ->
+                        matchingManagementRepository.ensureDetailMapping(detailRequest)
+                    },
+                    observe = providerNavigationProductRepository::observe,
+                )
+            }
+            .onEach { productState ->
+                mutableUiState.update { state ->
+                    state.copy(
+                        extensionNavigation = productState.copy(
+                            loading = productState.loading || navigationActionActive,
+                            failure = navigationActionFailure ?: productState.failure,
+                        )
+                    )
+                }
+            }
+            .catch { error ->
+                if (error is CancellationException) throw error
+                navigationActionFailure = NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE
+                mutableUiState.update { state ->
+                    state.copy(
+                        extensionNavigation = state.extensionNavigation.copy(
+                            loading = false,
+                            failure = NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE,
+                        )
+                    )
+                }
+            }
+            .launchIn(viewModelScope)
+
         defaultPreferencesRepository.coloredMedia
             .onEach { value ->
                 mutableUiState.update { it.copy(coloredMedia = value) }
@@ -303,12 +660,17 @@ class MediaDetailsViewModel(
             }
             .launchIn(viewModelScope)
 
+        defaultPreferencesRepository.isNotificationsEnabled
+            .onEach { value ->
+                mutableUiState.update { it.copy(notificationsEnabled = value) }
+            }
+            .launchIn(viewModelScope)
+
         mutableUiState
             .mapNotNull { it.details?.basicMediaDetails?.type }
             .distinctUntilChanged()
             .onEach { mediaType ->
-                defaultPreferencesRepository.customLinks(mediaType)
-                    .filterNotNull()
+                customLinksRepository.getAllCustomLinks(mediaType)
                     .collectLatest { value ->
                         mutableUiState.update { it.copy(customLinks = value) }
                     }

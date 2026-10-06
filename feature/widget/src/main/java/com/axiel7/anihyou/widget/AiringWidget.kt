@@ -3,12 +3,21 @@ package com.axiel7.anihyou.widget
 import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Clock
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import androidx.datastore.preferences.core.Preferences
+import com.apollographql.cache.normalized.FetchPolicy
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
@@ -22,7 +31,7 @@ import androidx.glance.appwidget.CircularProgressIndicator
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.actionStartActivity
-import androidx.glance.appwidget.components.Scaffold
+import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.itemsIndexed
@@ -32,7 +41,6 @@ import androidx.glance.color.ColorProvider
 import androidx.glance.color.DynamicThemeColorProviders
 import androidx.glance.currentState
 import androidx.glance.layout.Alignment
-import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
@@ -51,11 +59,13 @@ import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import com.axiel7.anihyou.core.base.APP_PACKAGE_NAME
 import com.axiel7.anihyou.core.base.DataResult
-import com.axiel7.anihyou.core.base.UNKNOWN_CHAR
-import com.axiel7.anihyou.core.common.utils.DateUtils.timestampToDateString
-import com.axiel7.anihyou.core.common.utils.DateUtils.timestampToTimeString
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
+import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
+import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
+import com.axiel7.anihyou.release.core.sync.ReleaseSourceTimePolicy
+import com.axiel7.anihyou.release.core.model.Installment
+import com.axiel7.anihyou.release.core.model.ReleaseKind
 import com.axiel7.anihyou.core.model.DeepLink
 import com.axiel7.anihyou.core.model.media.exampleAiringWidgetEntry
 import com.axiel7.anihyou.core.network.AiringWidgetQuery
@@ -72,28 +82,55 @@ import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
+private val ANI_WORLD_SOURCE_ZONE: ZoneId = ReleaseSourceTimePolicy.ANI_WORLD_ZONE
+
+internal data class WidgetAiringItem(
+    val eventKey: String,
+    val media: AiringWidgetQuery.Medium?,
+    val releaseRows: List<ReleaseUiCalendarItem>,
+)
+
 class AiringWidget : GlanceAppWidget(), KoinComponent {
 
     private val networkVariables: NetworkVariables by inject()
     private val defaultPreferencesRepository: DefaultPreferencesRepository by inject()
     private val mediaRepository: MediaRepository by inject()
+    private val releasePresentationRepository: ReleasePresentationRepository by inject()
+    private val clock: Clock by inject()
 
     override val stateDefinition = PreferencesGlanceStateDefinition
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         networkVariables.accessToken = defaultPreferencesRepository.accessToken.first()
 
-        val result = mediaRepository.getAiringWidgetData(page = 1, perPage = 50)
+        val today = clock.instant().atZone(ANI_WORLD_SOURCE_ZONE).toLocalDate()
+        val accountId = defaultPreferencesRepository.userId.first()?.toLong()
+        val providerRows = runCatching {
+            releasePresentationRepository.currentCalendar(accountId = accountId, range = today..today.plusDays(14))
+        }.getOrDefault(emptyList()).filter { it.isAuthoritative }
+
+        val cachedResult = mediaRepository.getAiringWidgetData(
+            page = 1,
+            perPage = 50,
+            fetchPolicy = FetchPolicy.CacheOnly,
+        )
         provideContent {
             val scope = rememberCoroutineScope()
             val prefs = currentState<Preferences>()
             val isColored = prefs[IS_COLORED_KEY] ?: true
+            val resultState = remember { mutableStateOf(cachedResult) }
+            LaunchedEffect(Unit) {
+                resultState.value = mediaRepository.getAiringWidgetData(
+                    page = 1, perPage = 50, fetchPolicy = FetchPolicy.NetworkFirst,
+                )
+            }
 
             GlanceTheme(colors = DynamicThemeColorProviders) {
                 Content(
-                    result = result,
+                    result = resultState.value,
                     isColored = isColored,
                     onRefresh = { scope.launch { update(context, id) } },
+                    providerRows = providerRows,
                 )
             }
         }
@@ -129,35 +166,61 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
         result: DataResult<List<AiringWidgetQuery.Medium>>,
         isColored: Boolean,
         onRefresh: () -> Unit,
+        providerRows: List<ReleaseUiCalendarItem> = emptyList(),
     ) {
-        val todayString = (System.currentTimeMillis() / 1000).timestampToDateString("yyyy-MM-dd")
+        val unsortedItems = mergeWidgetAiringItems((result as? DataResult.Success)?.data.orEmpty(), providerRows)
 
-        Scaffold(
-            horizontalPadding = 0.dp
+        fun providerTimestampFor(item: WidgetAiringItem): Long? {
+            val providerTimestamp = item.releaseRows.minOfOrNull { release ->
+                release.forecastAt?.epochSecond
+                    ?: release.sourceDate?.atStartOfDay(ANI_WORLD_SOURCE_ZONE)?.toEpochSecond()
+                    ?: Long.MAX_VALUE
+            }?.takeIf { it != Long.MAX_VALUE }
+            return if (item.releaseRows.isNotEmpty()) {
+                providerTimestamp
+            } else {
+                item.media?.nextAiringEpisode?.airingAt?.toLong()
+            }
+        }
+
+        val widgetItems = unsortedItems.sortedWith(
+            compareBy<WidgetAiringItem> { providerTimestampFor(it) ?: Long.MAX_VALUE }.thenBy { it.eventKey },
+        )
+
+        val todayString = clock.instant().atZone(ANI_WORLD_SOURCE_ZONE).toLocalDate().toString()
+
+        RoundedDrawableBox(
+            shapeRes = R.drawable.widget_background_24,
+            color = GlanceTheme.colors.widgetBackground,
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .appWidgetBackground()
+                .widgetCornerRadius()
         ) {
             LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
                 item(itemId = 0) {
                     Header(onRefresh = onRefresh)
                 }
-                if (result is DataResult.Success) {
+                if (result is DataResult.Success || providerRows.isNotEmpty()) {
                     itemsIndexed(
-                        items = result.data,
-                        itemId = { _, item -> item.id.toLong() }
+                        items = widgetItems,
+                        itemId = { _, item -> stableWidgetId(item.eventKey) }
                     ) { index, item ->
-                        val currentDay = item.nextAiringEpisode?.airingAt?.toLong()
-                            ?.timestampToDateString("yyyy-MM-dd")
+                        val currentDay = providerTimestampFor(item)
+                            ?.let { it.sourceDateString("yyyy-MM-dd") }
                         val previousDay = if (index > 0) {
-                            result.data[index - 1].nextAiringEpisode?.airingAt?.toLong()
-                                ?.timestampToDateString("yyyy-MM-dd")
+                            providerTimestampFor(widgetItems[index - 1])
+                                ?.let { it.sourceDateString("yyyy-MM-dd") }
                         } else null
 
                         val showDate = currentDay != previousDay
                         val isToday = currentDay == todayString
                         ItemView(
-                            item = item,
+                            item = item.media,
                             showDate = showDate,
                             isToday = isToday,
-                            isColored = isColored
+                            isColored = isColored,
+                            releasePresentations = item.releaseRows,
                         )
                     }
                 } else {
@@ -172,7 +235,7 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                             } else if (result is DataResult.Error) {
                                 Text(
                                     text = result.message,
-                                    modifier = GlanceModifier.padding(bottom = 8.dp),
+                                    modifier = GlanceModifier.padding(24.dp),
                                     style = TextStyle(color = GlanceTheme.colors.onSurface)
                                 )
                             }
@@ -186,9 +249,7 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
     @Composable
     private fun Header(onRefresh: () -> Unit) {
         Row(
-            modifier = GlanceModifier
-                .fillMaxWidth()
-                .padding(vertical = 10.dp),
+            modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Spacer(modifier = GlanceModifier.width(20.dp))
@@ -200,14 +261,22 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                     fontSize = 16.sp,
                 ),
                 maxLines = 1,
-                modifier = GlanceModifier.defaultWeight()
+                modifier = GlanceModifier
+                    .defaultWeight()
+                    .padding(vertical = 10.dp)
+                    .clickable(
+                        onClick = LocalContext.current.openDeepLink(
+                            DeepLink(type = DeepLink.Type.CALENDAR, id = "")
+                        )
+                    )
             )
 
-            Box(
+            RoundedDrawableBox(
+                shapeRes = R.drawable.widget_refresh_bg_20,
+                color = GlanceTheme.colors.primary,
                 modifier = GlanceModifier
                     .width(54.dp)
                     .height(32.dp)
-                    .background(GlanceTheme.colors.primary)
                     .cornerRadius(20.dp)
                     .clickable(onRefresh),
                 contentAlignment = Alignment.Center
@@ -225,18 +294,41 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
 
     @Composable
     private fun ItemView(
-        item: AiringWidgetQuery.Medium,
+        item: AiringWidgetQuery.Medium?,
         showDate: Boolean,
         isToday: Boolean,
-        isColored: Boolean
+        isColored: Boolean,
+        releasePresentations: List<ReleaseUiCalendarItem> = emptyList(),
+        releasePresentation: ReleaseUiCalendarItem? = null,
     ) {
-        val timestamp = item.nextAiringEpisode?.airingAt?.toLong()
-        val dayOfWeek = timestamp?.timestampToDateString("E").orEmpty()
-        val dayOfMonth = timestamp?.timestampToDateString("d").orEmpty()
+        val presentations = if (releasePresentations.isNotEmpty()) {
+            releasePresentations
+        } else {
+            releasePresentation?.let(::listOf).orEmpty()
+        }
+        val providerTimestamp = presentations.minOfOrNull { release ->
+            release.forecastAt?.epochSecond
+                ?: release.sourceDate?.atStartOfDay(ANI_WORLD_SOURCE_ZONE)?.toEpochSecond()
+                ?: Long.MAX_VALUE
+        }?.takeIf { it != Long.MAX_VALUE }
+        val timestamp = if (presentations.isNotEmpty()) {
+            providerTimestamp
+        } else {
+            item?.nextAiringEpisode?.airingAt?.toLong()
+        }
+        val sourceDateTime = timestamp?.let {
+            Instant.ofEpochSecond(it).atZone(ANI_WORLD_SOURCE_ZONE)
+        }
+        val dayOfWeek = sourceDateTime
+            ?.format(DateTimeFormatter.ofPattern("E", Locale.getDefault()))
+            .orEmpty()
+        val dayOfMonth = sourceDateTime
+            ?.format(DateTimeFormatter.ofPattern("d", Locale.getDefault()))
+            .orEmpty()
 
-        val baseMediaColor = remember(item.coverImage?.color, isColored) {
+        val baseMediaColor = remember(item?.coverImage?.color, isColored) {
             if (isColored) {
-                item.coverImage?.color?.takeIf { it.isNotBlank() }?.let { hex ->
+                item?.coverImage?.color?.takeIf { it.isNotBlank() }?.let { hex ->
                     runCatching { colorFromHex(hex) }.getOrNull()
                 }
             } else null
@@ -244,10 +336,13 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
 
         val primaryColor = GlanceTheme.colors.primary.getColor(LocalContext.current)
 
-        val backgroundModifier = if (baseMediaColor != null) {
-            GlanceModifier.background(baseMediaColor.harmonize(primaryColor).darken(2f))
+        val backgroundColor = if (baseMediaColor != null) {
+            ColorProvider(
+                day = baseMediaColor.harmonize(primaryColor).darken(2f),
+                night = baseMediaColor.harmonize(primaryColor).darken(2f)
+            )
         } else {
-            GlanceModifier.background(GlanceTheme.colors.secondaryContainer)
+            GlanceTheme.colors.secondaryContainer
         }
         val defaultTextColor = GlanceTheme.colors.onSecondaryContainer
 
@@ -269,24 +364,17 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                     .padding(horizontal = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                val dateSize = 38.dp
                 if (showDate) {
-                    val dateModifier = if (isToday) {
-                        GlanceModifier
-                            .size(38.dp)
-                            .background(GlanceTheme.colors.primary)
-                            .cornerRadius(38.dp)
-                    } else {
-                        GlanceModifier
-                            .size(38.dp)
-                            .background(Color.Transparent)
-                    }
-
-                    Column(
-                        modifier = dateModifier,
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        if (isToday) {
+                    if (isToday) {
+                        RoundedDrawableBox(
+                            shapeRes = R.drawable.widget_date_circle_bg,
+                            color = GlanceTheme.colors.primary,
+                            modifier = GlanceModifier
+                                .size(dateSize)
+                                .cornerRadius(38.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Text(
                                 text = "$dayOfWeek\n$dayOfMonth",
                                 style = TextStyle(
@@ -297,7 +385,15 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                                 ),
                                 maxLines = 2,
                             )
-                        } else {
+                        }
+                    } else {
+                        Column(
+                            modifier = GlanceModifier
+                                .size(dateSize)
+                                .background(Color.Transparent),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
                             Text(
                                 text = dayOfWeek,
                                 style = TextStyle(
@@ -320,58 +416,82 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                         }
                     }
                 } else {
-                    Spacer(modifier = GlanceModifier.width(36.dp))
+                    Spacer(modifier = GlanceModifier.width(dateSize))
                 }
             }
 
-            Column(
-                modifier = backgroundModifier
+            RoundedDrawableBox(
+                shapeRes = R.drawable.widget_airing_bg_12,
+                color = backgroundColor,
+                modifier = GlanceModifier
                     .defaultWeight()
                     .cornerRadius(12.dp)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .clickable(
-                        actionStartActivity(
-                            LocalContext.current.packageManager
-                                .getLaunchIntentForPackage(APP_PACKAGE_NAME)
-                                ?.apply {
-                                    action = DeepLink.Type.ANIME.intentAction
-                                    putExtra("content_id", item.id)
-                                    putExtra("widget", true)
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                                    addCategory(item.id.toString())
-                                } ?: Intent()
-                        )
+                    .then(
+                        item?.id?.let { mediaId ->
+                            GlanceModifier.clickable(
+                                onClick = LocalContext.current.openDeepLink(
+                                    DeepLink(
+                                        type = DeepLink.Type.ANIME,
+                                        id = mediaId.toString(),
+                                    )
+                                )
+                            )
+                        } ?: GlanceModifier
                     )
             ) {
-                Text(
-                    text = item.title?.userPreferred.orEmpty(),
-                    style = TextStyle(
-                        color = textColor,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    ),
-                    maxLines = 1
-                )
-                Text(
-                    text = item.nextAiringEpisode?.let { nextAiringEpisode ->
-                        glanceStringResource(
-                            R.string.episode_airing_at,
-                            nextAiringEpisode.episode,
-                            nextAiringEpisode.airingAt.toLong().timestampToTimeString()
-                                ?: UNKNOWN_CHAR
-                        )
-                    } ?: glanceStringResource(R.string.unknown),
-                    style = TextStyle(
-                        color = textColor,
-                        fontSize = 13.sp
-                    ),
-                    maxLines = 1
-                )
+                Column(
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = item?.title?.userPreferred.orEmpty()
+                            .ifBlank { glanceStringResource(R.string.release_provider_only) },
+                        style = TextStyle(
+                            color = textColor,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        maxLines = 1
+                    )
+                    val providerText = presentations
+                        .filter { it.isAuthoritative }
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { releases ->
+                            val context = LocalContext.current
+                            releases.joinToString("\n") { it.widgetText(context) }
+                        }
+                    Text(
+                        text = providerText ?: item?.nextAiringEpisode?.let { nextAiringEpisode ->
+                            glanceStringResource(
+                                R.string.episode_airing_at,
+                                nextAiringEpisode.episode,
+                                nextAiringEpisode.airingAt.toLong().sourceTimeString()
+                            )
+                        } ?: glanceStringResource(R.string.unknown),
+                        style = TextStyle(
+                            color = textColor,
+                            fontSize = 13.sp
+                        ),
+                        maxLines = 1
+                    )
+                }
             }
 
         }
     }
+
+    private fun Context.openDeepLink(deepLink: DeepLink) =
+        actionStartActivity(
+            packageManager.getLaunchIntentForPackage(APP_PACKAGE_NAME)?.apply {
+                action = deepLink.type.intentAction
+                putExtra("content_id", deepLink.id)
+                putExtra("widget", true)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addCategory(deepLink.id)
+            } ?: Intent()
+        )
 
     @OptIn(ExperimentalGlancePreviewApi::class)
     @Preview(widthDp = 255, heightDp = 150)
@@ -398,6 +518,51 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
     }
 }
 
+
+private fun Long.sourceDateString(pattern: String): String =
+    DateTimeFormatter.ofPattern(pattern, Locale.getDefault())
+        .format(Instant.ofEpochSecond(this).atZone(ANI_WORLD_SOURCE_ZONE))
+
+private fun Long.sourceTimeString(): String =
+    DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
+        .format(Instant.ofEpochSecond(this).atZone(ANI_WORLD_SOURCE_ZONE))
+
+private fun stableWidgetId(eventKey: String): Long {
+    var hash = 1_125_899_906_842_597L
+    eventKey.forEach { character ->
+        hash = hash * 31L + character.code
+    }
+    return hash.takeIf { it != 0L } ?: 1L
+}
+
+/** The original wording of the widget ("Ep 3 airing at 14:30") with the data of the release source. */
+private fun ReleaseUiCalendarItem.widgetText(context: Context): String {
+    val episode = (installment as? Installment.Episode)?.number
+    val time = forecastAt?.epochSecond?.sourceTimeString()
+    return if (episode != null && time != null) {
+        context.getString(R.string.episode_airing_at, episode, time) +
+            when (stream.languageTrack) {
+                com.axiel7.anihyou.release.core.model.LanguageTrack.DE_SUB -> " · SUB"
+                com.axiel7.anihyou.release.core.model.LanguageTrack.DE_DUB -> " · DUB"
+                else -> ""
+            }
+    } else {
+        time.orEmpty()
+    }
+}
+
 class AiringWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = AiringWidget()
+}
+
+/** Source priority is per media, never an all-or-nothing replacement of the AniList widget list. */
+internal fun mergeWidgetAiringItems(
+    media: List<AiringWidgetQuery.Medium>, releases: List<ReleaseUiCalendarItem>,
+): List<WidgetAiringItem> {
+    val metadata = media.associateBy { it.id }
+    val authoritative = releases.filter { it.isAuthoritative }.distinctBy { it.eventKey }
+    val coveredMedia = authoritative.mapNotNull { it.mediaId }.toSet()
+    return authoritative.map { WidgetAiringItem(it.eventKey, it.mediaId?.let(metadata::get), listOf(it)) } +
+        media.distinctBy { it.id }.filter { it.id !in coveredMedia }
+            .map { WidgetAiringItem("anilist-media-${it.id}", it, emptyList()) }
 }

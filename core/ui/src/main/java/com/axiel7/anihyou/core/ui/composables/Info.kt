@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.composables.common.MoreLessButton
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 @Composable
 fun InfoItemView(
@@ -49,7 +51,7 @@ fun InfoItemView(
             text = title,
             modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
         )
         Column(
             modifier = Modifier
@@ -63,7 +65,7 @@ fun InfoItemView(
                     onTextLayout = {
                         showExpand = it.hasVisualOverflow
                     },
-                    style = MaterialTheme.typography.bodyLarge
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
             if (showExpand || isExpanded) {
@@ -79,21 +81,16 @@ fun InfoItemView(
 @Composable
 fun <T> InfoClickableItemView(
     title: String,
-    items: List<T>,
+    items: ImmutableList<T>,
     itemName: (T) -> String,
     onItemClicked: (T) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
-            .padding(vertical = 8.dp)
+            .padding(bottom = 8.dp)
     ) {
-        Text(
-            text = title,
-            modifier = Modifier.padding(horizontal = 16.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyLarge,
-        )
+        InfoTitle(text = title)
         Row(
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
@@ -151,7 +148,7 @@ private fun InfoPreviews() {
             InfoItemView(title = "Start Date", info = "1999")
             InfoClickableItemView(
                 title = "Studios",
-                items = listOf("MAPPA", "Kyoto Animation", "Shaft"),
+                items = persistentListOf("MAPPA", "Kyoto Animation", "Shaft"),
                 itemName = { it },
                 onItemClicked = {},
             )

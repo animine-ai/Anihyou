@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ <uses-permission android:name="android.permission.INTERNET" />
+ <application android:label="EP01 WASM Runtime Test" android:allowBackup="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false">
+  <activity android:name=".SpikeActivity" android:exported="true">
+   <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+  </activity>
+  <service android:name=".SpikeService" android:isolatedProcess="true" android:exported="false" android:process=":wasm" />
+ </application>
+ <instrumentation android:name=".SpikeInstrumentation" android:targetPackage="de.kiyori.ep01" android:label="EP01 Runtime Assertions" />
+</manifest>
