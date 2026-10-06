@@ -18,6 +18,12 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.CancellationException
+import com.axiel7.anihyou.release.core.log.AppLog
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
+import org.junit.Assert.fail
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -76,6 +82,40 @@ class AiringDayCandidatesTest {
         clock.now = clock.now.plusSeconds(4 * 3_600)
         source.airingCandidates(day)
         verify(exactly = 2) { media.getCalendarAiringEventsPage(any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun failedDayLogsItsReasonAndDoesNotBecomeACachedEmptyDay() = runBlocking {
+        val clock = MutableClock(Instant.parse("2026-10-05T06:00:00Z"))
+        val media = repository(emptyList())
+        every { media.getCalendarAiringEventsPage(any(), any(), any(), any(), any(), any(), any(), any()) } returns
+            flowOf(PagedResult.Error("rate limited"))
+        val cache = RoomIdentityCandidateStore(database, clock)
+        val source = AniListIdentityCandidateSource(mockk<SearchRepository>(), cache, clock, media)
+        val messages = mutableListOf<String>()
+        val previousSink = AppLog.sink
+        try {
+            AppLog.sink = AppLog.Sink { _, _, message, _ -> messages += message }
+            assertTrue(source.airingCandidates(day).isEmpty())
+            assertTrue(messages.any { it.contains("calendar day=$day page=1 reason=rate limited") })
+            assertNull(cache.readSeasonPoolMetadata("airing-day:$day", clock.instant()))
+            every { media.getCalendarAiringEventsPage(any(), any(), any(), any(), any(), any(), any(), any()) } returns
+                flowOf(PagedResult.Success(listOf(event(71, "Recovered Show")), 1, false))
+            assertEquals(listOf(71), source.airingCandidates(day).map { it.mediaId })
+        } finally { AppLog.sink = previousSink }
+    }
+
+    @Test fun cancelledDayPropagatesCancellationAndDoesNotCacheAnEmptyAnswer() = runBlocking {
+        val clock = MutableClock(Instant.parse("2026-10-05T06:00:00Z"))
+        val media = repository(emptyList())
+        every { media.getCalendarAiringEventsPage(any(), any(), any(), any(), any(), any(), any(), any()) } returns
+            flow { throw CancellationException("cancelled lookup") }
+        val cache = RoomIdentityCandidateStore(database, clock)
+        val source = AniListIdentityCandidateSource(mockk<SearchRepository>(), cache, clock, media)
+        try {
+            source.airingCandidates(day)
+            fail("cancellation must reach the caller")
+        } catch (expected: CancellationException) { assertEquals("cancelled lookup", expected.message) }
+        assertNull(cache.readSeasonPoolMetadata("airing-day:$day", clock.instant()))
     }
 
     @Test fun anEmptyDayIsAnAnswerToo() = runBlocking {

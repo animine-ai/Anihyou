@@ -126,6 +126,7 @@ class RoomMatchingManagementRepositoryTest {
         var targeted: List<IdentityCandidate> = emptyList()
         var localCalls = 0
         var targetedCalls = 0
+        var onLocal: suspend () -> Unit = {}
         /** The AniList entries of a season pool by its cache key, and which pools were asked for, in order. */
         var pools: Map<String, List<IdentityCandidate>> = emptyMap()
         val poolRequests = mutableListOf<String>()
@@ -145,6 +146,7 @@ class RoomMatchingManagementRepositoryTest {
         }
         override suspend fun localCandidates(keys: Set<SourceIdentity>): CandidateBatch {
             localCalls++
+            onLocal()
             return CandidateBatch(local, true)
         }
         override suspend fun targetedSearch(query: TargetedIdentityQuery): CandidateBatch {
@@ -491,6 +493,77 @@ class RoomMatchingManagementRepositoryTest {
         assertEquals(0, again.matched)
         assertEquals(1L, rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
             subject("aot", 1).stableKey, "anilist")!!.revision)
+    }
+
+    @Test fun explicitMatchRetriesAllResetEntriesButBackgroundRefreshKeepsThemRemoved() = runBlocking {
+        val rig = Rig()
+        // Reproduce the device log: 78 source subjects, 67 reset mappings, 11 genuinely unresolved titles.
+        val titles = (0 until 78).map { i -> "Reset Show ${('a' + i / 26)}${('a' + i % 26)}" }
+        titles.forEachIndexed { i, title ->
+            rig.seedSeries(Triple("show-$i", title, 1))
+            if (i < 67) rig.dao.upsertSourceMapping(sourceRow(keyA, "show-$i", 1, i + 1, MappingSource.MANUAL))
+        }
+        rig.candidates.library = titles.take(67).mapIndexed { i, title ->
+            IdentityCandidate(i + 1, setOf(title), "TV")
+        }
+        rig.dao.upsertSourceMapping(sourceRow(keyB, "other-source", 1, 999, MappingSource.MANUAL))
+        val token = rig.repository.capture(MappingScope.Source(keyA))
+        assertEquals(67, token.count)
+        assertEquals(MappingMutationResult.APPLIED, rig.repository.reset(token))
+        assertEquals(0, rig.service.autoMatchPending().matched)
+        assertEquals(78, rig.service.matchingStatistics(keyA).unmatched)
+        val report = rig.service.matchPendingNow()
+        assertEquals(78, report.examined)
+        assertEquals(67, report.matched)
+        assertEquals(0, report.searches)
+        assertEquals(11, rig.repository.observeUnmatched().first().size)
+        assertEquals(listOf("999"), rig.effective(keyB))
+        val fenceKey = "${MappingEntryIds.sourceKey(keyA)}|${subject("show-0", 1).stableKey}|anilist"
+        assertEquals("retry must preserve the reset fence", 1L,
+            rig.fence.epoch(MappingEntryRef.FENCE_V3_SOURCE, fenceKey))
+    }
+
+    @Test fun explicitSearchCanBindAResetEntryAndClearsItsUnmatchedSuggestion() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("aot", "Attack on Titan", 1))
+        rig.dao.upsertSourceMapping(sourceRow(keyA, "aot", 1, 99, MappingSource.MANUAL))
+        val token = rig.repository.capture(MappingScope.Source(keyA))
+        assertEquals(MappingMutationResult.APPLIED, rig.repository.reset(token))
+        rig.candidates.targeted = listOf(IdentityCandidate(7, setOf("Attack on Titan"), "TV"))
+        val report = rig.service.searchPendingNow()
+        assertEquals(1, report.examined)
+        assertEquals(1, report.matched)
+        assertEquals(1, report.searches)
+        assertEquals(1, rig.candidates.targetedCalls)
+        assertTrue(rig.repository.observeUnmatched().first().isEmpty())
+        assertEquals(0, rig.service.autoMatchPending().examined)
+    }
+
+    @Test fun explicitSearchBudgetCountsFastLookupsAndStopsAtEight() = runBlocking {
+        val rig = Rig()
+        (0 until 12).forEach { i -> rig.seedSeries(Triple("open-$i", "Unresolved Show $i", 1)) }
+        val report = rig.service.searchPendingNow()
+        assertEquals(12, report.examined)
+        assertEquals(0, report.matched)
+        assertEquals(8, report.searches)
+        assertEquals("instant failures/cache answers also consume the bounded lookup budget", 8, rig.candidates.targetedCalls)
+        assertEquals(12, rig.repository.observeUnmatched().first().size)
+    }
+
+    @Test fun resetDuringPreparationBlocksTheWriteAndIsNotReportedAsAMatch() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("aot", "Attack on Titan", 1))
+        val fenceKey = "${MappingEntryIds.sourceKey(keyA)}|${subject("aot", 1).stableKey}|anilist"
+        rig.fence.bump(MappingEntryRef.FENCE_V3_SOURCE, fenceKey, t0)
+        rig.candidates.local = listOf(IdentityCandidate(7, setOf("Attack on Titan"), "TV"))
+        rig.candidates.onLocal = { rig.fence.bump(MappingEntryRef.FENCE_V3_SOURCE, fenceKey, t0) }
+        val report = rig.service.matchPendingNow()
+        assertEquals(1, report.examined)
+        assertEquals(0, report.matched)
+        assertEquals(1, rig.repository.observeUnmatched().first().size)
+        assertEquals(2L, rig.fence.epoch(MappingEntryRef.FENCE_V3_SOURCE, fenceKey))
+        assertNull(rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("aot", 1).stableKey, "anilist"))
     }
 
     @Test fun unmatchedListsTheSeriesWithoutBindingAndAssignWritesAManualBindingOnce() = runBlocking {

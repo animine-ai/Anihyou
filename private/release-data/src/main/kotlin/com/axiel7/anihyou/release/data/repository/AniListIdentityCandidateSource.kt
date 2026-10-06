@@ -1,6 +1,8 @@
 package com.axiel7.anihyou.release.data.repository
 
 import com.axiel7.anihyou.core.base.PagedResult
+import com.axiel7.anihyou.release.core.log.AppLog
+import kotlinx.coroutines.CancellationException
 import com.axiel7.anihyou.core.domain.repository.SearchRepository
 import com.axiel7.anihyou.core.network.SearchMediaQuery
 import com.axiel7.anihyou.core.network.type.MediaFormat
@@ -54,12 +56,12 @@ class AniListIdentityCandidateSource(
         var page = 1
         var complete = false
         while (page <= AIRING_DAY_MAX_PAGES) {
-            val result = runCatching {
+            val result = lookup("calendar day=$day page=$page") {
                 repository.getCalendarAiringEventsPage(
                     airingAtGreater = from, airingAtLesser = to, onMyList = null, isAdult = true,
                     page = page, perPage = AIRING_PAGE_SIZE, fetchFromNetwork = false,
                 ).first { it !is PagedResult.Loading }
-            }.getOrNull() as? PagedResult.Success ?: break
+            } as? PagedResult.Success ?: break
             result.list.forEach { event ->
                 val id = event.media.id
                 if (id > 0 && id !in byMedia) {
@@ -84,6 +86,20 @@ class AniListIdentityCandidateSource(
                 complete = true, nextCursor = null, fetchedAt = now, expiresAt = expiresAt, pagesFetched = page))
         }
         return found
+    }
+
+    /** Failed requests are not empty successful pools; retain the reason and always propagate cancellation. */
+    private suspend fun <T> lookup(stage: String, block: suspend () -> PagedResult<T>): PagedResult<T>? = try {
+        block().also { result ->
+            if (result is PagedResult.Error) AppLog.w("matching") {
+                "AniList candidates unavailable $stage reason=${result.message.take(200).replace('\n', ' ')}"
+            }
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        AppLog.w("matching", failure) { "AniList candidate request failed $stage" }
+        null
     }
 
     override suspend fun readTargetedLookupCursor(providerId: String): TargetedLookupCursor =
@@ -145,7 +161,7 @@ class AniListIdentityCandidateSource(
         var successfulPages = 0
 
         while (successfulPages < request.maxPages && !complete) {
-            val result = runCatching {
+            val result = lookup("season pool=$poolKey page=$page") {
                 searchRepository.searchMedia(
                     mediaType = MediaType.ANIME,
                     query = "",
@@ -157,7 +173,7 @@ class AniListIdentityCandidateSource(
                     page = page,
                     perPage = SEASON_PAGE_SIZE,
                 ).first { it !is PagedResult.Loading }
-            }.getOrNull()
+            }
 
             when (result) {
                 is PagedResult.Success -> {
@@ -219,7 +235,7 @@ class AniListIdentityCandidateSource(
         val now = clock.instant()
         cache.readLookup(query.source, query.signature, now)?.let { return it }
 
-        val result = runCatching {
+        val result = lookup("targeted series=${query.source.stableKey}") {
             searchRepository.searchMedia(
                 mediaType = MediaType.ANIME,
                 query = query.query,
@@ -232,7 +248,7 @@ class AniListIdentityCandidateSource(
                 page = 1,
                 perPage = MAX_TARGETED_RESULTS,
             ).first { it !is PagedResult.Loading }
-        }.getOrNull()
+        }
 
         val success = result as? PagedResult.Success
             ?: return CandidateBatch(candidates = emptyList(), complete = false)

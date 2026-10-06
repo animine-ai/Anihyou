@@ -84,7 +84,7 @@ class CalendarViewModel(
                     AppLog.i("calendar") { "cover and title loaded by id: ${loaded.size} of ${chunk.size} entries" }
                     mutableUiState.update { it.copy(extraMedia = it.extraMedia + loaded).withTodayFirstItemIndex() }
                 } else {
-                    AppLog.w("calendar") { "cover and title by id unavailable for ${chunk.size} entries, asked again with the next rows" }
+                    AppLog.w("calendar") { "cover and title by id unavailable for ${chunk.size} entries reason=${(result as? PagedResult.Error)?.message?.take(200)?.replace('\n', ' ') ?: "request failed"}, asked again with the next rows" }
                     requestedMedia -= chunk.toSet()
                 }
             }

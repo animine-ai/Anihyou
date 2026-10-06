@@ -199,15 +199,17 @@ class SourceSeriesMatchingService(
             AppLog.i("matching") { "media=$media: matcher result media=${matched.mediaId} tier=${matched.tier} is not an automatic accept" }
             return
         }
-        AppLog.i("matching") { "media=$media: automatic mapping written tier=${matched.tier} series=${label.providerSeriesKey}" }
-        writeAuto(active, subject, matched, epoch)
+        if (writeAuto(active, subject, matched, epoch)) {
+            AppLog.i("matching") { "media=$media: automatic mapping written tier=${matched.tier} series=${label.providerSeriesKey}" }
+        }
     }
 
     /**
      * Binds the series of the active source's rows that have no binding yet to AniList entries, so that the calendar,
      * Behind and the details present them with AniList metadata. It uses the same matcher and the same automatic tiers
-     * as [resolve]; a fuzzy hit is never written, and a series the user reset or corrected is left alone. A run asks
-     * AniList for the calendar and the season pools; it spends at most [maxSearches] searches per title (none unless the
+     * as [resolve]; a fuzzy hit is never written. Background runs leave reset entries alone; an explicit user run
+     * may retry them at their current writer epoch. A run asks
+     * AniList for the calendar and the season pools; it spends at most [maxSearches] targeted lookups (none unless the
      * user asked for them), nearest releases first.
      */
     /** The unbound (series, season) pairs of this source's rows, nearest releases first, plus what is already taken. */
@@ -321,7 +323,7 @@ class SourceSeriesMatchingService(
     suspend fun autoMatchPending(maxSearches: Int = 0, force: Boolean = false): AutoMatchReport =
         runLock.withLock { autoMatchLocked(maxSearches, force) }
 
-    /** The run after a refresh and the plain button: the AniList calendar and the season pools, never a search per title. */
+    /** Explicit retry, including reset entries: the AniList calendar and pools, never a search per title. */
     suspend fun matchPendingNow(): AutoMatchReport = autoMatchPending(force = true)
 
     /**
@@ -368,7 +370,7 @@ class SourceSeriesMatchingService(
         fun since(start: Long) = (System.nanoTime() - start) / 1_000_000
         val permits = Semaphore(PREPARE_PARALLEL)
         var left: List<Prepared> = coroutineScope {
-            open.map { (slug, season) -> async { permits.withPermit { prepare(active, slug, season) } } }.awaitAll()
+            open.map { (slug, season) -> async { permits.withPermit { prepare(active, slug, season, allowReset = force) } } }.awaitAll()
         }.filterNotNull()
         val examined = left.size
         AppLog.i("matching") {
@@ -452,11 +454,13 @@ class SourceSeriesMatchingService(
             }
         }
         var searches = 0
+        val stillOpen = ArrayList<Prepared>()
         for (series in left) {
-            if (searches >= maxSearches) break
-            if (bind(active, series, pool.sharing(series.tokens, series.compacts), takenMedia,
+            if (searches < maxSearches && bind(active, series, pool.sharing(series.tokens, series.compacts), takenMedia,
                     search = { searches++ }, via = "single search") == Bind.BOUND) matched++
+            else stillOpen += series
         }
+        left = stillOpen
         left.forEach { lastTried["${MappingEntryIds.sourceKey(active)}|${it.slug}|${it.season}"] = now }
         // Why a series stays open: its title and the nearest entries of everything that was looked at. The nearest one is
         // offered to the user (never written by itself), and a series that is matched now loses an older offer.
@@ -535,19 +539,22 @@ class SourceSeriesMatchingService(
         }
     }
 
-    private suspend fun prepare(active: ExtensionSelectionKey, slug: String, season: Int): Prepared? {
+    private suspend fun prepare(active: ExtensionSelectionKey, slug: String, season: Int, allowReset: Boolean): Prepared? {
         val sourceKey = MappingEntryIds.sourceKey(active)
         val subject = runCatching { AniWorldMappingSubject.Season(AniWorldSiteIdentifier(slug), season) }.getOrNull()
             ?: return null
-        // A reset or corrected entry is the user's decision; the automatic pass never brings it back.
-        if (dao.fence(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}") != null) return null
+        // Keep the fence, including for explicit retries: a later reset must still block this run's write.
+        // Read its epoch once before any candidate work, so a reset during preparation cannot be absorbed.
+        val initialFence = dao.fence(MappingEntryRef.FENCE_V3_SOURCE,
+            "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}")
+        if (!allowReset && initialFence != null) return null
+        val epoch = initialFence?.epoch ?: 0L
         if (alreadyAccepted(active, subject)) return null
         val label = dao.label(active.sourceId, active.extensionId, active.publisherId, active.providerId, slug)
         val title = label?.title ?: slug.replace(Regex("[-_]+"), " ").trim().ifBlank { return null }
         val identity = sourceIdentity(active.providerId, slug, season)
         val request = ReleaseMatchRequest(identity, title,
             aliases = label?.let { names(it).toSet() - it.title }.orEmpty(), season = season)
-        val epoch = fence.epoch(MappingEntryRef.FENCE_V3_SOURCE, "$sourceKey|${subject.stableKey}|${ExternalProvider.ANILIST.value}")
         val local = attempt { candidates.localCandidates(setOf(identity)).candidates }.orEmpty()
         val normalizedNames = (listOf(title) + request.aliases).map { TitleNormalizer.normalize(it) }
         return Prepared(slug, season, subject, title, identity, request, epoch, local,
@@ -574,16 +581,14 @@ class SourceSeriesMatchingService(
         // entry of that title that airs now is the continuation.
         if (accepted == null) accepted = continuation(request, pool)
         if (accepted == null && search != null) {
-            val started = System.nanoTime()
+            // Count dispatches, not elapsed time: a fast network response is still a lookup. The cache remains
+            // inside the candidate source, so this conservative bound also covers instant cached answers.
+            search()
             val searched = attempt {
                 candidates.targetedSearch(TargetedIdentityQuery(identity, title, AUTO_FORMATS,
                     signature = "auto-match|${identity.stableKey}|$title")).candidates
             }.orEmpty()
-            // A cached answer is instant; only a real request counts against the budget and is paced.
-            if ((System.nanoTime() - started) / 1_000_000 > 150) {
-                search()
-                delay(AUTO_SEARCH_PACE_MS)
-            }
+            delay(AUTO_SEARCH_PACE_MS)
             decision = decide(request, (local + searched).distinctBy { it.mediaId })
             accepted = (decision as? MatchDecision.Matched)?.takeIf { it.tier in AUTO_TIERS }
         }
@@ -595,8 +600,12 @@ class SourceSeriesMatchingService(
             AppLog.i("matching") { "auto: series=$slug season=$season -> media=${accepted.mediaId} is already bound to another series, left for the user" }
             return Bind.NONE
         }
+        if (!writeAuto(active, series.subject, accepted, series.epoch)) {
+            takenMedia.remove(accepted.mediaId)
+            AppLog.i("matching") { "auto: series=$slug season=$season write skipped after reset or concurrent binding" }
+            return Bind.NONE
+        }
         AppLog.i("matching") { "auto: series=$slug season=$season title='$title' -> media=${accepted.mediaId} tier=${accepted.tier} via $via" }
-        writeAuto(active, series.subject, accepted, series.epoch)
         return Bind.BOUND
     }
 
@@ -743,22 +752,22 @@ class SourceSeriesMatchingService(
         }
 
     private suspend fun writeAuto(active: ExtensionSelectionKey, subject: AniWorldMappingSubject.Season,
-                                  matched: MatchDecision.Matched, epochAtStart: Long) {
+                                  matched: MatchDecision.Matched, epochAtStart: Long): Boolean =
         database.withTransaction {
             val entryKey = "${subject.stableKey}|${ExternalProvider.ANILIST.value}"
             if (!fence.allowsEpoch(MappingEntryRef.FENCE_V3_SOURCE, "${MappingEntryIds.sourceKey(active)}|$entryKey", epochAtStart)) {
-                return@withTransaction
+                return@withTransaction false
             }
             // Accepted bindings are kept; a concurrent writer that got there first wins.
             if (dao.sourceMapping(active.sourceId, active.extensionId, active.publisherId, active.providerId,
-                    subject.stableKey, ExternalProvider.ANILIST.value) != null) return@withTransaction
+                    subject.stableKey, ExternalProvider.ANILIST.value) != null) return@withTransaction false
             val now = clock.instant()
             val domain = ExternalMapping(subject, ExternalProvider.ANILIST, matched.mediaId.toString(),
                 MappingSource.PERSISTED, matched.tier.confidence(), now, now, MappingStatus.ACTIVE,
                 provenance = provenance(matched), parserVersion = matcher.matcherVersion)
             dao.upsertSourceMapping(domain.toEntity().forSource(active, now))
+            true
         }
-    }
 
     private suspend fun alreadyAccepted(active: ExtensionSelectionKey, subject: AniWorldMappingSubject): Boolean {
         val own = dao.sourceMapping(active.sourceId, active.extensionId, active.publisherId, active.providerId,

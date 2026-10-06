@@ -295,10 +295,12 @@ class AnimeExploreViewModel(
                     val forceRefresh = refresh != loadedRefresh
                     initialized = true
                     loadedAccount = account
-                    loadedRefresh = refresh
                     if (accountChanged) {
                         mutableUiState.update { it.copy(providerAiringMedia = emptyMap()) }
                     }
+                    // Matching commits source bindings one at a time. Coalesce that burst before asking AniList
+                    // for metadata; account/source changes still cancel an obsolete request immediately.
+                    if (ids.isNotEmpty()) delay(250)
                     val missing = ids.filter { forceRefresh || it !in mutableUiState.value.providerAiringMedia }
                     mutableUiState.update { it.copy(isLoadingProviderAiring = missing.isNotEmpty()) }
                     try {
@@ -317,9 +319,10 @@ class AnimeExploreViewModel(
                                 mutableUiState.update { it.copy(providerAiringMedia = it.providerAiringMedia + loaded) }
                                 AppLog.i("explore") { "source cover/title loaded=${loaded.size} requested=${chunk.size}" }
                             } else {
-                                AppLog.w("explore") { "source cover/title unavailable count=${chunk.size}; retry on refresh" }
+                                AppLog.w("explore") { "source cover/title unavailable count=${chunk.size} reason=${(result as? PagedResult.Error)?.message?.take(200)?.replace('\n', ' ') ?: "request failed"}; retry on refresh" }
                             }
                         }
+                        loadedRefresh = refresh
                     } finally {
                         mutableUiState.update { it.copy(isLoadingProviderAiring = false) }
                     }

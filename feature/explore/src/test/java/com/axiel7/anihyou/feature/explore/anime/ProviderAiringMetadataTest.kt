@@ -60,7 +60,7 @@ class ProviderAiringMetadataTest {
     @Test fun allTenMappedSourceTitlesAreLoadedWithoutAnAniListAiringPage() = runTest(dispatcher) {
         val vm = model()
         rows.value = (1..10).map(::row)
-        runCurrent()
+        advanceTimeBy(251); runCurrent()
         assertEquals((1..10).toSet(), vm.uiState.value.providerAiringMedia.keys)
         assertEquals(listOf((1..10).toList()), requests)
         assertTrue(vm.uiState.value.airingAnime.isEmpty())
@@ -70,16 +70,16 @@ class ProviderAiringMetadataTest {
     @Test fun fiftyOneIdsAreBatchedAndRepeatedTracksDoNotDuplicateRequests() = runTest(dispatcher) {
         val vm = model()
         rows.value = (1..51).map(::row) + listOf(row(1).copy(stream = row(1).stream.copy(languageTrack = LanguageTrack.DE_DUB)))
-        runCurrent()
+        advanceTimeBy(251); runCurrent()
         assertEquals(listOf(50, 1), requests.map { it.size })
         assertEquals(51, vm.uiState.value.providerAiringMedia.size)
     }
 
     @Test fun filterAndSourceRevisionChangesKeepLoadedTitlesWithoutRefetching() = runTest(dispatcher) {
-        val vm = model(); rows.value = listOf(row(7)); runCurrent()
+        val vm = model(); rows.value = listOf(row(7)); advanceTimeBy(251); runCurrent()
         onList.value = true
         rows.value = listOf(row(7).copy(revision = 2))
-        runCurrent()
+        advanceTimeBy(251); runCurrent()
         assertEquals(setOf(7), vm.uiState.value.providerAiringMedia.keys)
         assertEquals(1, requests.size)
     }
@@ -89,35 +89,58 @@ class ProviderAiringMetadataTest {
         fetch = { ids -> if (ids == listOf(7)) flow {
             try { emit(PagedResult.Loading); awaitCancellation() } finally { cancelled = true }
         } else success(ids) }
-        val vm = model(); rows.value = listOf(row(7)); runCurrent()
+        val vm = model(); rows.value = listOf(row(7)); advanceTimeBy(251); runCurrent()
         assertTrue(vm.uiState.value.isLoadingProviderAiring)
-        rows.value = listOf(row(8)); runCurrent()
+        rows.value = listOf(row(8)); advanceTimeBy(251); runCurrent()
         assertTrue(cancelled)
         assertEquals(setOf(8), vm.uiState.value.providerAiringMedia.keys)
         assertFalse(vm.uiState.value.isLoadingProviderAiring)
     }
 
     @Test fun logoutClearsOldMembershipAndFetchesTheSameIdsForTheNewAccount() = runTest(dispatcher) {
-        val vm = model(); rows.value = listOf(row(7)); runCurrent()
+        val vm = model(); rows.value = listOf(row(7)); advanceTimeBy(251); runCurrent()
         val old = vm.uiState.value.providerAiringMedia[7]
-        user.value = null; runCurrent()
+        user.value = null; advanceTimeBy(251); runCurrent()
         assertEquals(2, requests.size)
         assertNotSame(old, vm.uiState.value.providerAiringMedia[7])
     }
 
     @Test fun errorCanBeRetriedByRefreshAndDoesNotBecomeFakeMetadata() = runTest(dispatcher) {
         fetch = { flowOf(PagedResult.Error("unavailable")) }
-        val vm = model(); rows.value = listOf(row(7)); runCurrent()
+        val vm = model(); rows.value = listOf(row(7)); advanceTimeBy(251); runCurrent()
         assertTrue(vm.uiState.value.providerAiringMedia.isEmpty())
         assertFalse(vm.uiState.value.isLoadingProviderAiring)
         fetch = ::success
-        vm.refresh(); runCurrent()
+        vm.refresh(); advanceTimeBy(251); runCurrent()
+        assertEquals(setOf(7), vm.uiState.value.providerAiringMedia.keys)
+        assertEquals(2, requests.size)
+    }
+
+    @Test fun matcherBindingBurstLoadsAllTitlesInOneRequest() = runTest(dispatcher) {
+        val vm = model()
+        (1..37).forEach { last ->
+            rows.value = (1..last).map(::row)
+            runCurrent()
+            advanceTimeBy(20)
+        }
+        assertTrue("intermediate mapping commits must not each start a request", requests.isEmpty())
+        advanceTimeBy(251); runCurrent()
+        assertEquals(listOf((1..37).toList()), requests)
+        assertEquals((1..37).toSet(), vm.uiState.value.providerAiringMedia.keys)
+    }
+
+    @Test fun accountChangeClearsOldMetadataBeforeTheCoalescingDelay() = runTest(dispatcher) {
+        val vm = model(); rows.value = listOf(row(7)); advanceTimeBy(251); runCurrent()
+        assertEquals(setOf(7), vm.uiState.value.providerAiringMedia.keys)
+        user.value = 2; runCurrent()
+        assertTrue(vm.uiState.value.providerAiringMedia.isEmpty())
+        advanceTimeBy(251); runCurrent()
         assertEquals(setOf(7), vm.uiState.value.providerAiringMedia.keys)
         assertEquals(2, requests.size)
     }
 
     @Test fun noSourceRowsNeverAddsMetadataRequestsToTheAniListPath() = runTest(dispatcher) {
-        val vm = model(); runCurrent()
+        val vm = model(); advanceTimeBy(251); runCurrent()
         assertTrue(requests.isEmpty())
         assertTrue(vm.uiState.value.providerAiringMedia.isEmpty())
     }
