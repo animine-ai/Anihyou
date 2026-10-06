@@ -1,6 +1,6 @@
 package com.axiel7.anihyou.feature.explore.anime
 
-import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
@@ -22,7 +22,7 @@ import java.time.ZoneOffset
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProviderAiringMetadataTest {
     private val dispatcher = StandardTestDispatcher()
-    private val store = ViewModelStore()
+    private val models = mutableListOf<AnimeExploreViewModel>()
     private val rows = MutableStateFlow<List<ReleaseUiCalendarItem>>(emptyList())
     private val user = MutableStateFlow<Int?>(1)
     private val onList = MutableStateFlow(false)
@@ -31,7 +31,7 @@ class ProviderAiringMetadataTest {
     private var fetch: (List<Int>) -> Flow<PagedResult<ExploreMedia>> = { ids -> success(ids) }
 
     @Before fun setup() { Dispatchers.setMain(dispatcher) }
-    @After fun teardown() { store.clear(); Dispatchers.resetMain() }
+    @After fun teardown() { models.forEach { it.viewModelScope.cancel() }; Dispatchers.resetMain() }
 
     private fun success(ids: List<Int>) = flowOf<PagedResult<ExploreMedia>>(PagedResult.Success(
         ids.map { id -> mockk<ExploreMedia>(relaxed = true) { every { this@mockk.id } returns id } }, 1, false,
@@ -54,7 +54,7 @@ class ProviderAiringMetadataTest {
         every { media.getSeasonalAnimePage(any(), any(), any(), any(), any()) } returns flowOf(PagedResult.Success(emptyList(), 1, false))
         every { media.getMediaSortedPage(any(), any(), any(), any(), any(), any()) } returns flowOf(PagedResult.Success(emptyList(), 1, false))
         return AnimeExploreViewModel(media, preferences, release, Clock.fixed(Instant.parse("2026-10-06T14:00:00Z"), ZoneOffset.UTC))
-            .also { store.put("explore", it) }
+            .also { models += it }
     }
 
     @Test fun allTenMappedSourceTitlesAreLoadedWithoutAnAniListAiringPage() = runTest(dispatcher) {
