@@ -324,6 +324,9 @@ class CurrentViewModel(
                 }
             }
         }
+        // Local progress edits can move an entry between lists without changing the observed media ids.
+        // Reapply the same classification and ordering immediately, rather than waiting for a source emission.
+        mutableUiState.update { state -> reclassifyCurrentLists(state, state.releaseByMediaId) }
         refreshReleaseMediaIds()
     }
 

@@ -334,7 +334,11 @@ class RoomReleasePresentationCalendarTrustTest {
             val trusted = presentedForMedia(repository)
             assertEquals("the accepted row reaches the per-media consumers as it reaches the calendar", 1, trusted.getValue(42).size)
             assertEquals(1, presented(repository).size)
-            assertTrue(trusted.getValue(42).single().isAuthoritative)
+            val forecastOnly = trusted.getValue(42).single()
+            assertEquals(com.axiel7.anihyou.release.core.api.ReleaseUiAuthority.UNMAPPED, forecastOnly.authority)
+            assertTrue("the source date remains usable without an invented episode coordinate", forecastOnly.hasAuthoritativeForecast)
+            assertNull(forecastOnly.confirmedThroughEpisode)
+            assertNull(forecastOnly.nextExpectedInstallment)
 
             sources.sources.value = listOf(source(keyA, extension(keyA, usable = false,
                 status = InstalledPackageStatus.REVOKED, revoked = true)))
@@ -412,7 +416,10 @@ class RoomReleasePresentationCalendarTrustTest {
             )
             policy.policy.value = only("DE_DUB")
             assertTrue("the calendar (and so the widget and the explore rows) no longer shows the switched-off track", presented(repository).isEmpty())
-            assertTrue("SUB stays authoritative regardless of calendar visibility", presentedForMedia(repository).getValue(42).single().isAuthoritative)
+            val hiddenSub = presentedForMedia(repository).getValue(42).single()
+            assertTrue("the SUB date stays authoritative regardless of calendar visibility", hiddenSub.hasAuthoritativeForecast)
+            assertEquals(com.axiel7.anihyou.release.core.api.ReleaseUiAuthority.UNMAPPED, hiddenSub.authority)
+            assertNull("a track preference cannot invent an episode coordinate", hiddenSub.nextExpectedInstallment)
 
             policy.policy.value = only("DE_SUB")
             assertEquals("switching it on again shows the accepted row, nothing was deleted", 1, presented(repository).size)

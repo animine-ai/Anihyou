@@ -125,7 +125,8 @@ class CurrentBehindProjectionTest {
         // Undo (or another device sets it back to 8): the same two unseen episodes are behind again, no source refresh.
         lastUpdated.value = MediaListRepository.AccountEntryUpdate(4242, behind.basicMediaListEntry.copy(progress = 8))
         advanceUntilIdle()
-        assertEquals(listOf(9, 7, 10), viewModel.uiState.value.behindList.map { it.mediaId })
+        assertEquals("undo immediately restores unseen-count ordering without a source emission",
+            listOf(9, 7, 10), viewModel.uiState.value.behindList.map { it.mediaId })
         assertEquals(listOf(8), viewModel.uiState.value.airingList.map { it.mediaId })
     }
 }
