@@ -164,12 +164,14 @@ class ExtensionProviderNavigationProductRepository(
         for (fact in unambiguousFacts) {
             val candidates = segments.filter { it.key == active && it.mediaId == mediaId && it.seriesKey == fact.seriesKey &&
                 it.sourceSeason == fact.sourceSeason && it.canonicalEpisode(BigDecimal(fact.providerEpisode)) != null }
+            val belongsToOverview = activeOverview != null && activeOverview.seriesKey == fact.seriesKey &&
+                activeOverview.sourceSeason == fact.sourceSeason
+            if (candidates.isEmpty() && !belongsToOverview) continue
             val state = reconciliation.getForSource(checkNotNull(active), fact.projectionKey) ?: continue
             if (state.underlyingPhase != ReleasePhase.RELEASED || state.authority == ReleaseAuthority.NONE) continue
             val segment = candidates.singleOrNull()
             if (segment == null) {
-                if (fact.track == "DE_SUB" && activeOverview != null && activeOverview.seriesKey == fact.seriesKey &&
-                    activeOverview.sourceSeason == fact.sourceSeason) missingEpisodeMapping = true
+                if (fact.track == "DE_SUB" && belongsToOverview) missingEpisodeMapping = true
                 continue
             }
             releases += ReleasedInstallment(mediaId, segment.canonicalEpisode(BigDecimal(fact.providerEpisode))!!, setOf(fact.track), true)
@@ -189,10 +191,15 @@ class ExtensionProviderNavigationProductRepository(
                 targets[provider.key to release.episode.stripTrailingZeros()] = resolved
             }
         }
-        val next = if (activeOverview == null || missingEpisodeMapping) {
-            WatchNextState.Unavailable(NavigationUnavailableReason.MISSING_MAPPING)
-        } else resolver.resolve(mediaId, BigDecimal(watched), p,
+        val resolvedNext = resolver.resolve(mediaId, BigDecimal(watched), p,
             ActiveReleaseSnapshot(checkNotNull(active), p.releaseGeneration, grouped), providers, mappings)
+        // A valid episode segment can span several overview seasons. Do not block its proven target.
+        // Only correct the false empty-release verdict caused by missing/ambiguous coordinates.
+        val next = if (resolvedNext is WatchNextState.Unavailable &&
+            resolvedNext.reason == NavigationUnavailableReason.NO_RELEASED_UNWATCHED &&
+            (activeOverview == null || missingEpisodeMapping)) {
+            WatchNextState.Unavailable(NavigationUnavailableReason.MISSING_MAPPING)
+        } else resolvedNext
         val resolved = if (next is WatchNextState.Candidate) targets[next.provider.key to next.episode.stripTrailingZeros()] else null
         if (policy.policy.value != p || store.state.value != stored || sources.sources.value != sourceSnapshot)
             return ProviderNavigationProductState(failure = NavigationUnavailableReason.STALE_RESULT)
