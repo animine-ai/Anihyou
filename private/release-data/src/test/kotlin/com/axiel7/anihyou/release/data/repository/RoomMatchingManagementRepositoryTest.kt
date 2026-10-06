@@ -504,7 +504,7 @@ class RoomMatchingManagementRepositoryTest {
             if (i < 67) rig.dao.upsertSourceMapping(sourceRow(keyA, "show-$i", 1, i + 1, MappingSource.MANUAL))
         }
         rig.candidates.library = titles.take(67).mapIndexed { i, title ->
-            IdentityCandidate(i + 1, setOf(title), "TV")
+            IdentityCandidate(i + 1, setOf(title), "TV", null)
         }
         rig.dao.upsertSourceMapping(sourceRow(keyB, "other-source", 1, 999, MappingSource.MANUAL))
         val token = rig.repository.capture(MappingScope.Source(keyA))
@@ -529,7 +529,7 @@ class RoomMatchingManagementRepositoryTest {
         rig.dao.upsertSourceMapping(sourceRow(keyA, "aot", 1, 99, MappingSource.MANUAL))
         val token = rig.repository.capture(MappingScope.Source(keyA))
         assertEquals(MappingMutationResult.APPLIED, rig.repository.reset(token))
-        rig.candidates.targeted = listOf(IdentityCandidate(7, setOf("Attack on Titan"), "TV"))
+        rig.candidates.targeted = listOf(IdentityCandidate(7, setOf("Attack on Titan"), "TV", null))
         val report = rig.service.searchPendingNow()
         assertEquals(1, report.examined)
         assertEquals(1, report.matched)
@@ -555,7 +555,7 @@ class RoomMatchingManagementRepositoryTest {
         rig.seedSeries(Triple("aot", "Attack on Titan", 1))
         val fenceKey = "${MappingEntryIds.sourceKey(keyA)}|${subject("aot", 1).stableKey}|anilist"
         rig.fence.bump(MappingEntryRef.FENCE_V3_SOURCE, fenceKey, t0)
-        rig.candidates.local = listOf(IdentityCandidate(7, setOf("Attack on Titan"), "TV"))
+        rig.candidates.local = listOf(IdentityCandidate(7, setOf("Attack on Titan"), "TV", null))
         rig.candidates.onLocal = { rig.fence.bump(MappingEntryRef.FENCE_V3_SOURCE, fenceKey, t0) }
         val report = rig.service.matchPendingNow()
         assertEquals(1, report.examined)
