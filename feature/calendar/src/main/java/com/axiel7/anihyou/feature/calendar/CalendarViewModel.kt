@@ -92,6 +92,7 @@ class CalendarViewModel(
     }
 
     override fun onMyListChanged(value: Boolean?) {
+        AppLog.i("calendar") { "list filter=$value; source rows also require loaded AniList membership" }
         viewModelScope.launch {
             defaultPreferencesRepository.setCalendarOnMyList(value)
         }
@@ -122,7 +123,8 @@ class CalendarViewModel(
                     },
                 )
                 mutableUiState.update { state ->
-                    state.copy(weeklyAnime = state.weeklyAnime.mapValues { (_, events) ->
+                    state.copy(extraMedia = state.extraMedia + (selectedItem.id to updatedMedia),
+                        weeklyAnime = state.weeklyAnime.mapValues { (_, events) ->
                         events.map { event ->
                             if (event.media.id == selectedItem.id) event.copy(media = updatedMedia) else event
                         }

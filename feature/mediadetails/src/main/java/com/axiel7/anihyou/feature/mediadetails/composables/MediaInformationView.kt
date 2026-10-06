@@ -290,42 +290,25 @@ fun MediaInformationView(
             }
         }
 
-        // Streaming links
-        uiState.details?.streamingLinks()?.let { streamingLinks ->
-            if (streamingLinks.isNotEmpty()) {
-                InfoTitle(text = stringResource(R.string.streaming_sites))
-                FlowRow(
-                    modifier = Modifier.padding(
-                        start = 8.dp,
-                        end = 8.dp,
-                        bottom = 8.dp
-                    )
-                ) {
+        // Installed providers and AniList streaming links share one section and chip layout.
+        val streamingLinks = uiState.details?.streamingLinks().orEmpty()
+        if (navigationState.providers.isNotEmpty() || streamingLinks.isNotEmpty() || navigationState.loading) {
+            InfoTitle(text = stringResource(R.string.streaming_sites))
+            ProviderOverviewField(
+                navigationState = navigationState,
+                onOpenProvider = { event?.openProviderOverview(it) },
+                onChooseProvider = { event?.chooseNavigationProvider(it) },
+                streamingLinks = {
                     streamingLinks.forEach { link ->
                         AssistChip(
                             onClick = { link.url?.let { context.openActionView(it) } },
                             label = { Text(text = link.site) },
                             modifier = Modifier.padding(horizontal = 4.dp),
-                            trailingIcon = {
-                                link.languageShort()?.let { lang ->
-                                    Text(text = lang)
-                                }
-                            }
+                            trailingIcon = { link.languageShort()?.let { Text(text = it) } },
                         )
                     }
-                }
-            }
-        }
-
-        // Product extension navigation is independent from AniList's metadata links above.
-        // Only the signed provider display name is shown; this view never renders episode URLs.
-        if (uiState.details != null) {
-            ProviderOverviewField(
-                navigationState = navigationState,
-                onOpenProvider = { event?.openProviderOverview(it) },
-                onChooseProvider = { event?.chooseNavigationProvider(it) },
+                },
             )
-
         }
 
         // External links

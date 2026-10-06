@@ -48,7 +48,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.InjectedParam
-import java.math.BigDecimal
 
 class MediaDetailsViewModel(
     @InjectedParam private val arguments: Route.MediaDetails,
@@ -92,12 +91,8 @@ class MediaDetailsViewModel(
         val details = currentState.details ?: return
         val mediaId = details.id
         val watchedProgress = details.mediaListEntry?.basicMediaListEntry?.progress ?: return
-        val navigation = currentState.extensionNavigation
-        val candidate = navigation.watchNext as? WatchNextState.Candidate ?: return
-        if (candidate.behindCount <= 0) return
-        if (candidate.episode <= BigDecimal(watchedProgress)) return
-        val observedTarget = navigation.watchTarget ?: return
-        if (observedTarget.provider.key != candidate.provider.key || candidate.coordinate.mediaId != mediaId) return
+        // The visible action may have only AniList's pending count. Resolve on click and surface
+        // missing mappings/provider choices instead of silently ignoring the user's tap.
 
         // Resolve from the click-time ID and progress because observe() may still expose an older target.
         runNavigationAction {

@@ -456,7 +456,15 @@ internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
                         airingEvent = airing,
                     )
                 }
-            val rows = releaseRows + originalRows
+            // A source event has no list membership of its own. Only loaded AniList metadata proves it.
+            // Unknown/provider-only entries stay visible with no filter, never in "On my list".
+            val rows = (releaseRows + originalRows).filter { row ->
+                when (onMyList) {
+                    true -> row.media?.mediaListEntry != null
+                    false -> row.media != null && row.media.mediaListEntry == null
+                    null -> true
+                }
+            }
             if (rows.isNotEmpty() || date == today) CalendarDay(date, rows.withUniqueKeys()) else null
         }
 }

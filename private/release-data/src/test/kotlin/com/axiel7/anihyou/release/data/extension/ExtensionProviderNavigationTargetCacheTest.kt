@@ -25,6 +25,7 @@ import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -96,6 +97,28 @@ class ExtensionProviderNavigationTargetCacheTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    @Test
+    fun unboundInstalledProviderStaysVisibleAndItsClickReportsMissingMapping() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, ReleaseDatabase::class.java).allowMainThreadQueries().build()
+        database = db
+        val key = ExtensionSelectionKey("source-a", "fixture.extension", "publisher-a", "provider-a")
+        val gateway = CountingGateway(key, "a".repeat(64))
+        val directory = Files.createTempDirectory("unbound-provider").toFile()
+        try {
+            val policy = FileExtensionProductPolicyRepository(directory) { true }
+            val product = ExtensionProviderNavigationProductRepository(EmptySourceRepository(),
+                policy, gateway,
+                FileProviderNavigationStateStore(directory), db, RoomReleaseReconciliationRepository(db),
+                ExternalNavigationLauncher { error("unmapped targets must never launch") })
+            val state = product.observe(99, -1).first { !it.loading }
+            assertEquals(listOf(key), state.providers.map { it.key })
+            assertEquals(ProviderNavigationResult.Unavailable(NavigationUnavailableReason.MISSING_MAPPING), product.overview(99, key))
+            assertEquals(0, gateway.dispatchCount.get())
+            policy.setProviderVisibility(key, false, com.axiel7.anihyou.release.core.source.ExtensionPreferences())
+            assertEquals(emptyList<NavigationProvider>(), product.observe(99, -1).first { !it.loading }.providers)
+        } finally { directory.deleteRecursively() }
     }
 
     private class CountingGateway(

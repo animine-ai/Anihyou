@@ -112,7 +112,7 @@ import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_BIG_HEIGHT
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_BIG_WIDTH
 import com.axiel7.anihyou.core.ui.composables.media.MediaPoster
 import com.axiel7.anihyou.core.ui.composables.media.nextEpisodeText
-import com.axiel7.anihyou.core.ui.composables.media.releaseBacklogText
+import com.axiel7.anihyou.core.ui.composables.media.releaseBehindCount
 import com.axiel7.anihyou.core.ui.composables.middleShape
 import com.axiel7.anihyou.core.ui.composables.sheet.SelectionSheet
 import com.axiel7.anihyou.core.ui.composables.sheet.SelectionSheetItem
@@ -270,6 +270,14 @@ private fun MediaDetailsContent(
         )
     }
 
+    val watchNext = uiState.extensionNavigation.watchNext as? WatchNextState.Candidate
+    val behindCount = watchNext?.behindCount ?: releaseBehindCount(
+        uiState.releasePresentations,
+        uiState.details?.mediaListEntry?.basicMediaListEntry?.progress,
+        uiState.details?.nextAiringEpisode?.episode,
+    )
+    val showWatchNext = behindCount > 0
+
     Scaffold(
         modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
         topBar = {
@@ -343,15 +351,13 @@ private fun MediaDetailsContent(
             )
         },
         floatingActionButton = {
-            val watchNext = uiState.extensionNavigation.watchNext as? WatchNextState.Candidate
-            val watchNextTarget = uiState.extensionNavigation.watchTarget
-            val showWatchNext = watchNextTarget != null && watchNext != null && watchNext.behindCount > 0
             if ((uiState.isLoggedIn && uiState.details != null) || showWatchNext) {
                 Column(horizontalAlignment = Alignment.End) {
                     if (showWatchNext) {
                         ProviderWatchNextFloatingActionButton(
                             navigationState = uiState.extensionNavigation,
                             onClick = { event?.openWatchNext() },
+                            fallbackBehindCount = behindCount,
                         )
                         if (uiState.isLoggedIn && uiState.details != null) {
                             Spacer(Modifier.height(12.dp))
@@ -384,7 +390,7 @@ private fun MediaDetailsContent(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = padding.calculateBottomPadding())
-                .padding(bottom = 88.dp)
+                .padding(bottom = if (showWatchNext) 156.dp else 88.dp)
         ) {
             // Banner
             TopBannerView(
@@ -474,18 +480,11 @@ private fun MediaDetailsContent(
                     fallbackEpisode = uiState.details?.nextAiringEpisode?.episode,
                     fallbackSeconds = uiState.details?.nextAiringEpisode?.timeUntilAiring?.toLong(),
                 )
-                val backlog = releaseBacklogText(uiState.releasePresentations,
-                    uiState.details?.mediaListEntry?.basicMediaListEntry?.progress,
-                    uiState.details?.nextAiringEpisode?.episode)
-                if (nextEpisode != null || backlog != null) {
-                    Column {
-                        if (nextEpisode != null) TextSubtitleVertical(
-                            text = nextEpisode,
-                            subtitle = stringResource(R.string.airing),
-                        )
-                        if (backlog != null) Text(text = backlog, color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelLarge)
-                    }
+                if (nextEpisode != null) {
+                    TextSubtitleVertical(
+                        text = nextEpisode,
+                        subtitle = stringResource(R.string.airing),
+                    )
                     VerticalDivider(
                         modifier = Modifier.padding(horizontal = 8.dp).height(dividerHeight.dp),
                     )

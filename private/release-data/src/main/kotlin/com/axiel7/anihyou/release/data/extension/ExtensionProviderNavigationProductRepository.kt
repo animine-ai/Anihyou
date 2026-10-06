@@ -3,6 +3,7 @@ package com.axiel7.anihyou.release.data.extension
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.axiel7.anihyou.release.core.log.AppLog
 import com.axiel7.anihyou.release.core.extension.*
 import com.axiel7.anihyou.release.core.navigation.*
 import com.axiel7.anihyou.release.core.source.*
@@ -97,7 +98,7 @@ class ExtensionProviderNavigationProductRepository(
     }
 
     override fun observe(mediaId: Int, watchedProgress: Int): Flow<ProviderNavigationProductState> =
-        combine(policy.policy, sources.sources, store.state, activeSourceRows()) { _, _, _, _ -> Unit }
+        combine(policy.policy, sources.sources, store.state, activeSourceRows(), activeSourceMappings()) { _, _, _, _, _ -> Unit }
             .mapLatest { buildState(mediaId, watchedProgress) }
             .onStart { emit(ProviderNavigationProductState(loading = true)) }
             .catch { error ->
@@ -109,6 +110,14 @@ class ExtensionProviderNavigationProductRepository(
     private fun activeSourceRows() = policy.policy.map { it.activeReleaseSource }.distinctUntilChanged().flatMapLatest { active ->
         if (active == null) flowOf(emptyList<com.axiel7.anihyou.release.data.db.SourceReleaseProjectionEntity>()) else database.reconciliationDao().observeSourceProjections(
             active.sourceId, active.extensionId, active.publisherId, active.providerId)
+    }
+
+    /** Mapping changes must update open details without waiting for another release sync. */
+    private fun activeSourceMappings() = policy.policy.map { it.activeReleaseSource }.distinctUntilChanged().flatMapLatest { active ->
+        if (active == null) flowOf(emptyList<com.axiel7.anihyou.release.data.db.ExternalMappingEntity>()) else
+            database.matchingDao().observeEffectiveAniListMappings(active.sourceId, active.extensionId,
+                active.publisherId, active.providerId,
+                com.axiel7.anihyou.release.data.repository.MappingEntryIds.sourceKey(active))
     }
 
     private suspend fun overviewCoordinate(mediaId: Int, provider: NavigationProvider): ProviderCoordinate? {
@@ -130,7 +139,9 @@ class ExtensionProviderNavigationProductRepository(
             .sortedWith(compareBy<NavigationProvider> {
                 p.navigationProviderOrder.indexOf(it.key).let { index -> if (index < 0) Int.MAX_VALUE else index }
             }.thenBy { it.key.sourceId }.thenBy { it.key.extensionId })
-        val visible = providers.filter { NavigationCapability.OVERVIEW_NAVIGATION in it.capabilities && overviewCoordinate(mediaId, it) != null }
+        // Visibility is the user's provider preference, not the existence of an episode mapping.
+        // Clicking an unbound provider returns MISSING_MAPPING through the normal product path.
+        val visible = providers.filter { NavigationCapability.OVERVIEW_NAVIGATION in it.capabilities }
         val active = p.activeReleaseSource
         // Negative progress represents unknown in the product port; overview navigation remains available.
         if (watched < 0) return ProviderNavigationProductState(visible,
@@ -145,15 +156,22 @@ class ExtensionProviderNavigationProductRepository(
             WatchNextState.Unavailable(if (active == null) NavigationUnavailableReason.NO_ACTIVE_SOURCE else NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE),
             mappingProviders = providers, activeReleaseSource = active)
         val segments = stored.segments
+        val activeOverview = providers.singleOrNull { it.key == active }?.let { overviewCoordinate(mediaId, it) }
+        var missingEpisodeMapping = false
         val releases = mutableListOf<ReleasedInstallment>()
         val unambiguousFacts = stored.installments.groupBy { it.projectionKey }.values
             .mapNotNull { it.distinct().singleOrNull() }
         for (fact in unambiguousFacts) {
             val candidates = segments.filter { it.key == active && it.mediaId == mediaId && it.seriesKey == fact.seriesKey &&
                 it.sourceSeason == fact.sourceSeason && it.canonicalEpisode(BigDecimal(fact.providerEpisode)) != null }
-            val segment = candidates.singleOrNull() ?: continue
             val state = reconciliation.getForSource(checkNotNull(active), fact.projectionKey) ?: continue
             if (state.underlyingPhase != ReleasePhase.RELEASED || state.authority == ReleaseAuthority.NONE) continue
+            val segment = candidates.singleOrNull()
+            if (segment == null) {
+                if (fact.track == "DE_SUB" && activeOverview != null && activeOverview.seriesKey == fact.seriesKey &&
+                    activeOverview.sourceSeason == fact.sourceSeason) missingEpisodeMapping = true
+                continue
+            }
             releases += ReleasedInstallment(mediaId, segment.canonicalEpisode(BigDecimal(fact.providerEpisode))!!, setOf(fact.track), true)
         }
         val grouped = releases.groupBy { it.episode.stripTrailingZeros() }.map { (_, rows) -> rows.first().copy(tracks = rows.flatMap { it.tracks }.toSet()) }
@@ -171,10 +189,19 @@ class ExtensionProviderNavigationProductRepository(
                 targets[provider.key to release.episode.stripTrailingZeros()] = resolved
             }
         }
-        val next = resolver.resolve(mediaId, BigDecimal(watched), p, ActiveReleaseSnapshot(checkNotNull(active), p.releaseGeneration, grouped), providers, mappings)
+        val next = if (activeOverview == null || missingEpisodeMapping) {
+            WatchNextState.Unavailable(NavigationUnavailableReason.MISSING_MAPPING)
+        } else resolver.resolve(mediaId, BigDecimal(watched), p,
+            ActiveReleaseSnapshot(checkNotNull(active), p.releaseGeneration, grouped), providers, mappings)
         val resolved = if (next is WatchNextState.Candidate) targets[next.provider.key to next.episode.stripTrailingZeros()] else null
         if (policy.policy.value != p || store.state.value != stored || sources.sources.value != sourceSnapshot)
             return ProviderNavigationProductState(failure = NavigationUnavailableReason.STALE_RESULT)
+        AppLog.i("navigation") {
+            "media=$mediaId progress=$watched visible=${visible.size} overviewMapped=${activeOverview != null} " +
+                "segments=${segments.count { it.key == active && it.mediaId == mediaId }} " +
+                "confirmed=${grouped.size} missingEpisodeMapping=$missingEpisodeMapping watchNext=${next::class.simpleName} " +
+                "reason=${(next as? WatchNextState.Unavailable)?.reason}"
+        }
         return ProviderNavigationProductState(visible, next, (resolved as? ProviderNavigationResult.Ready)?.target,
             failure = (resolved as? ProviderNavigationResult.Unavailable)?.reason, mappingProviders = providers, activeReleaseSource = active)
     }

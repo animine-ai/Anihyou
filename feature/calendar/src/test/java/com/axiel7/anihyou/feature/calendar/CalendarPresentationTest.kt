@@ -91,6 +91,31 @@ class CalendarPresentationTest {
         assertSame(loaded, withIt.presentationDays().single().rows.single().media)
     }
 
+    @Test fun listFilterAppliesToSourceRowsWithLoadedMembershipAndUnknownEntries() {
+        val listed = mockk<ExploreMedia>(relaxed = true) {
+            every { id } returns 7
+            every { mediaListEntry } returns mockk(relaxed = true)
+        }
+        val other = mockk<ExploreMedia>(relaxed = true) {
+            every { id } returns 8
+            every { mediaListEntry } returns null
+        }
+        val known = row(today)
+        val state = CalendarUiState(today = today, extraMedia = mapOf(7 to listed, 8 to other),
+            providerRowsByDate = mapOf(today to listOf(known, known.copy(mediaId = 8), known.copy(mediaId = null))),
+            combineSimultaneousTracks = false)
+        assertEquals(3, state.presentationDays().single().rows.size)
+        assertEquals(listOf(7), state.copy(onMyList = true).presentationDays().single().rows.map { it.media?.id })
+        assertEquals(listOf(8), state.copy(onMyList = false).presentationDays().single().rows.map { it.media?.id })
+        assertTrue(state.copy(onMyList = true, extraMedia = emptyMap()).presentationDays().single().rows.isEmpty())
+    }
+
+    @Test fun providerOnlyRowsNeverPretendToBeOnTheUsersList() {
+        val state = CalendarUiState(today = today, providerOnlyByDate = mapOf(today to listOf(row(today))))
+        assertEquals(1, state.presentationDays().single().rows.size)
+        assertTrue(state.copy(onMyList = true).presentationDays().single().rows.isEmpty())
+    }
+
     private fun row(date: LocalDate) = ReleaseUiCalendarItem(
         mediaId = 7,
         stream = ReleaseStreamKey(ProviderId("aniworld"), SourceSeriesKey("/anime/stream/example"),

@@ -1,4 +1,4 @@
-# 2026-10-06: readable extension catalog names and stable AniWorld 1.0 presentation.
+# 2026-10-06: calendar membership, episode labels, unified streaming chips and visible Behind action.
 name: Performance APK (temporary signed)
 # Optimized ARM64 test APK with temporary debug signing and complete data-decision logging. No tests, lint or emulator.
 # R8/resource shrinking reduce download size. Product gates remain separate; full logging and native packaging are verified.

@@ -2,6 +2,9 @@ package com.axiel7.anihyou.feature.mediadetails.composables
 
 import androidx.annotation.VisibleForTesting
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,19 +21,23 @@ import com.axiel7.anihyou.release.core.navigation.WatchNextState
 @Composable
 fun ProviderWatchNextFloatingActionButton(
     navigationState: ProviderNavigationProductState,
+    fallbackBehindCount: Int = 0,
     onClick: () -> Unit,
 ) {
     val candidate = navigationState.watchNext as? WatchNextState.Candidate
-    if (navigationState.watchTarget != null && candidate != null && candidate.behindCount > 0) {
+    val behindCount = candidate?.behindCount ?: fallbackBehindCount
+    if (behindCount > 0) {
         ExtendedFloatingActionButton(
             onClick = { if (!navigationState.loading) onClick() },
+            modifier = Modifier.testTag("provider-watch-next-fab"),
         ) {
-            Icon(
+            if (navigationState.loading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            else Icon(
                 painter = painterResource(R.drawable.play_arrow_24),
                 contentDescription = stringResource(R.string.watch_next),
             )
             Text(
-                text = stringResource(R.string.watch_next_behind_count, candidate.behindCount),
+                text = stringResource(R.string.watch_next_behind_count, behindCount),
                 modifier = Modifier.padding(start = 12.dp, end = 8.dp),
             )
         }

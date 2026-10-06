@@ -26,7 +26,9 @@ fun nextEpisodeText(
     if (source != null) {
         val relative = Duration.between(now, requireNotNull(source.nextForecastAt)).seconds.coerceAtLeast(0L)
             .secondsToLegibleText()
-        val episode = source.nextExpectedInstallment as? Installment.Episode
+        // A provider-local episode is a truthful schedule label even without a canonical progress mapping.
+        // It never establishes backlog or a launchable episode target.
+        val episode = (source.nextExpectedInstallment ?: source.nextForecast?.identity?.installment) as? Installment.Episode
         val text = if (episode != null) stringResource(R.string.episode_in_time, episode.number, relative)
             else stringResource(R.string.airing_in, relative)
         return releaseTrackLabel(source.track)?.let { "$text · $it" } ?: text
@@ -35,7 +37,14 @@ fun nextEpisodeText(
     return stringResource(R.string.episode_in_time, fallbackEpisode, fallbackSeconds.secondsToLegibleText())
 }
 
-/** Backlog is a separate field, so displaying it never removes the next-episode countdown. */
+/** Shared count for the list and details action; unknown source coordinates retain AniList's baseline. */
+fun releaseBehindCount(presentations: List<ReleaseUiPresentation>, progress: Int?, fallbackNextEpisode: Int?): Int {
+    if (progress == null) return 0
+    return ReleaseUiSelection.effective(presentations)?.pendingForOrNull(progress)
+        ?: fallbackNextEpisode?.let { (it - 1 - progress.coerceAtLeast(0)).coerceAtLeast(0) } ?: 0
+}
+
+/** Backlog text for consumers which explicitly request it; details show this in their action instead. */
 @Composable
 fun releaseBacklogText(presentations: List<ReleaseUiPresentation>, progress: Int?, fallbackNextEpisode: Int?): String? {
     if (progress == null) return null

@@ -91,14 +91,14 @@ class ReleaseScheduleTextComposeTest {
         composeRule.onNodeWithText("Ep 11 in", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText(plural(R.plurals.num_episodes_behind, 2), substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("Ep 2 in", substring = true).assertDoesNotExist()
-        // A source date without a canonical episode number still wins, without claiming a guessed number.
+        // Display the explicitly supplied source episode, without giving it canonical progress authority.
         composeRule.runOnIdle { rows = listOf(presentation().copy(
             authority = ReleaseUiAuthority.UNMAPPED, confirmedThroughEpisode = null,
             confirmedInstallments = emptyList(), nextExpectedInstallment = null,
             forecastAuthority = ReleaseUiAuthority.VALID,
         )) }
         composeRule.onNodeWithText("SUB", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithText("Ep ", substring = true).assertDoesNotExist()
+        composeRule.onNodeWithText("Ep 11 in", substring = true).assertIsDisplayed()
         composeRule.runOnIdle { rows = listOf(presentation(ReleaseUiAuthority.STALE)) }
         composeRule.onNodeWithText("Ep 2 in", substring = true).assertIsDisplayed()
     }

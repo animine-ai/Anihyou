@@ -26,9 +26,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.axiel7.anihyou.core.resources.R
-import com.axiel7.anihyou.core.ui.composables.InfoTitle
 import com.axiel7.anihyou.release.core.extension.NavigationCapability
-import com.axiel7.anihyou.release.core.navigation.NavigationProvider
 import com.axiel7.anihyou.release.core.navigation.NavigationUnavailableReason
 import com.axiel7.anihyou.release.core.navigation.ProviderNavigationProductState
 import com.axiel7.anihyou.release.core.navigation.WatchNextState
@@ -43,11 +41,12 @@ fun ProviderOverviewField(
     onOpenProvider: (ExtensionSelectionKey) -> Unit,
     onChooseProvider: (ExtensionSelectionKey) -> Unit,
     modifier: Modifier = Modifier,
+    streamingLinks: @Composable () -> Unit = {},
 ) {
     var showProviderChooser by remember { mutableStateOf(false) }
     val overviewProviders = navigationState.providers.filter {
         NavigationCapability.OVERVIEW_NAVIGATION in it.capabilities
-    }.distinctBy { it.key }
+    }.distinctBy { it.key }.sortedBy { if (it.key == navigationState.activeReleaseSource) 0 else 1 }
     val chooserProviders = (navigationState.watchNext as? WatchNextState.ChooseProvider)
         ?.providers.orEmpty()
 
@@ -81,36 +80,34 @@ fun ProviderOverviewField(
     }
 
     Column(modifier = modifier.testTag("provider-overview-field")) {
-        InfoTitle(text = stringResource(R.string.provider_sources))
-        if (overviewProviders.isNotEmpty()) {
-            FlowRow(
-                modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 4.dp),
-            ) {
-                overviewProviders.forEachIndexed { index, provider ->
-                    val isActiveReleaseSource = provider.key == navigationState.activeReleaseSource
-                    AssistChip(
-                        onClick = { onOpenProvider(provider.key) },
-                        enabled = !navigationState.loading,
-                        label = {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(provider.displayName)
-                                if (isActiveReleaseSource) {
-                                    Text(
-                                        text = stringResource(R.string.active_release_source),
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                }
+        FlowRow(
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 4.dp),
+        ) {
+            overviewProviders.forEachIndexed { index, provider ->
+                val isActiveReleaseSource = provider.key == navigationState.activeReleaseSource
+                AssistChip(
+                    onClick = { onOpenProvider(provider.key) },
+                    enabled = !navigationState.loading,
+                    label = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(provider.displayName)
+                            if (isActiveReleaseSource) {
+                                Text(
+                                    text = stringResource(R.string.active_release_source),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
                             }
-                        },
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .testTag("provider-overview-$index"),
-                    )
-                }
+                        }
+                    },
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .testTag("provider-overview-$index"),
+                )
             }
+            streamingLinks()
         }
 
         if (chooserProviders.size > 1) {
@@ -143,7 +140,7 @@ fun ProviderOverviewField(
                 ?: (navigationState.watchNext as? WatchNextState.Unavailable)
                     ?.reason
                     ?.takeUnless { it == NavigationUnavailableReason.CHOOSE_PROVIDER }
-            if (unavailableReason != null) {
+            if (unavailableReason != null && (overviewProviders.isNotEmpty() || navigationState.failure != null)) {
                 Text(
                     text = unavailableReason.localizedNavigationMessage(),
                     style = MaterialTheme.typography.bodySmall,

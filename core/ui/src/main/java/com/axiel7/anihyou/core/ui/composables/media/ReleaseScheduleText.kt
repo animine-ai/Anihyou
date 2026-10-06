@@ -81,7 +81,7 @@ fun ReleaseScheduleText(
         return
     }
     val pending = sourcePending ?: 0
-    val next = presentation.nextExpectedInstallment
+    val next = presentation.nextExpectedInstallment ?: presentation.nextForecast?.identity?.installment
     // A plan that passed without a confirmation stays a plan: no time, never "now" for days.
     val forecastAt = presentation.nextForecast?.forecastAt?.takeIf { presentation.hasAuthoritativeForecast }
         ?.takeUnless { ReleaseUiSelection.isOverdue(it, now) }
