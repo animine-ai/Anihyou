@@ -25,6 +25,7 @@ import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.RecommendationRating
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.common.navigation.Route
+import com.axiel7.anihyou.release.core.navigation.AniListReleaseBasis
 import com.axiel7.anihyou.release.core.navigation.EmptyProviderNavigationProductRepository
 import com.axiel7.anihyou.release.core.navigation.NavigationUnavailableReason
 import com.axiel7.anihyou.release.core.navigation.ProviderNavigationProductRepository
@@ -91,14 +92,14 @@ class MediaDetailsViewModel(
         val details = currentState.details ?: return
         val mediaId = details.id
         val watchedProgress = details.mediaListEntry?.basicMediaListEntry?.progress ?: return
-        // Resolve again against confirmed source releases and click-time progress.
+        val basis = details.watchReleaseBasis()
 
         // Resolve from the click-time ID and progress because observe() may still expose an older target.
         runNavigationAction {
-            val resolved = providerNavigationProductRepository.watchNext(mediaId, watchedProgress)
+            val resolved = providerNavigationProductRepository.watchNext(mediaId, watchedProgress, basis)
             val latestDetails = mutableUiState.value.details
             val latestProgress = latestDetails?.mediaListEntry?.basicMediaListEntry?.progress
-            if (latestDetails?.id != mediaId || latestProgress != watchedProgress) {
+            if (latestDetails?.id != mediaId || latestProgress != watchedProgress || latestDetails?.watchReleaseBasis() != basis) {
                 return@runNavigationAction NavigationUnavailableReason.STALE_RESULT
             }
 
@@ -587,7 +588,7 @@ class MediaDetailsViewModel(
             .flatMapLatest { (mediaId, request) ->
                 val progress = mutableUiState.mapNotNull { state ->
                     state.details?.takeIf { it.id == mediaId }?.let {
-                        it.mediaListEntry?.basicMediaListEntry?.progress ?: -1
+                        (it.mediaListEntry?.basicMediaListEntry?.progress ?: -1) to it.watchReleaseBasis()
                     }
                 }
                 progress.observeNavigationAfterDetailMapping(
@@ -596,7 +597,7 @@ class MediaDetailsViewModel(
                     ensureDetailMapping = { detailRequest ->
                         matchingManagementRepository.ensureDetailMapping(detailRequest)
                     },
-                    observe = providerNavigationProductRepository::observe,
+                    observe = { id, input -> providerNavigationProductRepository.observe(id, input.first, input.second) },
                 )
             }
             .onEach { productState ->
@@ -673,3 +674,12 @@ class MediaDetailsViewModel(
             .launchIn(viewModelScope)
     }
 }
+
+/** Only Anime metadata supplies a released-episode baseline, never manga chapter totals. */
+private fun MediaDetailsQuery.Media.watchReleaseBasis(): AniListReleaseBasis? =
+    if (!basicMediaDetails.isAnime()) null else AniListReleaseBasis(
+        status = status?.name,
+        totalEpisodes = basicMediaDetails.episodes,
+        nextEpisode = nextAiringEpisode?.episode,
+        nextAiringAt = nextAiringEpisode?.airingAt?.toLong(),
+    )

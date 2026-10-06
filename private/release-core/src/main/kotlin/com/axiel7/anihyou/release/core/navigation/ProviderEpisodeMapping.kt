@@ -46,12 +46,21 @@ data class ProviderNavigationProductState(
     val failure: NavigationUnavailableReason? = null,
     val mappingProviders: List<NavigationProvider> = emptyList(),
     val activeReleaseSource: ExtensionSelectionKey? = null,
-)
+    /** Released unwatched episodes, independent of available navigation links. Null means unknown. */
+    val backlog: WatchBacklog? = null,
+) {
+    val watchNextCount: Int get() = backlog?.count ?: if (backlog == null)
+        (watchNext as? WatchNextState.Candidate)?.behindCount ?: 0 else 0
+}
 
 interface ProviderNavigationProductRepository {
     fun observe(mediaId: Int, watchedProgress: Int): Flow<ProviderNavigationProductState>
+    fun observe(mediaId: Int, watchedProgress: Int, basis: AniListReleaseBasis?): Flow<ProviderNavigationProductState> =
+        observe(mediaId, watchedProgress)
     suspend fun overview(mediaId: Int, key: ExtensionSelectionKey): ProviderNavigationResult
     suspend fun watchNext(mediaId: Int, watchedProgress: Int): ProviderNavigationResult
+    suspend fun watchNext(mediaId: Int, watchedProgress: Int, basis: AniListReleaseBasis?): ProviderNavigationResult =
+        watchNext(mediaId, watchedProgress)
     suspend fun preferProvider(key: ExtensionSelectionKey)
     suspend fun launch(target: ValidatedNavigationTarget): ProviderNavigationResult
     suspend fun setEpisodeMapping(segment: ProviderEpisodeSegment)

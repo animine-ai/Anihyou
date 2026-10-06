@@ -147,22 +147,22 @@ class WatchNextResolverTest {
     }
 
     @Test
-    fun `fractional canonical episode keeps its explicit fractional provider mapping`() {
+    fun `whole next canonical episode keeps its explicit fractional provider mapping`() {
         val fractional = coordinate(
-            canonicalEpisode = "3.5",
+            canonicalEpisode = "3",
             sourceSeason = 2,
             providerEpisode = "15.5",
         )
 
         val state = resolver.resolve(
-            MEDIA_ID, BigDecimal("3"), policy(),
-            ActiveReleaseSnapshot(ACTIVE_KEY, RELEASE_GENERATION, listOf(release("3.50"))),
+            MEDIA_ID, BigDecimal("2"), policy(),
+            ActiveReleaseSnapshot(ACTIVE_KEY, RELEASE_GENERATION, listOf(release("3"))),
             listOf(provider()), listOf(fractional),
         )
 
         val candidate = state as WatchNextState.Candidate
-        assertEquals(BigDecimal("3.5"), candidate.episode)
-        assertEquals(BigDecimal("3.5"), candidate.coordinate.canonicalEpisode)
+        assertEquals(BigDecimal("3"), candidate.episode)
+        assertEquals(BigDecimal("3"), candidate.coordinate.canonicalEpisode)
         assertEquals("15.5", candidate.coordinate.providerEpisode)
     }
 
@@ -270,6 +270,23 @@ class WatchNextResolverTest {
         assertTrue(state is WatchNextState.Candidate)
         assertEquals(ACTIVE_KEY, navigationPreferenceChanged.activeReleaseSource)
         assertEquals(OTHER_KEY, (state as WatchNextState.Candidate).provider.key)
+    }
+
+    @Test
+    fun sparseReleasedFourteenCountsTwoButOnlyRequestsThirteen() {
+        val state = resolver.resolve(MEDIA_ID, BigDecimal("12"), policy(),
+            ActiveReleaseSnapshot(ACTIVE_KEY, RELEASE_GENERATION, listOf(release("14"))),
+            listOf(provider()), listOf(coordinate("13"), coordinate("14"))) as WatchNextState.Candidate
+        assertEquals(2, state.behindCount)
+        assertEquals(BigDecimal("13"), state.episode)
+        assertEquals("13", state.coordinate.providerEpisode)
+    }
+
+    @Test
+    fun missingThirteenNeverFallsThroughToFourteen() {
+        val state = resolver.resolveNext(MEDIA_ID, 12, 2, policy(), listOf(provider()),
+            listOf(coordinate("14")))
+        assertEquals(WatchNextState.Unavailable(NavigationUnavailableReason.MISSING_MAPPING), state)
     }
 
     private fun policy(

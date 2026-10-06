@@ -269,8 +269,7 @@ private fun MediaDetailsContent(
         )
     }
 
-    val showWatchNext = (uiState.extensionNavigation.watchNext as? WatchNextState.Candidate)
-        ?.behindCount?.let { it > 0 } == true
+    val showWatchNext = uiState.extensionNavigation.watchNextCount > 0
 
     Scaffold(
         modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),

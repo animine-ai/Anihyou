@@ -15,7 +15,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.release.core.navigation.ProviderNavigationProductState
-import com.axiel7.anihyou.release.core.navigation.WatchNextState
 
 @VisibleForTesting
 @Composable
@@ -23,8 +22,7 @@ fun ProviderWatchNextFloatingActionButton(
     navigationState: ProviderNavigationProductState,
     onClick: () -> Unit,
 ) {
-    val candidate = navigationState.watchNext as? WatchNextState.Candidate
-    val behindCount = candidate?.behindCount ?: 0
+    val behindCount = navigationState.watchNextCount
     if (behindCount > 0) {
         ExtendedFloatingActionButton(
             onClick = { if (!navigationState.loading) onClick() },

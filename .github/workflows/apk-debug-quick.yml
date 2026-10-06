@@ -1,4 +1,4 @@
-# 2026-10-06: confirmed compact watch-next action and bounded one-to-one season numbering.
+# 2026-10-06: AniList backlog with source corrections and exact next-episode navigation.
 name: Performance APK (temporary signed)
 # Optimized ARM64 test APK with temporary debug signing and complete data-decision logging. No tests, lint or emulator.
 # R8/resource shrinking reduce download size. Product gates remain separate; full logging and native packaging are verified.

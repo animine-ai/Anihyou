@@ -9,11 +9,11 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 
 /** Resolve a loaded anime's mapping once before observing navigation; progress changes only refresh navigation. */
-internal fun <T> Flow<Int>.observeNavigationAfterDetailMapping(
+internal fun <P, T> Flow<P>.observeNavigationAfterDetailMapping(
     mediaId: Int,
     request: DetailMappingRequest?,
     ensureDetailMapping: suspend (DetailMappingRequest) -> Unit,
-    observe: (Int, Int) -> Flow<T>,
+    observe: (Int, P) -> Flow<T>,
 ): Flow<T> = flow {
     if (request != null) {
         try {

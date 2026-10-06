@@ -59,56 +59,56 @@ sealed interface WatchNextState {
         val provider: NavigationProvider, val coordinate: ProviderCoordinate, val tracks: List<String>) : WatchNextState
 }
 
-/** Counts unique canonical actionable installments, never observations or forecasts. No provider URLs. */
+/** Backlog eligibility and the exact next coordinate are independent of navigation receipts. */
 class WatchNextResolver {
     fun resolve(mediaId: Int, watchedProgress: BigDecimal, policy: ExtensionProductPolicy,
         releases: ActiveReleaseSnapshot?, providers: List<NavigationProvider>,
         mappings: List<ProviderCoordinate>): WatchNextState {
-        if (watchedProgress.signum() < 0) return WatchNextState.Unavailable(NavigationUnavailableReason.UNKNOWN_PROGRESS)
+        val progress = runCatching { watchedProgress.intValueExact() }.getOrNull()
+            ?: return WatchNextState.Unavailable(NavigationUnavailableReason.UNKNOWN_PROGRESS)
+        if (progress < 0) return WatchNextState.Unavailable(NavigationUnavailableReason.UNKNOWN_PROGRESS)
         val active = policy.activeReleaseSource ?: return WatchNextState.Unavailable(NavigationUnavailableReason.NO_ACTIVE_SOURCE)
         if (releases?.key != active || releases.policyGeneration != policy.releaseGeneration)
             return WatchNextState.Unavailable(NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE)
-        // The release source's SUB confirms canonical availability. Navigation may still offer a chosen DUB.
-        val sourceTracks = setOf("DE_SUB")
-        val released = releases.installments.filter {
-            it.mediaId == mediaId && it.authoritative && it.episode > watchedProgress &&
-                it.episode.signum() > 0 && it.tracks.any { track -> track in sourceTracks }
-        }.map { it.episode.stripTrailingZeros() }.distinct().sorted()
-        if (released.isEmpty()) return WatchNextState.Unavailable(NavigationUnavailableReason.NO_RELEASED_UNWATCHED)
+        val facts = releases.installments.filter {
+            it.mediaId == mediaId && it.authoritative && "DE_SUB" in it.tracks
+        }.mapNotNull { row -> runCatching { row.episode.intValueExact() }.getOrNull()
+            ?.let { BacklogEpisodeEvidence(it, released = true) } }
+        return resolveNext(mediaId, progress, WatchBacklog.resolve(progress, null, facts).count,
+            policy, providers, mappings)
+    }
+
+    fun resolveNext(mediaId: Int, progress: Int, backlogCount: Int?, policy: ExtensionProductPolicy,
+        providers: List<NavigationProvider>, mappings: List<ProviderCoordinate>): WatchNextState {
+        fun unavailable(reason: NavigationUnavailableReason) = WatchNextState.Unavailable(reason)
+        if (progress < 0) return unavailable(NavigationUnavailableReason.UNKNOWN_PROGRESS)
+        if (backlogCount == null || backlogCount <= 0) return unavailable(NavigationUnavailableReason.NO_RELEASED_UNWATCHED)
+        val number = BigDecimal(progress.toLong() + 1)
         val eligible = providers.filter {
             NavigationCapability.EPISODE_NAVIGATION in it.capabilities && policy.preferencesFor(it.key).visibleInProviderField
         }.distinctBy { it.key }
-        if (eligible.isEmpty()) return WatchNextState.Unavailable(NavigationUnavailableReason.NO_PROVIDERS)
+        if (eligible.isEmpty()) return unavailable(NavigationUnavailableReason.NO_PROVIDERS)
         val preferred = policy.preferredNavigationProvider
         if (preferred != null && eligible.none { it.key == preferred })
-            return WatchNextState.Unavailable(NavigationUnavailableReason.PROVIDER_UNAVAILABLE)
-        fun actionableFor(provider: NavigationProvider): List<Triple<BigDecimal, ProviderCoordinate, List<String>>> {
-            val ordered = policy.preferencesFor(provider.key, provider.supportedTracks).orderedTracks(provider.supportedTracks)
-            return released.mapNotNull { number ->
-                val coordinate = mappings.filter { it.key == provider.key && it.mediaId == mediaId &&
-                    it.canonicalEpisode?.compareTo(number) == 0 }.singleOrNull() ?: return@mapNotNull null
-                if (!coordinate.isExactEpisode()) return@mapNotNull null
-                val tracks = ordered.filter { it in coordinate.availableTracks }
-                if (tracks.isEmpty()) null else Triple(number, coordinate, tracks)
-            }
-        }
-        val actionableProviders = eligible.filter { actionableFor(it).isNotEmpty() }
-        val provider = if (preferred != null) eligible.single { it.key == preferred }
-        else when (actionableProviders.size) {
-            0 -> return WatchNextState.Unavailable(
-                if (mappings.any { mapping -> eligible.any { it.key == mapping.key } &&
-                    mapping.mediaId == mediaId && mapping.isExactEpisode() })
-                    NavigationUnavailableReason.TRACK_UNAVAILABLE else NavigationUnavailableReason.MISSING_MAPPING)
-            1 -> actionableProviders.single()
-            else -> return WatchNextState.ChooseProvider(actionableProviders)
-        }
-        val ordered = policy.preferencesFor(provider.key, provider.supportedTracks).orderedTracks(provider.supportedTracks)
-        if (ordered.isEmpty()) return WatchNextState.Unavailable(NavigationUnavailableReason.TRACK_UNAVAILABLE)
-        val actionable = actionableFor(provider)
-        val first = actionable.firstOrNull() ?: return WatchNextState.Unavailable(
-            if (mappings.any { it.key == provider.key && it.mediaId == mediaId && it.isExactEpisode() })
+            return unavailable(NavigationUnavailableReason.PROVIDER_UNAVAILABLE)
+        fun coordinate(provider: NavigationProvider) = mappings.filter {
+            it.key == provider.key && it.mediaId == mediaId && it.canonicalEpisode?.compareTo(number) == 0
+        }.singleOrNull()?.takeIf { it.isExactEpisode() }
+        fun tracks(provider: NavigationProvider): List<String> =
+            policy.preferencesFor(provider.key, provider.supportedTracks).orderedTracks(provider.supportedTracks)
+                .filter { it in coordinate(provider)?.availableTracks.orEmpty() }
+        val actionable = eligible.filter { coordinate(it) != null && tracks(it).isNotEmpty() }
+        val provider = if (preferred != null) eligible.single { it.key == preferred } else when (actionable.size) {
+            0 -> return unavailable(if (eligible.any { coordinate(it) != null })
                 NavigationUnavailableReason.TRACK_UNAVAILABLE else NavigationUnavailableReason.MISSING_MAPPING)
-        return WatchNextState.Candidate(actionable.size, first.first, provider, first.second, first.third)
+            1 -> actionable.single()
+            else -> return WatchNextState.ChooseProvider(actionable)
+        }
+        val exact = coordinate(provider) ?: return unavailable(NavigationUnavailableReason.MISSING_MAPPING)
+        val ordered = tracks(provider)
+        if (ordered.isEmpty()) return unavailable(NavigationUnavailableReason.TRACK_UNAVAILABLE)
+        // Never skip a missing/unavailable next episode to a later available episode.
+        return WatchNextState.Candidate(backlogCount, number, provider, exact, ordered)
     }
 }
 

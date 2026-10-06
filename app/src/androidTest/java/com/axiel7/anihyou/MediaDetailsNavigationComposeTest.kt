@@ -112,6 +112,25 @@ class MediaDetailsNavigationComposeTest {
     }
 
     @Test
+    fun anilistBacklogRemainsVisibleWithoutAnEpisodeMappingAndZeroHidesIt() {
+        val state = mutableStateOf(ProviderNavigationProductState(
+            watchNext = WatchNextState.Unavailable(NavigationUnavailableReason.MISSING_MAPPING),
+            backlog = com.axiel7.anihyou.release.core.navigation.WatchBacklog(14, 2)))
+        val clicks = AtomicInteger()
+        composeRule.setContent {
+            MaterialTheme {
+                ProviderWatchNextFloatingActionButton(state.value) { clicks.incrementAndGet() }
+            }
+        }
+        composeRule.onNodeWithText("2").assertIsDisplayed().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, clicks.get())
+            state.value = state.value.copy(backlog = com.axiel7.anihyou.release.core.navigation.WatchBacklog(12, 0))
+        }
+        composeRule.onNodeWithTag("provider-watch-next-fab").assertDoesNotExist()
+    }
+
+    @Test
     fun sourceChipPrecedesExternalStreamingChipsWithoutSeparateProviderHeading() {
         val fixture = navigationFixture()
         composeRule.setContent {

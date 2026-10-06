@@ -168,13 +168,13 @@ class ExtensionProviderNavigationTargetCacheTest {
             val identity = checkNotNull(com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity.from(evidence))
             val reconciliation = RoomReleaseReconciliationRepository(db)
             reconciliation.importBaseline()
-            fun row(released: Boolean) = com.axiel7.anihyou.release.data.db.ReleaseReconciliationMapper.projection(
-                com.axiel7.anihyou.release.core.model.CanonicalReleaseState(identity.key,
+            fun row(released: Boolean, coordinateIdentity: com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity = identity) = com.axiel7.anihyou.release.data.db.ReleaseReconciliationMapper.projection(
+                com.axiel7.anihyou.release.core.model.CanonicalReleaseState(coordinateIdentity.key,
                     underlyingPhase = if (released) com.axiel7.anihyou.release.core.model.ReleasePhase.RELEASED else com.axiel7.anihyou.release.core.model.ReleasePhase.EXPECTED,
                     phase = if (released) com.axiel7.anihyou.release.core.model.ReleasePhase.RELEASED else com.axiel7.anihyou.release.core.model.ReleasePhase.EXPECTED,
                     authority = if (released) com.axiel7.anihyou.release.core.model.ReleaseAuthority.ANIWORLD else com.axiel7.anihyou.release.core.model.ReleaseAuthority.NONE,
                     releaseAt = if (released) now else null, forecastAt = now.plusSeconds(86400),
-                    navigationSeasons = setOf(1), conflicts = emptyList(), revision = 1), identity.bucketKey, 1)
+                    navigationSeasons = setOf(1), conflicts = emptyList(), revision = 1), coordinateIdentity.bucketKey, 1)
                 .forSource(key.sourceId, key.extensionId, key.publisherId, key.providerId)
             db.reconciliationDao().upsertSourceProjection(row(false))
             store.record(key, policy.policy.value.releaseGeneration, digest,
@@ -192,8 +192,8 @@ class ExtensionProviderNavigationTargetCacheTest {
             val candidate = ready.watchNext as com.axiel7.anihyou.release.core.navigation.WatchNextState.Candidate
             assertEquals(1, candidate.behindCount)
             assertEquals(java.math.BigDecimal("3"), candidate.episode)
-            assertNotSame(null, ready.watchTarget)
-            assertEquals(1, gateway.dispatchCount.get())
+            assertEquals(null, ready.watchTarget)
+            assertEquals(0, gateway.dispatchCount.get())
             val opened = product.watchNext(42, 2) as ProviderNavigationResult.Ready
             product.launch(opened.target)
             assertEquals(1, launched.get())
@@ -207,6 +207,44 @@ class ExtensionProviderNavigationTargetCacheTest {
                 binding.staleAt, binding.provenance, binding.parserVersion, 2, now.toString()))
             assertEquals(ProviderNavigationResult.Unavailable(NavigationUnavailableReason.MISSING_MAPPING), product.watchNext(42, 2))
             assertEquals(1, launched.get())
+            db.matchingDao().upsertSourceMapping(com.axiel7.anihyou.release.data.db.SourceMappingEntity(
+                key.sourceId, key.extensionId, key.publisherId, key.providerId, binding.mappingSubjectKey,
+                binding.externalProvider, binding.seriesStableKey, binding.siteSlug, binding.subjectType,
+                binding.navigationSeason, binding.filmNumber, "42", binding.mappingSource,
+                binding.mappingStatus, binding.confidence, binding.createdAt, binding.validatedAt,
+                binding.staleAt, binding.provenance, binding.parserVersion, 3, now.toString()))
+            store.rememberNumbering(ProviderMediaNumbering(42, setOf("Ordinary Show"), 26))
+            val fourteen = checkNotNull(com.axiel7.anihyou.release.core.model.CanonicalReleaseIdentity.from(
+                evidence.copy(id = "confirmed-14", installment = com.axiel7.anihyou.release.core.model.Installment.Episode(14))))
+            db.reconciliationDao().upsertSourceProjection(row(true, fourteen))
+            store.record(key, policy.policy.value.releaseGeneration, digest,
+                listOf(AcceptedProviderInstallment(fourteen.key, "fixture-series", 1, "14", "DE_SUB")),
+                packageGeneration = 8, rowsCommitted = true)
+            val basis = com.axiel7.anihyou.release.core.navigation.AniListReleaseBasis("RELEASING", 26, 15,
+                java.time.Instant.now().plusSeconds(86400).epochSecond)
+            val beforeDispatch = gateway.dispatchCount.get()
+            val sparse = product.observe(42, 12, basis).first { !it.loading }
+            assertEquals(2, sparse.watchNextCount)
+            assertEquals(beforeDispatch, gateway.dispatchCount.get())
+            val thirteen = product.watchNext(42, 12, basis) as ProviderNavigationResult.Ready
+            assertEquals("13", gateway.requestedEpisodes.last())
+            product.launch(thirteen.target)
+            assertEquals(2, launched.get())
+            // A failed exact next target may try another enabled track, never a later episode.
+            gateway.packageGeneration = 9 // discard the previous positive navigation receipt
+            gateway.unavailableEpisodes = setOf("13")
+            val beforeFailure = gateway.requestedEpisodes.size
+            assertEquals(ProviderNavigationResult.Unavailable(NavigationUnavailableReason.TRACK_UNAVAILABLE),
+                product.watchNext(42, 12, basis))
+            assertEquals(setOf("13"), gateway.requestedEpisodes.drop(beforeFailure).toSet())
+            assertEquals(2, launched.get())
+            // A split entry uses its explicit range, not AniList's local number as a provider URL.
+            gateway.unavailableEpisodes = emptySet()
+            store.upsertSegment(ProviderEpisodeSegment(key, 99, "fixture-series", 1, 13, 1, 12))
+            val part = product.watchNext(99, 0,
+                com.axiel7.anihyou.release.core.navigation.AniListReleaseBasis("FINISHED", 12, null, null))
+            assertEquals(true, part is ProviderNavigationResult.Ready)
+            assertEquals("13", gateway.requestedEpisodes.last())
         } finally { directory.deleteRecursively() }
     }
 
@@ -218,6 +256,8 @@ class ExtensionProviderNavigationTargetCacheTest {
         var packageGeneration: Long = 8
         val dispatchCount = AtomicInteger()
         val dispatchedGenerations = mutableListOf<Long>()
+        val requestedEpisodes = mutableListOf<String?>()
+        var unavailableEpisodes = emptySet<String>()
 
         private fun provider() = NavigationProvider(
             key = key,
@@ -236,9 +276,11 @@ class ExtensionProviderNavigationTargetCacheTest {
             provider: NavigationProvider,
             request: NavigationContextV1,
             generation: String,
-        ): ProviderNavigationTargetV1 {
+        ): ProviderNavigationTargetV1? {
             dispatchCount.incrementAndGet()
             dispatchedGenerations += provider.packageGeneration
+            requestedEpisodes += request.providerEpisode
+            if (request.providerEpisode in unavailableEpisodes) return null
             val path = "package-" + provider.packageGeneration + "/" + request.providerSeriesKey
             return ProviderNavigationTargetV1(
                 schemaVersion = 1,

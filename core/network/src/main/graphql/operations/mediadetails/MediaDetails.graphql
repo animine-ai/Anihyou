@@ -41,6 +41,7 @@ query MediaDetails($mediaId: Int) {
         favourites
         isFavourite
         nextAiringEpisode {
+            airingAt
             timeUntilAiring
             episode
         }
