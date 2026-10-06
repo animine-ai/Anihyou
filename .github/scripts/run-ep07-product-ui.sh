@@ -83,7 +83,7 @@ expected|={'manage-empty-add-dialog','postponements-search-no-results','provider
            'statistics-user-german-black-large','statistics-user-overview'}
 expected|={f'calendar-tracks-{style}-{state}' for style in ('standard','grid')
            for state in ('combined-planned','combined-confirmed','separate')}
-expected|={'home-sub-only-backlog'}
+expected|={'home-sub-only-backlog','details-floating-actions'}
 names={p.stem for p in shots}
 assert names==expected, ('screenshot set differs', sorted(expected-names), sorted(names-expected))
 # Every stored picture carries the foreground facts that were verified before and after its capture.
