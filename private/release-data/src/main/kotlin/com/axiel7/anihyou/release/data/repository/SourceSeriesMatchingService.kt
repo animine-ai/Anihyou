@@ -334,6 +334,8 @@ class SourceSeriesMatchingService(
 
     /** When a series was last tried without a result, so the automatic runs after a refresh do not try it again and again. */
     private val lastTried = java.util.concurrent.ConcurrentHashMap<String, java.time.Instant>()
+    /** Resume explicit bounded searches after the last attempted subject, so cached failures cannot starve the rest. */
+    private val lastTargetedSubject = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private suspend fun autoMatchLocked(maxSearches: Int, force: Boolean): AutoMatchReport {
         val active = policy.policy.value.activeReleaseSource ?: return AutoMatchReport()
@@ -455,9 +457,16 @@ class SourceSeriesMatchingService(
         }
         var searches = 0
         val stillOpen = ArrayList<Prepared>()
-        for (series in left) {
+        val sourceKey = MappingEntryIds.sourceKey(active)
+        val resumeAfter = left.indexOfFirst { "${it.slug}|${it.season}" == lastTargetedSubject[sourceKey] } + 1
+        val searchOrder = if (maxSearches > 0 && resumeAfter in 1 until left.size)
+            left.drop(resumeAfter) + left.take(resumeAfter) else left
+        for (series in searchOrder) {
             if (searches < maxSearches && bind(active, series, pool.sharing(series.tokens, series.compacts), takenMedia,
-                    search = { searches++ }, via = "single search") == Bind.BOUND) matched++
+                    search = {
+                        searches++
+                        lastTargetedSubject[sourceKey] = "${series.slug}|${series.season}"
+                    }, via = "single search") == Bind.BOUND) matched++
             else stillOpen += series
         }
         left = stillOpen

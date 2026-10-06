@@ -126,6 +126,7 @@ class RoomMatchingManagementRepositoryTest {
         var targeted: List<IdentityCandidate> = emptyList()
         var localCalls = 0
         var targetedCalls = 0
+        val targetedTitles = mutableListOf<String>()
         var onLocal: suspend () -> Unit = {}
         /** The AniList entries of a season pool by its cache key, and which pools were asked for, in order. */
         var pools: Map<String, List<IdentityCandidate>> = emptyMap()
@@ -151,6 +152,7 @@ class RoomMatchingManagementRepositoryTest {
         }
         override suspend fun targetedSearch(query: TargetedIdentityQuery): CandidateBatch {
             targetedCalls++
+            targetedTitles += query.query
             return CandidateBatch(targeted, true)
         }
     }
@@ -548,6 +550,11 @@ class RoomMatchingManagementRepositoryTest {
         assertEquals(8, report.searches)
         assertEquals("instant failures/cache answers also consume the bounded lookup budget", 8, rig.candidates.targetedCalls)
         assertEquals(12, rig.repository.observeUnmatched().first().size)
+        val next = rig.service.searchPendingNow()
+        assertEquals(8, next.searches)
+        assertEquals(16, rig.candidates.targetedCalls)
+        assertEquals("another bounded run reaches the remaining titles instead of retrying only the first eight",
+            (0 until 12).map { "Unresolved Show $it" }.toSet(), rig.candidates.targetedTitles.toSet())
     }
 
     @Test fun resetDuringPreparationBlocksTheWriteAndIsNotReportedAsAMatch() = runBlocking {
