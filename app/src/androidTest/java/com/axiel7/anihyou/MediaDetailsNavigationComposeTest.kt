@@ -1,8 +1,12 @@
 package com.axiel7.anihyou
 
 import android.content.Context
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -147,7 +151,9 @@ class MediaDetailsNavigationComposeTest {
                             ) { androidx.compose.material3.Text("Bearbeiten") }
                         }
                     },
-                ) { _ -> }
+                ) { innerPadding ->
+                    Box(Modifier.fillMaxSize().padding(innerPadding))
+                }
             }
         }
         composeRule.onNodeWithText("2").assertIsDisplayed()
