@@ -324,6 +324,9 @@ class CalendarViewModel(
                 mutableUiState.update {
                     it.copy(
                         onMyList = onMyListVal,
+                        // Keep membership/cover metadata when the AniList day query is reset.
+                        extraMedia = it.extraMedia + it.weeklyAnime.values.asSequence().flatten()
+                            .map { event -> event.media }.associateBy { media -> media.id },
                         weeklyAnime = mutableMapOf(),
                         day = nowLocalDateTime().minusDays(1),
                         todayFirstItemIndex = 0,
@@ -334,6 +337,7 @@ class CalendarViewModel(
                         isLoading = true,
                     )
                 }
+                loadMissingMedia(mutableUiState.value.releaseCalendarRows.mapNotNull { it.mediaId })
             }
         }.launchIn(viewModelScope)
 
