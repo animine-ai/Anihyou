@@ -225,12 +225,12 @@ private fun ExtensionSourceCard(
             Icon(painterResource(CoreR.drawable.rss_feed_24), contentDescription = null, tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(end = 16.dp))
             Column(Modifier.weight(1f)) {
-                Text(repositoryHost(source.url) ?: stringResource(R.string.extension_manage_unknown_repository),
+                Text(repositoryDisplayName(source.url) ?: stringResource(R.string.extension_manage_unknown_repository),
                     style = MaterialTheme.typography.bodyLarge)
                 Text(stringResource(R.string.extension_sources_status, stringResource(
                     if (sourceBusy) R.string.extension_manage_working else sourceStatusString(source.status))),
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("extension-source-status"))
-                if (source.manuallyTrusted) Text(stringResource(R.string.extension_manage_manual_trust),
+                if (source.manuallyTrusted) Text(stringResource(R.string.extension_manage_manual_trust_short),
                     modifier = Modifier.testTag("extension-source-manual-trust"), style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.tertiary)
                 source.lastFailure?.let { Text(stringResource(R.string.extension_sources_last_failure, stringResource(sourceFailureString(it))),
@@ -253,7 +253,7 @@ private fun ExtensionSourceCard(
         }
     }
     if (details) AlertDialog(onDismissRequest = { details = false },
-        title = { Text(repositoryHost(source.url) ?: stringResource(R.string.extension_manage_unknown_repository)) },
+        title = { Text(repositoryDisplayName(source.url) ?: stringResource(R.string.extension_manage_unknown_repository)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(source.url); Text(source.id, style = MaterialTheme.typography.bodySmall)
             Text(stringResource(R.string.extension_sources_status, stringResource(sourceStatusString(source.status))))
@@ -326,7 +326,7 @@ private fun SourceExtensionInfo(
         Column(Modifier.weight(1f)) {
             Text(extension.displayName, style = MaterialTheme.typography.bodyLarge)
             Text(listOfNotNull(extension.installedVersion ?: extension.latestAvailableVersion,
-                extension.supportedTracks.filter { it != "UNKNOWN" }.sorted().joinToString(" / ").takeIf { it.isNotBlank() }).joinToString(" · "),
+                extensionTrackLabel(extension.supportedTracks)).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(updateStatusText, style = MaterialTheme.typography.bodySmall,
                 color = if (extension.revoked || !extension.installedUsable && extension.installedDigest != null)
@@ -569,6 +569,14 @@ private fun repositoryHost(url: String): String? = try {
     java.net.URI(url).host?.takeIf { it.isNotBlank() }
 } catch (_: Exception) {
     null
+}
+
+@Composable
+private fun extensionTrackLabel(tracks: Set<String>): String? = when (tracks) {
+    setOf("DE_SUB", "DE_DUB") -> stringResource(R.string.extension_manage_tracks_german)
+    setOf("DE_SUB") -> stringResource(R.string.extension_manage_tracks_german_sub)
+    setOf("DE_DUB") -> stringResource(R.string.extension_manage_tracks_german_dub)
+    else -> tracks.filter { it != "UNKNOWN" }.sorted().joinToString(" / ").takeIf { it.isNotBlank() }
 }
 
 @Composable

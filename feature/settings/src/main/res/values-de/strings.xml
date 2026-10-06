@@ -135,4 +135,8 @@
     <string name="extension_sources_preview_failed">Die Quelle konnte nicht geprüft werden. Ihre Metadaten konnten nicht geladen werden oder sind ungültig.</string>
     <string name="extension_manage_manual_trust">Manuell vertraut, nicht unabhängig geprüft</string>
     <string name="extension_manage_diagnostic_trust_class">Vertrauensklasse</string>
+    <string name="extension_manage_manual_trust_short">Manuell bestätigt</string>
+    <string name="extension_manage_tracks_german">Deutsch (SUB/DUB)</string>
+    <string name="extension_manage_tracks_german_sub">Deutsche Untertitel</string>
+    <string name="extension_manage_tracks_german_dub">Deutsche Synchronisation</string>
 </resources>

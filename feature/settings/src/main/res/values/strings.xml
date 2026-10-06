@@ -135,4 +135,8 @@
     <string name="extension_sources_preview_failed">The source could not be checked. Its metadata could not be loaded or is not valid.</string>
     <string name="extension_manage_manual_trust">Manually trusted, not independently verified</string>
     <string name="extension_manage_diagnostic_trust_class">Trust class</string>
+    <string name="extension_manage_manual_trust_short">Manually accepted</string>
+    <string name="extension_manage_tracks_german">German (SUB/DUB)</string>
+    <string name="extension_manage_tracks_german_sub">German subtitles</string>
+    <string name="extension_manage_tracks_german_dub">German dubbing</string>
 </resources>
