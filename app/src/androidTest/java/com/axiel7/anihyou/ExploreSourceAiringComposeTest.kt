@@ -3,6 +3,7 @@ package com.axiel7.anihyou
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
@@ -42,12 +43,14 @@ class ExploreSourceAiringComposeTest {
         var calendarOpened = false
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                Column {
-                    AiringContent(false, remember { mutableStateListOf() }, remember { mutableStateListOf() },
-                        providerAiringRows = (1..10).map(::row), providerAiringMedia = metadata,
-                        isLoadingProviderAiring = loading, isLoading = false,
-                        onLongClickItem = { _, _ -> }, navigateToCalendar = { calendarOpened = true },
-                        navigateToMediaDetails = { opened = it })
+                Surface {
+                    Column {
+                        AiringContent(false, remember { mutableStateListOf() }, remember { mutableStateListOf() },
+                            providerAiringRows = (1..10).map(::row), providerAiringMedia = metadata,
+                            isLoadingProviderAiring = loading, isLoading = false,
+                            onLongClickItem = { _, _ -> }, navigateToCalendar = { calendarOpened = true },
+                            navigateToMediaDetails = { opened = it })
+                    }
                 }
             }
         }
@@ -79,11 +82,13 @@ class ExploreSourceAiringComposeTest {
         val metadata = mapOf(7 to media(7, listed = true), 8 to media(8))
         rule.setContent {
             MaterialTheme {
-                Column {
-                    AiringContent(onList, remember { mutableStateListOf() }, remember { mutableStateListOf() },
-                        providerAiringRows = listOf(row(7), row(8), row(9), row(null)), providerAiringMedia = metadata,
-                        isLoading = false, onLongClickItem = { _, _ -> }, navigateToCalendar = {},
-                        navigateToMediaDetails = { opened = it })
+                Surface {
+                    Column {
+                        AiringContent(onList, remember { mutableStateListOf() }, remember { mutableStateListOf() },
+                            providerAiringRows = listOf(row(7), row(8), row(9), row(null)), providerAiringMedia = metadata,
+                            isLoading = false, onLongClickItem = { _, _ -> }, navigateToCalendar = {},
+                            navigateToMediaDetails = { opened = it })
+                    }
                 }
             }
         }

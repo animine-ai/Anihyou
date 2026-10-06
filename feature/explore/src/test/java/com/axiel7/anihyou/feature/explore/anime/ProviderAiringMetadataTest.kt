@@ -25,7 +25,7 @@ class ProviderAiringMetadataTest {
     private val store = ViewModelStore()
     private val rows = MutableStateFlow<List<ReleaseUiCalendarItem>>(emptyList())
     private val user = MutableStateFlow<Int?>(1)
-    private val onList = MutableStateFlow<Boolean?>(false)
+    private val onList = MutableStateFlow(false)
     private val media = mockk<MediaRepository>()
     private val requests = mutableListOf<List<Int>>()
     private var fetch: (List<Int>) -> Flow<PagedResult<ExploreMedia>> = { ids -> success(ids) }
