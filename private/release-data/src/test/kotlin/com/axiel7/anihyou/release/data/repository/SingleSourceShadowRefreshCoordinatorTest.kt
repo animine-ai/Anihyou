@@ -335,9 +335,15 @@ class SingleSourceShadowRefreshCoordinatorTest {
         val recent = requireNotNull(database.aniworldPollDao().health(ReleaseSourceType.ANIWORLD_RECENT.name)?.toDomainOrNull())
         assertEquals("a host denial must not mark the source unavailable", SourceHealthStatus.HEALTHY, recent.status)
         assertEquals(NOW.minusSeconds(60), recent.lastAttemptAt)
+        val expectedDeferral = "RECENT: http=none report=DEFERRED obs=0 diag=HOST_COOLDOWN until=${NOW.plusSeconds(1800)}"
+        assertTrue(outcome.roleReports, outcome.roleReports.contains(expectedDeferral))
+        assertFalse("a cooldown is not a parse failure", outcome.roleReports.contains("report=FAILURE"))
+        assertEquals(outcome.roleReports, rig.navigationStore.state.value.syncStatistics["Role reports"])
         // The denied role stays due: the next automatic trigger asks for it again once the cooldown has lapsed.
         rig.clock.now = NOW.plusSeconds(3601)
-        assertTrue(product(rig, access).refresh("after-cooldown", ExtensionRefreshTrigger.FOREGROUND) is ShadowRefreshOutcome.Committed)
+        val recovered = product(rig, access).refresh("after-cooldown", ExtensionRefreshTrigger.FOREGROUND)
+        assertTrue(recovered is ShadowRefreshOutcome.Committed)
+        assertFalse((recovered as ShadowRefreshOutcome.Committed).roleReports.contains("report=DEFERRED"))
         assertTrue(SourceRole.RECENT in rig.runtime.plannedRoles.last())
     }
 

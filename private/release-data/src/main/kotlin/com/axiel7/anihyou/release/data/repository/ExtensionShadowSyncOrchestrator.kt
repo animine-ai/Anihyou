@@ -107,10 +107,6 @@ class ExtensionShadowSyncOrchestrator(
                     val completed = Instant.parse(result.receipt.completedAt)
                     val succeeded = succeededRoles(result)
                     val usable = usableRoles(result)
-                    val roleReports = roleReports(result)
-                    AppLog.i("sync") {
-                        "role reports: $roleReports | fully succeeded=${succeeded.map { it.name }} usable=${usable.map { it.name }}"
-                    }
                     // A role whose requests the host ledger denied (a cooldown, not an answer of the source) was not
                     // asked: it is neither a failure nor judged absent, and it does not touch source health.
                     val deniedUntil = if (requireCompleteRefresh) deferralProbe(lease.executionGenerationId) else emptyMap()
@@ -119,6 +115,10 @@ class ExtensionShadowSyncOrchestrator(
                             val requestIds = result.requestRoles.filterValues { it == role }.keys
                             requestIds.isNotEmpty() && result.responseProvenance.none { it.requestId in requestIds }
                         }
+                    val roleReports = roleReports(result, deniedRoles.associateWith { deniedUntil.getValue(it.name) })
+                    AppLog.i("sync") {
+                        "role reports: $roleReports | fully succeeded=${succeeded.map { it.name }} usable=${usable.map { it.name }}"
+                    }
                     val health = sourceHealth(result, completed).filterNot { entry ->
                         deniedRoles.any { ROLE_TYPES.getValue(it) == entry.sourceType }
                     }
@@ -245,9 +245,12 @@ class ExtensionShadowSyncOrchestrator(
             ranked.firstOrNull()?.let { ObservedSourceLabel(slug, it.key, ranked.drop(1).map { e -> e.key }.take(8).toSet()) }
         }
 
-    /** What each role got back and what the guest said about it. Only role names, status numbers, outcome names and codes. */
-    private fun roleReports(result: ExtensionHostResult.Completed): String =
+    /** Ledger-confirmed deferrals are separate from responses and guest parse failures. */
+    private fun roleReports(result: ExtensionHostResult.Completed, deferredUntil: Map<SourceRole, Instant>): String =
         result.requestRoles.entries.groupBy({ it.value }, { it.key }).entries.sortedBy { it.key.ordinal }.joinToString("; ") { (role, ids) ->
+            deferredUntil[role]?.let { until ->
+                return@joinToString "${role.name}: http=none report=DEFERRED obs=0 diag=HOST_COOLDOWN until=$until"
+            }
             val http = ids.joinToString("/") { id -> result.responseProvenance.firstOrNull { it.requestId == id }?.httpStatus?.toString() ?: "none" }
             val reports = ids.mapNotNull { id -> result.reports.singleOrNull { it.requestId == id } }
             val codes = reports.flatMap { report -> report.diagnostics.map { it.code } }
