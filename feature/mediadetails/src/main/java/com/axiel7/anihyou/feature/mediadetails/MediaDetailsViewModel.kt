@@ -91,8 +91,7 @@ class MediaDetailsViewModel(
         val details = currentState.details ?: return
         val mediaId = details.id
         val watchedProgress = details.mediaListEntry?.basicMediaListEntry?.progress ?: return
-        // The visible action may have only AniList's pending count. Resolve on click and surface
-        // missing mappings/provider choices instead of silently ignoring the user's tap.
+        // Resolve again against confirmed source releases and click-time progress.
 
         // Resolve from the click-time ID and progress because observe() may still expose an older target.
         runNavigationAction {
@@ -579,6 +578,7 @@ class MediaDetailsViewModel(
                             .map(String::trim).filter { it.isNotBlank() && it.length <= 512 }.take(64).toSet(),
                         format = details.basicMediaDetails.format?.name,
                         startYear = details.startDate?.fuzzyDate?.year,
+                        episodeExtent = details.basicMediaDetails.episodes ?: details.nextAiringEpisode?.episode,
                     ) else null
                     details.id to request
                 }

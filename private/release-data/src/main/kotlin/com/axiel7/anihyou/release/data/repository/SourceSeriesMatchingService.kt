@@ -111,6 +111,10 @@ class SourceSeriesMatchingService(
     private suspend fun resolve(active: ExtensionSelectionKey, request: DetailMappingRequest) {
         val sourceKey = MappingEntryIds.sourceKey(active)
         val media = request.mediaId
+        request.episodeExtent?.takeIf { it in 1..9999 }?.let { extent ->
+            navigation.rememberNumbering(com.axiel7.anihyou.release.data.extension.ProviderMediaNumbering(
+                media, request.titles, extent))
+        }
         if (dao.sourceBoundCount(active.sourceId, active.extensionId, active.publisherId, active.providerId,
                 request.mediaId.toString()) > 0) {
             AppLog.d("matching") { "media=$media: a persisted mapping exists, no matcher run" }

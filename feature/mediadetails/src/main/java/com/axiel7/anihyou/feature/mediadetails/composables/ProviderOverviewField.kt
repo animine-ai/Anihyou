@@ -84,24 +84,10 @@ fun ProviderOverviewField(
             modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 4.dp),
         ) {
             overviewProviders.forEachIndexed { index, provider ->
-                val isActiveReleaseSource = provider.key == navigationState.activeReleaseSource
                 AssistChip(
                     onClick = { onOpenProvider(provider.key) },
                     enabled = !navigationState.loading,
-                    label = {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(provider.displayName)
-                            if (isActiveReleaseSource) {
-                                Text(
-                                    text = stringResource(R.string.active_release_source),
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                            }
-                        }
-                    },
+                    label = { Text(provider.displayName) },
                     modifier = Modifier
                         .padding(horizontal = 4.dp)
                         .testTag("provider-overview-$index"),
@@ -136,10 +122,9 @@ fun ProviderOverviewField(
                 Text(stringResource(R.string.provider_navigation_loading))
             }
         } else {
+            // Passive watch-next availability is represented by the floating action's visibility.
+            // Streaming chips only show an issue caused by an explicit navigation action.
             val unavailableReason = navigationState.failure
-                ?: (navigationState.watchNext as? WatchNextState.Unavailable)
-                    ?.reason
-                    ?.takeUnless { it == NavigationUnavailableReason.CHOOSE_PROVIDER }
             if (unavailableReason != null && (overviewProviders.isNotEmpty() || navigationState.failure != null)) {
                 Text(
                     text = unavailableReason.localizedNavigationMessage(),

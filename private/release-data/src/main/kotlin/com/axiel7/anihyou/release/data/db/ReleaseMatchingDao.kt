@@ -162,7 +162,7 @@ interface ReleaseMatchingDao {
                externalId, mappingSource, mappingStatus, confidence, createdAt, validatedAt, staleAt, provenance, parserVersion
         FROM v3_source_mapping
         WHERE sourceId=:sourceId AND extensionId=:extensionId AND publisherId=:publisherId AND providerId=:providerId
-          AND externalProvider='anilist' AND mappingStatus='ACTIVE' AND confidence='EXACT' AND externalId=:mediaId
+          AND externalProvider='anilist' AND mappingStatus='ACTIVE' AND confidence IN ('EXACT', 'HIGH') AND externalId=:mediaId
           AND subjectType='SEASON' AND validatedAt IS NOT NULL AND staleAt IS NULL
         UNION ALL
         SELECT e.mappingSubjectKey, e.seriesStableKey, e.siteSlug, e.subjectType, e.navigationSeason, e.filmNumber,

@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
@@ -71,7 +72,7 @@ class MediaDetailsNavigationComposeTest {
             ProviderNavigationProductState(watchNext = candidate, watchTarget = null)
         )
         val clicks = AtomicInteger()
-        val label = appContext().getString(CoreR.string.watch_next_behind_count, 3)
+        val label = "3"
 
         composeRule.setContent {
             MaterialTheme {
@@ -93,18 +94,17 @@ class MediaDetailsNavigationComposeTest {
     }
 
     @Test
-    fun baselineBehindButtonRemainsVisibleWithoutAnEpisodeMapping() {
+    fun unavailableWatchNextNeverShowsAnAiringFallbackButton() {
         val clicks = AtomicInteger()
         composeRule.setContent {
             MaterialTheme {
                 ProviderWatchNextFloatingActionButton(
                     ProviderNavigationProductState(watchNext = WatchNextState.Unavailable(NavigationUnavailableReason.MISSING_MAPPING)),
-                    fallbackBehindCount = 1,
                 ) { clicks.incrementAndGet() }
             }
         }
-        composeRule.onNodeWithTag("provider-watch-next-fab").assertIsDisplayed().performClick()
-        composeRule.runOnIdle { assertEquals(1, clicks.get()) }
+        composeRule.onNodeWithTag("provider-watch-next-fab").assertDoesNotExist()
+        composeRule.runOnIdle { assertEquals(0, clicks.get()) }
     }
 
     @Test
@@ -124,7 +124,66 @@ class MediaDetailsNavigationComposeTest {
         org.junit.Assert.assertTrue(provider.top <= external.top)
         if (provider.top == external.top) org.junit.Assert.assertTrue(provider.left < external.left)
         composeRule.onNodeWithText(appContext().getString(CoreR.string.provider_sources)).assertDoesNotExist()
-        composeRule.onNodeWithText(appContext().getString(CoreR.string.active_release_source)).assertIsDisplayed()
+        composeRule.onNodeWithText(appContext().getString(CoreR.string.active_release_source)).assertDoesNotExist()
+    }
+
+    @Test
+    fun compactWatchNextIsLeftOfEditAtTheSameHeightAndShowsOnlyTheCount() {
+        val fixture = navigationFixture()
+        val candidate = WatchNextState.Candidate(2, BigDecimal("15"), fixture.provider,
+            fixture.coordinate, listOf("DE_SUB"))
+        val state = mutableStateOf(ProviderNavigationProductState(watchNext = candidate))
+        val clicks = AtomicInteger()
+        composeRule.setContent {
+            MaterialTheme {
+                androidx.compose.material3.Scaffold(
+                    floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
+                    floatingActionButton = {
+                        com.axiel7.anihyou.feature.mediadetails.composables.MediaDetailsFloatingActions(
+                            state.value, { clicks.incrementAndGet() },
+                        ) {
+                            androidx.compose.material3.ExtendedFloatingActionButton(
+                                onClick = {}, modifier = androidx.compose.ui.Modifier.testTag("media-edit-fab"),
+                            ) { androidx.compose.material3.Text("Bearbeiten") }
+                        }
+                    },
+                ) { _ -> }
+            }
+        }
+        composeRule.onNodeWithText("2").assertIsDisplayed()
+        composeRule.onNodeWithText(appContext().getString(CoreR.string.watch_next_behind_count, 2)).assertDoesNotExist()
+        val next = composeRule.onNodeWithTag("provider-watch-next-fab").fetchSemanticsNode().boundsInRoot
+        val edit = composeRule.onNodeWithTag("media-edit-fab").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue(next.left >= 0 && next.right < edit.left)
+        org.junit.Assert.assertTrue(kotlin.math.abs(next.center.y - edit.center.y) <= 1f)
+        composeRule.storeVerifiedScreenshot(composeRule.activity,
+            java.io.File(composeRule.activity.getExternalFilesDir(null), "ep07-ui"), "details-floating-actions") {
+            composeRule.onNodeWithTag("provider-watch-next-fab").assertIsDisplayed()
+            composeRule.onNodeWithTag("media-edit-fab").assertIsDisplayed()
+        }
+        composeRule.runOnIdle { state.value = state.value.copy(loading = true) }
+        composeRule.onNodeWithTag("provider-watch-next-loading").assertIsDisplayed()
+        composeRule.onNodeWithTag("provider-watch-next-fab").performClick()
+        composeRule.runOnIdle { assertEquals(0, clicks.get()) }
+        composeRule.runOnIdle { state.value = state.value.copy(loading = false,
+            watchNext = WatchNextState.Unavailable(NavigationUnavailableReason.NO_RELEASED_UNWATCHED)) }
+        composeRule.onNodeWithTag("provider-watch-next-fab").assertDoesNotExist()
+        composeRule.onNodeWithTag("media-edit-fab").assertIsDisplayed()
+    }
+
+    @Test
+    fun passiveMissingEpisodeMappingAddsNoNoiseBelowStreamingChips() {
+        val fixture = navigationFixture()
+        composeRule.setContent {
+            MaterialTheme {
+                ProviderOverviewField(ProviderNavigationProductState(providers = listOf(fixture.provider),
+                    activeReleaseSource = fixture.provider.key,
+                    watchNext = WatchNextState.Unavailable(NavigationUnavailableReason.MISSING_MAPPING)), {}, {})
+            }
+        }
+        composeRule.onNodeWithText(fixture.provider.displayName).assertIsDisplayed()
+        composeRule.onNodeWithText(appContext().getString(CoreR.string.active_release_source)).assertDoesNotExist()
+        composeRule.onNodeWithText(appContext().getString(CoreR.string.navigation_missing_mapping)).assertDoesNotExist()
     }
 
     @Test
@@ -207,7 +266,7 @@ class MediaDetailsNavigationComposeTest {
         composeRule.onNodeWithText(overviewTwo.displayName).assertIsDisplayed()
         composeRule.onNodeWithText("Episode only provider").assertDoesNotExist()
         composeRule.onNodeWithText(disabledProvider.displayName).assertDoesNotExist()
-        composeRule.onAllNodesWithText(activeLabel).assertCountEquals(1)
+        composeRule.onAllNodesWithText(activeLabel).assertCountEquals(0)
         composeRule.onNodeWithText(
             appContext().getString(CoreR.string.episode_mapping_for_provider, overviewOne.displayName)
         ).assertDoesNotExist()
@@ -216,9 +275,9 @@ class MediaDetailsNavigationComposeTest {
     }
 
     @Test
-    fun providerOverviewFieldShowsUnavailableTrackMessage() {
+    fun providerOverviewFieldShowsAnExplicitNavigationFailure() {
         val state = ProviderNavigationProductState(
-            watchNext = WatchNextState.Unavailable(NavigationUnavailableReason.TRACK_UNAVAILABLE),
+            failure = NavigationUnavailableReason.TRACK_UNAVAILABLE,
             providers = listOf(provider("fixture", "Fixture provider")),
         )
 

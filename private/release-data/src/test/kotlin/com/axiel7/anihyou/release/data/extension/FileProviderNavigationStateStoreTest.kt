@@ -16,6 +16,21 @@ class FileProviderNavigationStateStoreTest {
     private fun segment(key: ExtensionSelectionKey, season: Int = 1) =
         ProviderEpisodeSegment(key, 42, "series", season, 1, if (season == 1) 1 else 13, 12)
 
+    @Test fun numberingMetadataSurvivesRestartWithoutBecomingAReleaseOrManualMapping() = runBlocking {
+        val directory = Files.createTempDirectory("numbering-metadata").toFile()
+        try {
+            val store = FileProviderNavigationStateStore(directory)
+            val metadata = ProviderMediaNumbering(42, setOf("Ordinary Show"), 12)
+            store.rememberNumbering(metadata)
+            store.rememberNumbering(metadata.copy(episodeExtent = 13))
+            val reopened = FileProviderNavigationStateStore(directory).state.value
+            assertEquals(listOf(metadata.copy(episodeExtent = 13)), reopened.mediaNumbering)
+            assertTrue(reopened.installments.isEmpty())
+            assertTrue(reopened.segments.isEmpty())
+            assertNull(reopened.rowsSource)
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun `statistics and navigation status are persisted and fenced by source and package`() = runBlocking {
         val directory = Files.createTempDirectory("ep06-statistics").toFile()
         try {

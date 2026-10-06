@@ -756,6 +756,21 @@ class RoomMatchingManagementRepositoryTest {
         assertEquals("only the first series takes the entry", 1, report.matched)
     }
 
+    @Test fun loadedDetailsCompleteOrdinaryNumberingWithoutRepeatingTheMatcher() = runBlocking {
+        val rig = Rig()
+        rig.dao.upsertSourceMapping(sourceRow(keyA, "aot", 1, 42).copy(confidence = "HIGH"))
+        rig.repository.ensureDetailMapping(DetailMappingRequest(42, setOf("Attack on Titan"), "TV", episodeExtent = 25))
+        val bound = rig.dao.observeSourceBoundAniListMappings(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId).first()
+        val segments = effectiveEpisodeSegments(keyA, bound, rig.navigation.state.value.segments,
+            rig.navigation.state.value.mediaNumbering)
+        assertEquals(25, segments.single().count)
+        assertEquals(0, rig.candidates.localCalls)
+        assertEquals(0, rig.candidates.targetedCalls)
+        assertEquals(1, rig.dao.effectiveOverviewMappings(keyA.sourceId, keyA.extensionId, keyA.publisherId,
+            keyA.providerId, MappingEntryIds.sourceKey(keyA), "42").size)
+        assertTrue("derived numbering is not an independently persistent manual offset", rig.navigation.state.value.segments.isEmpty())
+    }
+
     @Test fun detailEntryRunsNoMatcherWhenABindingAlreadyExists() = runBlocking {
         val rig = Rig()
         rig.dao.upsertSourceMapping(sourceRow(keyA, "aot", 1, 42))

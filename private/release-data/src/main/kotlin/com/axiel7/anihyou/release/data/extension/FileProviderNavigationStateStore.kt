@@ -16,6 +16,11 @@ import kotlinx.serialization.json.*
 
 data class AcceptedProviderInstallment(val projectionKey: String, val seriesKey: String,
     val sourceSeason: Int, val providerEpisode: String, val track: String)
+/** AniList metadata only. It never grants release authority or a persistent series binding. */
+data class ProviderMediaNumbering(val mediaId: Int, val titles: Set<String>, val episodeExtent: Int) {
+    init { require(mediaId > 0 && episodeExtent in 1..9999 && titles.size <= 64 &&
+        titles.all { it.isNotBlank() && it.length <= 512 }) }
+}
 data class ProviderNavigationStoredState(
     val source: ExtensionSelectionKey? = null,
     val releaseGeneration: Long = 0,
@@ -31,6 +36,7 @@ data class ProviderNavigationStoredState(
      * the previous source. Package updates and rollbacks of the same source keep it.
      */
     val rowsSource: ExtensionSelectionKey? = null,
+    val mediaNumbering: List<ProviderMediaNumbering> = emptyList(),
 )
 
 /** Separate source-bound product receipt. Never reads R2 as release truth. */
@@ -61,6 +67,10 @@ class FileProviderNavigationStateStore(private val directory: File) {
             navigationStatus = if (sameSelection) old.navigationStatus else null,
             packageGeneration = packageGeneration,
             rowsSource = if (rowsCommitted) source else old.rowsSource)
+    }
+
+    suspend fun rememberNumbering(metadata: ProviderMediaNumbering) = mutate { old ->
+        old.copy(mediaNumbering = (old.mediaNumbering.filterNot { it.mediaId == metadata.mediaId } + metadata).takeLast(2048))
     }
 
     suspend fun recordNavigation(source: ExtensionSelectionKey, packageDigest: String, status: String,
@@ -121,6 +131,10 @@ class FileProviderNavigationStateStore(private val directory: File) {
         return ExtensionSelectionKey(parts[0], parts[1], parts[2], parts[3])
     }
     private fun encode(state: ProviderNavigationStoredState) = buildJsonObject {
+        put("mediaNumbering", JsonArray(state.mediaNumbering.map { m -> buildJsonObject {
+            put("mediaId", m.mediaId); put("episodeExtent", m.episodeExtent)
+            put("titles", JsonArray(m.titles.sorted().map(::JsonPrimitive)))
+        } }))
         put("schemaVersion", 1); put("source", key(state.source)); put("releaseGeneration", state.releaseGeneration)
         put("packageDigest", state.packageDigest?.let(::JsonPrimitive) ?: JsonNull)
         put("packageGeneration", state.packageGeneration)
@@ -138,7 +152,7 @@ class FileProviderNavigationStateStore(private val directory: File) {
     private fun decode(bytes: ByteArray): ProviderNavigationStoredState {
         val json = ExtensionWireCodec.parseStrictJson(bytes, 4 * 1024 * 1024).jsonObject
         val required = setOf("schemaVersion", "source", "releaseGeneration", "packageDigest", "installments", "segments")
-        val optional = setOf("syncStatistics", "navigationStatus", "packageGeneration", "rowsSource")
+        val optional = setOf("syncStatistics", "navigationStatus", "packageGeneration", "rowsSource", "mediaNumbering")
         require(json.keys.containsAll(required) && optional.containsAll(json.keys - required))
         require(json.getValue("schemaVersion").jsonPrimitive.int == 1)
         val rows = json.getValue("installments").jsonArray; require(rows.size <= 10000)
@@ -172,6 +186,13 @@ class FileProviderNavigationStateStore(private val directory: File) {
                 require(it in setOf("READY", "UNAVAILABLE", "LAUNCHED", "LAUNCH_REJECTED"))
             },
             json["packageGeneration"]?.jsonPrimitive?.long?.also { require(it >= 0) } ?: 0,
-            rowsSource)
+            rowsSource,
+            json["mediaNumbering"]?.jsonArray.orEmpty().also { require(it.size <= 2048) }.map { value ->
+                val m = value.jsonObject
+                require(m.keys == setOf("mediaId", "episodeExtent", "titles"))
+                ProviderMediaNumbering(m.getValue("mediaId").jsonPrimitive.int,
+                    m.getValue("titles").jsonArray.map { it.jsonPrimitive.content }.toSet(),
+                    m.getValue("episodeExtent").jsonPrimitive.int)
+            })
     }
 }

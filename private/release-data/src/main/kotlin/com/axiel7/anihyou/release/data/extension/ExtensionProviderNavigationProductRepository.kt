@@ -98,7 +98,9 @@ class ExtensionProviderNavigationProductRepository(
     }
 
     override fun observe(mediaId: Int, watchedProgress: Int): Flow<ProviderNavigationProductState> =
-        combine(policy.policy, sources.sources, store.state, activeSourceRows(), activeSourceMappings()) { _, _, _, _, _ -> Unit }
+        combine(policy.policy, sources.sources,
+            store.state.map { it.copy(navigationStatus = null, syncStatistics = emptyMap()) }.distinctUntilChanged(),
+            activeSourceRows(), activeSourceMappings()) { _, _, _, _, _ -> Unit }
             .mapLatest { buildState(mediaId, watchedProgress) }
             .onStart { emit(ProviderNavigationProductState(loading = true)) }
             .catch { error ->
@@ -155,7 +157,10 @@ class ExtensionProviderNavigationProductRepository(
         if (!sourceReady) return ProviderNavigationProductState(visible,
             WatchNextState.Unavailable(if (active == null) NavigationUnavailableReason.NO_ACTIVE_SOURCE else NavigationUnavailableReason.RELEASE_SOURCE_UNAVAILABLE),
             mappingProviders = providers, activeReleaseSource = active)
-        val segments = stored.segments
+        val sourceBindings = database.matchingDao().observeSourceBoundAniListMappings(
+            checkNotNull(active).sourceId, active.extensionId, active.publisherId, active.providerId).first()
+        val segments = com.axiel7.anihyou.release.data.repository.effectiveEpisodeSegments(
+            active, sourceBindings, stored.segments, stored.mediaNumbering)
         val activeOverview = providers.singleOrNull { it.key == active }?.let { overviewCoordinate(mediaId, it) }
         var missingEpisodeMapping = false
         val releases = mutableListOf<ReleasedInstallment>()
@@ -201,7 +206,8 @@ class ExtensionProviderNavigationProductRepository(
             WatchNextState.Unavailable(NavigationUnavailableReason.MISSING_MAPPING)
         } else resolvedNext
         val resolved = if (next is WatchNextState.Candidate) targets[next.provider.key to next.episode.stripTrailingZeros()] else null
-        if (policy.policy.value != p || store.state.value != stored || sources.sources.value != sourceSnapshot)
+        if (policy.policy.value != p || store.state.value.copy(navigationStatus = null, syncStatistics = emptyMap()) !=
+                stored.copy(navigationStatus = null, syncStatistics = emptyMap()) || sources.sources.value != sourceSnapshot)
             return ProviderNavigationProductState(failure = NavigationUnavailableReason.STALE_RESULT)
         AppLog.i("navigation") {
             "media=$mediaId progress=$watched visible=${visible.size} overviewMapped=${activeOverview != null} " +

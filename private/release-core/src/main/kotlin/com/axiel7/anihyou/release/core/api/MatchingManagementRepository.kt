@@ -50,7 +50,7 @@ data class MatcherOption(val key: String, val label: String, val choices: List<S
 
 /** Metadata already loaded by Anime Details. Reuse it instead of issuing another AniList detail query. */
 data class DetailMappingRequest(val mediaId: Int, val titles: Set<String>,
-    val format: String? = null, val startYear: Int? = null) {
+    val format: String? = null, val startYear: Int? = null, val episodeExtent: Int? = null) {
     init { require(mediaId > 0 && titles.size <= 64 && titles.all { it.isNotBlank() && it.length <= 512 }) }
 }
 

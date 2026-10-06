@@ -152,7 +152,8 @@ class RoomReleasePresentationRepository(
                             }.map { it.asCanonical() },
                             mappings = bindings,
                             preferences = product.preferencesFor(selected),
-                            source = selected, segments = navigation.segments,
+                            source = selected, segments = effectiveEpisodeSegments(selected, bindings,
+                                navigation.segments, navigation.mediaNumbering),
                         )
                     } else {
                         AppLog.w("selection") { "mode=NONE: active source ${selected.extensionId} is not usable (not installed, revoked or disabled)" }

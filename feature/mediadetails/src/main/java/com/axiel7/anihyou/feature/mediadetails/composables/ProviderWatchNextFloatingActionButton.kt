@@ -21,23 +21,22 @@ import com.axiel7.anihyou.release.core.navigation.WatchNextState
 @Composable
 fun ProviderWatchNextFloatingActionButton(
     navigationState: ProviderNavigationProductState,
-    fallbackBehindCount: Int = 0,
     onClick: () -> Unit,
 ) {
     val candidate = navigationState.watchNext as? WatchNextState.Candidate
-    val behindCount = candidate?.behindCount ?: fallbackBehindCount
+    val behindCount = candidate?.behindCount ?: 0
     if (behindCount > 0) {
         ExtendedFloatingActionButton(
             onClick = { if (!navigationState.loading) onClick() },
             modifier = Modifier.testTag("provider-watch-next-fab"),
         ) {
-            if (navigationState.loading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            if (navigationState.loading) CircularProgressIndicator(Modifier.size(24.dp).testTag("provider-watch-next-loading"), strokeWidth = 2.dp)
             else Icon(
                 painter = painterResource(R.drawable.play_arrow_24),
                 contentDescription = stringResource(R.string.watch_next),
             )
             Text(
-                text = stringResource(R.string.watch_next_behind_count, behindCount),
+                text = behindCount.toString(),
                 modifier = Modifier.padding(start = 12.dp, end = 8.dp),
             )
         }

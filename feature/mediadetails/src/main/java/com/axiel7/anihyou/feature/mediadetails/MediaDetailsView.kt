@@ -57,6 +57,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -112,7 +113,6 @@ import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_BIG_HEIGHT
 import com.axiel7.anihyou.core.ui.composables.media.MEDIA_POSTER_BIG_WIDTH
 import com.axiel7.anihyou.core.ui.composables.media.MediaPoster
 import com.axiel7.anihyou.core.ui.composables.media.nextEpisodeText
-import com.axiel7.anihyou.core.ui.composables.media.releaseBehindCount
 import com.axiel7.anihyou.core.ui.composables.middleShape
 import com.axiel7.anihyou.core.ui.composables.sheet.SelectionSheet
 import com.axiel7.anihyou.core.ui.composables.sheet.SelectionSheetItem
@@ -127,7 +127,6 @@ import com.axiel7.anihyou.feature.mediadetails.composables.MediaInformationView
 import com.axiel7.anihyou.feature.mediadetails.composables.MediaRelationsView
 import com.axiel7.anihyou.feature.mediadetails.composables.MediaStatsView
 import com.axiel7.anihyou.feature.mediadetails.composables.ReviewThreadListView
-import com.axiel7.anihyou.feature.mediadetails.composables.ProviderWatchNextFloatingActionButton
 import com.axiel7.anihyou.release.core.navigation.WatchNextState
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamicColorScheme
@@ -270,13 +269,8 @@ private fun MediaDetailsContent(
         )
     }
 
-    val watchNext = uiState.extensionNavigation.watchNext as? WatchNextState.Candidate
-    val behindCount = watchNext?.behindCount ?: releaseBehindCount(
-        uiState.releasePresentations,
-        uiState.details?.mediaListEntry?.basicMediaListEntry?.progress,
-        uiState.details?.nextAiringEpisode?.episode,
-    )
-    val showWatchNext = behindCount > 0
+    val showWatchNext = (uiState.extensionNavigation.watchNext as? WatchNextState.Candidate)
+        ?.behindCount?.let { it > 0 } == true
 
     Scaffold(
         modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
@@ -350,21 +344,16 @@ private fun MediaDetailsContent(
                 scrollBehavior = topAppBarScrollBehavior
             )
         },
+        floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
         floatingActionButton = {
             if ((uiState.isLoggedIn && uiState.details != null) || showWatchNext) {
-                Column(horizontalAlignment = Alignment.End) {
-                    if (showWatchNext) {
-                        ProviderWatchNextFloatingActionButton(
-                            navigationState = uiState.extensionNavigation,
-                            onClick = { event?.openWatchNext() },
-                            fallbackBehindCount = behindCount,
-                        )
-                        if (uiState.isLoggedIn && uiState.details != null) {
-                            Spacer(Modifier.height(12.dp))
-                        }
-                    }
+                com.axiel7.anihyou.feature.mediadetails.composables.MediaDetailsFloatingActions(
+                    navigationState = uiState.extensionNavigation,
+                    onWatchNext = { event?.openWatchNext() },
+                ) {
                     if (uiState.isLoggedIn && uiState.details != null) {
-                        ExtendedFloatingActionButton(onClick = { showEditSheet = true }) {
+                        ExtendedFloatingActionButton(onClick = { showEditSheet = true },
+                            modifier = Modifier.testTag("media-edit-fab")) {
                             Icon(
                                 painter = painterResource(
                                     if (uiState.isNewEntry) R.drawable.add_24
@@ -390,7 +379,7 @@ private fun MediaDetailsContent(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = padding.calculateBottomPadding())
-                .padding(bottom = if (showWatchNext) 156.dp else 88.dp)
+                .padding(bottom = 88.dp)
         ) {
             // Banner
             TopBannerView(
