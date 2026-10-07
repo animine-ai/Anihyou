@@ -79,8 +79,10 @@ class CalendarGridPresentationTest {
     }
 
     @Test fun simultaneousSubAndDubShareARowUntilTheyAreSeparated() {
-        val sub = row(friday, 7, LanguageTrack.DE_SUB)
-        val dub = row(friday, 7, LanguageTrack.DE_DUB)
+        // They share a row when they release at the same time.
+        val at = java.time.Instant.parse("2026-10-02T08:10:00Z")
+        val sub = row(friday, 7, LanguageTrack.DE_SUB).copy(forecastAt = at)
+        val dub = row(friday, 7, LanguageTrack.DE_DUB).copy(forecastAt = at)
         val state = tab(friday) { it.copy(releaseRows = listOf(sub, dub)) }
         assertEquals(1, state.rows().size)
         assertEquals(2, state.rows().single().releasePresentations.size)
