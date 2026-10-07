@@ -10,8 +10,11 @@ class AppIconManager(private val context: Context) {
 
     private fun component(icon: AppIcon) = ComponentName(context, icon.className)
 
-    fun current(): AppIcon =
-        AppIcon.current { icon -> packageManager.getComponentEnabledSetting(component(icon)) }
+    fun current(): AppIcon = AppIcon.current { icon ->
+        // An entry the package does not know (a build without it) counts as never switched.
+        runCatching { packageManager.getComponentEnabledSetting(component(icon)) }
+            .getOrDefault(PackageManager.COMPONENT_ENABLED_STATE_DEFAULT)
+    }
 
     /** Returns false when the system refused; the icon then stays as it was or the default one remains enabled. */
     fun select(icon: AppIcon): Boolean = runCatching {
