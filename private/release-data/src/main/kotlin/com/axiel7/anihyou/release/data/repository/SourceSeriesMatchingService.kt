@@ -223,7 +223,7 @@ class SourceSeriesMatchingService(
         val bound = dao.observeSourceBoundAniListMappings(active.sourceId, active.extensionId,
             active.publisherId, active.providerId).first().filter { it.navigationSeason == season }
         val ids = bound.mapNotNull { it.externalId?.toIntOrNull() }.distinct()
-        val anchor = dao.cachedCandidates(ids).mapNotNull { it.toDomainOrNull() }.filter { candidate ->
+        val anchor = dao.cachedCandidates(ids).mapNotNull { it.toDomainOrNull() }.distinctBy { it.mediaId }.filter { candidate ->
             val titles = candidate.titles.map(TitleNormalizer::normalize)
             titles.any { it.base in bases && (it.season ?: 1) == season && (it.part ?: 1) == part - 1 }
         }.singleOrNull() ?: return

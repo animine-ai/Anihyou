@@ -112,8 +112,27 @@ class MatchingManagementComposeTest {
         capture("matching-no-results") { composeRule.onNodeWithTag("matching-no-results").assertIsDisplayed() }
     }
 
+    @Test fun rulesUpdateShowsLoadingAndResultWithLargeText() {
+        val state = mutableStateOf(fixture().copy(episodeRules = EpisodeRulesUpdateStatus()))
+        composeRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 1.5f)) {
+                MaterialTheme(colorScheme = darkColorScheme()) { MatchingManagementScreen(state.value, event) }
+            }
+        }
+        composeRule.onNodeWithTag("matching-update-episode-rules").performScrollTo().assertIsEnabled().performClick()
+        assertEquals(1, event.ruleUpdates)
+        composeRule.runOnIdle { state.value = state.value.copy(episodeRules = EpisodeRulesUpdateStatus(checking = true)) }
+        composeRule.onNodeWithTag("matching-update-episode-rules").assertIsNotEnabled()
+        composeRule.runOnIdle { state.value = state.value.copy(episodeRules = EpisodeRulesUpdateStatus(updated = 2, failed = 1, completed = true)) }
+        composeRule.onNodeWithTag("matching-episode-rules-result").performScrollTo().assertIsDisplayed()
+        capture("matching-malsync-rules") { composeRule.onNodeWithTag("matching-episode-rules-result").assertIsDisplayed() }
+    }
+
     private class RecordingEvents : MatchingManagementEvent {
         var starts = 0
+        var ruleUpdates = 0
+        override fun updateEpisodeRules() { ruleUpdates++ }
         var corrections = 0
         var targetText = ""
         override fun search(text: String) {}
