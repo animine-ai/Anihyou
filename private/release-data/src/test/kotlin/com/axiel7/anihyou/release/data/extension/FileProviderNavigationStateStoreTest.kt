@@ -16,6 +16,27 @@ class FileProviderNavigationStateStoreTest {
     private fun segment(key: ExtensionSelectionKey, season: Int = 1) =
         ProviderEpisodeSegment(key, 42, "series", season, 1, if (season == 1) 1 else 13, 12)
 
+    @Test fun rulesSurviveRestartAndMetadataRefreshButCannotCrossAnIdChange() = runBlocking {
+        val directory = Files.createTempDirectory("episode-rules").toFile()
+        try {
+            val store = FileProviderNavigationStateStore(directory)
+            val metadata = ProviderMediaNumbering(42, setOf("Show Part 2"), 12, 42203)
+            val rule = com.axiel7.anihyou.release.data.malsync.EpisodeNumberingRule(42203, 42203, 14, 1, 12)
+            store.rememberNumbering(metadata)
+            store.rememberEpisodeRules(42, 42203, listOf(rule), 1000)
+            store.rememberNumbering(metadata)
+            val restarted = FileProviderNavigationStateStore(directory)
+            assertEquals(listOf(rule), restarted.state.value.mediaNumbering.single().episodeRules)
+            assertEquals(1000L, restarted.state.value.mediaNumbering.single().rulesCheckedAt)
+            restarted.rememberNumbering(metadata.copy(malId = 777))
+            restarted.rememberEpisodeRules(42, 42203, listOf(rule), 2000)
+            assertTrue(restarted.state.value.mediaNumbering.single().episodeRules.isEmpty())
+            assertEquals(0L, restarted.state.value.mediaNumbering.single().rulesCheckedAt)
+            assertTrue(restarted.state.value.segments.isEmpty())
+            assertTrue(restarted.state.value.installments.isEmpty())
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun numberingMetadataSurvivesRestartWithoutBecomingAReleaseOrManualMapping() = runBlocking {
         val directory = Files.createTempDirectory("numbering-metadata").toFile()
         try {

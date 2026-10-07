@@ -128,14 +128,29 @@ class ExtensionProviderNavigationProductRepository(
 
     private suspend fun overviewCoordinate(mediaId: Int, provider: NavigationProvider): ProviderCoordinate? {
         val explicit = store.state.value.segments.filter { it.key == provider.key && it.mediaId == mediaId }
-            .map { ProviderCoordinate(it.key, mediaId, null, it.seriesKey, it.sourceSeason, null) }.distinct()
+            .map { ProviderCoordinate(it.key, mediaId, null, it.seriesKey, null, null) }.distinct()
         if (explicit.isNotEmpty()) return explicit.singleOrNull()
-        // Existing persisted subject binding can establish overview identity, never episode offset.
+        // Source-bound identities are provider-neutral. An overview never needs episode numbering.
+        val dao = database.matchingDao()
+        val bindings = dao.observeSourceBoundAniListMappings(provider.key.sourceId, provider.key.extensionId,
+            provider.key.publisherId, provider.key.providerId).first()
+        val direct = bindings.filter { it.externalId == mediaId.toString() }
+        val stored = store.state.value
+        val part = stored.mediaNumbering.singleOrNull { it.mediaId == mediaId }?.let {
+            com.axiel7.anihyou.release.data.repository.partOverviewBinding(it, bindings, stored.mediaNumbering)
+        }
+        val slugs = (direct + listOfNotNull(part)).map { it.siteSlug }.distinct()
+        if (slugs.isNotEmpty()) return slugs.singleOrNull()?.let {
+            ProviderCoordinate(provider.key, mediaId, null, it, null, null)
+        }
+        // Compatibility with old AniWorld provider-wide bindings; other providers must use their own source identity.
         if (provider.key.providerId != "aniworld") return null
-        val bindings = database.matchingDao().effectiveOverviewMappings(provider.key.sourceId, provider.key.extensionId,
+        val legacy = dao.effectiveOverviewMappings(provider.key.sourceId, provider.key.extensionId,
             provider.key.publisherId, provider.key.providerId,
             com.axiel7.anihyou.release.data.repository.MappingEntryIds.sourceKey(provider.key), mediaId.toString())
-        return bindings.singleOrNull()?.let { ProviderCoordinate(provider.key, mediaId, null, it.siteSlug, it.navigationSeason, null) }
+        return legacy.map { it.siteSlug }.distinct().singleOrNull()?.let {
+            ProviderCoordinate(provider.key, mediaId, null, it, null, null)
+        }
     }
 
     private suspend fun buildState(mediaId: Int, watched: Int, basis: AniListReleaseBasis?): ProviderNavigationProductState {
@@ -173,7 +188,7 @@ class ExtensionProviderNavigationProductRepository(
                     it.canonicalEpisode(number) != null }
                 val segment = candidates.singleOrNull()
                 if (segment == null) {
-                    if (activeOverview?.seriesKey == fact.seriesKey && activeOverview.sourceSeason == fact.sourceSeason)
+                    if (activeOverview?.seriesKey == fact.seriesKey && (activeOverview.sourceSeason == null || activeOverview.sourceSeason == fact.sourceSeason))
                         missingEpisodeMapping = true
                     continue
                 }
@@ -227,7 +242,10 @@ class ExtensionProviderNavigationProductRepository(
             ?: return ProviderNavigationResult.Unavailable(NavigationUnavailableReason.PROVIDER_UNAVAILABLE)
         val coordinate = overviewCoordinate(mediaId, provider)
             ?: return ProviderNavigationResult.Unavailable(NavigationUnavailableReason.MISSING_MAPPING)
-        return resolveTarget(coordinate, NavigationTargetKind.OVERVIEW, provider)
+        val resolved = resolveTarget(coordinate, NavigationTargetKind.OVERVIEW, provider)
+        if (overviewCoordinate(mediaId, provider) != coordinate)
+            return ProviderNavigationResult.Unavailable(NavigationUnavailableReason.STALE_RESULT)
+        return resolved
     }
     override suspend fun watchNext(mediaId: Int, watchedProgress: Int): ProviderNavigationResult =
         watchNext(mediaId, watchedProgress, null)

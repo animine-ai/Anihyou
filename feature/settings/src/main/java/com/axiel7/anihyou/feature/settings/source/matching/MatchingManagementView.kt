@@ -101,6 +101,34 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                 }
             }
             item {
+                Column {
+                    PreferencesTitle(stringResource(R.string.malsync_rules))
+                    PlainPreference(title = stringResource(R.string.malsync_rules_update),
+                        subtitle = stringResource(R.string.malsync_rules_description),
+                        icon = CoreR.drawable.refresh_24,
+                        enabled = !state.busy && !state.preparing && !state.episodeRules.checking,
+                        isLoading = state.episodeRules.checking,
+                        onClick = event::updateEpisodeRules, shape = singleShape,
+                        modifier = Modifier.testTag("matching-update-episode-rules"))
+                    state.episodeRules.checkedAt?.let { timestamp ->
+                        Text(stringResource(R.string.malsync_rules_last_checked,
+                            java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,
+                                java.text.DateFormat.SHORT).format(java.util.Date(timestamp))),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+                    }
+                    if (!state.episodeRules.checking && state.episodeRules.completed) {
+                        Text(stringResource(R.string.malsync_rules_result,
+                            state.episodeRules.updated, state.episodeRules.failed),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
+                                .testTag("matching-episode-rules-result"))
+                    }
+                }
+            }
+            item {
                 val enabled = !state.busy && !state.preparing && state.confirmation == null
                 Column {
                     if (state.selected.isNotEmpty()) {

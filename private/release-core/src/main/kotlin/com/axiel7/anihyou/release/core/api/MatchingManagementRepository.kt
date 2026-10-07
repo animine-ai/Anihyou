@@ -50,9 +50,13 @@ data class MatcherOption(val key: String, val label: String, val choices: List<S
 
 /** Metadata already loaded by Anime Details. Reuse it instead of issuing another AniList detail query. */
 data class DetailMappingRequest(val mediaId: Int, val titles: Set<String>,
-    val format: String? = null, val startYear: Int? = null, val episodeExtent: Int? = null) {
+    val format: String? = null, val startYear: Int? = null, val episodeExtent: Int? = null,
+    val malId: Int? = null) {
     init { require(mediaId > 0 && titles.size <= 64 && titles.all { it.isNotBlank() && it.length <= 512 }) }
 }
+
+data class EpisodeRulesUpdateStatus(val checking: Boolean = false, val checkedAt: Long? = null,
+    val entries: Int = 0, val updated: Int = 0, val failed: Int = 0, val completed: Boolean = false)
 
 /** A series of the active source that has no AniList binding yet, per season; [title] is what the source calls it. */
 data class UnmatchedSeries(val source: ExtensionSelectionKey, val seriesKey: String, val season: Int, val title: String,
@@ -62,6 +66,9 @@ data class UnmatchedSeries(val source: ExtensionSelectionKey, val seriesKey: Str
 data class UnmatchedSuggestion(val mediaId: Int, val title: String, val score: Double)
 
 interface MatchingManagementRepository {
+    fun observeEpisodeRulesStatus(): Flow<EpisodeRulesUpdateStatus> =
+        kotlinx.coroutines.flow.flowOf(EpisodeRulesUpdateStatus())
+    suspend fun updateEpisodeRules() = Unit
     /** The series of the active source without a binding, nearest releases first. Local reads only. */
     fun observeUnmatched(): Flow<List<UnmatchedSeries>> = kotlinx.coroutines.flow.flowOf(emptyList())
     /** Runs the automatic matching for the unbound series now (AniList calendar and season pools); returns how many it bound. */

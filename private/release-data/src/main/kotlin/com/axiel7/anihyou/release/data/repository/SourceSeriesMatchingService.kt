@@ -55,6 +55,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -79,6 +80,9 @@ class SourceSeriesMatchingService(
     private val matcher: ReleaseMatcher = ReleaseMatcher(MATCHER_VERSION),
     private val clock: Clock = Clock.systemUTC(),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val episodeRules: com.axiel7.anihyou.release.data.malsync.EpisodeRuleSource =
+        com.axiel7.anihyou.release.data.malsync.EpisodeRuleSource { null },
+    private val numberingMetadata: suspend (Int) -> com.axiel7.anihyou.release.data.extension.ProviderMediaNumbering? = { null },
 ) {
     private val dao = database.matchingDao()
     private val releaseDao = database.releaseDao()
@@ -113,7 +117,12 @@ class SourceSeriesMatchingService(
         val media = request.mediaId
         request.episodeExtent?.takeIf { it in 1..9999 }?.let { extent ->
             navigation.rememberNumbering(com.axiel7.anihyou.release.data.extension.ProviderMediaNumbering(
-                media, request.titles, extent))
+                media, request.titles, extent, request.malId))
+        }
+        if (navigation.state.value.segments.none { it.key == active && it.mediaId == media } &&
+            request.titles.any { TitleNormalizer.normalize(it).part != null }) {
+            ensureNumberingAnchor(active, request)
+            updateRulesForMedia(media, force = false)
         }
         if (dao.sourceBoundCount(active.sourceId, active.extensionId, active.publisherId, active.providerId,
                 request.mediaId.toString()) > 0) {
@@ -135,9 +144,10 @@ class SourceSeriesMatchingService(
             return
         }
         val wanted = titles.map(TitleNormalizer::normalize)
-        // A cour or part cannot be told apart by a season subject, so it is left to the explicit settings.
+        // A part shares the accepted series anchor, but never replaces its one-to-one Room binding.
+        // effectiveEpisodeSegments applies only exact MALSync ranges anchored to that accepted numbering.
         if (wanted.any { it.part != null }) {
-            AppLog.d("matching") { "media=$media: a cour/part title is left to the explicit settings" }
+            AppLog.d("matching") { "media=$media: part numbering uses external rules and the accepted season anchor" }
             return
         }
         val season = wanted.firstNotNullOfOrNull { it.season } ?: 1
@@ -201,6 +211,87 @@ class SourceSeriesMatchingService(
         }
         if (writeAuto(active, subject, matched, epoch)) {
             AppLog.i("matching") { "media=$media: automatic mapping written tier=${matched.tier} series=${label.providerSeriesKey}" }
+        }
+    }
+
+    /** Loads at most one already accepted anchor, never searches or writes a new binding. */
+    private suspend fun ensureNumberingAnchor(active: ExtensionSelectionKey, request: DetailMappingRequest) {
+        val wanted = request.titles.map(TitleNormalizer::normalize)
+        val part = wanted.mapNotNull { it.part }.distinct().singleOrNull()?.takeIf { it > 1 } ?: return
+        val season = wanted.mapNotNull { it.season }.distinct().singleOrNull() ?: 1
+        val bases = wanted.map { it.base }.toSet()
+        val bound = dao.observeSourceBoundAniListMappings(active.sourceId, active.extensionId,
+            active.publisherId, active.providerId).first().filter { it.navigationSeason == season }
+        val ids = bound.mapNotNull { it.externalId?.toIntOrNull() }.distinct()
+        val anchor = dao.cachedCandidates(ids).mapNotNull { it.toDomainOrNull() }.filter { candidate ->
+            val titles = candidate.titles.map(TitleNormalizer::normalize)
+            titles.any { it.base in bases && (it.season ?: 1) == season && (it.part ?: 1) == part - 1 }
+        }.singleOrNull() ?: return
+        if (navigation.state.value.mediaNumbering.any { it.mediaId == anchor.mediaId }) return
+        val metadata = attempt { numberingMetadata(anchor.mediaId) } ?: return
+        if (metadata.mediaId == anchor.mediaId && policy.policy.value.activeReleaseSource == active)
+            navigation.rememberNumbering(metadata)
+    }
+
+    private val rulesMutex = Mutex()
+    private val rulesBatchMutex = Mutex()
+    private val rulesFailures = mutableMapOf<Int, Long>()
+    private val mutableRulesStatus = kotlinx.coroutines.flow.MutableStateFlow(
+        com.axiel7.anihyou.release.core.api.EpisodeRulesUpdateStatus())
+    fun observeEpisodeRulesStatus() = kotlinx.coroutines.flow.combine(mutableRulesStatus, navigation.state) { status, stored ->
+        status.copy(entries = stored.mediaNumbering.count { it.episodeRules.isNotEmpty() },
+            checkedAt = stored.mediaNumbering.maxOfOrNull { it.rulesCheckedAt }?.takeIf { it > 0 })
+    }
+
+    private suspend fun updateRulesForMedia(media: Int, force: Boolean): Boolean? = rulesMutex.withLock {
+        val metadata = navigation.state.value.mediaNumbering.singleOrNull { it.mediaId == media } ?: return@withLock null
+        val malId = metadata.malId ?: return@withLock null
+        val now = clock.millis()
+        if (!force && metadata.rulesCheckedAt > 0 && now >= metadata.rulesCheckedAt &&
+            now - metadata.rulesCheckedAt < java.time.Duration.ofDays(7).toMillis()) return@withLock null
+        if (!force && rulesFailures[malId]?.let { now >= it && now - it < 30 * 60 * 1000L } == true)
+            return@withLock null
+        val rules = try { episodeRules.lookup(malId) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { null }
+        if (rules == null) {
+            rulesFailures[malId] = now
+            AppLog.w("matching") { "MALSync rules media=$media mal=$malId failed; retaining previous rules" }
+            return@withLock false
+        }
+        rulesFailures.remove(malId)
+        navigation.rememberEpisodeRules(media, malId, rules, now)
+        AppLog.i("matching") { "MALSync rules media=$media mal=$malId checked ranges=${rules.size}" }
+        true
+    }
+
+    suspend fun updateEpisodeRules() {
+        if (!rulesBatchMutex.tryLock()) return
+        mutableRulesStatus.value = com.axiel7.anihyou.release.core.api.EpisodeRulesUpdateStatus(checking = true)
+        var updated = 0; var failed = 0
+        try {
+            val active = policy.policy.value.activeReleaseSource ?: return
+            val bound = dao.observeSourceBoundAniListMappings(active.sourceId, active.extensionId,
+                active.publisherId, active.providerId).first()
+            val stored = navigation.state.value
+            val needed = stored.mediaNumbering.filter { it.malId != null && (
+                bound.any { b -> b.externalId == it.mediaId.toString() } ||
+                partOverviewBinding(it, bound, stored.mediaNumbering) != null) }
+            // Known identities only. No catalog download, account data or provider URL is sent.
+            for (entry in needed) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (policy.policy.value.activeReleaseSource != active) break
+                when (updateRulesForMedia(entry.mediaId, force = true)) {
+                    true -> updated++
+                    false -> failed++
+                    null -> Unit
+                }
+                delay(250)
+            }
+        } finally {
+            mutableRulesStatus.value = com.axiel7.anihyou.release.core.api.EpisodeRulesUpdateStatus(
+                updated = updated, failed = failed, completed = true)
+            rulesBatchMutex.unlock()
         }
     }
 

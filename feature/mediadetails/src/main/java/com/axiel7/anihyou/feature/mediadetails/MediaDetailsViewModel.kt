@@ -580,6 +580,7 @@ class MediaDetailsViewModel(
                         format = details.basicMediaDetails.format?.name,
                         startYear = details.startDate?.fuzzyDate?.year,
                         episodeExtent = details.basicMediaDetails.episodes ?: details.nextAiringEpisode?.episode,
+                        malId = details.idMal,
                     ) else null
                     details.id to request
                 }

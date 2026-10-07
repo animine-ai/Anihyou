@@ -205,6 +205,8 @@ val animetrackerReleaseModule = module {
             candidates = get<IdentityCandidateSource>(),
             fence = get(),
             clock = get<Clock>(),
+            episodeRules = com.axiel7.anihyou.release.data.malsync.MALSyncEpisodeRulesClient(),
+            numberingMetadata = com.axiel7.anihyou.release.data.repository.aniListNumberingMetadata(get()),
         )
     }
     single<com.axiel7.anihyou.release.core.api.MatchingManagementRepository> {

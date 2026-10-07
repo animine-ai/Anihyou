@@ -82,6 +82,11 @@ class ExtensionProviderNavigationTargetCacheTest {
             val repeated = product.overview(42, key) as ProviderNavigationResult.Ready
             assertSame(first.target, repeated.target)
             assertEquals(1, gateway.dispatchCount.get())
+            val overview = gateway.requestedContexts.single()
+            assertEquals(NavigationTargetKind.OVERVIEW, overview.targetKind)
+            assertEquals(null, overview.sourceSeason)
+            assertEquals(null, overview.providerEpisode)
+            assertEquals(null, overview.track)
 
             gateway.packageGeneration = 9
             val upgraded = product.overview(42, key) as ProviderNavigationResult.Ready
@@ -266,6 +271,20 @@ class ExtensionProviderNavigationTargetCacheTest {
                 product.watchNext(42, 12, basis))
             assertEquals(setOf("13"), gateway.requestedEpisodes.drop(beforeFailure).toSet())
             assertEquals(2, launched.get())
+            // An externally supplied split range shares an accepted anchor without overwriting its binding.
+            store.rememberNumbering(ProviderMediaNumbering(42, setOf("Ordinary Show"), 13, 39587))
+            store.rememberNumbering(ProviderMediaNumbering(119661, setOf("Ordinary Show Part 2"), 12, 42203,
+                listOf(com.axiel7.anihyou.release.data.malsync.EpisodeNumberingRule(42203, 42203, 39, 1, 12),
+                    com.axiel7.anihyou.release.data.malsync.EpisodeNumberingRule(42203, 42203, 14, 1, 12))))
+            val splitBasis = com.axiel7.anihyou.release.core.navigation.AniListReleaseBasis("FINISHED", 12, null, null)
+            assertEquals(4, product.observe(119661, 8, splitBasis).first { !it.loading }.watchNextCount)
+            val split = product.watchNext(119661, 8, splitBasis) as ProviderNavigationResult.Ready
+            assertEquals("22", gateway.requestedEpisodes.last())
+            assertEquals(true, split.target.url.endsWith("/episode-22"))
+            val home = product.overview(119661, key) as ProviderNavigationResult.Ready
+            assertEquals("https://navigation.example/package-9/fixture-series", home.target.url)
+            assertEquals(null, gateway.requestedContexts.last().sourceSeason)
+            assertEquals(null, gateway.requestedEpisodes.last())
             // A split entry uses its explicit range, not AniList's local number as a provider URL.
             gateway.unavailableEpisodes = emptySet()
             store.upsertSegment(ProviderEpisodeSegment(key, 99, "fixture-series", 1, 13, 1, 12))
@@ -282,6 +301,30 @@ class ExtensionProviderNavigationTargetCacheTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun multiSeasonManualMappingHasOneAnimeHomeAndResetDuringDispatchRejectsIt() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, ReleaseDatabase::class.java).allowMainThreadQueries().build()
+        database = db
+        val key = ExtensionSelectionKey("source-a", "fixture.extension", "publisher-a", "provider-a")
+        val gateway = CountingGateway(key, "a".repeat(64))
+        val directory = Files.createTempDirectory("overview-root").toFile()
+        try {
+            val store = FileProviderNavigationStateStore(directory)
+            val segments = listOf(ProviderEpisodeSegment(key, 42, "fixture-series", 1, 1, 1, 12),
+                ProviderEpisodeSegment(key, 42, "fixture-series", 2, 1, 13, 12))
+            store.replaceSegments(segments)
+            val product = ExtensionProviderNavigationProductRepository(EmptySourceRepository(),
+                FileExtensionProductPolicyRepository(directory) { true }, gateway, store, db,
+                RoomReleaseReconciliationRepository(db), ExternalNavigationLauncher { true })
+            val result = product.overview(42, key) as ProviderNavigationResult.Ready
+            assertEquals("https://navigation.example/package-8/fixture-series", result.target.url)
+            assertEquals(null, gateway.requestedContexts.single().sourceSeason)
+            gateway.packageGeneration = 9
+            gateway.onDispatch = { store.removeSegments(segments.toSet()) }
+            assertEquals(ProviderNavigationResult.Unavailable(NavigationUnavailableReason.STALE_RESULT),
+                product.overview(42, key))
+        } finally { directory.deleteRecursively() }
+    }
+
     private class CountingGateway(
         private val key: ExtensionSelectionKey,
         private val digest: String,
@@ -291,6 +334,7 @@ class ExtensionProviderNavigationTargetCacheTest {
         val dispatchCount = AtomicInteger()
         val dispatchedGenerations = mutableListOf<Long>()
         val requestedEpisodes = mutableListOf<String?>()
+        val requestedContexts = mutableListOf<NavigationContextV1>()
         var unavailableEpisodes = emptySet<String>()
         var onDispatch: suspend () -> Unit = {}
         var failProviderRead = false
@@ -319,6 +363,7 @@ class ExtensionProviderNavigationTargetCacheTest {
             dispatchCount.incrementAndGet()
             dispatchedGenerations += provider.packageGeneration
             requestedEpisodes += request.providerEpisode
+            requestedContexts += request
             onDispatch()
             if (request.providerEpisode in unavailableEpisodes) return null
             val path = "package-" + provider.packageGeneration + "/" + request.providerSeriesKey +

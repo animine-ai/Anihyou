@@ -477,6 +477,9 @@ class RoomMatchingManagementRepository(
         withContext(Dispatchers.IO) { mutation.withLock { service.assign(series, mediaId) } }
 
     // --- detail entry -----------------------------------------------------------------------------------------------
+    override fun observeEpisodeRulesStatus() = service.observeEpisodeRulesStatus()
+    override suspend fun updateEpisodeRules() = service.updateEpisodeRules()
+
     override suspend fun ensureDetailMapping(mediaId: Int) =
         service.ensureForMedia(DetailMappingRequest(mediaId, emptySet()))
 

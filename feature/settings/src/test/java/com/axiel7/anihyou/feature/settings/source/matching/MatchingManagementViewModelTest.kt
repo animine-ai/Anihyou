@@ -24,6 +24,21 @@ class MatchingManagementViewModelTest {
         return MatchingManagementViewModel(repository, search)
     }
 
+    @Test fun episodeRulesUpdateIsSingleFlightAndNeverRematchesBindings() = runTest {
+        repository.rulesGate = CompletableDeferred()
+        val vm = model()
+        vm.updateEpisodeRules(); vm.updateEpisodeRules()
+        assertEquals(1, repository.rulesUpdates)
+        assertTrue(vm.state.value.busy)
+        repository.rules.value = EpisodeRulesUpdateStatus(checking = true)
+        assertTrue(vm.state.value.episodeRules.checking)
+        repository.rules.value = EpisodeRulesUpdateStatus(updated = 3, failed = 1, completed = true)
+        repository.rulesGate!!.complete(Unit)
+        assertFalse(vm.state.value.busy)
+        assertEquals(3, vm.state.value.episodeRules.updated)
+        assertEquals(0, repository.matcherCalls)
+        assertTrue(repository.resets.isEmpty())
+    }
     @Test fun browseSearchFilterAndPagingNeverInvokeMatcherOrAniListSearch() = runTest {
         val vm = model()
         vm.search("Source anime"); vm.filter(key); vm.page(50)
@@ -145,6 +160,11 @@ class MatchingManagementViewModelTest {
         val rows = MutableStateFlow(MappingPage(emptyList(), 0))
         val options = MutableStateFlow<List<MatcherOption>>(emptyList())
         val unmatched = MutableStateFlow<List<UnmatchedSeries>>(emptyList())
+        val rules = MutableStateFlow(EpisodeRulesUpdateStatus())
+        var rulesGate: CompletableDeferred<Unit>? = null
+        var rulesUpdates = 0
+        override fun observeEpisodeRulesStatus(): Flow<EpisodeRulesUpdateStatus> = rules
+        override suspend fun updateEpisodeRules() { rulesUpdates++; rulesGate?.await() }
         var unmatchedRuns = 0
         val queries = mutableListOf<MappingQuery>()
         val captures = mutableListOf<MappingScope>()

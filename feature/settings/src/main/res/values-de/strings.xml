@@ -139,4 +139,9 @@
     <string name="extension_manage_tracks_german">Deutsch (SUB/DUB)</string>
     <string name="extension_manage_tracks_german_sub">Deutsche Untertitel</string>
     <string name="extension_manage_tracks_german_dub">Deutsche Synchronisation</string>
+    <string name="malsync_rules">MALSync-Regeln</string>
+    <string name="malsync_rules_update">MALSync-Regeln aktualisieren</string>
+    <string name="malsync_rules_description">Episodenbereiche für bekannte Anime und geteilte Staffeln aktualisieren. Deine manuellen Zuordnungen haben Vorrang.</string>
+    <string name="malsync_rules_last_checked">Zuletzt erfolgreich geprüft: %1$s</string>
+    <string name="malsync_rules_result">Geprüft: %1$d · Fehlgeschlagen: %2$d</string>
 </resources>

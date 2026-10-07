@@ -139,4 +139,9 @@
     <string name="extension_manage_tracks_german">German (SUB/DUB)</string>
     <string name="extension_manage_tracks_german_sub">German subtitles</string>
     <string name="extension_manage_tracks_german_dub">German dubbing</string>
+    <string name="malsync_rules">MALSync rules</string>
+    <string name="malsync_rules_update">Update MALSync rules</string>
+    <string name="malsync_rules_description">Refresh episode ranges for known anime and split seasons. Your manual mappings take priority.</string>
+    <string name="malsync_rules_last_checked">Last successful check: %1$s</string>
+    <string name="malsync_rules_result">Checked: %1$d · Failed: %2$d</string>
 </resources>

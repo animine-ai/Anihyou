@@ -32,6 +32,7 @@ data class MatchingManagementState(
     val recentResults: List<MappingRematchProgress> = emptyList(),
     val notice: MatchingNotice? = null,
     val options: List<MatcherOption> = emptyList(),
+    val episodeRules: EpisodeRulesUpdateStatus = EpisodeRulesUpdateStatus(),
     val confirmConfigurationReset: Boolean = false,
     /** The series of the active source that no binding covers yet. */
     val unmatched: List<UnmatchedSeries> = emptyList(),
@@ -70,6 +71,7 @@ interface MatchingManagementEvent {
     fun dismissConfigurationReset()
     fun resetConfiguration()
     /** Matches the unbound series of the active source automatically, now (AniList calendar and season pools). */
+    fun updateEpisodeRules() {}
     fun matchNow() {}
     /** Opt-in: also asks AniList for the title of each series that stays open. Slower and heavier on AniList. */
     fun searchNow() {}
@@ -114,11 +116,22 @@ class MatchingManagementViewModel(
             catch (_: Exception) { mutable.update { it.copy(unmatched = emptyList()) } }
         }
         viewModelScope.launch {
+            try { repository.observeEpisodeRulesStatus().collect { status ->
+                mutable.update { it.copy(episodeRules = status) }
+            } } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { mutable.update { it.copy(notice = MatchingNotice.FAILED) } }
+        }
+        viewModelScope.launch {
             try { repository.observeMatcherOptions().collect { options ->
                 mutable.update { it.copy(options = options) }
             } } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { mutable.update { it.copy(notice = MatchingNotice.FAILED) } }
         }
+    }
+
+    override fun updateEpisodeRules() {
+        if (state.value.busy || state.value.preparing || state.value.episodeRules.checking) return
+        mutate { repository.updateEpisodeRules() }
     }
 
     override fun search(text: String) = changeQuery(query.value.copy(text = text.take(256), offset = 0))

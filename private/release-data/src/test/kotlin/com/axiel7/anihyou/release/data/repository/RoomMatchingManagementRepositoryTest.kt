@@ -165,7 +165,35 @@ class RoomMatchingManagementRepositoryTest {
             providerId = key.providerId, publisherId = key.publisherId)),
     )
 
-    private inner class Rig {
+    @Test fun detailRulesAreCachedManualRefreshForcesCheckAndFailureKeepsPreviousRules() = runBlocking {
+        val calls = mutableListOf<Int>()
+        val rule = com.axiel7.anihyou.release.data.malsync.EpisodeNumberingRule(42203, 42203, 14, 1, 12)
+        var answer: List<com.axiel7.anihyou.release.data.malsync.EpisodeNumberingRule>? = listOf(rule)
+        val rig = Rig(com.axiel7.anihyou.release.data.malsync.EpisodeRuleSource { calls += it; answer })
+        rig.dao.upsertSourceMapping(sourceRow(keyA, "known", 2, 42))
+        val request = DetailMappingRequest(42, setOf("Known Show Season 2 Part 2"), "TV",
+            episodeExtent = 12, malId = 42203)
+        rig.repository.ensureDetailMapping(request)
+        rig.repository.ensureDetailMapping(request)
+        assertEquals(listOf(42203), calls)
+        assertEquals(listOf(rule), rig.navigation.state.value.mediaNumbering.single().episodeRules)
+        answer = null
+        rig.repository.updateEpisodeRules()
+        assertEquals(listOf(42203, 42203), calls)
+        assertEquals(listOf(rule), rig.navigation.state.value.mediaNumbering.single().episodeRules)
+        assertEquals(1, rig.repository.observeEpisodeRulesStatus().first().failed)
+        assertEquals("42", rig.dao.observeSourceBoundAniListMappings(keyA.sourceId, keyA.extensionId,
+            keyA.publisherId, keyA.providerId).first().single().externalId)
+        answer = emptyList()
+        rig.repository.updateEpisodeRules()
+        assertTrue(rig.navigation.state.value.mediaNumbering.single().episodeRules.isEmpty())
+        assertEquals(1, rig.repository.observeEpisodeRulesStatus().first().updated)
+    }
+
+    private inner class Rig(
+        rules: com.axiel7.anihyou.release.data.malsync.EpisodeRuleSource =
+            com.axiel7.anihyou.release.data.malsync.EpisodeRuleSource { null },
+    ) {
         val clock = TestClock(t0)
         val database: ReleaseDatabase = Room.databaseBuilder(context, ReleaseDatabase::class.java, name)
             .allowMainThreadQueries().build().also { openDatabases += it }
@@ -175,7 +203,7 @@ class RoomMatchingManagementRepositoryTest {
         val sources = Sources(listOf(source(keyA, "Source A"), source(keyB, "Source B")))
         val candidates = Candidates()
         val fence = MappingWriterFence(database, clock)
-        val service = SourceSeriesMatchingService(database, policy, navigation, candidates, fence, clock = clock)
+        val service = SourceSeriesMatchingService(database, policy, navigation, candidates, fence, clock = clock, episodeRules = rules)
         val repository = RoomMatchingManagementRepository(database, navigation, sources, service, fence, clock)
         val dao = database.matchingDao()
         val releaseDao = database.releaseDao()

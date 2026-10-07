@@ -17,9 +17,16 @@ import kotlinx.serialization.json.*
 data class AcceptedProviderInstallment(val projectionKey: String, val seriesKey: String,
     val sourceSeason: Int, val providerEpisode: String, val track: String)
 /** AniList metadata only. It never grants release authority or a persistent series binding. */
-data class ProviderMediaNumbering(val mediaId: Int, val titles: Set<String>, val episodeExtent: Int) {
+data class ProviderMediaNumbering(val mediaId: Int, val titles: Set<String>, val episodeExtent: Int,
+    val malId: Int? = null,
+    val episodeRules: List<com.axiel7.anihyou.release.data.malsync.EpisodeNumberingRule> = emptyList(),
+    val rulesCheckedAt: Long = 0,
+) {
     init { require(mediaId > 0 && episodeExtent in 1..9999 && titles.size <= 64 &&
-        titles.all { it.isNotBlank() && it.length <= 512 }) }
+        titles.all { it.isNotBlank() && it.length <= 512 })
+        require(malId == null || malId > 0)
+        require(episodeRules.size <= 64 && rulesCheckedAt >= 0)
+    }
 }
 data class ProviderNavigationStoredState(
     val source: ExtensionSelectionKey? = null,
@@ -70,7 +77,18 @@ class FileProviderNavigationStateStore(private val directory: File) {
     }
 
     suspend fun rememberNumbering(metadata: ProviderMediaNumbering) = mutate { old ->
-        old.copy(mediaNumbering = (old.mediaNumbering.filterNot { it.mediaId == metadata.mediaId } + metadata).takeLast(2048))
+        val previous = old.mediaNumbering.singleOrNull { it.mediaId == metadata.mediaId }
+        val retained = if (previous != null && previous.malId == metadata.malId)
+            metadata.copy(episodeRules = previous.episodeRules, rulesCheckedAt = previous.rulesCheckedAt) else metadata
+        old.copy(mediaNumbering = (old.mediaNumbering.filterNot { it.mediaId == metadata.mediaId } + retained).takeLast(2048))
+    }
+
+    /** Reject an ID change while a rule request was in flight; failures never call this. */
+    suspend fun rememberEpisodeRules(mediaId: Int, malId: Int,
+        rules: List<com.axiel7.anihyou.release.data.malsync.EpisodeNumberingRule>, checkedAt: Long) = mutate { old ->
+        old.copy(mediaNumbering = old.mediaNumbering.map {
+            if (it.mediaId == mediaId && it.malId == malId) it.copy(episodeRules = rules, rulesCheckedAt = checkedAt) else it
+        })
     }
 
     suspend fun recordNavigation(source: ExtensionSelectionKey, packageDigest: String, status: String,
@@ -134,6 +152,9 @@ class FileProviderNavigationStateStore(private val directory: File) {
         put("mediaNumbering", JsonArray(state.mediaNumbering.map { m -> buildJsonObject {
             put("mediaId", m.mediaId); put("episodeExtent", m.episodeExtent)
             put("titles", JsonArray(m.titles.sorted().map(::JsonPrimitive)))
+            put("malId", m.malId?.let(::JsonPrimitive) ?: JsonNull); put("rulesCheckedAt", m.rulesCheckedAt)
+            put("episodeRules", JsonArray(m.episodeRules.map { r -> JsonArray(listOf(r.fromMalId,
+                r.toMalId, r.providerFirst, r.canonicalFirst, r.count).map(::JsonPrimitive)) }))
         } }))
         put("schemaVersion", 1); put("source", key(state.source)); put("releaseGeneration", state.releaseGeneration)
         put("packageDigest", state.packageDigest?.let(::JsonPrimitive) ?: JsonNull)
@@ -189,10 +210,16 @@ class FileProviderNavigationStateStore(private val directory: File) {
             rowsSource,
             json["mediaNumbering"]?.jsonArray.orEmpty().also { require(it.size <= 2048) }.map { value ->
                 val m = value.jsonObject
-                require(m.keys == setOf("mediaId", "episodeExtent", "titles"))
+                require(m.keys.containsAll(setOf("mediaId", "episodeExtent", "titles")) &&
+                    (m.keys - setOf("mediaId", "episodeExtent", "titles", "malId", "episodeRules", "rulesCheckedAt")).isEmpty())
                 ProviderMediaNumbering(m.getValue("mediaId").jsonPrimitive.int,
                     m.getValue("titles").jsonArray.map { it.jsonPrimitive.content }.toSet(),
-                    m.getValue("episodeExtent").jsonPrimitive.int)
+                    m.getValue("episodeExtent").jsonPrimitive.int,
+                    m["malId"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.int,
+                    m["episodeRules"]?.jsonArray.orEmpty().also { require(it.size <= 64) }.map { row ->
+                        val r = row.jsonArray.map { it.jsonPrimitive.int }; require(r.size == 5)
+                        com.axiel7.anihyou.release.data.malsync.EpisodeNumberingRule(r[0], r[1], r[2], r[3], r[4])
+                    }, m["rulesCheckedAt"]?.jsonPrimitive?.long ?: 0)
             })
     }
 }
