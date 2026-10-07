@@ -1,4 +1,4 @@
-# Build updateable MALSync episode rules, verified split numbering and anime-home navigation with full logs.
+# Build the final MALSync rule update and deduplicated split-anchor fix with full logging.
 name: Performance APK (temporary signed)
 # Optimized ARM64 test APK with temporary debug signing and complete data-decision logging. No tests, lint or emulator.
 # R8/resource shrinking reduce download size. Product gates remain separate; full logging and native packaging are verified.
