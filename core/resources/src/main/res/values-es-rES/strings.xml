@@ -632,8 +632,8 @@
         <item quantity="one">%d min</item>
         <item quantity="other">%d min</item>
     </plurals>
-    <string name="login_required_in_phone">Para utilizar esta aplicación primero tienes que iniciar sesión abriendo la aplicación AniHyou instalada en tu teléfono</string>
-    <string name="app_installed_required">No se ha detectado ningún dispositivo cercano, por favor, instala la última versión de la aplicación AniHyou en tu teléfono Android</string>
+    <string name="login_required_in_phone">Para utilizar esta aplicación primero tienes que iniciar sesión abriendo la aplicación Kiyori instalada en tu teléfono</string>
+    <string name="app_installed_required">No se ha detectado ningún dispositivo cercano, por favor, instala la última versión de la aplicación Kiyori en tu teléfono Android</string>
     <string name="minimum_tag_percentage">Porcentaje mínimo de etiquetas</string>
     <string name="search_my_list">Buscar en mi lista…</string>
     <string name="notifications_submission">Solicitudes de datos</string>

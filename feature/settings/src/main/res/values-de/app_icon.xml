@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_icon_title">App-Symbol</string>
+    <string name="app_icon_summary">Wähle das Symbol auf deinem Startbildschirm</string>
+    <string name="app_icon_kiyori">Kiyori</string>
+    <string name="app_icon_kiyori_light">Kiyori Hell</string>
+    <string name="app_icon_arctic">Arctic</string>
+    <string name="app_icon_classic">Klassisch</string>
+    <string name="app_icon_hint">Der Launcher braucht eventuell einen Moment, bis das neue Symbol erscheint. Arctic hat keinen eigenen Hintergrund und passt zu dunklen Hintergrundbildern und Themen-Symbolen.</string>
+    <string name="app_icon_failed">Das Symbol konnte nicht geändert werden.</string>
+    <string name="app_icon_done">Fertig</string>
+</resources>

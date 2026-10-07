@@ -30,7 +30,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.axiel7.anihyou.core.base.ANILIST_ACCOUNT_SETTINGS_URL
-import com.axiel7.anihyou.core.base.DISCORD_SERVER_URL
+import com.axiel7.anihyou.core.base.PROJECT_REPO_URL
 import com.axiel7.anihyou.core.base.GITHUB_REPO_URL
 import com.axiel7.anihyou.core.common.utils.ContextUtils.copyToClipBoard
 import com.axiel7.anihyou.core.common.utils.ContextUtils.getActivity
@@ -56,6 +56,7 @@ import com.axiel7.anihyou.core.ui.common.rememberSnackbarManager
 import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithLargeTopAppBar
 import com.axiel7.anihyou.core.ui.composables.ListPreference
 import com.axiel7.anihyou.core.ui.composables.PlainPreference
+import com.axiel7.anihyou.feature.settings.appicon.AppIconDialog
 import com.axiel7.anihyou.core.ui.composables.PreferencesTitle
 import com.axiel7.anihyou.core.ui.composables.ScoreStepsPreferenceSheet
 import com.axiel7.anihyou.core.ui.composables.SwitchPreference
@@ -150,6 +151,7 @@ fun SettingsViewContent(
     )
 
     var showConfirmDialog by remember { mutableStateOf(false) }
+    var showAppIconDialog by remember { mutableStateOf(false) }
 
     ErrorDialogHandler(uiState, onDismiss = { event?.onErrorDisplayed() })
 
@@ -250,7 +252,16 @@ fun SettingsViewContent(
                 labelForValue = { it.name },
                 icon = R.drawable.format_paint_24,
                 onValueChange = { event?.setColorPalette(it) },
-                shape = bottomShape
+                shape = middleShape
+            )
+
+            PlainPreference(
+                title = stringResource(com.axiel7.anihyou.feature.settings.R.string.app_icon_title),
+                subtitle = stringResource(com.axiel7.anihyou.feature.settings.R.string.app_icon_summary),
+                icon = R.drawable.kiyori_24,
+                onClick = { showAppIconDialog = true },
+                shape = bottomShape,
+                modifier = Modifier.testTag("settings-app-icon"),
             )
 
             PreferencesTitle(text = stringResource(R.string.content))
@@ -507,29 +518,31 @@ fun SettingsViewContent(
             PreferencesTitle(text = stringResource(R.string.information))
 
             PlainPreference(
-                title = stringResource(R.string.github_repository),
-                icon = R.drawable.github_24,
+                title = stringResource(R.string.version),
+                subtitle = versionString,
+                icon = R.drawable.kiyori_24,
                 onClick = {
-                    context.openActionView(GITHUB_REPO_URL)
+                    context.copyToClipBoard(versionString)
                 },
                 shape = topShape
             )
 
             PlainPreference(
-                title = "Discord",
-                icon = R.drawable.discord_24,
+                title = stringResource(com.axiel7.anihyou.feature.settings.R.string.settings_source_code),
+                icon = R.drawable.github_24,
                 onClick = {
-                    context.openActionView(DISCORD_SERVER_URL)
+                    context.openActionView(PROJECT_REPO_URL)
                 },
                 shape = middleShape
             )
 
+            // Kiyori is built on AniHyou (GPL-3.0): the project it comes from stays named and linked.
             PlainPreference(
-                title = stringResource(R.string.version),
-                subtitle = versionString,
-                icon = R.drawable.anihyou_24,
+                title = stringResource(com.axiel7.anihyou.feature.settings.R.string.settings_based_on),
+                subtitle = stringResource(com.axiel7.anihyou.feature.settings.R.string.settings_based_on_summary),
+                icon = R.drawable.code_24,
                 onClick = {
-                    context.copyToClipBoard(versionString)
+                    context.openActionView(GITHUB_REPO_URL)
                 },
                 shape = middleShape
             )
@@ -561,6 +574,10 @@ fun SettingsViewContent(
             Spacer(modifier = Modifier.height(8.dp))
         }//: Column
     }//: Scaffold
+
+    if (showAppIconDialog) {
+        AppIconDialog(onDismiss = { showAppIconDialog = false })
+    }
 
     if (showConfirmDialog) {
         AlertDialog(

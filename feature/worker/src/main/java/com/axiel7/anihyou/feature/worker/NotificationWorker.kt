@@ -194,7 +194,7 @@ class NotificationWorker(
             0,
             NotificationCompat.Builder(applicationContext, SYNC_CHANNEL_ID)
                 .setContentTitle(applicationContext.getString(R.string.notifications))
-                .setSmallIcon(R.drawable.anihyou_24)
+                .setSmallIcon(R.drawable.kiyori_24)
                 .setAutoCancel(true)
                 .build(),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

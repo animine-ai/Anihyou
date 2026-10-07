@@ -650,8 +650,8 @@
         <item quantity="many">%d хв</item>
         <item quantity="other">%d хв</item>
     </plurals>
-    <string name="login_required_in_phone">Щоб скористатися цим застосунком, вам потрібно авторизуватися, відкривши застосунок AniHyou, встановлений на вашому телефоні</string>
-    <string name="app_installed_required">Пристрою поблизу не виявлено, будь ласка, встановіть останню версію AniHyou на свій Android-телефон </string>
+    <string name="login_required_in_phone">Щоб скористатися цим застосунком, вам потрібно авторизуватися, відкривши застосунок Kiyori, встановлений на вашому телефоні</string>
+    <string name="app_installed_required">Пристрою поблизу не виявлено, будь ласка, встановіть останню версію Kiyori на свій Android-телефон </string>
     <string name="minimum_tag_percentage">Мінімальний відсоток міток</string>
     <string name="search_my_list">Шукати в моєму каталозі…</string>
     <string name="notifications_submission">Подання</string>

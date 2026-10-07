@@ -410,8 +410,8 @@
     <string name="paused_media">מושהה %s</string>
     <string name="rewatched_media">צופה שוב ב- %s</string>
     <string name="reread_media">קרא שוב את %s</string>
-    <string name="login_required_in_phone">כדי להשתמש באפליקציה זו, עליך תחילה להתחבר על ידי פתיחת אפליקציית AniHyou המותקנת בטלפון שלך</string>
-    <string name="app_installed_required">לא אותר מכשיר בקרבת מקום. אנא התקן את הגרסה העדכנית ביותר של אפליקציית AniHyou בטלפון האנדרואיד שלך</string>
+    <string name="login_required_in_phone">כדי להשתמש באפליקציה זו, עליך תחילה להתחבר על ידי פתיחת אפליקציית Kiyori המותקנת בטלפון שלך</string>
+    <string name="app_installed_required">לא אותר מכשיר בקרבת מקום. אנא התקן את הגרסה העדכנית ביותר של אפליקציית Kiyori בטלפון האנדרואיד שלך</string>
     <string name="minimum_tag_percentage">אחוז התגים המינימלי</string>
     <string name="search_my_list">חפש ברשימה שלי…</string>
     <string name="blur_adult_content">טשטש מדיה למבוגרים</string>

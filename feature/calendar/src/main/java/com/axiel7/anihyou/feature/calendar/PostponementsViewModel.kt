@@ -128,4 +128,3 @@ class PostponementsViewModel(
 }
 
 private const val REFRESH_WAIT_MILLIS = 30_000L
-private const val MEDIA_BY_IDS_PAGE = 50

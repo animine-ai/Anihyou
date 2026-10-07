@@ -45,7 +45,7 @@ object NotificationUtils {
         val builder = NotificationCompat.Builder(applicationContext, channelId)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(R.drawable.anihyou_24)
+            .setSmallIcon(R.drawable.kiyori_24)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setGroup(group)

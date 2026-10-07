@@ -1,0 +1,35 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- In the manner of an icon pack such as Arcticons: no background, one thin white line, round ends and joins. -->
+    <group
+        android:translateX="-2"
+        android:translateY="2">
+        <path
+            android:pathData="M38,32L38,76"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="3.4"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M38,56L63.5,33.5"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="3.4"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M49.7,45.7L65,76"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="3.4"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M68.5,28.5a4.5,4.5 0,1 0,9 0a4.5,4.5 0,1 0,-9 0z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="3.4"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

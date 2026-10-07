@@ -646,8 +646,8 @@
         <item quantity="many">%d мин.</item>
         <item quantity="other">%d мин.</item>
     </plurals>
-    <string name="login_required_in_phone">Чтобы воспользоваться этим приложением, сначала нужно войти в систему, открыв приложение AniHyou, установленное на вашем телефоне</string>
-    <string name="app_installed_required">Устройство поблизости не обнаружено, пожалуйста, установите последнюю версию приложения AniHyou на свой телефон Android</string>
+    <string name="login_required_in_phone">Чтобы воспользоваться этим приложением, сначала нужно войти в систему, открыв приложение Kiyori, установленное на вашем телефоне</string>
+    <string name="app_installed_required">Устройство поблизости не обнаружено, пожалуйста, установите последнюю версию приложения Kiyori на свой телефон Android</string>
     <string name="minimum_tag_percentage">Минимальный процент тегов</string>
     <string name="search_my_list">Поиск в списке…</string>
     <string name="notifications_submission">Заявка</string>

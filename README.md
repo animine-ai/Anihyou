@@ -1,44 +1,65 @@
-# <img alt="app-icon" height="50" src="https://github.com/axiel7/AniHyou-android/blob/master/core/resources/src/main/res/mipmap-hdpi/ic_launcher_round.webp"/>AniHyou
+<p align="center">
+  <img src="docs/kiyori-logo.svg" width="112" alt="Kiyori"/>
+</p>
 
-[![Downloads](https://img.shields.io/github/downloads/axiel7/AniHyou-android/total.svg)](https://github.com/axiel7/MoeList/releases/latest)
-[![Crowdin](https://badges.crowdin.net/anihyou/localized.svg)](https://crowdin.com/project/anihyou)
-[![Donate](https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg)](https://ko-fi.com/axiel7)
+<h1 align="center">Kiyori</h1>
 
-Another unofficial Android AniList client
+<p align="center">
+  A calm, modern <a href="https://anilist.co">AniList</a> client for Android,<br/>
+  with release times from signed extensions.
+</p>
 
-[<img alt="Google Play" height="80" src="https://play.google.com/intl/en_US/badges/images/generic/en_badge_web_generic.png"/>](https://play.google.com/store/apps/details?id=com.axiel7.anihyou)
-[<img alt="Get it on F-Droid" height="80" src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png">](https://f-droid.org/packages/com.axiel7.anihyou)
+<p align="center">
+  <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0-8b7cff?style=flat-square"/>
+  <img alt="Android" src="https://img.shields.io/badge/Android-7.0%2B-8b7cff?style=flat-square"/>
+  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-8b7cff?style=flat-square"/>
+</p>
 
-iOS version [here](https://github.com/axiel7/AniHyou-iOS)
+## What it is
 
-Get latest beta version from [nightly.link](https://nightly.link/axiel7/AniHyou-android/workflows/build-upload-android/develop)
+Kiyori tracks your anime and manga on AniList and adds one thing the AniList schedule cannot give you: when an episode
+really becomes available on a source you watch on, in which language, and how many episodes you are behind.
 
-Follow the development on the official Discord server:
+- **Everything AniList**: lists, search, seasons, charts, activity, reviews, notifications, statistics, widgets.
+- **Calendar** in two styles, a list of days or tabs per weekday. Both read the same rows: the active source first, with
+  SUB and DUB shown together when they release at the same time, and AniList entries for the rest.
+- **Behind and watch next**: the number of episodes you have not seen, and one tap to the next one.
+- **Extensions**: release sources are signed packages that run in a sandbox. You add a repository, accept the source
+  once in a dialog that names what you are trusting, and install the extension. Kiyori matches the series of a source
+  to AniList entries by itself and shows what it could not match, so you can assign it by hand.
+- **Looks**: Material You or your own colors, a black theme for OLED, and a choice of app icons, among them a thin
+  white one in the manner of an icon pack.
 
-[![Discord Banner 3](https://discordapp.com/api/guilds/741059285122940928/widget.png?style=banner2)](https://discord.gg/CTv3WdfxHh)
+## App icons
 
-# Screenshots
-![Screenshots](screenshots.png)
+*Settings, Display, App icon.* Kiyori (dark, the default), Kiyori Light, Arctic (no background, one thin white line,
+made for dark wallpapers and themed icons) and the classic AniHyou icon. The launcher may need a moment to show the
+new icon.
 
-## Coming features
-- [See project](https://github.com/users/axiel7/projects/2/views/1)
+## Build
 
-# Donate 💸
-Support the development of AniHyou by making a donation via:
+You need JDK 17 and the Android SDK with platform 37.
 
-[Ko-Fi](https://ko-fi.com/axiel7)
-
-BTC
+```sh
+./gradlew :app:assembleFossDebug
 ```
-3KKjJuorh9se2jUo1Hr6MFgXhnBWbj5fTP
-```
 
-ETH
-```
-0xBd20dD0e036B246F879EeFde52601f0fBbeC69c0
-```
+Pushes are checked by the workflows in `.github/workflows`: the focused gate for tests and compilation, and a quick
+workflow that builds an APK.
 
-LTC
-```
-MRw5XPLsM9SVf48tv4nwQoY12nMXaiVzmD
-```
+## Extensions
+
+The extension format and the packages that exist live in their own repository,
+[release-extentions](https://github.com/animine-ai/release-extentions). A package is signed, its permissions and
+hosts are declared, and the app checks the signature and the declared limits before it runs anything. A source you
+accept without an independent check stays marked as accepted by you.
+
+## Credits and license
+
+Kiyori is built on [AniHyou](https://github.com/axiel7/AniHyou-android) by [axiel7](https://github.com/axiel7) and
+keeps its GPL-3.0 license: the code stays free, and changes you distribute stay free under the same terms. The upstream
+project is the place to support the original author: [Ko-fi](https://ko-fi.com/axiel7).
+
+Kiyori is not affiliated with AniList. Anime data and images belong to AniList and the rights holders.
+
+See [LICENSE](LICENSE).

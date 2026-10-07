@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_source_code">Quellcode</string>
+    <string name="settings_based_on">Basiert auf AniHyou</string>
+    <string name="settings_based_on_summary">von axiel7, GPL-3.0</string>
+</resources>

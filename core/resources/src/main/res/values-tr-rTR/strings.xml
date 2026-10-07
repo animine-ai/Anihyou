@@ -632,8 +632,8 @@
         <item quantity="one">%d dk</item>
         <item quantity="other">%d dk</item>
     </plurals>
-    <string name="login_required_in_phone">Bu uygulamayı kullanmak için öncelikle telefonunuzda yüklü olan AniHyou uygulamasını açarak giriş yapmanız gerekir</string>
-    <string name="app_installed_required">Yakında bir cihaz algılanmadı, lütfen Android telefonunuza en son AniHyou uygulama sürümünü yükleyin</string>
+    <string name="login_required_in_phone">Bu uygulamayı kullanmak için öncelikle telefonunuzda yüklü olan Kiyori uygulamasını açarak giriş yapmanız gerekir</string>
+    <string name="app_installed_required">Yakında bir cihaz algılanmadı, lütfen Android telefonunuza en son Kiyori uygulama sürümünü yükleyin</string>
     <string name="minimum_tag_percentage">Minimum Etiket Oranı</string>
     <string name="search_my_list">Listemde ara…</string>
     <string name="notifications_submission">Gönderi</string>

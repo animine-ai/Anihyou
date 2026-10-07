@@ -622,8 +622,8 @@
     <plurals name="minutes_abbreviation">
         <item quantity="other">%d分钟</item>
     </plurals>
-    <string name="login_required_in_phone">要使用这个应用，您首先需要登录并打开安装在您手机上的 AniHyou</string>
-    <string name="app_installed_required">未检测到附近的设备，请在安卓手机上安装最新版本的 AniHyou</string>
+    <string name="login_required_in_phone">要使用这个应用，您首先需要登录并打开安装在您手机上的 Kiyori</string>
+    <string name="app_installed_required">未检测到附近的设备，请在安卓手机上安装最新版本的 Kiyori</string>
     <string name="minimum_tag_percentage">最小标签百分比</string>
     <string name="search_my_list">搜索我的列表…</string>
     <string name="notifications_submission">提交</string>

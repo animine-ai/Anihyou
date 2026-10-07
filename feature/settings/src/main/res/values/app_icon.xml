@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_icon_title">App icon</string>
+    <string name="app_icon_summary">Choose the icon on your home screen</string>
+    <string name="app_icon_kiyori">Kiyori</string>
+    <string name="app_icon_kiyori_light">Kiyori Light</string>
+    <string name="app_icon_arctic">Arctic</string>
+    <string name="app_icon_classic">Classic</string>
+    <string name="app_icon_hint">The launcher may take a moment to show the new icon. Arctic has no background of its own and suits dark wallpapers and themed icons.</string>
+    <string name="app_icon_failed">The icon could not be changed.</string>
+    <string name="app_icon_done">Done</string>
+</resources>

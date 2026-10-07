@@ -36,6 +36,10 @@ const val YOUTUBE_VIDEO_URL = "https://www.youtube.com/watch?v="
 const val DAILYMOTION_VIDEO_URL = "https://www.dailymotion.com/video/"
 
 const val ANILIST_ACCOUNT_SETTINGS_URL = "https://anilist.co/settings/account"
+/** The code of Kiyori. */
+const val PROJECT_REPO_URL = "https://github.com/animine-ai/Anihyou"
+
+/** The project Kiyori is based on: AniHyou by axiel7 (GPL-3.0). */
 const val GITHUB_REPO_URL = "https://github.com/axiel7/AniHyou-android"
 const val GITHUB_PROFILE_URL = "https://github.com/axiel7"
 const val DISCORD_SERVER_URL = "https://discord.gg/CTv3WdfxHh"
