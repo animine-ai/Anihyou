@@ -34,8 +34,6 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -96,7 +94,6 @@ import com.axiel7.anihyou.feature.usermedialist.composables.ListSelectSheet
 import com.axiel7.anihyou.feature.usermedialist.composables.NotesDialog
 import com.axiel7.anihyou.feature.usermedialist.search.TopSearchBar
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinActivityViewModel
@@ -125,7 +122,6 @@ fun UserMediaListHostView(
     )
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun UserMediaListHostContent(
     uiState: UserMediaListUiState,
@@ -151,7 +147,6 @@ private fun UserMediaListHostContent(
 
     val textFieldState = rememberTextFieldState()
 
-    @OptIn(FlowPreview::class)
     LaunchedEffect(textFieldState) {
         snapshotFlow { textFieldState.text.toString() }
             .collectLatest { query ->

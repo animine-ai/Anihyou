@@ -1,6 +1,5 @@
 package com.axiel7.anihyou.feature.staffdetails.content
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,7 +36,6 @@ import com.axiel7.anihyou.core.ui.composables.person.PersonImage
 import com.axiel7.anihyou.core.ui.utils.ComposeDateUtils.formatted
 import com.axiel7.anihyou.feature.staffdetails.StaffDetailsUiState
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun StaffInfoView(
     uiState: StaffDetailsUiState,
@@ -115,6 +113,12 @@ fun StaffInfoView(
             info = uiState.details?.dateOfBirth?.fuzzyDate?.formatted(),
             modifier = Modifier.defaultPlaceholder(visible = uiState.isLoading)
         )
+        uiState.details?.dateOfDeath?.fuzzyDate?.let { date ->
+            InfoItemView(
+                title = stringResource(R.string.death),
+                info = date.formatted(),
+            )
+        }
         InfoItemView(
             title = stringResource(R.string.age),
             info = uiState.details?.age?.format(),

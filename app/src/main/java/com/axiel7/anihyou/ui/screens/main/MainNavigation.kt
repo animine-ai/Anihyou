@@ -45,8 +45,8 @@ import com.axiel7.anihyou.core.ui.composables.markdown.SpoilerSheet
 import com.axiel7.anihyou.feature.activitydetails.ActivityDetailsView
 import com.axiel7.anihyou.feature.activitydetails.publish.PublishActivityView
 import com.axiel7.anihyou.feature.addrecommendation.AddRecommendationView
-import com.axiel7.anihyou.feature.calendar.CalendarView
 import com.axiel7.anihyou.feature.calendar.PostponementsView
+import com.axiel7.anihyou.feature.calendar.CalendarHostView
 import com.axiel7.anihyou.feature.characterdetails.CharacterDetailsView
 import com.axiel7.anihyou.feature.explore.charts.MediaChartListView
 import com.axiel7.anihyou.feature.explore.explore.ExploreView
@@ -251,7 +251,7 @@ fun MainNavigation(
         }
 
         entry<Route.CalendarMain>(metadata = topNavigationTransitionSpec) {
-            CalendarView(isLoggedIn = isLoggedIn, isMain = true,
+            CalendarHostView(isLoggedIn = isLoggedIn, isMain = true,
                 modifier = if (isCompactScreen) Modifier.padding(bottom = bottomPadding) else Modifier)
         }
         entry<Route.CurrentListMain>(metadata = topNavigationTransitionSpec) {
@@ -347,7 +347,7 @@ fun MainNavigation(
         }
 
         entry<Route.Calendar> {
-            CalendarView(
+            CalendarHostView(
                 isLoggedIn = isLoggedIn,
             )
         }

@@ -8,7 +8,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -30,7 +29,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -83,6 +81,7 @@ import com.axiel7.anihyou.core.common.utils.StringUtils.orUnknown
 import com.axiel7.anihyou.core.domain.model.CustomLink
 import com.axiel7.anihyou.core.model.Theme
 import com.axiel7.anihyou.core.model.genre.SelectableGenre.Companion.genreTagLocalized
+import com.axiel7.anihyou.core.model.media.asMediaSort
 import com.axiel7.anihyou.core.model.media.durationText
 import com.axiel7.anihyou.core.model.media.isAnime
 import com.axiel7.anihyou.core.model.media.localized
@@ -129,8 +128,8 @@ import com.axiel7.anihyou.feature.mediadetails.composables.MediaStatsView
 import com.axiel7.anihyou.feature.mediadetails.composables.ReviewThreadListView
 import com.axiel7.anihyou.release.core.navigation.WatchNextState
 import com.materialkolor.PaletteStyle
-import com.materialkolor.dynamicColorScheme
 import com.materialkolor.dynamiccolor.ColorSpec
+import com.materialkolor.material3.dynamicColorScheme
 import kotlinx.collections.immutable.persistentListOf
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -155,7 +154,7 @@ fun MediaDetailsView(
                     isDark = isDark,
                     isAmoled = blackColors,
                     style = paletteStyle,
-                    specVersion = ColorSpec.SpecVersion.SPEC_2025,
+                    specVersion = ColorSpec.SpecVersion.SPEC_2026,
                 )
             }
         } else null
@@ -169,10 +168,7 @@ fun MediaDetailsView(
     }
 }
 
-@OptIn(
-    ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class,
-    ExperimentalMaterial3Api::class
-)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MediaDetailsContent(
     uiState: MediaDetailsUiState,
@@ -289,7 +285,10 @@ private fun MediaDetailsContent(
                     }
                 },
                 navigationIcon = {
-                    BackIconButton(onClick = navActionManager::goBack)
+                    BackIconButton(
+                        onClick = navActionManager::goBack,
+                        onLongClick = navActionManager::popToTopRoute,
+                    )
                 },
                 actions = {
                     if (uiState.isLoggedIn) {
@@ -673,7 +672,16 @@ fun MediaInfoTabs(
                     MediaStatsView(
                         uiState = uiState,
                         fetchData = { event?.fetchStats() },
-                        navigateToUserDetails = navActionManager::toUserDetails
+                        navigateToUserDetails = navActionManager::toUserDetails,
+                        onClickRanking = { ranking ->
+                            navActionManager.toSearch(
+                                mediaType = uiState.details?.basicMediaDetails?.type,
+                                season = ranking.season,
+                                year = ranking.year,
+                                mediaSort = ranking.type.asMediaSort(),
+                                focus = false,
+                            )
+                        }
                     )
 
                 MediaDetailsType.REVIEWS -> {

@@ -1,5 +1,7 @@
 package com.axiel7.anihyou.core.ui.composables.common
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.padding
@@ -8,7 +10,6 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuPopup
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -19,6 +20,7 @@ import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -27,7 +29,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
@@ -41,6 +46,9 @@ import com.axiel7.anihyou.core.common.utils.NumberUtils.format
 import com.axiel7.anihyou.core.model.TranslatorApp
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.utils.TranslateUtils.openTranslator
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun singleClick(onClick: () -> Unit): () -> Unit {
@@ -54,17 +62,32 @@ fun singleClick(onClick: () -> Unit): () -> Unit {
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun BackIconButton(
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val viewConfiguration = LocalViewConfiguration.current
+    val haptic = LocalHapticFeedback.current
+
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collectLatest { interaction ->
+            if (interaction is PressInteraction.Press) {
+                delay(viewConfiguration.longPressTimeoutMillis.milliseconds)
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onLongClick()
+            }
+        }
+    }
+
     FilledTonalIconButton(
         onClick = singleClick(onClick),
         shapes = IconButtonDefaults.shapes(),
         colors = IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        )
+        ),
+        interactionSource = interactionSource,
     ) {
         Icon(
             painter = painterResource(R.drawable.arrow_back_24),
@@ -78,7 +101,6 @@ fun ShareIconButton(url: String) {
     ShareIconButton(url = { url })
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ShareIconButton(url: () -> String) {
     val context = LocalContext.current
@@ -93,7 +115,6 @@ fun ShareIconButton(url: () -> String) {
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun OpenInBrowserIconButton(url: String) {
     val context = LocalContext.current
@@ -108,7 +129,6 @@ fun OpenInBrowserIconButton(url: String) {
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun FavoriteIconButton(
     modifier: Modifier = Modifier,
@@ -146,7 +166,6 @@ fun FavoriteIconButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun CommentIconButton(
     modifier: Modifier = Modifier,
@@ -179,7 +198,6 @@ fun CommentIconButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ReplyButton(
     modifier: Modifier = Modifier,
@@ -203,7 +221,6 @@ fun ReplyButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TranslateIconButton(
     text: String?,
@@ -225,7 +242,6 @@ fun TranslateIconButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LikeButton(
     isLiked: Boolean,
@@ -255,7 +271,6 @@ fun LikeButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun NotificationIconButton(
     isActive: Boolean,

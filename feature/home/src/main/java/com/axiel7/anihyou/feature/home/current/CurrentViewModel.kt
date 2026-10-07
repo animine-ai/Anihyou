@@ -25,6 +25,7 @@ import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry
 import com.axiel7.anihyou.core.network.type.MediaListSort
 import com.axiel7.anihyou.core.network.type.MediaListStatus
+import com.axiel7.anihyou.core.network.type.MediaSort
 import com.axiel7.anihyou.core.network.type.MediaStatus
 import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.ScoreFormat
@@ -519,39 +520,6 @@ class CurrentViewModel(
             }
             .launchIn(viewModelScope)
 
-
-        defaultPreferencesRepository.showLowPriority
-            .distinctUntilChanged()
-            .onEach { value ->
-                mutableUiState.update { it.copy(showLowPriority = value) }
-            }
-            .launchIn(viewModelScope)
-
-        defaultPreferencesRepository.colorLowPriority
-            .onEach { color ->
-                mutableUiState.update { it.copy(lowPriorityColor = Color(color)) }
-            }
-            .launchIn(viewModelScope)
-
-        defaultPreferencesRepository.colorMediumPriority
-            .onEach { color ->
-                mutableUiState.update { it.copy(mediumPriorityColor = Color(color)) }
-            }
-            .launchIn(viewModelScope)
-
-        defaultPreferencesRepository.colorHighPriority
-            .onEach { color ->
-                mutableUiState.update { it.copy(highPriorityColor = Color(color)) }
-            }
-            .launchIn(viewModelScope)
-
-
-        defaultPreferencesRepository.scoreSteps
-            .onEach { value ->
-                mutableUiState.update { it.copy(scoreStep = value) }
-            }
-            .launchIn(viewModelScope)
-
         // next season on list
         mutableUiState
             .filter { !it.isLoading }
@@ -564,11 +532,13 @@ class CurrentViewModel(
                 val now = LocalDateTime.ofInstant(clock.instant(), ZoneId.systemDefault())
                 mediaListRepository.getMySeasonalAnime(
                     season = now.currentAnimeSeason(),
+                    sort = listOf(MediaSort.START_DATE, MediaSort.POPULARITY_DESC),
                     fetchFromNetwork = uiState.fetchFromNetwork,
                     page = 1,
                 ).combine(
                     mediaListRepository.getMySeasonalAnime(
                         season = now.nextAnimeSeason(),
+                        sort = listOf(MediaSort.START_DATE, MediaSort.POPULARITY_DESC),
                         fetchFromNetwork = uiState.fetchFromNetwork,
                         page = 1,
                     )
@@ -613,6 +583,38 @@ class CurrentViewModel(
                     }
                 }
                 refreshReleaseMediaIds()
+            }
+            .launchIn(viewModelScope)
+
+        defaultPreferencesRepository.showLowPriority
+            .distinctUntilChanged()
+            .onEach { value ->
+                mutableUiState.update { it.copy(showLowPriority = value) }
+            }
+            .launchIn(viewModelScope)
+
+        defaultPreferencesRepository.colorLowPriority
+            .onEach { color ->
+                mutableUiState.update { it.copy(lowPriorityColor = Color(color)) }
+            }
+            .launchIn(viewModelScope)
+
+        defaultPreferencesRepository.colorMediumPriority
+            .onEach { color ->
+                mutableUiState.update { it.copy(mediumPriorityColor = Color(color)) }
+            }
+            .launchIn(viewModelScope)
+
+        defaultPreferencesRepository.colorHighPriority
+            .onEach { color ->
+                mutableUiState.update { it.copy(highPriorityColor = Color(color)) }
+            }
+            .launchIn(viewModelScope)
+
+
+        defaultPreferencesRepository.scoreSteps
+            .onEach { value ->
+                mutableUiState.update { it.copy(scoreStep = value) }
             }
             .launchIn(viewModelScope)
 

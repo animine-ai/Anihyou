@@ -31,12 +31,14 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionState
 import com.google.accompanist.permissions.isGranted
 import java.time.Clock
+import com.materialkolor.PaletteStyle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -97,9 +99,9 @@ class SettingsViewModel(
         defaultPreferencesRepository.setAppColor(value)
     }
 
-    override fun setColorPalette(value: String) {
+    override fun setColorPalette(value: PaletteStyle) {
         viewModelScope.launch {
-            defaultPreferencesRepository.setColorPalette(value)
+            defaultPreferencesRepository.setColorPalette(value.toString())
         }
     }
 
@@ -428,7 +430,7 @@ class SettingsViewModel(
             .launchIn(viewModelScope)
 
         defaultPreferencesRepository.colorPalette
-            .filterNotNull()
+            .mapNotNull { it?.let(PaletteStyle::parseOrNull) }
             .onEach { value ->
                 mutableUiState.update { it.copy(colorPaletteStyle = value) }
             }

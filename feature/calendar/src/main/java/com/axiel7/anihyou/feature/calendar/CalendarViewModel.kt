@@ -313,12 +313,6 @@ class CalendarViewModel(
             .onEach { value -> mutableUiState.update { it.copy(combineSimultaneousTracks = value == true).withTodayFirstItemIndex() } }
             .launchIn(viewModelScope)
 
-        listPreferencesRepository.calendarListStyle
-            .onEach { value ->
-                mutableUiState.update { it.copy(listStyle = value) }
-            }
-            .launchIn(viewModelScope)
-
         onMyList.onEach { onMyListVal ->
             if (mutableUiState.value.onMyList != onMyListVal) {
                 mutableUiState.update {
@@ -423,32 +417,6 @@ class CalendarViewModel(
             todayAnchorReady = ready,
         )
     }
-
-    private fun List<ReleaseUiCalendarItem>.providerRowsByDate(
-        fallbackDate: LocalDate,
-    ): Map<LocalDate, List<ReleaseUiCalendarItem>> =
-        asSequence()
-            .filter { it.isAuthoritative }
-            .groupBy { it.sourceDate ?: fallbackDate }
-            .mapValues { (_, rows) -> rows.sortedForPresentation() }
-
-    private fun List<ReleaseUiCalendarItem>.providerOnlyByDate(
-        knownMediaIds: Set<Int>,
-        fallbackDate: LocalDate,
-    ): Map<LocalDate, List<ReleaseUiCalendarItem>> =
-        asSequence()
-            .filter { it.isAuthoritative && (it.mediaId == null || it.mediaId !in knownMediaIds) }
-            .groupBy { it.sourceDate ?: fallbackDate }
-            .mapValues { (_, rows) -> rows.sortedForPresentation() }
-
-    private fun List<ReleaseUiCalendarItem>.sortedForPresentation(): List<ReleaseUiCalendarItem> =
-        sortedWith(
-            compareBy<ReleaseUiCalendarItem> { it.forecastAt ?: java.time.Instant.MAX }
-                .thenBy { it.stream.stableKey }
-                .thenBy { it.installment.stableKey }
-                .thenByDescending { it.revision },
-        )
-
 }
 
 /** The wait until the device-local date changes, DST days included (a local day is 23 to 25 hours long). */
@@ -461,4 +429,4 @@ internal fun isTodayAnchorStable(loadedDay: LocalDate, today: LocalDate, hasNext
     loadedDay >= today || !hasNextPage || error != null
 
 /** How many entries one request for cover and title by id asks for (AniList allows 50 per page). */
-private const val MEDIA_BY_IDS_PAGE = 50
+internal const val MEDIA_BY_IDS_PAGE = 50

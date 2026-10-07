@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
@@ -67,7 +66,6 @@ fun StudioDetailsView(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun StudioDetailsContent(
     uiState: StudioDetailsUiState,
@@ -87,7 +85,12 @@ private fun StudioDetailsContent(
 
     DefaultScaffoldWithMediumTopAppBar(
         title = uiState.details?.name ?: stringResource(R.string.loading),
-        navigationIcon = { BackIconButton(onClick = navActionManager::goBack) },
+        navigationIcon = {
+            BackIconButton(
+                onClick = navActionManager::goBack,
+                onLongClick = navActionManager::popToTopRoute,
+            )
+        },
         actions = { AppBarActions(uiState, event) },
         scrollBehavior = topAppBarScrollBehavior
     ) { padding ->

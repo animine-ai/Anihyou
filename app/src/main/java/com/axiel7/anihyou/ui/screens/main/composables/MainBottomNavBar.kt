@@ -16,7 +16,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
@@ -30,7 +29,6 @@ import com.axiel7.anihyou.core.ui.common.BottomDestination.Companion.testTag
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
 import com.axiel7.anihyou.core.ui.common.navigation.Route
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun MainBottomNavBar(
     currentTopRoute: Route,

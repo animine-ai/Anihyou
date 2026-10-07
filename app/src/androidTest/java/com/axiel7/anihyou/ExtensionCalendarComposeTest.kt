@@ -9,11 +9,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.axiel7.anihyou.core.model.ListStyle
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
+import com.axiel7.anihyou.core.ui.common.rememberSnackbarManager
 import com.axiel7.anihyou.core.ui.common.navigation.*
 import com.axiel7.anihyou.feature.calendar.*
+import com.axiel7.anihyou.feature.calendar.grid.CalendarGridDayView
+import com.axiel7.anihyou.feature.calendar.grid.CalendarGridUiState
 import com.axiel7.anihyou.release.core.api.*
 import com.axiel7.anihyou.release.core.extension.*
 import com.axiel7.anihyou.release.core.model.*
@@ -30,17 +32,48 @@ class ExtensionCalendarComposeTest {
     @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
     private val today = LocalDate.of(2026, 10, 2)
 
-    @Test fun listStartsAtEmptyTodayAndTodayButtonReturnsFromHistory() = todayAnchor(ListStyle.STANDARD, "calendar-list")
-    @Test fun gridStartsAtEmptyTodayAndTodayButtonReturnsFromHistory() = todayAnchor(ListStyle.GRID, "calendar-grid")
-    @Test fun darkListRetainsHistoryAndReturnsToToday() = todayAnchor(ListStyle.STANDARD, "calendar-list", dark = true)
+    @Test fun listStartsAtEmptyTodayAndTodayButtonReturnsFromHistory() = todayAnchor("calendar-list")
+    @Test fun darkListRetainsHistoryAndReturnsToToday() = todayAnchor("calendar-list", dark = true)
 
-    @Test fun simultaneousSubDubListUsesOnlySubConfirmationAndCanBeSeparated() = simultaneousTracks(ListStyle.STANDARD)
-    @Test fun simultaneousSubDubGridUsesOnlySubConfirmationAndCanBeSeparated() = simultaneousTracks(ListStyle.GRID)
+    @Test fun simultaneousSubDubListUsesOnlySubConfirmationAndCanBeSeparated() = simultaneousTracks()
+    @Test fun simultaneousSubDubWeekdayTabUsesOnlySubConfirmationAndCanBeSeparated() = simultaneousTracksInTab()
 
-    private fun simultaneousTracks(style: ListStyle) {
+    /** The weekday tab takes its rows by the list's rule: one SUB/DUB row, the confirmation of the SUB track, separable. */
+    private fun simultaneousTracksInTab() {
         val sub = row(today, 2).copy(forecastAt = java.time.Instant.parse("2026-10-02T08:10:00Z"))
         val dub = sub.copy(stream = sub.stream.copy(languageTrack = LanguageTrack.DE_DUB), confirmed = true)
-        var state by mutableStateOf(CalendarUiState(today = today, day = today.atStartOfDay(), listStyle = style,
+        var state by mutableStateOf(CalendarGridUiState(weekday = today.dayOfWeek.value, date = today, today = today,
+            isLoading = false, releaseRows = listOf(dub, sub)))
+        composeRule.setContent {
+            val navigation = rememberNavigationState(Route.Calendar, MainNavigationResolver.allRoutes)
+            val navigator = remember(navigation) { Navigator(navigation) }
+            CompositionLocalProvider(LocalNavActionManager provides NavActionManager(navigator)) {
+                MaterialTheme(colorScheme = darkColorScheme()) {
+                    CalendarGridDayView(isLoggedIn = false, snackbarManager = rememberSnackbarManager(), uiState = state,
+                        events = null, showEditSheet = remember { mutableStateOf(false) })
+                }
+            }
+        }
+        val name = "calendar-tracks-tab"
+        val confirmed = composeRule.activity.getString(R.string.release_calendar_confirmed)
+        composeRule.onAllNodesWithText("SUB/DUB", substring = true).assertCountEquals(1)
+        composeRule.onNodeWithContentDescription(confirmed).assertDoesNotExist()
+        capture("$name-combined-planned") { composeRule.onNodeWithText("SUB/DUB", substring = true).assertIsDisplayed() }
+        composeRule.runOnIdle { state = state.copy(releaseRows = listOf(dub, sub.copy(confirmed = true))) }
+        composeRule.onNodeWithContentDescription(confirmed).assertIsDisplayed()
+        capture("$name-combined-confirmed") { composeRule.onNodeWithContentDescription(confirmed).assertIsDisplayed() }
+        composeRule.runOnIdle { state = state.copy(combineSimultaneousTracks = false) }
+        composeRule.onNodeWithText("SUB/DUB", substring = true).assertDoesNotExist()
+        composeRule.onAllNodesWithText("SUB", substring = true).assertCountEquals(1)
+        composeRule.onAllNodesWithText("DUB", substring = true).assertCountEquals(1)
+        composeRule.onAllNodesWithContentDescription(confirmed).assertCountEquals(2)
+        capture("$name-separate") { composeRule.onNodeWithText("SUB", substring = true).assertIsDisplayed() }
+    }
+
+    private fun simultaneousTracks() {
+        val sub = row(today, 2).copy(forecastAt = java.time.Instant.parse("2026-10-02T08:10:00Z"))
+        val dub = sub.copy(stream = sub.stream.copy(languageTrack = LanguageTrack.DE_DUB), confirmed = true)
+        var state by mutableStateOf(CalendarUiState(today = today, day = today.atStartOfDay(),
             isLoading = false, providerRowsByDate = mapOf(today to listOf(dub, sub))))
         composeRule.setContent {
             val navigation = rememberNavigationState(Route.Calendar, MainNavigationResolver.allRoutes)
@@ -49,7 +82,7 @@ class ExtensionCalendarComposeTest {
                 MaterialTheme(colorScheme = darkColorScheme()) { CalendarViewContent(isLoggedIn = false, uiState = state, event = null) }
             }
         }
-        val name = "calendar-tracks-${style.name.lowercase()}"
+        val name = "calendar-tracks-standard"
         val confirmed = composeRule.activity.getString(R.string.release_calendar_confirmed)
         composeRule.onAllNodesWithText("SUB/DUB", substring = true).assertCountEquals(1)
         composeRule.onNodeWithContentDescription(confirmed).assertDoesNotExist()
@@ -65,12 +98,12 @@ class ExtensionCalendarComposeTest {
         capture("$name-separate") { composeRule.onNodeWithText("SUB", substring = true).assertIsDisplayed() }
     }
 
-    private fun todayAnchor(style: ListStyle, listTag: String, dark: Boolean = false) {
-        val label = "${style.name.lowercase()}-${if (dark) "dark" else "light"}"
+    private fun todayAnchor(listTag: String, dark: Boolean = false) {
+        val label = "standard-${if (dark) "dark" else "light"}"
         val past = today.minusDays(14)
         val rows = (1..12).map { number -> row(past, number) }
         var state by mutableStateOf(CalendarUiState(
-            today = today, day = today.atStartOfDay(), listStyle = style, isLoading = false,
+            today = today, day = today.atStartOfDay(), isLoading = false,
             providerRowsByDate = mapOf(past to rows, today.plusDays(1) to listOf(row(today.plusDays(1), 13))),
             todayFirstItemIndex = rows.size + 1, todayAnchorReady = true,
         ))

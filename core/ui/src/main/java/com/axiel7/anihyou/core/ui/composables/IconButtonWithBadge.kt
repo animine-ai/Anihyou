@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Surface
@@ -21,7 +20,6 @@ import androidx.compose.ui.unit.dp
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun IconButtonWithBadge(
     @DrawableRes icon: Int,

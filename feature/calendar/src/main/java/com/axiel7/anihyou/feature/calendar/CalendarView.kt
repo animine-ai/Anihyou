@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,20 +17,13 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.SelectableDropdownMenuItem
 import androidx.compose.material3.Text
@@ -83,6 +77,7 @@ import com.axiel7.anihyou.feature.calendar.composables.CalendarAiringHorizontalI
 import com.axiel7.anihyou.feature.calendar.composables.CalendarAiringHorizontalItemPlaceholder
 import com.axiel7.anihyou.feature.calendar.composables.CalendarBanner
 import com.axiel7.anihyou.feature.calendar.composables.CalendarBannerPlaceholder
+import com.axiel7.anihyou.feature.calendar.grid.CalendarGridView
 import com.axiel7.anihyou.feature.editmedia.EditMediaSheet
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -92,8 +87,32 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * The calendar in the style the user picked: the list of days (STANDARD) or the weekday tabs (GRID). Both take their rows
+ * from the active release source first, as the main tab and the pushed screen do.
+ */
 @Composable
-fun CalendarView(
+fun CalendarHostView(
+    isLoggedIn: Boolean,
+    isMain: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    val viewModel: CalendarHostViewModel = koinViewModel()
+    val listStyle by viewModel.listStyle.collectAsStateWithLifecycle(null)
+
+    AnimatedContent(
+        targetState = listStyle
+    ) { listStyle ->
+        when (listStyle) {
+            ListStyle.STANDARD -> CalendarView(isLoggedIn = isLoggedIn, isMain = isMain, modifier = modifier)
+            ListStyle.GRID -> CalendarGridView(isLoggedIn, viewModel, isMain = isMain, modifier = modifier)
+            else -> {}
+        }
+    }
+}
+
+@Composable
+private fun CalendarView(
     isLoggedIn: Boolean,
     isMain: Boolean = false,
     modifier: Modifier = Modifier,
@@ -109,7 +128,7 @@ fun CalendarView(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun CalendarViewContent(
     isLoggedIn: Boolean,
@@ -129,7 +148,6 @@ fun CalendarViewContent(
     var showEditSheet by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
-    val gridState = rememberLazyGridState()
 
     // Every visit of the tab starts on today, not only the first one after the app opened.
     LaunchedEffect(Unit) { event?.onScreenEntered() }
@@ -164,26 +182,25 @@ fun CalendarViewContent(
         navigationIcon = { if (!isMain) BackIconButton(onClick = navActionManager::goBack) },
         actions = {
             AppBarActions(
-                uiState = uiState,
-                event = event,
+                listStyle = ListStyle.STANDARD,
+                onMyList = uiState.onMyList,
+                showAniListExtras = uiState.showAniListExtras,
+                sourceIsMain = uiState.sourceIsMain(),
+                onChangeListStyle = { event?.onChangeListStyle(it) },
+                onChangeOnMyList = { event?.onMyListChanged(it) },
+                onChangeShowAniListExtras = { event?.onShowAniListExtrasChanged(it) },
             )
         },
         snackbarHost = snackbarManager::SnackbarHost,
         scrollBehavior = topAppBarScrollBehavior,
         floatingActionButton = {
-            val isAwayFromToday = uiState.todayAnchorReady && when (uiState.listStyle) {
-                ListStyle.GRID -> gridState.firstVisibleItemIndex != uiState.todayFirstItemIndex
-                else -> listState.firstVisibleItemIndex != uiState.todayFirstItemIndex
-            }
+            val isAwayFromToday = uiState.todayAnchorReady &&
+                listState.firstVisibleItemIndex != uiState.todayFirstItemIndex
             FloatingActionButton(
                 onClick = {
-                    AppLog.i("calendar") { "jump to today tapped: index=${uiState.todayFirstItemIndex} style=${uiState.listStyle}" }
+                    AppLog.i("calendar") { "jump to today tapped: index=${uiState.todayFirstItemIndex}" }
                     scope.launch {
-                        if (uiState.listStyle == ListStyle.GRID) {
-                            gridState.animateScrollToItem(uiState.todayFirstItemIndex)
-                        } else {
-                            listState.animateScrollToItem(uiState.todayFirstItemIndex)
-                        }
+                        listState.animateScrollToItem(uiState.todayFirstItemIndex)
                     }
                 },
                 modifier = Modifier.animateFloatingActionButton(
@@ -218,58 +235,42 @@ fun CalendarViewContent(
                 end = padding.calculateStartPadding(LocalLayoutDirection.current),
                 bottom = padding.calculateBottomPadding(),
             )
-            AnimatedVisibility(
-                visible = uiState.listStyle == ListStyle.STANDARD,
-                enter = fadeIn(animationSpec = tween()),
-                exit = fadeOut(animationSpec = tween()),
-            ) {
-                ListView(
-                    uiState = uiState,
-                    event = event,
-                    listState = listState,
-                    contentPadding = contentPadding,
-                    showEditSheetAction = ::showEditSheetAction,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
-                )
-            }
-            AnimatedVisibility(
-                visible = uiState.listStyle == ListStyle.GRID,
-                enter = fadeIn(animationSpec = tween()),
-                exit = fadeOut(animationSpec = tween()),
-            ) {
-                GridView(
-                    uiState = uiState,
-                    event = event,
-                    gridState = gridState,
-                    contentPadding = contentPadding,
-                    showEditSheetAction = ::showEditSheetAction,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
-                )
-            }
+            ListView(
+                uiState = uiState,
+                event = event,
+                listState = listState,
+                contentPadding = contentPadding,
+                showEditSheetAction = ::showEditSheetAction,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+            )
         }
     }
 }
 
 @Composable
-private fun AppBarActions(
-    uiState: CalendarUiState,
-    event: CalendarEvent?,
+internal fun AppBarActions(
+    listStyle: ListStyle?,
+    onMyList: Boolean?,
+    /** Only matters while a release source supplies rows ([sourceIsMain]): AniList entries without a source match stay hidden unless on. */
+    showAniListExtras: Boolean,
+    sourceIsMain: Boolean,
+    onChangeListStyle: (ListStyle) -> Unit,
+    onChangeOnMyList: (Boolean?) -> Unit,
+    onChangeShowAniListExtras: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     IconButton(
         onClick = {
-            val value = if (uiState.listStyle == ListStyle.STANDARD) ListStyle.GRID
+            val value = if (listStyle == ListStyle.STANDARD) ListStyle.GRID
             else ListStyle.STANDARD
-            event?.onChangeListStyle(value)
+            onChangeListStyle(value)
         }
     ) {
         Icon(
             painter = painterResource(
-                id = if (uiState.listStyle == ListStyle.STANDARD) R.drawable.grid_view_24
+                id = if (listStyle == ListStyle.STANDARD) R.drawable.grid_view_24
                 else R.drawable.format_list_bulleted_24
             ),
             contentDescription = stringResource(R.string.list_style)
@@ -282,18 +283,18 @@ private fun AppBarActions(
         modifier = modifier,
     ) { onDismiss ->
         SelectableDropdownMenuItem(
-            selected = uiState.onMyList != null,
+            selected = onMyList != null,
             onClick = {
-                event?.onMyListChanged(if (uiState.onMyList == true) null else true)
+                onChangeOnMyList(if (onMyList == true) null else true)
                 onDismiss()
             },
             text = { Text(text = stringResource(R.string.on_my_list)) },
-            shapes = MenuDefaults.itemShape(0, if (uiState.sourceIsMain()) 2 else 1),
+            shapes = MenuDefaults.itemShape(0, if (sourceIsMain) 2 else 1),
             selectedLeadingIcon = {
-                if (uiState.onMyList != null) {
+                if (onMyList != null) {
                     Icon(
                         painter = painterResource(
-                            id = if (uiState.onMyList) R.drawable.check_20 else R.drawable.close_20
+                            id = if (onMyList) R.drawable.check_20 else R.drawable.close_20
                         ),
                         contentDescription = null,
                         modifier = Modifier.size(MenuDefaults.LeadingIconSize)
@@ -301,17 +302,17 @@ private fun AppBarActions(
                 }
             },
         )
-        if (uiState.sourceIsMain()) {
+        if (sourceIsMain) {
             SelectableDropdownMenuItem(
-                selected = uiState.showAniListExtras,
+                selected = showAniListExtras,
                 onClick = {
-                    event?.onShowAniListExtrasChanged(!uiState.showAniListExtras)
+                    onChangeShowAniListExtras(!showAniListExtras)
                     onDismiss()
                 },
                 text = { Text(text = stringResource(R.string.calendar_show_anilist_extras)) },
                 shapes = MenuDefaults.itemShape(1, 2),
                 selectedLeadingIcon = {
-                    if (uiState.showAniListExtras) {
+                    if (showAniListExtras) {
                         Icon(
                             painter = painterResource(id = R.drawable.check_20),
                             contentDescription = null,
@@ -372,7 +373,7 @@ internal data class CalendarRow(
     val airingEvent: CalendarAiringEvent? = null,
 )
 
-private fun CalendarRow.providerFallbackTitle(): String? =
+internal fun CalendarRow.providerFallbackTitle(): String? =
     releasePresentations.firstOrNull()?.stream?.stableSeriesKey?.value
         ?.removePrefix("/anime/stream/")
         ?.takeIf { it.isNotBlank() }
@@ -470,7 +471,7 @@ internal fun CalendarUiState.presentationDays(): List<CalendarDay> {
 }
 
 @Composable
-private fun calendarSubtitle(row: CalendarRow): String =
+internal fun calendarSubtitle(row: CalendarRow): String =
     if (row.releasePresentations.any { it.isAuthoritative }) {
         ""
     } else {
@@ -570,108 +571,6 @@ private fun ListView(
             }
             items(count = 20, contentType = { "placeholder" }) {
                 CalendarAiringHorizontalItemPlaceholder(modifier = Modifier.padding(bottom = 8.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun GridView(
-    uiState: CalendarUiState,
-    event: CalendarEvent?,
-    gridState: LazyGridState,
-    contentPadding: PaddingValues,
-    showEditSheetAction: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val navActionManager = LocalNavActionManager.current
-    val blurAdult = LocalBlurAdult.current
-
-    gridState.OnBottomReached(buffer = 1, debounceDuration = 500.milliseconds) {
-        event?.onLoadMore()
-    }
-    // Same focus rule as the list view: renewed on every change of today's index until the user drags.
-    val totalItems = uiState.presentationDays().sumOf { it.rows.size + 1 }
-    LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex, totalItems) {
-        if (uiState.todayAnchorReady && uiState.autoScrollToToday) {
-            AppLog.d("calendar") { "focus today: scroll grid to item ${uiState.todayFirstItemIndex} (items=$totalItems)" }
-            gridState.scrollToItem(uiState.todayFirstItemIndex)
-            AppLog.d("calendar") { "focus today: grid now at item ${gridState.firstVisibleItemIndex} offset=${gridState.firstVisibleItemScrollOffset}" }
-        }
-    }
-    LaunchedEffect(gridState) {
-        gridState.interactionSource.interactions.collect { interaction ->
-            if (interaction is DragInteraction.Start) {
-                AppLog.d("calendar") { "user took over the scroll position" }
-                event?.onAutoScrolled()
-            }
-        }
-    }
-
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = (MEDIA_POSTER_SMALL_WIDTH + 8).dp),
-        modifier = modifier.testTag("calendar-grid"),
-        contentPadding = contentPadding,
-        state = gridState,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-    ) {
-        uiState.presentationDays().forEach { day ->
-            stickyHeader(key = "date-${day.date}") {
-                StickyHeader(
-                    mediaList = day.rows.mapNotNull { it.media }.distinctBy { it.id }.toImmutableList(),
-                    date = day.date,
-                    onLongClick = { event?.refreshDay(day.date) },
-                )
-            }
-            items(
-                items = day.rows,
-                key = { it.key },
-                contentType = { if (it.releasePresentations.isEmpty()) "anilist-media" else "provider-event" },
-            ) { row ->
-                val item = row.media
-                MediaItemVertical(
-                    title = item?.basicMediaDetails?.title?.userPreferred.orEmpty()
-                        .ifBlank { row.providerFallbackTitle().orEmpty() }
-                        .ifBlank { stringResource(R.string.release_provider_only) },
-                    imageUrl = item?.coverImage?.large,
-                    blurImage = blurAdult && item?.basicMediaDetails?.isAdult == true,
-                    modifier = Modifier.wrapContentWidth(),
-                    subtitle = {
-                        val authoritativeRows = row.releasePresentations.filter { it.isAuthoritative }
-                        if (authoritativeRows.isNotEmpty()) {
-                            ReleaseCalendarGroupScheduleText(
-                                presentations = authoritativeRows, fallback = {},
-                            )
-                        } else {
-                            Text(
-                                text = calendarSubtitle(row),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
-                    },
-                    status = item?.mediaListEntry?.basicMediaListEntry?.status,
-                    minLines = 2,
-                    onClick = {
-                        (item?.id ?: row.releasePresentations.firstOrNull()?.mediaId)
-                            ?.let(navActionManager::toMediaDetails)
-                    },
-                    onLongClick = {
-                        item?.let {
-                            event?.selectItem(it)
-                            showEditSheetAction()
-                        }
-                    },
-                )
-            }
-        }
-        if (uiState.isLoading && uiState.presentationDays().all { it.rows.isEmpty() }) {
-            item {
-                CalendarBannerPlaceholder(modifier = Modifier.padding(bottom = 8.dp))
-            }
-            items(count = 20, contentType = { "placeholder" }) {
-                MediaItemVerticalPlaceholder(modifier = Modifier.padding(bottom = 8.dp))
             }
         }
     }

@@ -13,6 +13,8 @@ import com.axiel7.anihyou.feature.explore.explore.ExploreViewModel
 import com.axiel7.anihyou.feature.explore.manga.MangaExploreViewModel
 import com.axiel7.anihyou.feature.explore.recommendations.RecommendationsViewModel
 import com.axiel7.anihyou.feature.addrecommendation.search.SimpleMediaSearchViewModel
+import com.axiel7.anihyou.feature.calendar.CalendarHostViewModel
+import com.axiel7.anihyou.feature.calendar.grid.CalendarGridViewModel
 import com.axiel7.anihyou.feature.explore.search.SearchViewModel
 import com.axiel7.anihyou.feature.explore.season.SeasonAnimeViewModel
 import com.axiel7.anihyou.feature.genrestags.GenresTagsViewModel
@@ -50,8 +52,10 @@ val viewModelModule = module {
     viewModel<MainViewModel>()
     viewModel<ActivityDetailsViewModel>()
     viewModel<PublishActivityViewModel>()
+    viewModel<CalendarHostViewModel>()
     viewModel<CalendarViewModel>()
     viewModel<PostponementsViewModel>()
+    viewModel<CalendarGridViewModel>()
     viewModel<CharacterDetailsViewModel>()
     viewModel<EditMediaViewModel>()
     viewModel<SearchViewModel>()

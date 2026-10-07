@@ -81,7 +81,6 @@ import java.time.ZoneId
 
 private const val TagLimit = 10
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MediaInformationView(
     uiState: MediaDetailsUiState,

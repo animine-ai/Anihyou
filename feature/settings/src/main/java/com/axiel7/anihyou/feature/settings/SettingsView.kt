@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -246,8 +245,9 @@ fun SettingsViewContent(
 
             ListPreference(
                 title = stringResource(R.string.color_palette),
-                values = PaletteStyle.entries.map { it.name }.toImmutableList(),
+                values = PaletteStyle.KnownStyles.toImmutableList(),
                 preferenceValue = uiState.colorPaletteStyle,
+                labelForValue = { it.name },
                 icon = R.drawable.format_paint_24,
                 onValueChange = { event?.setColorPalette(it) },
                 shape = bottomShape

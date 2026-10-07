@@ -3,7 +3,6 @@ package com.axiel7.anihyou.core.ui.composables
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryScrollableTabRow
@@ -15,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -22,7 +22,6 @@ import com.axiel7.anihyou.core.ui.common.TabRowItem
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun <T : Any> TabRowWithPager(
     tabs: ImmutableList<TabRowItem<T>>,
@@ -30,6 +29,7 @@ fun <T : Any> TabRowWithPager(
     initialPage: Int = 0,
     isTabScrollable: Boolean = false,
     isPrimaryTab: Boolean = true,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
     pageContent: @Composable (Int) -> Unit,
 ) {
     val state = rememberPagerState(initialPage = initialPage) { tabs.size }
@@ -63,12 +63,14 @@ fun <T : Any> TabRowWithPager(
             if (isPrimaryTab) {
                 PrimaryScrollableTabRow(
                     selectedTabIndex = state.currentPage,
+                    containerColor = containerColor,
                     edgePadding = 16.dp,
                     tabs = tabsLayout
                 )
             } else {
                 SecondaryScrollableTabRow(
                     selectedTabIndex = state.currentPage,
+                    containerColor = containerColor,
                     edgePadding = 16.dp,
                     tabs = tabsLayout
                 )
@@ -77,11 +79,13 @@ fun <T : Any> TabRowWithPager(
             if (isPrimaryTab) {
                 PrimaryTabRow(
                     selectedTabIndex = state.currentPage,
+                    containerColor = containerColor,
                     tabs = tabsLayout
                 )
             } else {
                 SecondaryTabRow(
                     selectedTabIndex = state.currentPage,
+                    containerColor = containerColor,
                     tabs = tabsLayout
                 )
             }
