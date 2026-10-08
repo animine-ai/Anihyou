@@ -317,7 +317,7 @@ private fun CalendarWeekStrip(
 
 /** The releases of the selected day, as the compact rows of the list calendar or as the larger Discover rows. */
 @Composable
-fun CalendarWeekDayView(
+internal fun CalendarWeekDayView(
     isLoggedIn: Boolean,
     snackbarManager: SnackbarManager,
     uiState: CalendarWeekUiState,
@@ -407,7 +407,7 @@ fun CalendarWeekDayView(
                                     score?.let { SmallScoreIndicator(score = it) }
                                     if (genres.isNotEmpty()) {
                                         Text(
-                                            text = genres.joinToString(" · ") { it.genreTagLocalized() },
+                                            text = genres.map { it.genreTagLocalized() }.joinToString(" · "),
                                             style = MaterialTheme.typography.labelMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1,
