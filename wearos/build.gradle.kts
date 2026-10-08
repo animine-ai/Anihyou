@@ -17,7 +17,7 @@ android {
     compileSdk = libs.versions.wear.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = appPackageName
+        applicationId = rootProject.extra["applicationIdBase"] as String
         minSdk = libs.versions.wear.minSdk.get().toInt()
         targetSdk = libs.versions.wear.targetSdk.get().toInt()
         versionCode = versionProps.getProperty("wear_code").toInt()

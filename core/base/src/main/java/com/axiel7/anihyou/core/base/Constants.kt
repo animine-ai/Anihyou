@@ -7,7 +7,8 @@ private const val CLIENT_ID = "8527"
 /**
  * Note: append `.debug` for testing in debug builds
  */
-const val APP_PACKAGE_NAME = "com.axiel7.anihyou"
+/** The application id of the installed app (the code packages keep their older name). */
+const val APP_PACKAGE_NAME = "app.kiyori"
 
 const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co"
 const val ANILIST_URL = "https://anilist.co"

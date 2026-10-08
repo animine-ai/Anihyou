@@ -105,7 +105,7 @@ object ContextUtils {
 
         return packageManager
             .queryIntentActivitiesCompat(emptyBrowserIntent, flags)
-            .filter { it.activityInfo.packageName != APP_PACKAGE_NAME }
+            .filter { it.activityInfo.packageName != packageName }
             .sortedBy { it.priority }
     }
 

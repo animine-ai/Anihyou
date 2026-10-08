@@ -483,7 +483,7 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
 
     private fun Context.openDeepLink(deepLink: DeepLink) =
         actionStartActivity(
-            packageManager.getLaunchIntentForPackage(APP_PACKAGE_NAME)?.apply {
+            packageManager.getLaunchIntentForPackage(packageName)?.apply {
                 action = deepLink.type.intentAction
                 putExtra("content_id", deepLink.id)
                 putExtra("widget", true)

@@ -8,7 +8,7 @@
         <intent
             android:action="search"
             android:targetClass="com.axiel7.anihyou.ui.screens.main.MainActivity"
-            android:targetPackage="com.axiel7.anihyou" />
+            android:targetPackage="app.kiyori" />
     </shortcut>
     <shortcut
         android:enabled="true"
@@ -18,6 +18,6 @@
         <intent
             android:action="calendar"
             android:targetClass="com.axiel7.anihyou.ui.screens.main.MainActivity"
-            android:targetPackage="com.axiel7.anihyou" />
+            android:targetPackage="app.kiyori" />
     </shortcut>
 </shortcuts>

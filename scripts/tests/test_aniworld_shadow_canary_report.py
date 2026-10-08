@@ -121,7 +121,7 @@ class ShadowReportTest(unittest.TestCase):
     def report(self, connection, limit=10):
         return shadow_report.build_report(
             connection,
-            "com.axiel7.anihyou.debug",
+            "app.kiyori.debug",
             {"versionName": "test-debug", "versionCode": 1},
             generated_at="2026-09-27T12:10:00Z",
             limit=limit,

@@ -251,7 +251,7 @@ class ReleaseOutboxDispatcherWorker(
     /** A tap opens the media's details, the same target the AniList airing notification uses. */
     private fun mediaDetailsIntent(notificationId: Int, mediaId: Int): PendingIntent? = runCatching {
         val target = releaseTapTarget(mediaId)
-        applicationContext.packageManager.getLaunchIntentForPackage(APP_PACKAGE_NAME)?.apply {
+        applicationContext.packageManager.getLaunchIntentForPackage(applicationContext.packageName)?.apply {
             action = target.action
             putExtra("content_id", target.contentId)
             // The widget flag keeps the tap from marking the user's AniList notifications as read.

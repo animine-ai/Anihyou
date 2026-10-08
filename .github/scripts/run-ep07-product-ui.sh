@@ -17,7 +17,7 @@ if [ "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" -ge 28 ]; then
 fi
 adb logcat -c
 instrumentation_status=0
-timeout 600 adb shell am instrument -w -r com.axiel7.anihyou.debug.test/androidx.test.runner.AndroidJUnitRunner | tee "$out/instrumentation.txt" || instrumentation_status=$?
+timeout 600 adb shell am instrument -w -r app.kiyori.debug.test/androidx.test.runner.AndroidJUnitRunner | tee "$out/instrumentation.txt" || instrumentation_status=$?
 adb logcat -d > "$out/logcat.txt"
 # A system crash of the emulator ends the instrumentation without any app stack; keep what the log knows about it.
 if grep -q -E "INSTRUMENTATION_ABORTED|Process crashed" "$out/instrumentation.txt"; then
@@ -33,9 +33,9 @@ if [ "$instrumentation_status" -ne 0 ]; then
   adb shell "cat /proc/meminfo | head -6; getprop ro.build.version.sdk" || true
   echo "== PRODUCT UI DIAG end =="
 fi
-adb pull /sdcard/Android/data/com.axiel7.anihyou.debug/files/ep07-ui/. "$out/screenshots/" || true
-adb pull /sdcard/Android/data/com.axiel7.anihyou.debug/files/ep07/. "$out/update-screenshots/" || true
-adb pull /sdcard/Android/data/com.axiel7.anihyou.debug/files/ep07-guard/. "$out/guard/" || true
+adb pull /sdcard/Android/data/app.kiyori.debug/files/ep07-ui/. "$out/screenshots/" || true
+adb pull /sdcard/Android/data/app.kiyori.debug/files/ep07/. "$out/update-screenshots/" || true
+adb pull /sdcard/Android/data/app.kiyori.debug/files/ep07-guard/. "$out/guard/" || true
 # Printed before the verdict so a failing run still shows what was on the screen.
 {
   echo "== EP07 CAPTURE REPORTS api=$api =="

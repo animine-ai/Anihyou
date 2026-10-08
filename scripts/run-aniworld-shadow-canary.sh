@@ -15,7 +15,7 @@ EOF
 }
 
 mode=""
-package_id="com.axiel7.anihyou.debug"
+package_id="app.kiyori.debug"
 timeout_seconds=300
 output_path=""
 while (($#)); do

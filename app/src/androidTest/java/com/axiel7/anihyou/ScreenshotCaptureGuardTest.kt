@@ -31,7 +31,7 @@ class ScreenshotCaptureGuardTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
-    private val app = "com.axiel7.anihyou.debug"
+    private val app = "app.kiyori.debug"
 
     @Test
     fun launcherOnboardingScreenIsNotTheAppScreen() {

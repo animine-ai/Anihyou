@@ -1,5 +1,7 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
+// The package of the code (namespace). The id of the installed app is separate: it is app.kiyori.
 extra.set("appPackageName", "com.axiel7.anihyou")
+extra.set("applicationIdBase", "app.kiyori")
 
 plugins {
     alias(libs.plugins.android.application) apply false

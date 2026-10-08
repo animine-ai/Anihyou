@@ -139,7 +139,7 @@ class NotificationWorker(
                         val deepLinkType = group.asDeepLinkType()
                         if (deepLinkType != null) runCatching {
                             applicationContext.packageManager
-                                .getLaunchIntentForPackage(APP_PACKAGE_NAME)
+                                .getLaunchIntentForPackage(applicationContext.packageName)
                                 ?.apply {
                                     action = deepLinkType.intentAction
                                     putExtra("content_id", notification.contentId.toString())

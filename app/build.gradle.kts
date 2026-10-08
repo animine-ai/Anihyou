@@ -66,7 +66,7 @@ android {
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = appPackageName
+        applicationId = rootProject.extra["applicationIdBase"] as String
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         buildConfigField("String", "EXTENSION_BUILD_PROFILE", "\"$extensionBuildProfile\"")

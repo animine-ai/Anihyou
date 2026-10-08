@@ -601,7 +601,7 @@ def _wait_for_new_generation(
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adb", default="adb", help="adb executable (default: adb on PATH)")
-    parser.add_argument("--package", default="com.axiel7.anihyou.debug", help="debug application id")
+    parser.add_argument("--package", default="app.kiyori.debug", help="debug application id")
     parser.add_argument("--limit", type=int, default=10, help=f"latest generations, 1..{MAX_GENERATIONS}")
     parser.add_argument("--output", help="write the JSON report to this local path")
     parser.add_argument("--latest-generation-id", action="store_true", help=argparse.SUPPRESS)
