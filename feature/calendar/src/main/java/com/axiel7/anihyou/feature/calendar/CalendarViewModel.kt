@@ -11,7 +11,7 @@ import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.ListPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
-import com.axiel7.anihyou.core.model.ListStyle
+import com.axiel7.anihyou.core.model.CalendarStyle
 import com.axiel7.anihyou.core.model.media.CalendarAiringEvent
 import com.axiel7.anihyou.core.model.media.uniqueAiringEvents
 import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
@@ -105,9 +105,9 @@ class CalendarViewModel(
         }
     }
 
-    override fun onChangeListStyle(value: ListStyle) {
+    override fun onChangeStyle(value: CalendarStyle) {
         viewModelScope.launch {
-            listPreferencesRepository.setCalendarListStyle(value)
+            listPreferencesRepository.setCalendarStyle(value)
         }
     }
 

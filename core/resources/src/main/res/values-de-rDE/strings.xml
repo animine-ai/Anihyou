@@ -808,4 +808,11 @@
     <string name="postponements_search">Verschiebungen durchsuchen</string>
     <string name="postponements_no_results">Keine Treffer für „%1$s“</string>
     <string name="navigation_unknown_progress">Dein Fortschritt ist unbekannt. Ergänze oder aktualisiere deinen Listeneintrag.</string>
+    <string name="calendar_style_list">Liste</string>
+    <string name="calendar_style_tabs">Wochentag-Tabs</string>
+    <string name="calendar_style_week">Woche</string>
+    <string name="calendar_style_week_large">Woche, groß</string>
+    <string name="calendar_week_empty">An diesem Tag erscheint nichts.</string>
+    <string name="calendar_week_previous">Vorherige Woche</string>
+    <string name="calendar_week_next">Nächste Woche</string>
 </resources>

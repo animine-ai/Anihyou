@@ -11,8 +11,10 @@ import com.axiel7.anihyou.core.network.type.MediaListSort
 import com.axiel7.anihyou.core.network.type.MediaListStatus
 import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.model.ItemsPerRow
+import com.axiel7.anihyou.core.model.CalendarStyle
 import com.axiel7.anihyou.core.model.ListStyle
 import com.axiel7.anihyou.core.model.media.ListType
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 class ListPreferencesRepository (
@@ -226,6 +228,16 @@ class ListPreferencesRepository (
         dataStore.setValue(CALENDAR_LIST_STYLE, value.name)
     }
 
+    /** The calendar style; the older list/grid choice stands in until the user picks a style. */
+    val calendarStyle = combine(
+        dataStore.getValue(key = CALENDAR_STYLE, default = ""),
+        calendarListStyle,
+    ) { stored, legacy -> CalendarStyle.from(stored, legacy) }
+
+    suspend fun setCalendarStyle(value: CalendarStyle) {
+        dataStore.setValue(CALENDAR_STYLE, value.name)
+    }
+
     companion object {
         private val ANIME_LIST_SELECTED_KEY = stringPreferencesKey("anime_list_selected")
         private val MANGA_LIST_SELECTED_KEY = stringPreferencesKey("manga_list_selected")
@@ -260,6 +272,7 @@ class ListPreferencesRepository (
 
         private val SEASONAL_LIST_STYLE = stringPreferencesKey("seasonal_list_style")
         private val CALENDAR_LIST_STYLE = stringPreferencesKey("calendar_list_style")
+        private val CALENDAR_STYLE = stringPreferencesKey("calendar_style")
 
     }
 }

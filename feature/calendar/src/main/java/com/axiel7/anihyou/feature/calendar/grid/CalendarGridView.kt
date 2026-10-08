@@ -35,7 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.axiel7.anihyou.core.model.ListStyle
+import com.axiel7.anihyou.core.model.CalendarStyle
 import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.common.LocalBlurAdult
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
@@ -82,7 +82,7 @@ fun CalendarGridView(
         onMyList = onMyList,
         showAniListExtras = showAniListExtras,
         sourceIsMain = sourceIsMain,
-        onChangeListStyle = viewModel::onChangeListStyle,
+        onChangeStyle = viewModel::onChangeStyle,
         onChangeOnMyList = viewModel::onMyListChanged,
         onChangeShowAniListExtras = viewModel::onShowAniListExtrasChanged,
         modifier = modifier,
@@ -96,7 +96,7 @@ private fun CalendarGridContent(
     onMyList: Boolean?,
     showAniListExtras: Boolean,
     sourceIsMain: Boolean,
-    onChangeListStyle: (ListStyle) -> Unit,
+    onChangeStyle: (CalendarStyle) -> Unit,
     onChangeOnMyList: (Boolean?) -> Unit,
     onChangeShowAniListExtras: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -116,11 +116,11 @@ private fun CalendarGridContent(
         navigationIcon = { if (!isMain) BackIconButton(onClick = navActionManager::goBack) },
         actions = {
             AppBarActions(
-                listStyle = ListStyle.GRID,
+                style = CalendarStyle.TABS,
                 onMyList = onMyList,
                 showAniListExtras = showAniListExtras,
                 sourceIsMain = sourceIsMain,
-                onChangeListStyle = onChangeListStyle,
+                onChangeStyle = onChangeStyle,
                 onChangeOnMyList = onChangeOnMyList,
                 onChangeShowAniListExtras = onChangeShowAniListExtras,
             )

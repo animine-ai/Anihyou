@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.ListPreferencesRepository
-import com.axiel7.anihyou.core.model.ListStyle
+import com.axiel7.anihyou.core.model.CalendarStyle
 import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -25,7 +25,7 @@ class CalendarHostViewModel(
 
     val onMyList = defaultPreferencesRepository.calendarOnMyList
 
-    val listStyle = listPreferencesRepository.calendarListStyle
+    val style = listPreferencesRepository.calendarStyle
 
     /** Whether AniList entries without a match in the active source stay in the calendar (only while a source supplies rows). */
     val showAniListExtras = defaultPreferencesRepository.calendarShowAniListExtras.map { it == true }
@@ -52,9 +52,9 @@ class CalendarHostViewModel(
         }
     }
 
-    fun onChangeListStyle(value: ListStyle) {
+    fun onChangeStyle(value: CalendarStyle) {
         viewModelScope.launch {
-            listPreferencesRepository.setCalendarListStyle(value)
+            listPreferencesRepository.setCalendarStyle(value)
         }
     }
 }

@@ -824,4 +824,11 @@
     <string name="postponements_search">Search postponements</string>
     <string name="postponements_no_results">No results for “%1$s”</string>
     <string name="navigation_unknown_progress">Watched progress is unknown. Add or update your list entry.</string>
+    <string name="calendar_style_list">List</string>
+    <string name="calendar_style_tabs">Weekday tabs</string>
+    <string name="calendar_style_week">Week</string>
+    <string name="calendar_style_week_large">Week, large</string>
+    <string name="calendar_week_empty">Nothing airs on this day.</string>
+    <string name="calendar_week_previous">Previous week</string>
+    <string name="calendar_week_next">Next week</string>
 </resources>

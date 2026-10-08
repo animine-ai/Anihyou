@@ -53,7 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.axiel7.anihyou.core.base.UNKNOWN_CHAR
 import com.axiel7.anihyou.core.common.utils.DateUtils.timestampToTimeString
-import com.axiel7.anihyou.core.model.ListStyle
+import com.axiel7.anihyou.core.model.CalendarStyle
 import com.axiel7.anihyou.core.model.media.CalendarAiringEvent
 import com.axiel7.anihyou.core.model.media.uniqueAiringEvents
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
@@ -78,6 +78,7 @@ import com.axiel7.anihyou.feature.calendar.composables.CalendarAiringHorizontalI
 import com.axiel7.anihyou.feature.calendar.composables.CalendarBanner
 import com.axiel7.anihyou.feature.calendar.composables.CalendarBannerPlaceholder
 import com.axiel7.anihyou.feature.calendar.grid.CalendarGridView
+import com.axiel7.anihyou.feature.calendar.week.CalendarWeekView
 import com.axiel7.anihyou.feature.editmedia.EditMediaSheet
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -88,8 +89,8 @@ import java.time.LocalDate
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
- * The calendar in the style the user picked: the list of days (STANDARD) or the weekday tabs (GRID). Both take their rows
- * from the active release source first, as the main tab and the pushed screen do.
+ * The calendar in the style the user picked: the list of days, the weekday tabs, or the week strip with compact or large
+ * rows. Every style takes its rows from the active release source first, as the main tab and the pushed screen do.
  */
 @Composable
 fun CalendarHostView(
@@ -98,15 +99,22 @@ fun CalendarHostView(
     modifier: Modifier = Modifier,
 ) {
     val viewModel: CalendarHostViewModel = koinViewModel()
-    val listStyle by viewModel.listStyle.collectAsStateWithLifecycle(null)
+    val style by viewModel.style.collectAsStateWithLifecycle(null)
 
     AnimatedContent(
-        targetState = listStyle
-    ) { listStyle ->
-        when (listStyle) {
-            ListStyle.STANDARD -> CalendarView(isLoggedIn = isLoggedIn, isMain = isMain, modifier = modifier)
-            ListStyle.GRID -> CalendarGridView(isLoggedIn, viewModel, isMain = isMain, modifier = modifier)
-            else -> {}
+        targetState = style
+    ) { style ->
+        when (style) {
+            CalendarStyle.LIST -> CalendarView(isLoggedIn = isLoggedIn, isMain = isMain, modifier = modifier)
+            CalendarStyle.TABS -> CalendarGridView(isLoggedIn, viewModel, isMain = isMain, modifier = modifier)
+            CalendarStyle.WEEK, CalendarStyle.WEEK_LARGE -> CalendarWeekView(
+                isLoggedIn = isLoggedIn,
+                hostViewModel = viewModel,
+                largeItems = style == CalendarStyle.WEEK_LARGE,
+                isMain = isMain,
+                modifier = modifier,
+            )
+            null -> {}
         }
     }
 }
@@ -182,11 +190,11 @@ fun CalendarViewContent(
         navigationIcon = { if (!isMain) BackIconButton(onClick = navActionManager::goBack) },
         actions = {
             AppBarActions(
-                listStyle = ListStyle.STANDARD,
+                style = CalendarStyle.LIST,
                 onMyList = uiState.onMyList,
                 showAniListExtras = uiState.showAniListExtras,
                 sourceIsMain = uiState.sourceIsMain(),
-                onChangeListStyle = { event?.onChangeListStyle(it) },
+                onChangeStyle = { event?.onChangeStyle(it) },
                 onChangeOnMyList = { event?.onMyListChanged(it) },
                 onChangeShowAniListExtras = { event?.onShowAniListExtrasChanged(it) },
             )
@@ -251,30 +259,39 @@ fun CalendarViewContent(
 
 @Composable
 internal fun AppBarActions(
-    listStyle: ListStyle?,
+    style: CalendarStyle?,
     onMyList: Boolean?,
     /** Only matters while a release source supplies rows ([sourceIsMain]): AniList entries without a source match stay hidden unless on. */
     showAniListExtras: Boolean,
     sourceIsMain: Boolean,
-    onChangeListStyle: (ListStyle) -> Unit,
+    onChangeStyle: (CalendarStyle) -> Unit,
     onChangeOnMyList: (Boolean?) -> Unit,
     onChangeShowAniListExtras: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    IconButton(
-        onClick = {
-            val value = if (listStyle == ListStyle.STANDARD) ListStyle.GRID
-            else ListStyle.STANDARD
-            onChangeListStyle(value)
+    IconButtonWithMenu(
+        icon = if (style == CalendarStyle.LIST) R.drawable.format_list_bulleted_24 else R.drawable.grid_view_24,
+        contentDescription = stringResource(R.string.list_style),
+    ) { onDismiss ->
+        CalendarStyle.entries.forEachIndexed { index, entry ->
+            SelectableDropdownMenuItem(
+                selected = entry == style,
+                onClick = {
+                    onChangeStyle(entry)
+                    onDismiss()
+                },
+                text = { Text(text = stringResource(entry.stringRes)) },
+                shapes = MenuDefaults.itemShape(index, CalendarStyle.entries.size),
+                modifier = Modifier.testTag("calendar-style-${entry.name}"),
+                selectedLeadingIcon = {
+                    Icon(
+                        painter = painterResource(id = R.drawable.check_20),
+                        contentDescription = null,
+                        modifier = Modifier.size(MenuDefaults.LeadingIconSize)
+                    )
+                },
+            )
         }
-    ) {
-        Icon(
-            painter = painterResource(
-                id = if (listStyle == ListStyle.STANDARD) R.drawable.grid_view_24
-                else R.drawable.format_list_bulleted_24
-            ),
-            contentDescription = stringResource(R.string.list_style)
-        )
     }
 
     IconButtonWithMenu(
