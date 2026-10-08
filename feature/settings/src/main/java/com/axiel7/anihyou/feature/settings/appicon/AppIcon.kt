@@ -14,6 +14,9 @@ enum class AppIcon(
     KIYORI("Kiyori"),
     KIYORI_LIGHT("KiyoriLight"),
     ARCTIC("Arctic"),
+    ARCTIC_CALENDAR("ArcticCalendar"),
+    ARCTIC_MOON("ArcticMoon"),
+    ARCTIC_LIST("ArcticList"),
     CLASSIC("Classic");
 
     /** The class name of the alias, as the package manager knows it. */

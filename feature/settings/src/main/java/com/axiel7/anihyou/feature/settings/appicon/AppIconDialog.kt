@@ -107,6 +107,9 @@ private val AppIcon.art: AppIconArt
             R.string.app_icon_kiyori_light, CoreR.drawable.ic_kiyori_light_background, CoreR.drawable.ic_kiyori_light_foreground,
         )
         AppIcon.ARCTIC -> AppIconArt(R.string.app_icon_arctic, null, CoreR.drawable.ic_arctic_foreground, needsDarkBackdrop = true)
+        AppIcon.ARCTIC_CALENDAR -> AppIconArt(R.string.app_icon_arctic_calendar, null, CoreR.drawable.ic_arctic_calendar_foreground, needsDarkBackdrop = true)
+        AppIcon.ARCTIC_MOON -> AppIconArt(R.string.app_icon_arctic_moon, null, CoreR.drawable.ic_arctic_moon_foreground, needsDarkBackdrop = true)
+        AppIcon.ARCTIC_LIST -> AppIconArt(R.string.app_icon_arctic_list, null, CoreR.drawable.ic_arctic_list_foreground, needsDarkBackdrop = true)
         AppIcon.CLASSIC -> AppIconArt(R.string.app_icon_classic, CoreR.drawable.ic_classic_background, CoreR.drawable.ic_classic_foreground)
     }
 

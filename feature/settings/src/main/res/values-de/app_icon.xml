@@ -5,8 +5,11 @@
     <string name="app_icon_kiyori">Kiyori</string>
     <string name="app_icon_kiyori_light">Kiyori Hell</string>
     <string name="app_icon_arctic">Arctic</string>
+    <string name="app_icon_arctic_calendar">Arctic Kalender</string>
+    <string name="app_icon_arctic_moon">Arctic Mond</string>
+    <string name="app_icon_arctic_list">Arctic Liste</string>
     <string name="app_icon_classic">Klassisch</string>
-    <string name="app_icon_hint">Der Launcher braucht eventuell einen Moment, bis das neue Symbol erscheint. Arctic hat keinen eigenen Hintergrund und passt zu dunklen Hintergrundbildern und Themen-Symbolen.</string>
+    <string name="app_icon_hint">Der Launcher braucht eventuell einen Moment, bis das neue Symbol erscheint. Die Arctic-Symbole haben keinen eigenen Hintergrund und passen zu dunklen Hintergrundbildern und Themen-Symbolen.</string>
     <string name="app_icon_failed">Das Symbol konnte nicht geändert werden.</string>
     <string name="app_icon_done">Fertig</string>
 </resources>

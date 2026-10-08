@@ -1,0 +1,55 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- In the manner of the Arcticons icon pack: no background, thin white lines of one width, round ends and joins, on a 48 unit grid (drawn at 1.5 times in the 108 unit icon canvas). A watch list with one entry ticked. -->
+    <group
+        android:translateX="18"
+        android:translateY="18"
+        android:scaleX="1.5"
+        android:scaleY="1.5">
+        <path
+            android:pathData="M8.0,13.5a2.5,2.5 0 1 0 5.0,0a2.5,2.5 0 1 0 -5.0,0z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.15"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M18,13.5H39"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.15"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M8.0,24a2.5,2.5 0 1 0 5.0,0a2.5,2.5 0 1 0 -5.0,0z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.15"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M8.9,24L10.1,25.2L12.4,22.6"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.15"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M18,24H35"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.15"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M8.0,34.5a2.5,2.5 0 1 0 5.0,0a2.5,2.5 0 1 0 -5.0,0z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.15"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M18,34.5H31"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.15"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

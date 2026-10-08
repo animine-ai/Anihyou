@@ -218,6 +218,63 @@
         </activity-alias>
 
         <activity-alias
+            android:name=".launcher.ArcticCalendar"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_arctic_calendar"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_arctic_calendar"
+            android:targetActivity=".ui.screens.main.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity-alias>
+
+        <activity-alias
+            android:name=".launcher.ArcticMoon"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_arctic_moon"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_arctic_moon"
+            android:targetActivity=".ui.screens.main.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity-alias>
+
+        <activity-alias
+            android:name=".launcher.ArcticList"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_arctic_list"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_arctic_list"
+            android:targetActivity=".ui.screens.main.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity-alias>
+
+        <activity-alias
             android:name=".launcher.Classic"
             android:enabled="false"
             android:exported="true"
