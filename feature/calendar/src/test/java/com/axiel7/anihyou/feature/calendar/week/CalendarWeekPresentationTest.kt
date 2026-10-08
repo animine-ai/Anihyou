@@ -88,10 +88,11 @@ class CalendarWeekPresentationTest {
 
     @Test fun theListFilterAppliesToEveryDay() {
         val onList = media(5).also { every { it.mediaListEntry } returns mockk(relaxed = true) }
+        val notOnList = media(6).also { every { it.mediaListEntry } returns null }
         val state = week {
             it.copy(
                 airingEvents = mapOf(
-                    friday to listOf(CalendarAiringEvent(1, 1, 1_790_000_000, onList), airing(2, 6)),
+                    friday to listOf(CalendarAiringEvent(1, 1, 1_790_000_000, onList), CalendarAiringEvent(2, 1, 1_790_000_000, notOnList)),
                 ),
                 onMyList = true,
             )
