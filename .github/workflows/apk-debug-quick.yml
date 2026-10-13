@@ -1,11 +1,17 @@
 # Build the final MALSync rule update and deduplicated split-anchor fix with full logging.
 name: Performance APK (temporary signed)
+run-name: "Performance APK ${{ inputs.request_id || github.sha }}"
 # Optimized ARM64 test APK with temporary debug signing and complete data-decision logging. No tests, lint or emulator.
 # R8/resource shrinking reduce download size. Product gates remain separate; full logging and native packaging are verified.
 # Final device-log repair: show next episode and Behind together, with field-specific source priority and full logging.
 
 on:
   workflow_dispatch:
+    inputs:
+      request_id:
+        description: Unique client request identifier
+        required: false
+        type: string
   # Registers the workflow for manual dispatch from this branch; it only runs on a push that changes this file.
   push:
     branches:
