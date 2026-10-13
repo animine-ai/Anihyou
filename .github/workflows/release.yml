@@ -1,0 +1,136 @@
+name: Signed Kiyori Release
+run-name: Kiyori 1.7.0 signed release
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/release.yml"
+      - "docs/releases/1.7.0.md"
+permissions:
+  contents: read
+concurrency:
+  group: kiyori-release-1.7.0
+  cancel-in-progress: false
+jobs:
+  signing-inputs:
+    name: Validate signing inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require uploaded signing secrets
+        shell: bash
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for field in KEYSTORE STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!field}" ]]; then
+              echo "::error::Missing signing secret for $field"
+              exit 1
+            fi
+          done
+  native-runtime:
+    needs: signing-inputs
+    name: Pinned Wasmtime product native runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Build accepted production native runtime
+        run: bash tools/ep02-android/build-native.sh
+      - name: Verify ELF, JNI exports and portable native checksums
+        run: |
+          git rev-parse HEAD > tools/ep02-android/results/native/source-commit.txt
+          python3 .github/scripts/verify-extension-native-packaging.py \
+            --write-checksums \
+            --readelf "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
+            --report tools/ep02-android/results/native/product-native-verification.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-native-runtime
+          path: tools/ep02-android/native-out/
+          if-no-files-found: error
+          retention-days: 3
+
+  release-apk:
+    name: Build, sign and publish
+    needs: native-runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Install compile SDK 37
+        run: android sdk install platforms/android-37.0
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: release-native-runtime
+          path: tools/ep02-android/native-out
+      - name: Verify pinned native input
+        run: python3 .github/scripts/verify-extension-native-packaging.py
+      - name: Build Foss release
+        run: ./gradlew --console=plain --stacktrace :app:assembleFossRelease
+      - name: Verify packaged native runtime
+        run: |
+          python3 .github/scripts/verify-extension-native-packaging.py \
+            --apk-dir app/build/outputs/apk/foss/release \
+            --report out/native-verification.json
+      - name: Sign and verify ARM64 release
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$RUNNER_TEMP/kiyori-release.jks"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$key"
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          [[ -x "$tools/apksigner" && -x "$tools/zipalign" ]]
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/foss/release/*arm64-v8a*.apk)
+          [[ ${#apks[@]} -eq 1 ]]
+          mkdir -p out
+          "$tools/zipalign" -c -P 16 4 "${apks[0]}"
+          "$tools/apksigner" sign --ks "$key" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD \
+            --out out/Kiyori-1.7.0-arm64-v8a.apk "${apks[0]}"
+          "$tools/apksigner" verify --verbose --print-certs out/Kiyori-1.7.0-arm64-v8a.apk \
+            > out/signature-verification.txt
+          keytool -exportcert -keystore "$key" -alias "$KEY_ALIAS" \
+            -storepass:env STORE_PASSWORD -file "$RUNNER_TEMP/kiyori-cert.der"
+          expected="$(sha256sum "$RUNNER_TEMP/kiyori-cert.der" | cut -d ' ' -f 1)"
+          grep -Fq "Signer #1 certificate SHA-256 digest: $expected" out/signature-verification.txt
+          "$tools/zipalign" -c -P 16 4 out/Kiyori-1.7.0-arm64-v8a.apk
+          "$tools/aapt" dump badging out/Kiyori-1.7.0-arm64-v8a.apk > out/apk-badging.txt
+          grep -q "package: name='app.kiyori' versionCode='136' versionName='1.7.0'" out/apk-badging.txt
+          ! grep -q "^application-debuggable" out/apk-badging.txt
+          (cd out && sha256sum Kiyori-1.7.0-arm64-v8a.apk > SHA256.txt)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: signed-kiyori-release-${{ github.sha }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish first release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.7.0 out/Kiyori-1.7.0-arm64-v8a.apk out/SHA256.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Kiyori 1.7.0" --notes-file docs/releases/1.7.0.md --latest
