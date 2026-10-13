@@ -114,13 +114,27 @@ jobs:
           keytool -exportcert -keystore "$key" -alias "$KEY_ALIAS" \
             -storepass:env STORE_PASSWORD -file "$RUNNER_TEMP/kiyori-cert.der"
           expected="$(sha256sum "$RUNNER_TEMP/kiyori-cert.der" | cut -d ' ' -f 1)"
-          grep -Fq "Signer #1 certificate SHA-256 digest: $expected" out/signature-verification.txt
+          actual="$(sed -nE 's/^Signer (#[0-9]+|\(.*\)) certificate SHA-256 digest: ([0-9a-fA-F]{64})$/\2/p' out/signature-verification.txt | tr 'A-F' 'a-f' | sort -u)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::APK signer certificate does not match the release keystore"
+            cat out/signature-verification.txt
+            exit 1
+          fi
+          echo "Release signer certificate matches the keystore"
           "$tools/zipalign" -c -P 16 4 out/Kiyori-1.7.0-arm64-v8a.apk
           "$tools/aapt" dump badging out/Kiyori-1.7.0-arm64-v8a.apk > out/apk-badging.txt
-          grep -q "package: name='app.kiyori' versionCode='136' versionName='1.7.0'" out/apk-badging.txt
-          ! grep -q "^application-debuggable" out/apk-badging.txt
+          if ! grep -q "package: name='app.kiyori' versionCode='136' versionName='1.7.0'" out/apk-badging.txt; then
+            echo "::error::Unexpected release package or version"
+            head -n 1 out/apk-badging.txt
+            exit 1
+          fi
+          if grep -q "^application-debuggable" out/apk-badging.txt; then
+            echo "::error::Release APK is debuggable"
+            exit 1
+          fi
           (cd out && sha256sum Kiyori-1.7.0-arm64-v8a.apk > SHA256.txt)
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
           name: signed-kiyori-release-${{ github.sha }}
           path: out/
