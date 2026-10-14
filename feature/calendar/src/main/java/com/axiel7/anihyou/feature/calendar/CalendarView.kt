@@ -99,7 +99,7 @@ fun CalendarHostView(
     modifier: Modifier = Modifier,
 ) {
     val viewModel: CalendarHostViewModel = koinViewModel()
-    val style by viewModel.style.collectAsStateWithLifecycle(null)
+    val style by viewModel.style.collectAsStateWithLifecycle()
 
     AnimatedContent(
         targetState = style

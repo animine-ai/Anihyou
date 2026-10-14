@@ -6,6 +6,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -96,7 +97,7 @@ internal val topNavigationTransitionSpec = NavDisplay.transitionSpec {
 } + NavDisplay.predictivePopTransitionSpec {
     ContentTransform(
         fadeIn(spring(dampingRatio = 1f, stiffness = 1600f)),
-        fadeOut(spring(dampingRatio = 1f, stiffness = 1600f))
+        scaleOut(targetScale = 0.7f),
     )
 }
 

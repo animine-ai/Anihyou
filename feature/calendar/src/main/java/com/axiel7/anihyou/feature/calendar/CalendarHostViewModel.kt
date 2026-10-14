@@ -12,6 +12,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -26,6 +28,7 @@ class CalendarHostViewModel(
     val onMyList = defaultPreferencesRepository.calendarOnMyList
 
     val style = listPreferencesRepository.calendarStyle
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** Whether AniList entries without a match in the active source stay in the calendar (only while a source supplies rows). */
     val showAniListExtras = defaultPreferencesRepository.calendarShowAniListExtras.map { it == true }

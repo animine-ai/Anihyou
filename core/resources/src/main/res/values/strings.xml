@@ -831,4 +831,7 @@
     <string name="calendar_week_empty">Nothing airs on this day.</string>
     <string name="calendar_week_previous">Previous week</string>
     <string name="calendar_week_next">Next week</string>
+    <string name="saved_filters">Saved filters</string>
+    <string name="filter_name">Filter name</string>
+    <string name="save_current_filters">Save current filters</string>
 </resources>
