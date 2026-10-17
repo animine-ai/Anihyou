@@ -97,7 +97,7 @@
     <string name="extension_manage_diagnostic_yes">Yes</string>
     <string name="extension_manage_diagnostic_no">No</string>
     <string name="extension_center_unavailable_title">Not available in this build</string>
-    <string name="extension_center_unavailable_message">This build has no verified source identity, so extensions cannot be added or updated. Local data stays and can be removed.</string>
+    <string name="extension_center_unavailable_message">This build has no verified source identity, so extensions cannot be added, installed or updated. Local data stays and can be removed.</string>
     <string name="extension_provider_move_up">Move %1$s up</string>
     <string name="extension_provider_move_down">Move %1$s down</string>
     <string name="extension_manage_active_title">Installed</string>

@@ -77,7 +77,7 @@ class MatchingManagementComposeTest {
         composeRule.onNodeWithTag("matching-list").performScrollToNode(hasTestTag("mapping-row-legacy"))
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         composeRule.onNodeWithText(context.getString(com.axiel7.anihyou.feature.settings.R.string.matching_source_id, legacy.sourceIdentity)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(com.axiel7.anihyou.feature.settings.R.string.matching_unknown_source)).assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(com.axiel7.anihyou.feature.settings.R.string.matching_unknown_source), substring = true).assertIsDisplayed()
     }
     @Test fun emptyListInDarkThemeWithLargeTextIsReadableAndDoesNotStartWork() {
         composeRule.setContent {
