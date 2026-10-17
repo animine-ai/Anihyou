@@ -14,7 +14,7 @@ import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** One rule marks every calendar style: dimmed when the planned time has passed, checked when proven, both when both. */
+/** One rule marks every calendar style: dimmed when the extension's planned time has passed, checked when proven, both when both. */
 class ReleaseMarkTest {
     private val now = Instant.parse("2026-10-17T16:00:00Z")
 
@@ -61,9 +61,9 @@ class ReleaseMarkTest {
         assertEquals(ReleaseMark.THEORETICAL, providerRow(sub, dub).releaseMark(now))
     }
 
-    @Test fun anAniListAiringTimeThatHasPassedIsPastButNeverChecked() {
+    @Test fun anAniListAiringTimeAloneNeverDimsOrChecks() {
         assertEquals(ReleaseMark.UPCOMING, aniListRow(now.plus(Duration.ofMinutes(30))).releaseMark(now))
-        assertEquals(ReleaseMark.THEORETICAL, aniListRow(now.minus(Duration.ofMinutes(30))).releaseMark(now))
+        assertEquals(ReleaseMark.UPCOMING, aniListRow(now.minus(Duration.ofMinutes(30))).releaseMark(now))
     }
 
     @Test fun aRowWithNeitherSourceNorAiringTimeIsUpcoming() {

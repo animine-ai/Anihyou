@@ -15,7 +15,7 @@ import kotlinx.coroutines.delay
 
 /**
  * Where a calendar entry stands in its release. Two independent facts: the planned time has passed (the entry is dimmed)
- * and the source lists the episode (the entry is checked). An entry that is both ends up dimmed and checked. The same
+ * (by the extension's time, never by an AniList time) and the source lists the episode (the entry is checked, as information). An entry that is both ends up dimmed and checked. The same
  * rule marks the entry in every calendar style.
  *
  * [UPCOMING] time not reached, not proven; [THEORETICAL] time passed, not proven (dimmed); [CONFIRMED] proven out, time not
@@ -35,12 +35,11 @@ internal fun CalendarRow.releaseMark(now: Instant): ReleaseMark {
             else -> ReleaseMark.UPCOMING
         }
     }
-    // An AniList airing time cannot be confirmed by a source: once it has passed the entry is past, nothing more.
-    val airing = airingEvent ?: return ReleaseMark.UPCOMING
-    return if (airing.airingAt.toLong() > now.epochSecond) ReleaseMark.UPCOMING else ReleaseMark.THEORETICAL
+    // Only the time of the extension (the release source) dims an entry; an AniList airing time alone never does.
+    return ReleaseMark.UPCOMING
 }
 
-/** An entry whose planned time has passed is dimmed slightly, checked or not; upcoming ones are not. */
+/** An entry whose planned time (from the extension) has passed is dimmed slightly, checked or not; others are not. */
 internal const val THEORETICAL_ALPHA = 0.55f
 
 internal fun Modifier.releaseDim(mark: ReleaseMark): Modifier =
