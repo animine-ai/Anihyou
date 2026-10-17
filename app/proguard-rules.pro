@@ -41,3 +41,6 @@
 -dontwarn org.openjsse.javax.net.ssl.SSLParameters
 -dontwarn org.openjsse.javax.net.ssl.SSLSocket
 -dontwarn org.openjsse.net.ssl.OpenJSSE
+# Glance builds the callback of a widget click by reflection from its class, with the constructor without parameters. R8 saw no
+# caller, removed that constructor and the refresh button of the widget died with NoSuchMethodException.
+-keep class * implements androidx.glance.appwidget.action.ActionCallback { <init>(); }
