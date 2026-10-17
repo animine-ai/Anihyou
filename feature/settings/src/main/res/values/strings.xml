@@ -178,10 +178,10 @@
     <string name="notification_anime_title">Individual anime</string>
     <string name="notification_anime_summary">%1$d always, %2$d never</string>
     <string name="notification_anime_search">Search anime</string>
-    <string name="notification_anime_hint">Anime of the source's calendar. Your choice for an anime beats the general setting.</string>
+    <string name="notification_anime_hint">Anime of the source\'s calendar. Your choice for an anime beats the general setting.</string>
     <string name="notification_anime_default">Like the setting</string>
     <string name="notification_anime_always">Always</string>
     <string name="notification_anime_never">Never</string>
     <string name="notification_anilist_airing">Also AniList episode messages</string>
-    <string name="notification_anilist_airing_summary">Off: AniList's own "episode aired" messages are left out while the source announces releases.</string>
+    <string name="notification_anilist_airing_summary">Off: AniList\'s own \"episode aired\" messages are left out while the source announces releases.</string>
 </resources>
