@@ -54,7 +54,11 @@ import com.axiel7.anihyou.core.ui.composables.rememberTopBarContainerColor
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 import com.axiel7.anihyou.feature.calendar.AppBarActions
 import com.axiel7.anihyou.feature.calendar.CalendarHostViewModel
+import com.axiel7.anihyou.feature.calendar.CalendarFocusMemory
 import com.axiel7.anihyou.feature.calendar.calendarSubtitle
+import com.axiel7.anihyou.feature.calendar.composables.releaseDim
+import com.axiel7.anihyou.feature.calendar.composables.releaseMark
+import com.axiel7.anihyou.feature.calendar.composables.rememberNowInstant
 import com.axiel7.anihyou.feature.calendar.providerFallbackTitle
 import com.axiel7.anihyou.feature.editmedia.EditMediaSheet
 import org.koin.compose.viewmodel.koinViewModel
@@ -138,7 +142,9 @@ private fun CalendarGridContent(
                     top = padding.calculateTopPadding(),
                     end = padding.calculateEndPadding(LocalLayoutDirection.current),
                 ),
-            initialPage = LocalDate.now().dayOfWeek.value - 1,
+            // The tab the user was on stays across a visit elsewhere; a new run of the app starts on today's weekday.
+            initialPage = CalendarFocusMemory.tabsPage ?: (LocalDate.now().dayOfWeek.value - 1),
+            onPageChanged = { CalendarFocusMemory.tabsPage = it },
             isTabScrollable = true,
             containerColor = appBarContainerColor,
         ) { page ->
@@ -194,6 +200,7 @@ fun CalendarGridDayView(
         events?.onLoadMore()
     }
     val rows = remember(uiState) { uiState.rows() }
+    val now = rememberNowInstant()
 
     if (showEditSheet.value && uiState.selectedItem != null) {
         EditMediaSheet(
@@ -233,7 +240,7 @@ fun CalendarGridDayView(
                         .ifBlank { stringResource(R.string.release_provider_only) },
                     imageUrl = item?.coverImage?.large,
                     blurImage = blurAdult && item?.basicMediaDetails?.isAdult == true,
-                    modifier = Modifier.wrapContentWidth(),
+                    modifier = Modifier.wrapContentWidth().releaseDim(row.releaseMark(now)),
                     subtitle = {
                         val authoritativeRows = row.releasePresentations.filter { it.isAuthoritative }
                         if (authoritativeRows.isNotEmpty()) {

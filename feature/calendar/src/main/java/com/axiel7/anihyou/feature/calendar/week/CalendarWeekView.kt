@@ -67,6 +67,9 @@ import com.axiel7.anihyou.feature.calendar.AppBarActions
 import com.axiel7.anihyou.feature.calendar.CalendarHostViewModel
 import com.axiel7.anihyou.feature.calendar.CalendarRow
 import com.axiel7.anihyou.feature.calendar.calendarSubtitle
+import com.axiel7.anihyou.feature.calendar.composables.releaseDim
+import com.axiel7.anihyou.feature.calendar.composables.releaseMark
+import com.axiel7.anihyou.feature.calendar.composables.rememberNowInstant
 import com.axiel7.anihyou.feature.calendar.composables.CalendarAiringHorizontalItem
 import com.axiel7.anihyou.feature.calendar.composables.CalendarAiringHorizontalItemPlaceholder
 import com.axiel7.anihyou.feature.calendar.providerFallbackTitle
@@ -331,6 +334,7 @@ internal fun CalendarWeekDayView(
     val navActionManager = LocalNavActionManager.current
     val blurAdult = LocalBlurAdult.current
     val haptic = LocalHapticFeedback.current
+    val now = rememberNowInstant()
 
     if (showEditSheet.value && uiState.selectedItem != null) {
         EditMediaSheet(
@@ -379,7 +383,9 @@ internal fun CalendarWeekDayView(
                     }
                     Unit
                 }
+                val mark = row.releaseMark(now)
                 if (largeItems) {
+                    Box(modifier = Modifier.releaseDim(mark)) {
                     MediaItemHorizontal(
                         title = title,
                         imageUrl = item?.coverImage?.large,
@@ -420,6 +426,7 @@ internal fun CalendarWeekDayView(
                         onClick = onClick,
                         onLongClick = onLongClick,
                     )
+                    }
                 } else {
                     CalendarAiringHorizontalItem(
                         title = title,
@@ -431,7 +438,7 @@ internal fun CalendarWeekDayView(
                         status = item?.mediaListEntry?.basicMediaListEntry?.status,
                         onClick = onClick,
                         onLongClick = onLongClick,
-                        modifier = Modifier.padding(vertical = 4.dp),
+                        modifier = Modifier.padding(vertical = 4.dp).releaseDim(mark),
                     )
                 }
             }

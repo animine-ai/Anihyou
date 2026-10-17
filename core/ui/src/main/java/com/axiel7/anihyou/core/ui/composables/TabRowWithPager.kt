@@ -30,9 +30,16 @@ fun <T : Any> TabRowWithPager(
     isTabScrollable: Boolean = false,
     isPrimaryTab: Boolean = true,
     containerColor: Color = MaterialTheme.colorScheme.surface,
+    /** Called with the selected page whenever it changes, so a caller can bring the user back to it. */
+    onPageChanged: ((Int) -> Unit)? = null,
     pageContent: @Composable (Int) -> Unit,
 ) {
     val state = rememberPagerState(initialPage = initialPage) { tabs.size }
+    if (onPageChanged != null) {
+        androidx.compose.runtime.LaunchedEffect(state) {
+            androidx.compose.runtime.snapshotFlow { state.currentPage }.collect { onPageChanged(it) }
+        }
+    }
     val scope = rememberCoroutineScope()
 
     Column(modifier = modifier) {

@@ -10,6 +10,7 @@ import com.axiel7.anihyou.core.model.media.CalendarAiringEvent
 import com.axiel7.anihyou.core.model.media.uniqueAiringEvents
 import com.axiel7.anihyou.core.network.fragment.BasicMediaListEntry
 import com.axiel7.anihyou.core.network.fragment.ExploreMedia
+import com.axiel7.anihyou.feature.calendar.CalendarFocusMemory
 import com.axiel7.anihyou.feature.calendar.MEDIA_BY_IDS_PAGE
 import com.axiel7.anihyou.release.core.api.EmptyReleasePresentationRepository
 import com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler
@@ -48,7 +49,9 @@ class CalendarWeekViewModel(
     private fun localToday(): LocalDate = clock.instant().atZone(ZoneId.systemDefault()).toLocalDate()
 
     override val initialState = localToday().let { today ->
-        CalendarWeekUiState(weekStart = weekStartOf(today), selectedDate = today, today = today)
+        // The day the user looked at stays across a visit elsewhere in the same run; a new run starts on today.
+        val selected = CalendarFocusMemory.weekSelected ?: today
+        CalendarWeekUiState(weekStart = weekStartOf(selected), selectedDate = selected, today = today)
     }
 
     private val displayAdult = defaultPreferencesRepository.displayAdult
@@ -58,6 +61,7 @@ class CalendarWeekViewModel(
     private var loadJob: Job? = null
 
     override fun selectDay(date: LocalDate) {
+        CalendarFocusMemory.weekSelected = date.takeIf { it != localToday() }
         mutableUiState.update { it.copy(selectedDate = date, today = localToday()) }
     }
 
@@ -67,6 +71,8 @@ class CalendarWeekViewModel(
 
     /** The same weekday in another week stays selected, as the strip would show it. */
     private fun showWeekOf(weekStart: LocalDate) {
+        CalendarFocusMemory.weekSelected = weekStart.plusDays(mutableUiState.value.selectedDate.dayOfWeek.value - 1L)
+            .takeIf { it != localToday() }
         mutableUiState.update {
             it.copy(
                 weekStart = weekStart,
@@ -82,6 +88,7 @@ class CalendarWeekViewModel(
     override fun goToToday() {
         val today = localToday()
         val reload = weekStartOf(today) != mutableUiState.value.weekStart
+        CalendarFocusMemory.weekSelected = null
         mutableUiState.update { it.copy(weekStart = weekStartOf(today), selectedDate = today, today = today) }
         if (reload) {
             mutableUiState.update { it.copy(loadedDays = emptySet(), fetchFromNetwork = false) }

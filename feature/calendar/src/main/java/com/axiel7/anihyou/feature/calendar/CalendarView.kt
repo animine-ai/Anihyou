@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,6 +78,9 @@ import com.axiel7.anihyou.feature.calendar.composables.CalendarAiringHorizontalI
 import com.axiel7.anihyou.feature.calendar.composables.CalendarAiringHorizontalItemPlaceholder
 import com.axiel7.anihyou.feature.calendar.composables.CalendarBanner
 import com.axiel7.anihyou.feature.calendar.composables.CalendarBannerPlaceholder
+import com.axiel7.anihyou.feature.calendar.composables.releaseDim
+import com.axiel7.anihyou.feature.calendar.composables.releaseMark
+import com.axiel7.anihyou.feature.calendar.composables.rememberNowInstant
 import com.axiel7.anihyou.feature.calendar.grid.CalendarGridView
 import com.axiel7.anihyou.feature.calendar.week.CalendarWeekView
 import com.axiel7.anihyou.feature.editmedia.EditMediaSheet
@@ -512,6 +516,7 @@ private fun ListView(
 ) {
     val navActionManager = LocalNavActionManager.current
     val blurAdult = LocalBlurAdult.current
+    val now = rememberNowInstant()
 
     listState.OnBottomReached(buffer = 1, debounceDuration = 500.milliseconds) {
         event?.onLoadMore()
@@ -522,17 +527,50 @@ private fun ListView(
     // A scroll to today is clamped while there are not yet enough items behind it to fill the screen (cold start: today's
     // page arrives after yesterday's), so the size of the content is part of the key and the focus is applied again.
     val totalItems = uiState.presentationDays().sumOf { it.rows.size + 1 }
+    var trackAnchor by remember { mutableStateOf(false) }
     LaunchedEffect(uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.todayFirstItemIndex, totalItems) {
         if (uiState.todayAnchorReady && uiState.autoScrollToToday) {
             AppLog.d("calendar") { "focus today: scroll list to item ${uiState.todayFirstItemIndex} (items=$totalItems)" }
             listState.scrollToItem(uiState.todayFirstItemIndex)
             AppLog.d("calendar") { "focus today: list now at item ${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}" }
+            // From now on a return to the calendar in this run keeps the position instead of jumping to today again.
+            CalendarFocusMemory.todayFocused = true
+            trackAnchor = true
         }
+    }
+    // Back on the calendar later in the same run: go to the row the user last looked at, not to today.
+    val days = uiState.presentationDays()
+    LaunchedEffect(totalItems, uiState.todayAnchorReady, uiState.autoScrollToToday, uiState.isLoading) {
+        if (trackAnchor || uiState.autoScrollToToday) return@LaunchedEffect
+        val anchor = CalendarFocusMemory.listAnchor
+        val keys = days.flatMap { day -> listOf("date-${day.date}") + day.rows.map { it.key } }
+        val index = anchor?.let { keys.indexOf(it.key) } ?: -1
+        when {
+            anchor != null && index >= 0 -> {
+                AppLog.d("calendar") { "return: restore row ${anchor.key} at item $index" }
+                listState.scrollToItem(index, anchor.offset)
+                trackAnchor = true
+            }
+            // Nothing remembered (or the row is gone): today is the best place, once the days have arrived.
+            (anchor == null || !uiState.isLoading) && uiState.todayAnchorReady -> {
+                AppLog.d("calendar") { "return: nothing to restore, focus today" }
+                listState.scrollToItem(uiState.todayFirstItemIndex)
+                trackAnchor = true
+            }
+        }
+    }
+    LaunchedEffect(listState, trackAnchor) {
+        if (!trackAnchor) return@LaunchedEffect
+        snapshotFlow {
+            val first = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+            (first?.key as? String)?.let { CalendarFocusMemory.ListAnchor(it, listState.firstVisibleItemScrollOffset) }
+        }.collect { anchor -> if (anchor != null) CalendarFocusMemory.listAnchor = anchor }
     }
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { interaction ->
             if (interaction is DragInteraction.Start) {
                 AppLog.d("calendar") { "user took over the scroll position" }
+                trackAnchor = true
                 event?.onAutoScrolled()
             }
         }
@@ -578,7 +616,9 @@ private fun ListView(
                         }
                     },
                     // The first entry of a day keeps the same gap to the date banner as the entries keep among themselves.
-                    modifier = Modifier.padding(top = if (index == 0) 8.dp else 0.dp, bottom = 8.dp),
+                    modifier = Modifier
+                        .padding(top = if (index == 0) 8.dp else 0.dp, bottom = 8.dp)
+                        .releaseDim(row.releaseMark(now)),
                 )
             }
         }

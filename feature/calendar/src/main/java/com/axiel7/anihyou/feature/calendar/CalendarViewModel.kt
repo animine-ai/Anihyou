@@ -49,6 +49,8 @@ class CalendarViewModel(
     override val initialState = CalendarUiState(
         day = nowLocalDateTime().minusDays(1),
         today = nowLocalDateTime().toLocalDate(),
+        // Today is focused when the app is opened. A screen that comes back later in the same run keeps the user's position.
+        autoScrollToToday = !CalendarFocusMemory.todayFocused,
     )
 
     private fun nowLocalDateTime(): LocalDateTime =
@@ -236,8 +238,12 @@ class CalendarViewModel(
     }
 
     override fun onScreenEntered() {
-        AppLog.i("calendar") { "screen entered: focus today again (anchor ready=${uiState.value.todayAnchorReady}, index=${uiState.value.todayFirstItemIndex})" }
-        mutableUiState.update { if (it.autoScrollToToday) it else it.copy(autoScrollToToday = true) }
+        val focusToday = !CalendarFocusMemory.todayFocused
+        AppLog.i("calendar") {
+            "screen entered: ${if (focusToday) "first visit of this run, focus today" else "keep the position"} " +
+                "(anchor ready=${uiState.value.todayAnchorReady}, index=${uiState.value.todayFirstItemIndex})"
+        }
+        mutableUiState.update { if (focusToday) it.copy(autoScrollToToday = true) else it.copy(autoScrollToToday = false) }
     }
 
     override fun onAutoScrolled() {
