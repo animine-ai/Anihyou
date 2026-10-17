@@ -131,7 +131,9 @@ class ExtensionReleaseFollowUp(
                 identity = SourceIdentity(item.stream, item.installment),
                 evidenceKind = ConfirmationEvidenceKind.RECENT_LIST_EXPLICIT_MARKER,
                 observedAt = now,
-                displayTitle = titleOf(mediaId) ?: sourceSeriesTitle(item),
+                // A failed title lookup must not cost the notification: the series name of the source stands in.
+                displayTitle = (try { titleOf(mediaId) } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { null }) ?: sourceSeriesTitle(item),
             )
             val isNew = outbox.enqueue(candidate)
             AppLog.i("followup") {

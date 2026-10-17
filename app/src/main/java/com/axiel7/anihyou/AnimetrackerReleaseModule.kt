@@ -276,7 +276,7 @@ val animetrackerReleaseModule = module {
             outboxScheduler = get<ReleaseOutboxScheduler>(),
             refreshScheduler = get<com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler>(),
             sourceActive = { get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null },
-            titleOf = { mediaId -> get<com.axiel7.anihyou.core.domain.repository.MediaRepository>().cachedMediaTitle(mediaId) },
+            titleOf = { mediaId -> get<com.axiel7.anihyou.core.domain.repository.MediaRepository>().mediaPreview(mediaId)?.title },
             fetchProgress = { mediaIds -> askAniListForProgress(get(), get(), mediaIds) },
             clock = get<Clock>(),
         )

@@ -22,6 +22,7 @@ import com.axiel7.anihyou.core.network.type.MediaType
 import com.axiel7.anihyou.core.network.type.RecommendationRating
 import com.axiel7.anihyou.core.network.type.RecommendationSort
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 class MediaRepository(
@@ -178,6 +179,24 @@ class MediaRepository(
         api.mediaDetailsQuery(mediaId).fetchPolicy(FetchPolicy.CacheOnly).execute()
             .data?.Media?.title?.userPreferred
     }
+
+    /**
+     * Title and cover of one anime: from the details cache if it holds them, else one small request (the same query the
+     * lists use for several at once). For places that have nothing on screen to take them from, like a notification.
+     */
+    suspend fun mediaPreview(mediaId: Int): MediaPreview? = withContext(Dispatchers.IO) {
+        val cached = api.mediaDetailsQuery(mediaId).fetchPolicy(FetchPolicy.CacheOnly).execute().data?.Media
+        if (cached?.coverImage?.large != null) {
+            return@withContext MediaPreview(cached.title?.userPreferred, cached.coverImage?.large)
+        }
+        val result = getMediaByIdsPage(listOf(mediaId), page = 1, perPage = 1)
+            .first { it !is com.axiel7.anihyou.core.base.PagedResult.Loading }
+        (result as? com.axiel7.anihyou.core.base.PagedResult.Success)?.list?.firstOrNull()?.let { media ->
+            MediaPreview(media.basicMediaDetails.title?.userPreferred, media.coverImage?.large)
+        }
+    }
+
+    data class MediaPreview(val title: String?, val coverUrl: String?)
 
     suspend fun updateMediaDetailsCache(media: MediaDetailsQuery.Media) {
         api.updateMediaDetailsCache(

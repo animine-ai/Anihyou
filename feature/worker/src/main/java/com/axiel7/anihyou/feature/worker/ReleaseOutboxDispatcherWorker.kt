@@ -126,8 +126,9 @@ class ReleaseOutboxDispatcherWorker(
             }
             // The optional image may suspend. Revalidate preferences and release eligibility after it completes.
             val cover = try {
-                withTimeoutOrNull(2_000L) {
-                    mediaRepository.cachedMediaCoverUrl(claimed.mediaId)?.let { url ->
+                // The details are usually not cached for an anime the user never opened: one small request gets the cover.
+                withTimeoutOrNull(COVER_TIMEOUT_MILLIS) {
+                    mediaRepository.mediaPreview(claimed.mediaId)?.coverUrl?.let { url ->
                         applicationContext.getBitmapFromUrl(url)
                     }
                 }
@@ -297,6 +298,7 @@ class ReleaseOutboxDispatcherWorker(
 
     companion object {
         const val WORK_NAME = "release_outbox_dispatcher"
+        private const val COVER_TIMEOUT_MILLIS = 8_000L
         private const val PROVIDER_ID = "aniworld"
         private const val AIRING_CHANNEL_ID = "airing_channel_id"
         private const val PERMISSION_RETRY_SECONDS = 15L * 60L
