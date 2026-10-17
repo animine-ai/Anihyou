@@ -73,6 +73,12 @@ class FileExtensionPostponementStore(
                 // or by the user, never a title guess here) gives the media.
                 val media = mappedAniListId(value.source, notice, mappings) ?: byTitle(value.source, notice)
                 notice.copy(mediaId = media)
+            }.also { notices ->
+                val open = notices.filter { it.mediaId == null }
+                if (open.isNotEmpty()) com.axiel7.anihyou.release.core.log.AppLog.d("presentation") {
+                    "postponements without AniList binding: ${open.size} of ${notices.size}, e.g. " +
+                        open.take(3).joinToString { "'${it.title}' season=${it.navigationSeason ?: it.sourceSeason} kind=${it.installmentKind}" }
+                }
             })
         }
     }
@@ -147,6 +153,12 @@ class FileExtensionPostponementStore(
         val exact = dao.labelsByTitle(source.sourceId, source.extensionId, source.publisherId, source.providerId, folded)
         val labels = exact.ifEmpty {
             dao.labelsSharingTitleStart(source.sourceId, source.extensionId, source.publisherId, source.providerId, folded)
+        }.ifEmpty {
+            // The page of the postponements is typed by hand and has typos ("Ascendance os a Bookworm"): one wrong letter in
+            // one word of a title of three words or more, and only if that names exactly one series.
+            dao.labelsOf(source.sourceId, source.extensionId, source.publisherId, source.providerId, 1000, 0)
+                .filter { TitleTypo.sameButForOneLetter(folded, it.titleNormalized) }
+                .take(2)
         }
         val media = labels.mapNotNull { label ->
             val subject = runCatching {
@@ -307,5 +319,35 @@ class FileExtensionPostponementStore(
         const val MAX_BYTES = 512 * 1024
         const val MAX_NOTICES = 512
         val SHA256 = Regex("[0-9a-f]{64}")
+    }
+}
+
+
+/** Tolerance for a typo in a hand-typed title, never for a different number or name. */
+internal object TitleTypo {
+    /** Same words in the same order, at most one of them off by a single letter, and that word holds no digit. */
+    fun sameButForOneLetter(a: String, b: String): Boolean {
+        val left = a.split(' ').filter { it.isNotEmpty() }
+        val right = b.split(' ').filter { it.isNotEmpty() }
+        if (left.size < 3 || left.size != right.size) return false
+        var different = 0
+        for (i in left.indices) {
+            if (left[i] == right[i]) continue
+            if (left[i].any(Char::isDigit) || right[i].any(Char::isDigit)) return false
+            if (!oneLetterApart(left[i], right[i])) return false
+            different++
+        }
+        return different == 1
+    }
+
+    private fun oneLetterApart(x: String, y: String): Boolean {
+        if (kotlin.math.abs(x.length - y.length) > 1) return false
+        var i = 0
+        while (i < x.length && i < y.length && x[i] == y[i]) i++
+        return when {
+            x.length == y.length -> x.substring(i + 1) == y.substring(i + 1)
+            x.length > y.length -> x.substring(i + 1) == y.substring(i)
+            else -> x.substring(i) == y.substring(i + 1)
+        }
     }
 }
