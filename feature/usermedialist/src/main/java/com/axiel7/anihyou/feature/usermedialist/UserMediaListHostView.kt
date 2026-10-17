@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.feature.usermedialist
 
+import com.axiel7.anihyou.feature.usermedialist.composables.MediaTypeSwitch
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -285,11 +286,25 @@ private fun UserMediaListHostContent(
                         color = headerColor,
                         shadowElevation = headerElevation
                     ) {
-                        FilterBlock(
-                            uiState = uiState,
-                            isSearchFocused = isSearchFocused,
-                            event = event
-                        )
+                        Column {
+                            // Own lists only: the other user's list has no tab to switch to.
+                            if (uiState.isMyList) {
+                                MediaTypeSwitch(
+                                    selected = uiState.mediaType,
+                                    animate = uiState.listAnimations,
+                                    onSelect = { type ->
+                                        if (type != uiState.mediaType) navActionManager.navigate(
+                                            if (type == MediaType.ANIME) Route.AnimeTab else Route.MangaTab
+                                        )
+                                    },
+                                )
+                            }
+                            FilterBlock(
+                                uiState = uiState,
+                                isSearchFocused = isSearchFocused,
+                                event = event
+                            )
+                        }
                     }
                 }
             )
