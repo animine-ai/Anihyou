@@ -24,7 +24,6 @@ class ReleaseNotificationScopeTest {
         val all = ReleaseNotificationScope(mode = NotificationScopeMode.ALL)
         assertTrue(all.allows(1, entry(NotificationListStatus.DROPPED, hidden = true)))
         assertTrue(all.allows(1, null))
-        assertTrue(all.allowsNotOnList)
     }
 
     @Test fun customFollowsTheChosenStatusesAndNotOnList() {

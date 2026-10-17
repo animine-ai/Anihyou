@@ -288,7 +288,8 @@ class ExtensionReleaseFollowUpTest {
             val follow = followUp(database, rowsFor(50, 51), true, mapOf(50 to 4), Recording(),
                 fetch = { ids -> asked += ids; mapOf(50 to ListEntryInfo(4, NotificationListStatus.CURRENT)) })
             follow.run(); follow.run()
-            assertEquals(listOf(setOf(50, 51)), asked)
+            // The list once, then the one candidate again just before it is announced; the second refresh asks for nothing.
+            assertEquals(listOf(setOf(50, 51), setOf(50)), asked)
             assertEquals(listOf(50), due(database).map { it.mediaId })
             val failing = followUp(database, rowsFor(60), true, emptyMap(), Recording(),
                 fetch = { error("offline") })

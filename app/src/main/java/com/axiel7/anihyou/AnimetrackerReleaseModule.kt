@@ -291,10 +291,13 @@ val animetrackerReleaseModule = module {
     single<ReleaseNotificationGate> {
         RoomReleaseNotificationGate(get(), get(), get(),
             extensionSourceActive = { get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null },
-            aniListAiringSuppressedByExtension = {
+            aniListAiringSuppressedByExtension = { accountId, mediaId ->
                 get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null &&
                     get<ReleasePreferencesRepository>().releasePreferences.first().notificationsEnabled &&
-                    !get<com.axiel7.anihyou.release.core.api.ReleaseNotificationScopeRepository>().scope.value.alsoAniListAiring
+                    !get<com.axiel7.anihyou.release.core.api.ReleaseNotificationScopeRepository>().scope.value.alsoAniListAiring &&
+                    // Only where the source carries the anime: otherwise AniList's message is the only one there is.
+                    get<ReleasePresentationRepository>().observeForMedia(accountId, setOf(mediaId)).first()[mediaId]
+                        .orEmpty().any { it.isAuthoritative }
             })
     }
 }

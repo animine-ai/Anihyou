@@ -51,10 +51,6 @@ data class ReleaseNotificationScope(
             else entry.status in statuses && (includeHidden || !entry.hiddenFromStatusLists)
     }
 
-    /** Whether anime that are not on the list can be announced at all. */
-    val allowsNotOnList: Boolean
-        get() = mode == NotificationScopeMode.ALL || mode == NotificationScopeMode.CUSTOM && includeNotOnList
-
     companion object {
         val WATCHING_STATUSES: Set<NotificationListStatus> =
             setOf(NotificationListStatus.CURRENT, NotificationListStatus.REPEATING)

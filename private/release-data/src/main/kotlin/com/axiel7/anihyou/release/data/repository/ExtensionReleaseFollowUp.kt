@@ -55,6 +55,10 @@ class ExtensionReleaseFollowUp(
 ) {
     private val entryCache = java.util.concurrent.ConcurrentHashMap<Int, Pair<ListEntryInfo?, Instant>>()
 
+    /** Episodes already put in the outbox by this process: they need no second look at AniList on every later check. */
+    private val announced: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private fun announcedKey(item: ReleaseUiCalendarItem) = "${item.mediaId}/${item.track}/${item.installment}"
+
     /** Never throws except for cancellation: a follow-up must not change the outcome of the refresh it follows. */
     suspend fun run() {
         try {
@@ -149,12 +153,16 @@ class ExtensionReleaseFollowUp(
             return
         }
         var added = 0
+        // The answers may be minutes old: the user may have watched the episode since. What is about to be announced is
+        // asked for again, so a notification is never decided on stale progress.
+        val fresh = freshEntriesFor(confirmed, entries, chosen, now) ?: return
         for (item in confirmed) {
             val mediaId = checkNotNull(item.mediaId)
             val episode = item.installment as Installment.Episode
             val released = checkNotNull(item.forecastAt)
-            val entry = entries[mediaId]
+            val entry = fresh[mediaId]
             val reason = when {
+                announcedKey(item) in announced -> "already announced"
                 released.isBefore(now.minus(ANNOUNCE_WINDOW)) -> "released more than $ANNOUNCE_WINDOW ago"
                 released.isAfter(now.plus(CLOCK_SKEW)) -> "released in the future"
                 !chosen.allows(mediaId, entry) -> if (chosen.overrides[mediaId] == false) "switched off for this anime"
@@ -178,12 +186,45 @@ class ExtensionReleaseFollowUp(
                     catch (_: Exception) { null }) ?: sourceSeriesTitle(item),
             )
             val isNew = outbox.enqueue(candidate)
+            announced += announcedKey(item)
             AppLog.i("followup") {
                 "notification media=$mediaId episode=${episode.number} track=${item.track} released=$released new=$isNew"
             }
             if (isNew) added++
         }
         if (added > 0) outboxScheduler.schedule()
+    }
+
+    /**
+     * [entries] with the entries of the episodes that would be announced replaced by a fresh answer from AniList; null if
+     * AniList cannot be asked then (nothing is announced). Without candidates nothing is asked.
+     */
+    private suspend fun freshEntriesFor(
+        confirmed: List<ReleaseUiCalendarItem>, entries: Map<Int, ListEntryInfo?>, chosen: ReleaseNotificationScope, now: Instant,
+    ): Map<Int, ListEntryInfo?>? {
+        val candidates = confirmed.filter { item ->
+            val id = item.mediaId ?: return@filter false
+            val released = item.forecastAt ?: return@filter false
+            val episode = item.installment as? Installment.Episode ?: return@filter false
+            val entry = entries[id]
+            announcedKey(item) !in announced && !released.isBefore(now.minus(ANNOUNCE_WINDOW)) && !released.isAfter(now.plus(CLOCK_SKEW)) &&
+                chosen.allows(id, entry) && (entry == null || episode.number > entry.progress)
+        }.mapNotNull { it.mediaId }.toSet()
+        if (candidates.isEmpty()) return entries
+        val asked = try {
+            candidates.chunked(ENTRY_REQUEST_SIZE).fold(emptyMap<Int, ListEntryInfo>()) { all, chunk -> all + fetchEntries(chunk.toSet()) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            AppLog.w("followup", failure) { "asking AniList again before announcing failed" }
+            return null
+        }
+        val merged = HashMap(entries)
+        for (id in candidates) {
+            merged[id] = asked[id]
+            entryCache[id] = asked[id] to now
+        }
+        return merged
     }
 
     private fun planChecks(

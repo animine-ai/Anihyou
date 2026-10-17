@@ -71,8 +71,9 @@ class ExtensionReleaseRefreshWorker(
         if (trigger == ExtensionRefreshTrigger.SCHEDULED_SLOT && evaluation.decision != ExtensionSourceRefreshDecision.RETRY) {
             schedules.recordSlotRun(Instant.now())
         }
-        // Whatever the run found (or did not find) is what the widget should show now; a retry will tell it when it ends.
-        if (evaluation.decision != ExtensionSourceRefreshDecision.RETRY) notifyWidget()
+        // New data is what the widget should show now. A skipped run changed nothing, so it costs the widget no redraw
+        // (and AniList no request); a retry tells the widget when it ends.
+        if (outcome is ShadowRefreshOutcome.Committed) notifyWidget()
         return when (evaluation.decision) {
             ExtensionSourceRefreshDecision.SUCCESS -> Result.success()
             ExtensionSourceRefreshDecision.RETRY -> Result.retry()

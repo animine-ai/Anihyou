@@ -1,6 +1,5 @@
 package com.axiel7.anihyou
 
-import com.axiel7.anihyou.feature.worker.NotificationWorker.Companion.createDefaultNotificationChannels
 import android.app.Application
 import android.os.Build.VERSION.SDK_INT
 import androidx.core.performance.DefaultDevicePerformance
@@ -14,6 +13,7 @@ import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
 import coil3.request.crossfade
+import com.axiel7.anihyou.feature.worker.NotificationWorker.Companion.createDefaultNotificationChannels
 import com.axiel7.anihyou.core.domain.dataStoreModule
 import com.axiel7.anihyou.core.domain.databaseModule
 import com.axiel7.anihyou.core.domain.repositoryModule
