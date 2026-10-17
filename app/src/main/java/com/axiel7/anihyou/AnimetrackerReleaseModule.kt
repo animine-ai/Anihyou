@@ -267,6 +267,9 @@ val animetrackerReleaseModule = module {
     single { RoomReleaseMappingRepository(get(), get()) }
     single<ReleaseMappingRepository> { get<RoomReleaseMappingRepository>() }
     single { RoomNotificationOutboxStore(get(), get()) }
+    single<com.axiel7.anihyou.release.core.api.ReleaseMediaArtStore> {
+        com.axiel7.anihyou.release.data.preferences.SharedPreferencesReleaseMediaArtStore(androidApplication())
+    }
     single<com.axiel7.anihyou.release.core.api.ReleaseNotificationScopeRepository> {
         com.axiel7.anihyou.release.data.preferences.SharedPreferencesNotificationScopeRepository(androidApplication())
     }
@@ -283,6 +286,7 @@ val animetrackerReleaseModule = module {
             fetchEntries = { mediaIds -> askAniListForEntries(get(), get(), mediaIds) },
             scope = { get<com.axiel7.anihyou.release.core.api.ReleaseNotificationScopeRepository>().scope.value },
             learnNumbering = { requests -> get<com.axiel7.anihyou.release.core.api.MatchingManagementRepository>().learnNumbering(requests) },
+            art = get<com.axiel7.anihyou.release.core.api.ReleaseMediaArtStore>(),
             clock = get<Clock>(),
         )
     }
@@ -333,6 +337,8 @@ private suspend fun askAniListForEntries(
             },
             hiddenFromStatusLists = basic.hiddenFromStatusLists == true,
             numbering = numberingRequest(entry),
+            title = entry.media?.basicMediaDetails?.title?.userPreferred?.takeIf { it.isNotBlank() },
+            coverUrl = entry.media?.coverImage?.large?.takeIf { it.isNotBlank() },
         )
     }.toMap()
 }

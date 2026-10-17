@@ -484,6 +484,7 @@ class SourceSeriesMatchingService(
         // The database is asked once per series for the whole run (fence, binding, label, epoch, local candidates). The
         // rounds below only compare titles in memory: a round per calendar day and per season used to ask again each time.
         val runStart = System.nanoTime()
+        val failuresBefore = candidates.lookupFailures
         fun since(start: Long) = (System.nanoTime() - start) / 1_000_000
         val permits = Semaphore(PREPARE_PARALLEL)
         var left: List<Prepared> = coroutineScope {
@@ -585,7 +586,12 @@ class SourceSeriesMatchingService(
             else stillOpen += series
         }
         left = stillOpen
-        left.forEach { lastTried["${MappingEntryIds.sourceKey(active)}|${it.slug}|${it.season}"] = now }
+        // A series that was not found while AniList refused some of the reads was not really looked for: it is not marked as
+        // tried, so the next run (the next refresh) asks again instead of leaving it for hours.
+        val unreadable = candidates.lookupFailures - failuresBefore
+        if (unreadable > 0) AppLog.w("matching") {
+            "auto match: $unreadable AniList read(s) failed, the ${left.size} open series are tried again at the next run"
+        } else left.forEach { lastTried["${MappingEntryIds.sourceKey(active)}|${it.slug}|${it.season}"] = now }
         // Why a series stays open: its title and the nearest entries of everything that was looked at. The nearest one is
         // offered to the user (never written by itself), and a series that is matched now loses an older offer.
         val everything = pool.all

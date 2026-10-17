@@ -122,6 +122,12 @@ interface IdentityCandidateSource {
     suspend fun airingCandidates(day: java.time.LocalDate): List<IdentityCandidate> = emptyList()
 
     /**
+     * How many AniList reads failed so far (a rate limit, no connection). A matcher run that saw this number grow knows its
+     * pools were incomplete, so a series that stays open then was not really looked for and is tried again at the next run.
+     */
+    val lookupFailures: Int get() = 0
+
+    /**
      * The entries of the user's own AniList list, with every title: what the user watches or plans is the likeliest match
      * of a series of the source, whatever season it started in. An entry that is releasing now is dated today, so the
      * season rule takes it as the airing continuation (a long-running show keeps its first season's start date at AniList).

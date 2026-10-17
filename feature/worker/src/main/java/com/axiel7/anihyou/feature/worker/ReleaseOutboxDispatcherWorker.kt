@@ -25,6 +25,7 @@ import com.axiel7.anihyou.core.resources.R
 import com.axiel7.anihyou.core.ui.utils.NotificationUtils.showNotification
 import com.axiel7.anihyou.release.core.api.ReleaseDeliveryState
 import com.axiel7.anihyou.release.core.api.ReleaseGermanTrack
+import com.axiel7.anihyou.release.core.api.ReleaseMediaArtStore
 import com.axiel7.anihyou.release.core.api.ReleaseNotificationGate
 import com.axiel7.anihyou.release.core.api.ReleaseDeliveryDecision
 import com.axiel7.anihyou.release.core.api.ReleaseOutboxRepository
@@ -49,6 +50,7 @@ class ReleaseOutboxDispatcherWorker(
     private val clock: Clock,
     private val mediaRepository: MediaRepository,
     private val productPolicy: ExtensionProductPolicyRepository,
+    private val mediaArt: ReleaseMediaArtStore,
 ) : CoroutineWorker(context, params) {
 
     /** The user chose a data source in the extension center, or switched the old provider lane on. Either owns release delivery. */
@@ -125,15 +127,7 @@ class ReleaseOutboxDispatcherWorker(
                 return@forEach
             }
             // The optional image may suspend. Revalidate preferences and release eligibility after it completes.
-            val cover = try {
-                // The details are usually not cached for an anime the user never opened: one small request gets the cover.
-                withTimeoutOrNull(COVER_TIMEOUT_MILLIS) {
-                    mediaRepository.mediaPreview(claimed.mediaId)?.coverUrl?.let { url ->
-                        applicationContext.getBitmapFromUrl(url)
-                    }
-                }
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { null }
+            val cover = loadCover(claimed.mediaId)
 
             val currentPreferences = releasePreferencesRepository.releasePreferences.first()
             if (!releaseDeliveryActive(currentPreferences.selectedProvider) ||
@@ -267,6 +261,34 @@ class ReleaseOutboxDispatcherWorker(
             }
         }
         return if (retryNeeded) Result.retry() else Result.success()
+    }
+
+    /**
+     * The cover of the anime, or null: the notification is worth more than its picture. The address was kept when the
+     * notification was decided (it came with the same answer that decided it); only if it is not known is it asked for,
+     * which is the request AniList's rate limit used to refuse. The picture itself comes from the image server.
+     */
+    private suspend fun loadCover(mediaId: Int): android.graphics.Bitmap? {
+        val started = clock.millis()
+        var origin = "kept"
+        val bitmap = try {
+            withTimeoutOrNull(COVER_TIMEOUT_MILLIS) {
+                val url = mediaArt.coverUrl(mediaId) ?: run {
+                    origin = "asked"
+                    mediaRepository.mediaPreview(mediaId)?.coverUrl?.also { mediaArt.remember(mediaId, it) }
+                }
+                if (url == null) null else applicationContext.getBitmapFromUrl(url)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            AppLog.w("notification", error) { "cover media=$mediaId failed" }
+            null
+        }
+        AppLog.i("notification") {
+            "cover media=$mediaId address=$origin picture=${if (bitmap != null) "loaded" else "none"} in ${clock.millis() - started} ms"
+        }
+        return bitmap
     }
 
     /** A tap opens the media's details, the same target the AniList airing notification uses. */

@@ -159,6 +159,52 @@ class FileExtensionPostponementStoreTest {
         assertNull(store.presentation.first().notices.single().mediaId)
     }
 
+    private suspend fun bindSeason(slug: String, season: Int, media: Int) {
+        val e = ExternalMapping(AniWorldMappingSubject.Season(AniWorldSiteIdentifier(slug), season), ExternalProvider.ANILIST,
+            media.toString(), MappingSource.PERSISTED, MappingConfidence.EXACT, now, now, MappingStatus.ACTIVE).toEntity()
+        database.matchingDao().upsertSourceMapping(SourceMappingEntity(key.sourceId, key.extensionId, key.publisherId,
+            key.providerId, e.mappingSubjectKey, e.externalProvider, e.seriesStableKey, e.siteSlug, e.subjectType,
+            e.navigationSeason, e.filmNumber, e.externalId, e.mappingSource, e.mappingStatus, e.confidence, e.createdAt,
+            e.validatedAt, e.staleAt, e.provenance, e.parserVersion, 1L, now.toString()))
+    }
+
+    private suspend fun listSeries(slug: String, title: String, aliases: List<String> = emptyList()) {
+        val fold = com.axiel7.anihyou.release.core.matching.SearchTitleFolding::fold
+        database.matchingDao().upsertLabel(SourceSeriesLabelEntity(key.sourceId, key.extensionId, key.publisherId,
+            key.providerId, slug, title, fold(title), aliases.joinToString("\n") { fold(it) }, now.toString(), now.toString()))
+    }
+
+    private suspend fun mediaOfNotice(title: String, season: Int): Int? {
+        val store = FileExtensionPostponementStore(temporary.newFolder(), database)
+        store.record(key, 1, "a".repeat(64), 1, now, listOf(observation().copy(
+            providerSeriesKey = null, rawTitle = title, sourceSeason = season, navigationSeason = season)))
+        return store.presentation.first().notices.single().mediaId
+    }
+
+    /** The page is typed by hand: "Ascendance os a Bookworm", and the season it names is not the one the calendar bound. */
+    @Test fun aTypoInTheTitleAndASeasonNextToTheBoundOneStillFindTheMedia() = runBlocking {
+        listSeries("ascendance-of-a-bookworm", "Ascendance of a Bookworm", listOf("Honzuki no Gekokujou"))
+        bindSeason("ascendance-of-a-bookworm", 3, 171110)
+        assertEquals("the season the notice names is the one bound", 171110, mediaOfNotice("Ascendance os a Bookworm", 3))
+        assertEquals("a season next to the only bound one stands in for it", 171110, mediaOfNotice("Ascendance os a Bookworm", 4))
+        assertNull("a season further away does not", mediaOfNotice("Ascendance os a Bookworm", 6))
+    }
+
+    @Test fun anotherNameOfTheSeriesFindsItToo() = runBlocking {
+        listSeries("ascendance-of-a-bookworm", "Ascendance of a Bookworm", listOf("Honzuki no Gekokujou"))
+        bindSeason("ascendance-of-a-bookworm", 3, 171110)
+        assertEquals(171110, mediaOfNotice("Honzuki no Gekokujou", 3))
+        assertEquals(171110, mediaOfNotice("Bookworm Ascendance", 3))
+    }
+
+    @Test fun twoBoundSeasonsNextToTheNamedOneAreAmbiguousAndGiveNoLink() = runBlocking {
+        listSeries("long-runner", "Long Runner Chronicles")
+        bindSeason("long-runner", 3, 31)
+        bindSeason("long-runner", 5, 51)
+        assertNull(mediaOfNotice("Long Runner Chronicles", 4))
+        assertEquals(51, mediaOfNotice("Long Runner Chronicles", 5))
+    }
+
     private fun mapping() = ExternalMapping(
         AniWorldMappingSubject.Season(AniWorldSiteIdentifier("example-series"), 2),
         ExternalProvider.ANILIST, "7", MappingSource.MANUAL, MappingConfidence.EXACT,

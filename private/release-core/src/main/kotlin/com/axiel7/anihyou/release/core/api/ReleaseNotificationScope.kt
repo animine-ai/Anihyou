@@ -23,6 +23,9 @@ data class ListEntryInfo(
     val hiddenFromStatusLists: Boolean = false,
     /** Titles, format and episode count of the anime as AniList gave them with the entry: what numbering needs. */
     val numbering: DetailMappingRequest? = null,
+    /** The title and the cover of the anime as the same answer carried them: what a notification shows, without a request of its own. */
+    val title: String? = null,
+    val coverUrl: String? = null,
 )
 
 /**

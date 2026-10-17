@@ -37,6 +37,10 @@ class AniListIdentityCandidateSource(
     private val library: AniListLibraryCandidateLoader? = null,
 ) : IdentityCandidateSource {
 
+    private val failures = java.util.concurrent.atomic.AtomicInteger()
+
+    override val lookupFailures: Int get() = failures.get() + (library?.failures ?: 0)
+
     override suspend fun libraryCandidates(): List<IdentityCandidate> = library?.load().orEmpty()
 
     override suspend fun airingCandidates(day: LocalDate): List<IdentityCandidate> {
@@ -91,13 +95,17 @@ class AniListIdentityCandidateSource(
     /** Failed requests are not empty successful pools; retain the reason and always propagate cancellation. */
     private suspend fun <T> lookup(stage: String, block: suspend () -> PagedResult<T>): PagedResult<T>? = try {
         block().also { result ->
-            if (result is PagedResult.Error) AppLog.w("matching") {
-                "AniList candidates unavailable $stage reason=${result.message.take(200).replace('\n', ' ')}"
+            if (result is PagedResult.Error) {
+                failures.incrementAndGet()
+                AppLog.w("matching") {
+                    "AniList candidates unavailable $stage reason=${result.message.take(200).replace('\n', ' ')}"
+                }
             }
         }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failure: Exception) {
+        failures.incrementAndGet()
         AppLog.w("matching", failure) { "AniList candidate request failed $stage" }
         null
     }

@@ -51,6 +51,8 @@ class ExtensionReleaseFollowUp(
     private val scope: () -> ReleaseNotificationScope = { ReleaseNotificationScope() },
     /** Hands titles and episode counts of the followed anime to the numbering, so Behind can be decided by the source. */
     private val learnNumbering: suspend (List<com.axiel7.anihyou.release.core.api.DetailMappingRequest>) -> Unit = {},
+    /** Keeps the cover of what is announced, so posting the notification needs no request to AniList of its own. */
+    private val art: com.axiel7.anihyou.release.core.api.ReleaseMediaArtStore = com.axiel7.anihyou.release.core.api.NoopReleaseMediaArtStore,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val entryCache = java.util.concurrent.ConcurrentHashMap<Int, Pair<ListEntryInfo?, Instant>>()
@@ -58,6 +60,9 @@ class ExtensionReleaseFollowUp(
     /** Episodes already put in the outbox by this process: they need no second look at AniList on every later check. */
     private val announced: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     private fun announcedKey(item: ReleaseUiCalendarItem) = "${item.mediaId}/${item.track}/${item.installment}"
+
+    /** Runs in a row that could not read the AniList list while an episode waited to be announced; see [retryReadingList]. */
+    private val listReadFailures = java.util.concurrent.atomic.AtomicInteger()
 
     /** Never throws except for cancellation: a follow-up must not change the outcome of the refresh it follows. */
     suspend fun run() {
@@ -148,14 +153,15 @@ class ExtensionReleaseFollowUp(
         chosen: ReleaseNotificationScope, now: Instant,
     ) {
         if (entries == null) {
-            // Without AniList's answer nothing is announced, never a guess; the next check asks again.
-            if (confirmed.isNotEmpty()) AppLog.w("followup") { "no notification: the AniList list could not be read, tried again at the next check" }
+            // Without AniList's answer nothing is announced, never a guess.
+            if (confirmed.isNotEmpty()) retryReadingList(confirmed, now)
             return
         }
+        listReadFailures.set(0)
         var added = 0
         // The answers may be minutes old: the user may have watched the episode since. What is about to be announced is
         // asked for again, so a notification is never decided on stale progress.
-        val fresh = freshEntriesFor(confirmed, entries, chosen, now) ?: return
+        val fresh = freshEntriesFor(confirmed, entries, chosen, now) ?: run { retryReadingList(confirmed, now); return }
         for (item in confirmed) {
             val mediaId = checkNotNull(item.mediaId)
             val episode = item.installment as Installment.Episode
@@ -182,9 +188,11 @@ class ExtensionReleaseFollowUp(
                 evidenceKind = ConfirmationEvidenceKind.RECENT_LIST_EXPLICIT_MARKER,
                 observedAt = now,
                 // A failed title lookup must not cost the notification: the series name of the source stands in.
-                displayTitle = (try { titleOf(mediaId) } catch (cancelled: CancellationException) { throw cancelled }
+                // The title that came with the list entry costs no request; the lookup and the source's name are the fallbacks.
+                displayTitle = entry?.title ?: (try { titleOf(mediaId) } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { null }) ?: sourceSeriesTitle(item),
             )
+            entry?.coverUrl?.let { art.remember(mediaId, it) }
             val isNew = outbox.enqueue(candidate)
             announced += announcedKey(item)
             AppLog.i("followup") {
@@ -193,6 +201,27 @@ class ExtensionReleaseFollowUp(
             if (isNew) added++
         }
         if (added > 0) outboxScheduler.schedule()
+    }
+
+    /**
+     * AniList's list could not be read (its rate limit, a bad connection), so what is released cannot be weighed against what
+     * the user has watched. The next refresh may be an hour away, so the check comes again in a few minutes, a bounded number
+     * of times in a row.
+     */
+    private fun retryReadingList(confirmed: List<ReleaseUiCalendarItem>, now: Instant) {
+        val waiting = confirmed.count { item ->
+            val released = item.forecastAt ?: return@count false
+            announcedKey(item) !in announced && !released.isBefore(now.minus(ANNOUNCE_WINDOW)) && !released.isAfter(now.plus(CLOCK_SKEW))
+        }
+        if (waiting == 0) return
+        val failures = listReadFailures.incrementAndGet()
+        if (failures > LIST_READ_RETRIES) {
+            AppLog.w("followup") { "no notification: the AniList list could not be read $failures times in a row, left to the next refresh" }
+            return
+        }
+        val at = now.plus(LIST_READ_RETRY_DELAY.multipliedBy(failures.toLong()))
+        AppLog.w("followup") { "no notification: the AniList list could not be read for $waiting episode(s), tried again at $at (try $failures of $LIST_READ_RETRIES)" }
+        refreshScheduler.scheduleDueReleases(listOf(at))
     }
 
     /**
@@ -261,6 +290,9 @@ class ExtensionReleaseFollowUp(
         /** AniList's answer about a list entry is reused this long; the checks after a planned time come within minutes. */
         val ENTRY_TTL: Duration = Duration.ofMinutes(10)
         const val ENTRY_REQUEST_SIZE = 50
+        /** A list that could not be read is asked for again after this, then after twice and three times as long. */
+        val LIST_READ_RETRY_DELAY: Duration = Duration.ofMinutes(2)
+        const val LIST_READ_RETRIES = 3
         /** Days either side of today whose anime teach the numbering; notifications use two. */
         const val NUMBERING_DAYS = 10L
     }

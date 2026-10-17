@@ -17,18 +17,22 @@ import org.koin.dsl.module
 val networkModule = module {
     single { NetworkVariables() }
     single { provideAuthorizationInterceptor(get()) }
-    single { provideApolloClient(get()) }
+    single { AniListRateLimit() }
+    single { provideApolloClient(get(), get()) }
     single { provideOkHttpClient() }
 }
 
 private fun provideApolloClient(
-    authorizationInterceptor: AuthorizationInterceptor
+    authorizationInterceptor: AuthorizationInterceptor,
+    rateLimit: AniListRateLimit,
 ): ApolloClient {
     val cacheFactory = MemoryCacheFactory(maxSizeBytes = 10 * 1024 * 1024)
 
     val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(RefererInterceptor())
         .addInterceptor(authorizationInterceptor)
+        // Last: it sees the answers as they come from AniList and may send a request again.
+        .addInterceptor(AniListRateLimitInterceptor(rateLimit))
         .build()
 
     return ApolloClient.Builder()

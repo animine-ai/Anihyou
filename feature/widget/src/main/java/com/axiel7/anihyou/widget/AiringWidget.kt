@@ -539,12 +539,17 @@ private fun Long.sourceTimeString(): String =
     DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
         .format(Instant.ofEpochSecond(this).atZone(ANI_WORLD_SOURCE_ZONE))
 
-private fun stableWidgetId(eventKey: String): Long {
+/**
+ * The item id of a row. Glance reserves the ids below Long.MIN_VALUE / 2 and throws for them, and a 64-bit hash lands there
+ * about a quarter of the time: the widget did not draw at all then. Shifted into 1..2^62 the id is always allowed, and 0
+ * stays the header's.
+ */
+internal fun stableWidgetId(eventKey: String): Long {
     var hash = 1_125_899_906_842_597L
     eventKey.forEach { character ->
         hash = hash * 31L + character.code
     }
-    return hash.takeIf { it != 0L } ?: 1L
+    return (hash ushr 2) + 1L
 }
 
 /** The original wording of the widget ("Ep 3 airing at 14:30") with the data of the release source. */

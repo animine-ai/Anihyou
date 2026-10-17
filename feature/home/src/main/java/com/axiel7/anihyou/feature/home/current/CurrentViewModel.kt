@@ -170,7 +170,8 @@ class CurrentViewModel(
                 if (source == null || (anilist > 0) != (source > 0)) {
                     AppLog.i("current") {
                         "source decides media=${entry.mediaId} progress=$progress anilistBehind=$anilist sourcePending=$source " +
-                            "confirmedThrough=${release.confirmedThroughEpisode} -> ${if (source == null) "unknown: AniList fallback=$anilist" else if (source > 0) "behind" else "not behind"}"
+                            "confirmedThrough=${release.confirmedThroughEpisode} confirmedRows=${release.confirmedInstallments.size} " +
+                            "authority=${release.authority} next=${release.nextExpectedInstallment} -> ${if (source == null) "unknown: AniList fallback=$anilist" else if (source > 0) "behind" else "not behind"}"
                     }
                 }
             } else if (anilist > 0) {

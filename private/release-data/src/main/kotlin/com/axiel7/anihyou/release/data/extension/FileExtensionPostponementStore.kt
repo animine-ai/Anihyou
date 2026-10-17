@@ -71,7 +71,7 @@ class FileExtensionPostponementStore(
                 // The notices of the real page carry only a title and coordinates, no series key. The title of a series the
                 // source listed elsewhere (calendar, recent) names it, and the binding of that series (made by the matcher
                 // or by the user, never a title guess here) gives the media.
-                val media = mappedAniListId(value.source, notice, mappings) ?: byTitle(value.source, notice)
+                val media = mappedAniListId(value.source, notice, mappings) ?: byTitle(value.source, notice, mappings)
                 notice.copy(mediaId = media)
             }.also { notices ->
                 val open = notices.filter { it.mediaId == null }
@@ -141,38 +141,45 @@ class FileExtensionPostponementStore(
         }
     }
 
-    private suspend fun byTitle(source: ExtensionSelectionKey?, notice: ExtensionPostponementNotice): Int? {
+    /**
+     * The media of a notice that names its series only by a title. The page of the postponements is typed by hand, so the
+     * title is compared with every name the source knows for each of its series ([PostponementTitles]); the binding of
+     * that series (made by the matcher or by the user, never a title guess here) gives the media. The binding of exactly
+     * the notice's season wins. The page may count a season differently from the calendar, though (a split cour, a recap
+     * season): the one bound season next to it then stands in for it.
+     */
+    private suspend fun byTitle(
+        source: ExtensionSelectionKey?, notice: ExtensionPostponementNotice, mappings: List<ExternalMappingEntity>,
+    ): Int? {
         if (source?.providerId != "aniworld" || notice.providerSeriesKey != null) return null
         if (notice.installmentKind != ObservationInstallmentKind.EPISODE) return null
         val season = notice.navigationSeason ?: notice.sourceSeason ?: return null
-        val dao = database.matchingDao()
         val folded = com.axiel7.anihyou.release.core.matching.SearchTitleFolding.fold(notice.title)
         if (folded.isEmpty()) return null
-        // The same title first. The page of the postponements often gives a short name ("Re:Zero") where the series has a
-        // longer one: then the series that share the beginning of the title and have a binding for exactly this season.
-        val exact = dao.labelsByTitle(source.sourceId, source.extensionId, source.publisherId, source.providerId, folded)
-        val labels = exact.ifEmpty {
-            dao.labelsSharingTitleStart(source.sourceId, source.extensionId, source.publisherId, source.providerId, folded)
-        }.ifEmpty {
-            // The page of the postponements is typed by hand and has typos ("Ascendance os a Bookworm"): one wrong letter in
-            // one word of a title of three words or more, and only if that names exactly one series.
-            dao.labelsOf(source.sourceId, source.extensionId, source.publisherId, source.providerId, 1000, 0)
-                .filter { TitleTypo.sameButForOneLetter(folded, it.titleNormalized) }
-                .take(2)
+        val labels = database.matchingDao()
+            .labelsOf(source.sourceId, source.extensionId, source.publisherId, source.providerId, MAX_LABELS, 0)
+        val keys = PostponementTitles.resolve(folded, labels.map { label ->
+            NamedSeries(label.providerSeriesKey, listOf(label.titleNormalized) + label.aliasesPayload.lines().filter { it.isNotBlank() })
+        })
+        val bound = keys.associateWith { key ->
+            mappings.filter { it.siteSlug == key && isAcceptedSeason(it) }.associateBy({ it.navigationSeason!! }, { it.externalId!!.toInt() })
         }
-        val media = labels.mapNotNull { label ->
-            val subject = runCatching {
-                AniWorldMappingSubject.Season(AniWorldSiteIdentifier(label.providerSeriesKey), season)
-            }.getOrNull() ?: return@mapNotNull null
-            val row = dao.sourceMapping(source.sourceId, source.extensionId, source.publisherId, source.providerId,
-                subject.stableKey, "anilist") ?: return@mapNotNull null
-            if (row.mappingStatus != "ACTIVE" || row.confidence !in setOf("EXACT", "HIGH") ||
-                row.validatedAt == null || row.staleAt != null) return@mapNotNull null
-            row.externalId?.toIntOrNull()?.takeIf { it > 0 }
-        }.distinct()
+        val exact = bound.values.mapNotNull { it[season] }.distinct()
+        if (exact.isNotEmpty()) return exact.singleOrNull()
         // Two different entries are ambiguous: no link is better than a wrong one.
-        return media.singleOrNull()
+        val near = bound.values.mapNotNull { seasons ->
+            seasons.entries.filter { kotlin.math.abs(it.key - season) <= 1 }.singleOrNull()?.value
+        }.distinct()
+        if (near.size == 1) com.axiel7.anihyou.release.core.log.AppLog.i("presentation") {
+            "postponement '${notice.title}' season=$season: the series has no binding for it, the bound season next to it stands in (media ${near.single()})"
+        }
+        return near.singleOrNull()
     }
+
+    private fun isAcceptedSeason(row: ExternalMappingEntity): Boolean =
+        row.externalProvider == "anilist" && row.subjectType == "SEASON" && row.navigationSeason != null &&
+            row.mappingStatus == "ACTIVE" && row.confidence in setOf("EXACT", "HIGH") && row.validatedAt != null &&
+            row.staleAt == null && row.externalId?.toIntOrNull()?.let { it > 0 } == true
 
     private fun mappedAniListId(
         source: ExtensionSelectionKey?,
@@ -318,36 +325,7 @@ class FileExtensionPostponementStore(
         const val FILE_NAME = "postponements-v1.json"
         const val MAX_BYTES = 512 * 1024
         const val MAX_NOTICES = 512
+        const val MAX_LABELS = 2000
         val SHA256 = Regex("[0-9a-f]{64}")
-    }
-}
-
-
-/** Tolerance for a typo in a hand-typed title, never for a different number or name. */
-internal object TitleTypo {
-    /** Same words in the same order, at most one of them off by a single letter, and that word holds no digit. */
-    fun sameButForOneLetter(a: String, b: String): Boolean {
-        val left = a.split(' ').filter { it.isNotEmpty() }
-        val right = b.split(' ').filter { it.isNotEmpty() }
-        if (left.size < 3 || left.size != right.size) return false
-        var different = 0
-        for (i in left.indices) {
-            if (left[i] == right[i]) continue
-            if (left[i].any(Char::isDigit) || right[i].any(Char::isDigit)) return false
-            if (!oneLetterApart(left[i], right[i])) return false
-            different++
-        }
-        return different == 1
-    }
-
-    private fun oneLetterApart(x: String, y: String): Boolean {
-        if (kotlin.math.abs(x.length - y.length) > 1) return false
-        var i = 0
-        while (i < x.length && i < y.length && x[i] == y[i]) i++
-        return when {
-            x.length == y.length -> x.substring(i + 1) == y.substring(i + 1)
-            x.length > y.length -> x.substring(i + 1) == y.substring(i)
-            else -> x.substring(i) == y.substring(i + 1)
-        }
     }
 }

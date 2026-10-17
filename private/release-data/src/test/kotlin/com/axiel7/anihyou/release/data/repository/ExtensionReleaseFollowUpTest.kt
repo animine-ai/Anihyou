@@ -103,6 +103,7 @@ class ExtensionReleaseFollowUpTest {
         entries: Map<Int, ListEntryInfo> = progress.mapValues { ListEntryInfo(it.value, NotificationListStatus.CURRENT) },
         fetch: suspend (Set<Int>) -> Map<Int, ListEntryInfo> = { ids -> entries.filterKeys { it in ids } },
         learn: suspend (List<DetailMappingRequest>) -> Unit = {},
+        art: com.axiel7.anihyou.release.core.api.ReleaseMediaArtStore = com.axiel7.anihyou.release.core.api.NoopReleaseMediaArtStore,
     ) = ExtensionReleaseFollowUp(
         presentation = Presentation(rows),
         preferences = Prefs(enabled, track),
@@ -117,6 +118,7 @@ class ExtensionReleaseFollowUpTest {
         fetchEntries = fetch,
         scope = { scope },
         learnNumbering = learn,
+        art = art,
         clock = clock,
     )
 
@@ -295,6 +297,51 @@ class ExtensionReleaseFollowUpTest {
                 fetch = { error("offline") })
             failing.run()
             assertEquals(listOf(50), due(database).map { it.mediaId })
+        } finally { database.close() }
+    }
+
+    @Test fun aListThatCannotBeReadIsAskedForAgainSoonAndNotMoreOftenThanThreeTimesInARow() = runBlocking {
+        val database = openDatabase()
+        try {
+            val recording = Recording()
+            val rows = listOf(item(42, 5, now.minus(Duration.ofMinutes(20)), confirmed = true))
+            val follow = followUp(database, rows, true, emptyMap(), recording, fetch = { error("429") })
+            follow.run()
+            assertEquals(listOf(now.plus(Duration.ofMinutes(2))), recording.dueChecks)
+            follow.run()
+            assertEquals(listOf(now.plus(Duration.ofMinutes(4))), recording.dueChecks)
+            follow.run()
+            assertEquals(listOf(now.plus(Duration.ofMinutes(6))), recording.dueChecks)
+            follow.run()
+            // The fourth failure leaves it to the next refresh instead of asking forever.
+            assertEquals(listOf(now.plus(Duration.ofMinutes(6))), recording.dueChecks)
+            assertTrue(due(database).isEmpty())
+        } finally { database.close() }
+    }
+
+    @Test fun aListThatCannotBeReadCostsNoRetryWhereNothingWaitsToBeAnnounced() = runBlocking {
+        val database = openDatabase()
+        try {
+            val recording = Recording()
+            val rows = listOf(item(42, 5, now.minus(Duration.ofHours(30)), confirmed = true))
+            followUp(database, rows, true, emptyMap(), recording, fetch = { error("429") }).run()
+            assertTrue(recording.dueChecks.isEmpty())
+        } finally { database.close() }
+    }
+
+    @Test fun theTitleOfTheListEntryIsTheNotificationsTitleAndItsCoverIsKeptForPostingIt() = runBlocking {
+        val database = openDatabase()
+        try {
+            val kept = mutableMapOf<Int, String>()
+            val art = object : com.axiel7.anihyou.release.core.api.ReleaseMediaArtStore {
+                override fun remember(mediaId: Int, coverUrl: String) { kept[mediaId] = coverUrl }
+                override fun coverUrl(mediaId: Int): String? = kept[mediaId]
+            }
+            val entries = mapOf(42 to ListEntryInfo(4, NotificationListStatus.CURRENT, title = "Entry Title", coverUrl = "https://img/42.jpg"))
+            val rows = listOf(item(42, 5, now.minus(Duration.ofMinutes(20)), confirmed = true))
+            followUp(database, rows, true, emptyMap(), Recording(), entries = entries, art = art).run()
+            assertEquals("Entry Title", due(database).single().displayTitle)
+            assertEquals(mapOf(42 to "https://img/42.jpg"), kept)
         } finally { database.close() }
     }
 

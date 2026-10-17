@@ -27,7 +27,7 @@ jobs:
       matrix:
         include:
           - check: Installer and repository tests
-            tasks: ':private:release-core:test :private:release-data:testDebugUnitTest'
+            tasks: ':private:release-core:test :private:release-data:testDebugUnitTest :core:network:test'
           - check: Foss and settings compile
             tasks: ':app:compileFossDebugKotlin :app:compileFossDebugAndroidTestKotlin :feature:settings:testDebugUnitTest :feature:worker:testDebugUnitTest :feature:calendar:testDebugUnitTest :feature:widget:testDebugUnitTest :feature:mediadetails:testDebugUnitTest :feature:explore:testDebugUnitTest :feature:home:testDebugUnitTest :feature:usermedialist:testDebugUnitTest :core:ui:testDebugUnitTest'
     steps:

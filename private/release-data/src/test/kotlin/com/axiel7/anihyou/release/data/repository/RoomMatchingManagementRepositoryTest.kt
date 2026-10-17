@@ -136,6 +136,10 @@ class RoomMatchingManagementRepositoryTest {
         val dayRequests = mutableListOf<java.time.LocalDate>()
         /** The entries of the user's own AniList list. */
         var library: List<IdentityCandidate> = emptyList()
+        /** While set, every pool read counts as a read AniList refused (its rate limit). */
+        var refusing = false
+        private var refused = 0
+        override val lookupFailures: Int get() = refused
         override suspend fun libraryCandidates(): List<IdentityCandidate> = library
         override suspend fun airingCandidates(day: java.time.LocalDate): List<IdentityCandidate> {
             dayRequests += day
@@ -143,6 +147,7 @@ class RoomMatchingManagementRepositoryTest {
         }
         override suspend fun boundedSeasonPool(request: com.axiel7.anihyou.release.core.sync.CandidatePoolRequest): CandidateBatch {
             poolRequests += request.window.cacheKey
+            if (refusing) { refused++; return CandidateBatch(emptyList(), false) }
             return CandidateBatch(pools[request.window.cacheKey].orEmpty(), true)
         }
         override suspend fun localCandidates(keys: Set<SourceIdentity>): CandidateBatch {
@@ -863,6 +868,19 @@ class RoomMatchingManagementRepositoryTest {
         assertNull("nothing shares a word with this one, so nothing is offered", list.getValue("tomb").suggestion)
         assertNull(rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
             subject("suikoden", 1).stableKey, "anilist"))
+    }
+
+    @Test fun aSeriesNotFoundWhileAniListRefusedReadsIsAskedForAgainAtTheNextRunAndOtherwiseWaits() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("suikoden", "Suikoden", 1))
+        rig.candidates.refusing = true
+        assertEquals(1, rig.service.autoMatchPending().examined)
+        val asked = rig.candidates.poolRequests.size
+        assertEquals("the series was not really looked for, so the next run takes it again", 1, rig.service.autoMatchPending().examined)
+        assertTrue(rig.candidates.poolRequests.size > asked)
+        rig.candidates.refusing = false
+        assertEquals(1, rig.service.autoMatchPending().examined)
+        assertEquals("looked for and not found: it waits for the hours it is given", 0, rig.service.autoMatchPending().examined)
     }
 
     @Test fun autoMatchRunsOneAtATime() = runBlocking {

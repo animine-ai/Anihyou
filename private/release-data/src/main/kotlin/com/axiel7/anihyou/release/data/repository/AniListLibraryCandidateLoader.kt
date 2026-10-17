@@ -26,6 +26,10 @@ class AniListLibraryCandidateLoader(
     private val clock: Clock = Clock.systemUTC(),
 ) {
     @Volatile private var kept: Pair<Instant, List<IdentityCandidate>>? = null
+    private val unfinished = java.util.concurrent.atomic.AtomicInteger()
+
+    /** How often the list could not be read to its end; see [com.axiel7.anihyou.release.core.api.IdentityCandidateSource.lookupFailures]. */
+    val failures: Int get() = unfinished.get()
 
     suspend fun load(): List<IdentityCandidate> {
         val now = clock.instant()
@@ -70,7 +74,7 @@ class AniListLibraryCandidateLoader(
         }
         val found = byMedia.values.toList()
         // A list that could not be read to its end is not kept, so the next run asks again.
-        if (complete) kept = now to found
+        if (complete) kept = now to found else unfinished.incrementAndGet()
         return found
     }
 
