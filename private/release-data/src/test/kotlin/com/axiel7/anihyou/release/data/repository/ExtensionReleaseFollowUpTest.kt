@@ -95,6 +95,7 @@ class ExtensionReleaseFollowUpTest {
         database: ReleaseDatabase, rows: List<ReleaseUiCalendarItem>, enabled: Boolean, progress: Map<Int, Int>,
         recording: Recording, track: ReleaseGermanTrack = ReleaseGermanTrack.DE_SUB, account: Long? = 7L,
         sourceActive: Boolean = true, wholeSetOnly: Boolean = false,
+        fetchProgress: suspend (Set<Int>) -> Map<Int, Int> = { emptyMap() },
     ) = ExtensionReleaseFollowUp(
         presentation = Presentation(rows),
         preferences = Prefs(enabled, track),
@@ -109,6 +110,7 @@ class ExtensionReleaseFollowUpTest {
         refreshScheduler = recording,
         sourceActive = { sourceActive },
         titleOf = { id -> if (id == 42) "Frieren" else null },
+        fetchProgress = fetchProgress,
         clock = clock,
     )
 
@@ -194,6 +196,22 @@ class ExtensionReleaseFollowUpTest {
             val recording = Recording()
             followUp(database, rows, true, mapOf(42 to 4), recording, wholeSetOnly = true).run()
             assertEquals(listOf(42), due(database).map { it.mediaId })
+        } finally { database.close() }
+    }
+
+    @Test fun aMediaTheCacheDoesNotKnowIsAskedForOnceAndAnnouncedIfItIsOnTheList() = runBlocking {
+        val database = openDatabase()
+        try {
+            val recent = now.minus(Duration.ofMinutes(5))
+            val rows = listOf(item(50, 5, recent, true, "on-the-list"), item(51, 3, recent, true, "off-the-list"))
+            val asked = mutableListOf<Set<Int>>()
+            val follow = followUp(database, rows, true, emptyMap(), Recording(),
+                fetchProgress = { ids -> asked += ids; mapOf(50 to 4) })
+            follow.run()
+            assertEquals(listOf(50), due(database).map { it.mediaId })
+            // The one that is not on the list is not asked for again at the next refresh.
+            follow.run()
+            assertEquals(listOf(setOf(50, 51), setOf(50)), asked)
         } finally { database.close() }
     }
 

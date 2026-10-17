@@ -39,8 +39,16 @@ class ExtensionReleaseFollowUp(
     private val sourceActive: suspend () -> Boolean,
     /** The AniList title of a media if it is cached; the source's own series name stands in otherwise. */
     private val titleOf: suspend (mediaId: Int) -> String? = { null },
+    /**
+     * The AniList progress of these media from AniList itself (one request for all of them), only those on the user's list.
+     * The local cache cannot tell "not on the list" from "not loaded yet", so a media it does not know is asked for once.
+     */
+    private val fetchProgress: suspend (mediaIds: Set<Int>) -> Map<Int, Int> = { emptyMap() },
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    /** Media AniList said are not on the list, with the time of the answer; not asked for again within [ABSENT_TTL]. */
+    private val absentSince = java.util.concurrent.ConcurrentHashMap<Int, Instant>()
+
     /** Never throws except for cancellation: a follow-up must not change the outcome of the refresh it follows. */
     suspend fun run() {
         try {
@@ -98,7 +106,8 @@ class ExtensionReleaseFollowUp(
         return known
     }
 
-    private suspend fun announce(accountId: Long, confirmed: List<ReleaseUiCalendarItem>, progress: Map<Int, Int>, now: Instant) {
+    private suspend fun announce(accountId: Long, confirmed: List<ReleaseUiCalendarItem>, cached: Map<Int, Int>, now: Instant) {
+        val progress = withAskedProgress(confirmed, cached, now)
         var added = 0
         for (item in confirmed) {
             val mediaId = checkNotNull(item.mediaId)
@@ -108,7 +117,7 @@ class ExtensionReleaseFollowUp(
             val reason = when {
                 released.isBefore(now.minus(ANNOUNCE_WINDOW)) -> "released more than $ANNOUNCE_WINDOW ago"
                 released.isAfter(now.plus(CLOCK_SKEW)) -> "released in the future"
-                known == null -> "AniList progress unknown (not on the list or not cached)"
+                known == null -> "not on the AniList list"
                 episode.number <= known -> "already watched (progress $known)"
                 else -> null
             }
@@ -131,6 +140,30 @@ class ExtensionReleaseFollowUp(
             if (isNew) added++
         }
         if (added > 0) outboxScheduler.schedule()
+    }
+
+    /** The cached progress plus, for the episodes that could still be announced, what AniList says about the rest. */
+    private suspend fun withAskedProgress(
+        confirmed: List<ReleaseUiCalendarItem>, cached: Map<Int, Int>, now: Instant,
+    ): Map<Int, Int> {
+        val unknown = confirmed.filter { item ->
+            val released = item.forecastAt ?: return@filter false
+            !released.isBefore(now.minus(ANNOUNCE_WINDOW)) && !released.isAfter(now.plus(CLOCK_SKEW))
+        }.mapNotNull { it.mediaId }.filter { id ->
+            id !in cached && absentSince[id]?.let { Duration.between(it, now) < ABSENT_TTL } != true
+        }.toSet()
+        if (unknown.isEmpty()) return cached
+        val asked = try {
+            fetchProgress(unknown)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            AppLog.w("followup", failure) { "asking AniList for the progress of ${unknown.size} media failed" }
+            return cached
+        }
+        unknown.filter { it !in asked }.forEach { absentSince[it] = now }
+        AppLog.i("followup") { "asked AniList: ${unknown.size} media, ${asked.size} on the list" }
+        return cached + asked
     }
 
     private fun planChecks(planned: List<ReleaseUiCalendarItem>, progress: Map<Int, Int>, now: Instant) {
@@ -162,5 +195,6 @@ class ExtensionReleaseFollowUp(
         /** An episode the source lists long after its release is history, not news. */
         val ANNOUNCE_WINDOW: Duration = Duration.ofHours(12)
         val CLOCK_SKEW: Duration = Duration.ofMinutes(10)
+        val ABSENT_TTL: Duration = Duration.ofHours(1)
     }
 }

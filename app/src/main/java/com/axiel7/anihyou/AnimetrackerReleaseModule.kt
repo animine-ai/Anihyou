@@ -1,5 +1,7 @@
 package com.axiel7.anihyou
 
+import com.axiel7.anihyou.core.model.media.progressOrVolumes
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.room.Room
@@ -275,6 +277,7 @@ val animetrackerReleaseModule = module {
             refreshScheduler = get<com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler>(),
             sourceActive = { get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null },
             titleOf = { mediaId -> get<com.axiel7.anihyou.core.domain.repository.MediaRepository>().cachedMediaTitle(mediaId) },
+            fetchProgress = { mediaIds -> askAniListForProgress(get(), get(), mediaIds) },
             clock = get<Clock>(),
         )
     }
@@ -284,6 +287,32 @@ val animetrackerReleaseModule = module {
         RoomReleaseNotificationGate(get(), get(), get(),
             extensionSourceActive = { get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null })
     }
+}
+
+/** One AniList request for the entries of these media on the user's list; media that are not on it are simply absent. */
+private suspend fun askAniListForProgress(
+    mediaLists: com.axiel7.anihyou.core.domain.repository.MediaListRepository,
+    preferences: com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository,
+    mediaIds: Set<Int>,
+): Map<Int, Int> {
+    val userId = preferences.userId.first() ?: return emptyMap()
+    val scoreFormat = preferences.scoreFormat.first() ?: com.axiel7.anihyou.core.network.type.ScoreFormat.POINT_10
+    val ids = mediaIds.sorted().take(50)
+    val result = mediaLists.getUserMediaList(
+        userId = userId,
+        mediaType = com.axiel7.anihyou.core.network.type.MediaType.ANIME,
+        statusIn = null,
+        sort = emptyList(),
+        scoreFormat = scoreFormat,
+        fetchFromNetwork = true,
+        page = 1,
+        perPage = ids.size,
+        mediaIds = ids,
+    ).first { it !is com.axiel7.anihyou.core.base.PagedResult.Loading }
+    check(result is com.axiel7.anihyou.core.base.PagedResult.Success) { "AniList progress request failed" }
+    return result.list.mapNotNull { entry ->
+        entry.basicMediaListEntry.progressOrVolumes()?.takeIf { it >= 0 }?.let { entry.mediaId to it }
+    }.toMap()
 }
 
 /** Both the user-source installer and the release Authority boundary receive the same reviewed configuration. */
