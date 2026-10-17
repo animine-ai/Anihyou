@@ -69,7 +69,8 @@ class ExtensionReleaseFollowUp(
         val track = prefs.preferredTrack.toLanguageTrack()
         val episodes = items.filter { item ->
             item.isAuthoritative && item.mediaId != null && item.track == track && item.forecastAt != null &&
-                (item.installment as? Installment.Episode)?.fraction == null
+                // Only whole episodes: a film, a special or a fractional installment has no episode number to compare.
+                item.installment.let { it is Installment.Episode && it.fraction == null }
         }
         val progress = accountContext.current(episodes.mapNotNull { it.mediaId }.toSet()).progressByMediaId
         AppLog.i("followup") {

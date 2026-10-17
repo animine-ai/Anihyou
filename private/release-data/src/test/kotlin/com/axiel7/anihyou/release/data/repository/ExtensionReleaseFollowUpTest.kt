@@ -169,6 +169,21 @@ class ExtensionReleaseFollowUpTest {
         } finally { database.close() }
     }
 
+    @Test fun filmsAndFractionalInstallmentsAreLeftAloneWithoutFailing() = runBlocking {
+        val database = openDatabase()
+        try {
+            val recent = now.minus(Duration.ofMinutes(10))
+            val rows = listOf(
+                item(42, 1, recent, true, "film").copy(installment = Installment.Film(1)),
+                item(43, 1, recent, true, "half").copy(installment = Installment.Episode(5, 5)),
+                item(44, 5, recent, true, "whole"),
+            )
+            val recording = Recording()
+            followUp(database, rows, true, mapOf(42 to 0, 43 to 4, 44 to 4), recording).run()
+            assertEquals(listOf(44), due(database).map { it.mediaId })
+        } finally { database.close() }
+    }
+
     @Test fun theDubIsAnnouncedWhenItIsTheChosenTrack() = runBlocking {
         val database = openDatabase()
         try {
