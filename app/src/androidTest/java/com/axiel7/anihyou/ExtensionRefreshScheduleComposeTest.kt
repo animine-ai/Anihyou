@@ -49,9 +49,9 @@ class ExtensionRefreshScheduleComposeTest {
     private fun hours(count: Int) = composeRule.activity.resources.getQuantityString(
         com.axiel7.anihyou.feature.settings.R.plurals.extension_schedule_every_hours, count, count)
 
-    @Test fun defaultIsDailyAtOneWithANextRunAndNoFiveHourChoice() {
+    @Test fun defaultIsHourlyOnTheFullHourWithANextRunAndNoFiveHourChoice() {
         show(ExtensionRefreshSchedule())
-        composeRule.onNodeWithTag("extension-schedule-interval").assertTextContains(hours(24), substring = true)
+        composeRule.onNodeWithTag("extension-schedule-interval").assertTextContains(hours(1), substring = true)
         composeRule.onNodeWithTag("extension-schedule-start").assertTextContains("01:00", substring = true)
         composeRule.onNodeWithTag("extension-schedule-next").assertIsDisplayed()
         capture("schedule-default") { composeRule.onNodeWithTag("extension-schedule-next").assertIsDisplayed() }
