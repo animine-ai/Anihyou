@@ -68,12 +68,12 @@ fun LanguagePreference(
             Icon(
                 painter = painterResource(R.drawable.language_24),
                 contentDescription = stringResource(R.string.language),
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(12.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
 
             Column(
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(start = 4.dp, top = 8.dp, end = 16.dp, bottom = 8.dp)
             ) {
                 Text(
                     text = stringResource(R.string.language),
@@ -83,7 +83,8 @@ fun LanguagePreference(
                 Text(
                     text = availableLocales[currentLocale] ?: stringResource(R.string.theme_system),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
                 )
             }
         }

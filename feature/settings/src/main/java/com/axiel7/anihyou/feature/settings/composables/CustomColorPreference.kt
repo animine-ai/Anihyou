@@ -56,12 +56,12 @@ fun CustomColorPreference(
             Icon(
                 painter = painterResource(R.drawable.circle_fill_24),
                 contentDescription = null,
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(12.dp),
                 tint = color ?: LocalContentColor.current,
             )
 
             Column(
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(start = 4.dp, top = 8.dp, end = 16.dp, bottom = 8.dp)
             ) {
                 Text(
                     text = stringResource(R.string.custom_color),
@@ -72,7 +72,8 @@ fun CustomColorPreference(
                     Text(
                         text = hexString,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
                     )
                 }
             }

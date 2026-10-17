@@ -97,7 +97,7 @@
     <string name="extension_manage_diagnostic_yes">Ja</string>
     <string name="extension_manage_diagnostic_no">Nein</string>
     <string name="extension_center_unavailable_title">Nicht verfügbar in diesem Build</string>
-    <string name="extension_center_unavailable_message">In diesem Build ist keine geprüfte Quellenidentität eingerichtet. Extensions können deshalb nicht hinzugefügt, installiert oder aktualisiert werden. Vorhandene lokale Daten bleiben unverändert und können weiterhin entfernt werden.</string>
+    <string name="extension_center_unavailable_message">Dieser Build hat keine geprüfte Quellenidentität, Erweiterungen lassen sich nicht hinzufügen oder aktualisieren. Lokale Daten bleiben und können entfernt werden.</string>
     <string name="extension_provider_move_up">%1$s nach oben verschieben</string>
     <string name="extension_provider_move_down">%1$s nach unten verschieben</string>
     <string name="extension_manage_active_title">Installiert</string>
@@ -105,7 +105,7 @@
     <string name="extension_manage_technical_title">Technische Angaben</string>
     <string name="extension_legacy_lane_title">Alte AniWorld-Daten</string>
     <string name="extension_legacy_lane_switch">Alte AniWorld-Daten verwenden</string>
-    <string name="extension_legacy_lane_summary">Überbleibsel früherer Versionen. Sie laufen neben den Quellen und können mitbestimmen, was im Rückstand ist. Ausschalten lässt AniList oder die aktive Quelle übrig.</string>
+    <string name="extension_legacy_lane_summary">Überbleibsel früherer Versionen. Bestimmt noch mit, was im Rückstand ist.</string>
     <string name="extension_releases_refresh_now">Releases jetzt abrufen</string>
     <string name="matching_unmatched_title">Nicht zugeordnet (%1$d)</string>
     <string name="matching_match_now">Jetzt automatisch zuordnen</string>

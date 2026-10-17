@@ -212,7 +212,12 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).testTag(if (state.searching) "matching-no-results" else "matching-empty"))
             }
-            if (state.page.total > 0) item { PreferencesTitle(stringResource(R.string.matching_saved_title)) }
+            if (state.page.total > 0) item {
+                Column {
+                    PreferencesTitle(stringResource(R.string.matching_saved_title))
+                    MappingPager(state, event, "top")
+                }
+            }
             itemsIndexed(state.page.entries, key = { _, entry -> entry.id }) { index, entry ->
                 Card(onClick = { event.open(entry) }, enabled = !state.busy && !state.preparing,
                     shape = preferenceShape(index, state.page.entries.size),
@@ -229,16 +234,7 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                     }
                 }
             }
-            item {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 1.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(onClick = { event.page(state.query.offset - state.query.limit) },
-                        enabled = state.query.offset > 0 && !state.busy && !state.loading,
-                        modifier = Modifier.testTag("matching-previous")) { Text(stringResource(R.string.matching_previous)) }
-                    TextButton(onClick = { event.page(state.query.offset + state.query.limit) },
-                        enabled = state.query.offset + state.page.entries.size < state.page.total && !state.busy && !state.loading,
-                        modifier = Modifier.testTag("matching-next")) { Text(stringResource(R.string.matching_next)) }
-                }
-            }
+            item { MappingPager(state, event, "bottom") }
             if (state.recentResults.isNotEmpty()) item {
                 Column(Modifier.padding(horizontal = 24.dp)) {
                     Text(stringResource(R.string.matching_results), style = MaterialTheme.typography.titleSmall)
@@ -291,6 +287,22 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
         text = { Text(stringResource(R.string.matching_configuration_reset_help)) },
         confirmButton = { TextButton(onClick = event::resetConfiguration) { Text(stringResource(R.string.matching_confirm)) } },
         dismissButton = { TextButton(onClick = event::dismissConfigurationReset) { Text(stringResource(R.string.matching_cancel)) } })
+}
+
+/** Previous and next page of the saved mappings; shown above and below the list, only when there is more than one page. */
+@Composable
+private fun MappingPager(state: MatchingManagementState, event: MatchingManagementEvent, position: String) {
+    val hasPrevious = state.query.offset > 0
+    val hasNext = state.query.offset + state.page.entries.size < state.page.total
+    if (!hasPrevious && !hasNext) return
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 1.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        TextButton(onClick = { event.page(state.query.offset - state.query.limit) },
+            enabled = hasPrevious && !state.busy && !state.loading,
+            modifier = Modifier.testTag("matching-previous" + if (position == "top") "-top" else "")) { Text(stringResource(R.string.matching_previous)) }
+        TextButton(onClick = { event.page(state.query.offset + state.query.limit) },
+            enabled = hasNext && !state.busy && !state.loading,
+            modifier = Modifier.testTag("matching-next" + if (position == "top") "-top" else "")) { Text(stringResource(R.string.matching_next)) }
+    }
 }
 
 @Composable

@@ -1,6 +1,6 @@
 <resources>
     <string name="extension_sources_title">Erweiterungsquellen</string>
-    <string name="extension_sources_auth_explanation">Eine Repository-URL bestätigt nicht die Identität der Quelle. Erweiterungen können erst nach erfolgreicher Authentifizierung aktiviert werden.</string>
+    <string name="extension_sources_auth_explanation">Erweiterungen lassen sich erst nach bestätigter Quellenidentität aktivieren.</string>
     <string name="extension_sources_url">HTTPS-Repository-URL</string>
     <string name="extension_sources_add">Repo hinzufügen</string>
     <string name="extension_sources_adding">Wird hinzugefügt…</string>
@@ -28,7 +28,7 @@
     <string name="extension_sources_activation_unavailable">Aktivierung nicht verfügbar</string>
     <string name="extension_sources_activate">Aktivieren</string>
     <string name="extension_sources_product_policy_title">Quellen- und Anbietereinstellungen</string>
-    <string name="extension_sources_single_active_explanation">Nur eine nutzbare Erweiterung liefert Veröffentlichungs- und Verfügbarkeitsdaten. Der Aktivierungsstatus des Repositories wird getrennt verwaltet.</string>
+    <string name="extension_sources_single_active_explanation">Nur eine Erweiterung liefert gleichzeitig Veröffentlichungsdaten.</string>
     <string name="extension_sources_no_active_source">Keine aktive Datenquelle</string>
     <string name="extension_sources_data_source_heading">Veröffentlichungsdaten</string>
     <string name="extension_sources_use_active_source">Als aktive Datenquelle verwenden</string>
@@ -109,12 +109,11 @@
     <string name="matching_select_entry">%1$s · %2$s · %3$s auswählen</string>
     <string name="matching_unavailable">Die Matchingverwaltung ist derzeit nicht verfügbar.</string>
     <string name="extension_notifications_off_title">Benachrichtigungen sind für Kiyori ausgeschaltet</string>
-    <string name="extension_notifications_off_summary">Release-Benachrichtigungen können nicht angezeigt werden. Tippen, um die Benachrichtigungs-Einstellungen der App zu öffnen.</string>
+    <string name="extension_notifications_off_summary">Android blockiert Benachrichtigungen. Tippen öffnet die App-Einstellungen.</string>
     <string name="extension_background_title">Zuverlässige Hintergrund-Aktualisierung</string>
-    <string name="extension_background_summary">Optional. Die stündlichen Abfragen laufen auch ohne, aber Android kann sie im Ruhezustand bündeln und eine Benachrichtigung kommt dann später. Erlaubt braucht es etwas mehr Akku.</string>
+    <string name="extension_background_summary">Optional. Stündliche Abfragen laufen auch ohne, Android kann sie im Ruhezustand verzögern.</string>
     <string name="extension_schedule_title">Aktualisierung</string>
-    <string name="extension_schedule_explanation">Die aktive Quelle wird in diesem Abstand im Hintergrund vollständig aktualisiert.</string>
-    <string name="extension_schedule_open_explanation">Beim Öffnen der App werden Kalender, veröffentlichte Folgen und Verschiebungen erneut abgefragt, sobald diese Pause vorbei ist. Ein schnelles zweites Öffnen fragt die Quelle nicht noch einmal.</string>
+    <string name="extension_schedule_open_explanation">Beim Öffnen werden Kalender, Folgen und Verschiebungen neu abgefragt, sobald die Pause vorbei ist.</string>
     <string name="extension_schedule_open_cooldown">Pause nach dem Öffnen der App</string>
     <string name="extension_schedule_pause_minutes">%1$d Minuten</string>
     <plurals name="extension_schedule_pause_hours">
@@ -124,7 +123,10 @@
     <string name="extension_schedule_interval">Intervall</string>
     <string name="extension_schedule_start">Startzeit</string>
     <string name="extension_schedule_next">Nächster geplanter Lauf: %1$s</string>
-    <string name="extension_schedule_reset">Zurück auf stündlich</string>
+    <string name="extension_schedule_reset">Auf Standard zurücksetzen</string>
+    <string name="extension_schedule_reset_summary">Stündlich, 10 Minuten Pause nach dem Öffnen</string>
+    <string name="extension_schedule_section_background">Im Hintergrund</string>
+    <string name="extension_schedule_section_open">Beim Öffnen der App</string>
     <string name="extension_schedule_confirm">OK</string>
     <string name="extension_schedule_cancel">Abbrechen</string>
     <string name="extension_schedule_every_minutes">Alle %1$d Minuten</string>

@@ -32,6 +32,7 @@ import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
 import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithSmallTopAppBar
 import com.axiel7.anihyou.core.ui.composables.ListPreference
 import com.axiel7.anihyou.core.ui.composables.PlainPreference
+import com.axiel7.anihyou.core.ui.composables.PreferencesTitle
 import com.axiel7.anihyou.core.ui.composables.preferenceShape
 import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
@@ -73,9 +74,7 @@ fun ExtensionRefreshScheduleScreen(
         navigationIcon = { BackIconButton(nav::goBack) }, scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
         // The same grouped, rounded preference rows as the original settings pages.
         Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
-            Text(stringResource(R.string.extension_schedule_explanation), style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
+            PreferencesTitle(stringResource(R.string.extension_schedule_section_background))
             ListPreference(
                 title = stringResource(R.string.extension_schedule_interval),
                 icon = CoreR.drawable.update_24,
@@ -96,11 +95,8 @@ fun ExtensionRefreshScheduleScreen(
             )
             Text(stringResource(R.string.extension_schedule_next, nextSlotLabel(schedule)),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).testTag("extension-schedule-next"))
-            Spacer(Modifier.height(8.dp))
-            Text(stringResource(R.string.extension_schedule_open_explanation), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp).testTag("extension-schedule-next"))
+            PreferencesTitle(stringResource(R.string.extension_schedule_section_open))
             ListPreference(
                 title = stringResource(R.string.extension_schedule_open_cooldown),
                 icon = CoreR.drawable.refresh_24,
@@ -111,9 +107,13 @@ fun ExtensionRefreshScheduleScreen(
                 shape = singleShape,
                 modifier = Modifier.testTag("extension-schedule-open-cooldown"),
             )
+            Text(stringResource(R.string.extension_schedule_open_explanation), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
             Spacer(Modifier.height(16.dp))
             PlainPreference(
                 title = stringResource(R.string.extension_schedule_reset),
+                subtitle = stringResource(R.string.extension_schedule_reset_summary),
                 icon = CoreR.drawable.refresh_24,
                 titleTint = MaterialTheme.colorScheme.primary,
                 onClick = event::reset,

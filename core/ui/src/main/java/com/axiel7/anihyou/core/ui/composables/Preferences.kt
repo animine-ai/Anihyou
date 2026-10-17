@@ -152,7 +152,8 @@ fun PlainPreference(
                         Text(
                             text = subtitle,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
                         )
                     }
                 }//: Column
@@ -305,7 +306,8 @@ fun <T> ListPreference(
                     Text(
                         text = labelForValue(preferenceValue),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
                     )
                 }
             }//: Column
