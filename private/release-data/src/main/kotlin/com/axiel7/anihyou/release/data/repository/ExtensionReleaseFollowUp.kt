@@ -72,13 +72,30 @@ class ExtensionReleaseFollowUp(
                 // Only whole episodes: a film, a special or a fractional installment has no episode number to compare.
                 item.installment.let { it is Installment.Episode && it.fraction == null }
         }
-        val progress = accountContext.current(episodes.mapNotNull { it.mediaId }.toSet()).progressByMediaId
+        val progress = progressOf(episodes.mapNotNull { it.mediaId }.toSet())
         AppLog.i("followup") {
             "start: items=${items.size} preferredTrack=$track episodes=${episodes.size} confirmed=${episodes.count { it.confirmed }} " +
                 "progressKnown=${progress.size} notificationsEnabled=${prefs.notificationsEnabled}"
         }
         if (prefs.notificationsEnabled) announce(accountId, episodes.filter { it.confirmed }, progress, now)
         planChecks(episodes.filter { !it.confirmed }, progress, now)
+    }
+
+    /**
+     * The account context answers for a whole set of media or for none of it: one anime that is not on the user's list makes
+     * the answer for all of them unknown. A calendar always holds such anime, so the set is asked for first (cheap, one
+     * read) and every media that is still missing is asked for on its own. Not on the list stays unknown, never zero.
+     */
+    private suspend fun progressOf(mediaIds: Set<Int>): Map<Int, Int> {
+        if (mediaIds.isEmpty()) return emptyMap()
+        val all = accountContext.current(mediaIds).progressByMediaId
+        if (mediaIds.all { it in all }) return all
+        val known = all.toMutableMap()
+        for (id in mediaIds) {
+            if (id in known) continue
+            accountContext.current(setOf(id)).progressByMediaId[id]?.let { known[id] = it }
+        }
+        return known
     }
 
     private suspend fun announce(accountId: Long, confirmed: List<ReleaseUiCalendarItem>, progress: Map<Int, Int>, now: Instant) {

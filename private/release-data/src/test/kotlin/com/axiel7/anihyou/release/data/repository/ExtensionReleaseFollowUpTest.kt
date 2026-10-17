@@ -94,12 +94,14 @@ class ExtensionReleaseFollowUpTest {
     private fun followUp(
         database: ReleaseDatabase, rows: List<ReleaseUiCalendarItem>, enabled: Boolean, progress: Map<Int, Int>,
         recording: Recording, track: ReleaseGermanTrack = ReleaseGermanTrack.DE_SUB, account: Long? = 7L,
-        sourceActive: Boolean = true,
+        sourceActive: Boolean = true, wholeSetOnly: Boolean = false,
     ) = ExtensionReleaseFollowUp(
         presentation = Presentation(rows),
         preferences = Prefs(enabled, track),
         accountContext = ReleaseAccountContextProvider { ids ->
             if (account == null) ReleaseAccountContext(null)
+            // The real provider answers for the whole set or for none of it: one anime off the list makes all unknown.
+            else if (wholeSetOnly && ids.any { it !in progress }) ReleaseAccountContext(account)
             else ReleaseAccountContext(account, progress.filterKeys { it in ids || ids.isEmpty() })
         },
         outbox = RoomNotificationOutboxStore(database, clock),
@@ -181,6 +183,17 @@ class ExtensionReleaseFollowUpTest {
             val recording = Recording()
             followUp(database, rows, true, mapOf(42 to 0, 43 to 4, 44 to 4), recording).run()
             assertEquals(listOf(44), due(database).map { it.mediaId })
+        } finally { database.close() }
+    }
+
+    @Test fun oneAnimeOffTheListDoesNotHideTheProgressOfTheOthers() = runBlocking {
+        val database = openDatabase()
+        try {
+            val recent = now.minus(Duration.ofMinutes(5))
+            val rows = listOf(item(42, 5, recent, true), item(99, 3, recent, true, "not-on-my-list"))
+            val recording = Recording()
+            followUp(database, rows, true, mapOf(42 to 4), recording, wholeSetOnly = true).run()
+            assertEquals(listOf(42), due(database).map { it.mediaId })
         } finally { database.close() }
     }
 
