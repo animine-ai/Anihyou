@@ -433,6 +433,24 @@ fun SettingsViewContent(
                     shape = middleShape
                 )
 
+                SwitchPreference(
+                    title = stringResource(R.string.watch_sections),
+                    subtitle = stringResource(R.string.watch_sections_summary),
+                    preferenceValue = uiState.watchSections,
+                    icon = R.drawable.format_list_bulleted_24,
+                    onValueChange = { event?.setWatchSections(it) },
+                    shape = middleShape
+                )
+
+                SwitchPreference(
+                    title = stringResource(R.string.list_animations),
+                    subtitle = stringResource(R.string.list_animations_summary),
+                    preferenceValue = uiState.listAnimations,
+                    icon = R.drawable.play_circle_24,
+                    onValueChange = { event?.setListAnimations(it) },
+                    shape = middleShape
+                )
+
                 PlainPreference(
                     title = stringResource(R.string.priority_color_change),
                     icon = R.drawable.colors_24,

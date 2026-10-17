@@ -263,6 +263,18 @@ class SettingsViewModel(
         }
     }
 
+    override fun setWatchSections(value: Boolean) {
+        viewModelScope.launch {
+            defaultPreferencesRepository.setWatchSections(value)
+        }
+    }
+
+    override fun setListAnimations(value: Boolean) {
+        viewModelScope.launch {
+            defaultPreferencesRepository.setListAnimations(value)
+        }
+    }
+
     override fun setHideScores(value: Boolean) {
         viewModelScope.launch {
             defaultPreferencesRepository.setHideScores(value)
@@ -451,6 +463,18 @@ class SettingsViewModel(
         defaultPreferencesRepository.showLowPriority
             .onEach { value ->
                 mutableUiState.update { it.copy(showLowPriority = value) }
+            }
+            .launchIn(viewModelScope)
+
+        defaultPreferencesRepository.watchSections
+            .onEach { value ->
+                mutableUiState.update { it.copy(watchSections = value) }
+            }
+            .launchIn(viewModelScope)
+
+        defaultPreferencesRepository.listAnimations
+            .onEach { value ->
+                mutableUiState.update { it.copy(listAnimations = value) }
             }
             .launchIn(viewModelScope)
 

@@ -353,7 +353,7 @@ private fun LazyListGrid(
                 )
             }
         }
-        sectionedItems(mediaList, grouping) { item ->
+        sectionedItems(mediaList, grouping, uiState.listAnimations) { item ->
             GridUserMediaListItem(
                 item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -412,7 +412,7 @@ private fun LazyListTablet(
         }
         when (uiState.listStyle) {
             ListStyle.STANDARD -> {
-                sectionedItems(mediaList, grouping) { item ->
+                sectionedItems(mediaList, grouping, uiState.listAnimations) { item ->
                     StandardUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -432,7 +432,7 @@ private fun LazyListTablet(
             }
 
             ListStyle.COMPACT -> {
-                sectionedItems(mediaList, grouping) { item ->
+                sectionedItems(mediaList, grouping, uiState.listAnimations) { item ->
                     CompactUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -452,7 +452,7 @@ private fun LazyListTablet(
             }
 
             ListStyle.MINIMAL -> {
-                sectionedItems(mediaList, grouping) { item ->
+                sectionedItems(mediaList, grouping, uiState.listAnimations) { item ->
                     MinimalUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -517,7 +517,7 @@ private fun LazyListPhone(
         }
         when (uiState.listStyle) {
             ListStyle.STANDARD -> {
-                sectionedItems(mediaList, grouping) { item ->
+                sectionedItems(mediaList, grouping, uiState.listAnimations) { item ->
                     StandardUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -538,7 +538,7 @@ private fun LazyListPhone(
             }
 
             ListStyle.COMPACT -> {
-                sectionedItems(mediaList, grouping) { item ->
+                sectionedItems(mediaList, grouping, uiState.listAnimations) { item ->
                     CompactUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -559,7 +559,7 @@ private fun LazyListPhone(
             }
 
             ListStyle.MINIMAL -> {
-                sectionedItems(mediaList, grouping) { item ->
+                sectionedItems(mediaList, grouping, uiState.listAnimations) { item ->
                     MinimalUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),

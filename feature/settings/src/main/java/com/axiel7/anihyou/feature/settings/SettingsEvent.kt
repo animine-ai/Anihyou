@@ -76,6 +76,8 @@ interface SettingsEvent : UiEvent {
     fun setBlurAdultContent(value: Boolean)
 
     fun setShowLowPriority(value: Boolean)
+    fun setWatchSections(value: Boolean)
+    fun setListAnimations(value: Boolean)
 
     fun setHideScores(value: Boolean)
 

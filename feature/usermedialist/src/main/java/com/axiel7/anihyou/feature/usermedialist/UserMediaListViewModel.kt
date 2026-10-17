@@ -681,6 +681,16 @@ class UserMediaListViewModel(
             }
             .launchIn(viewModelScope)
 
+        defaultPreferencesRepository.watchSections
+            .distinctUntilChanged()
+            .onEach { value -> mutableUiState.update { it.copy(watchSections = value) } }
+            .launchIn(viewModelScope)
+
+        defaultPreferencesRepository.listAnimations
+            .distinctUntilChanged()
+            .onEach { value -> mutableUiState.update { it.copy(listAnimations = value) } }
+            .launchIn(viewModelScope)
+
         defaultPreferencesRepository.colorLowPriority
             .onEach { color ->
                 mutableUiState.update { it.copy(lowPriorityColor = Color(color)) }

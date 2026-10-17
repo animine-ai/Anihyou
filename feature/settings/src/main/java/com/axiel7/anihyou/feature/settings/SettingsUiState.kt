@@ -26,6 +26,8 @@ data class SettingsUiState(
     val coloredMedia: Boolean = true,
     val blurAdultContent: Boolean = true,
     val showLowPriority: Boolean = false,
+    val watchSections: Boolean = true,
+    val listAnimations: Boolean = true,
     val useGeneralListStyle: Boolean? = null,
     val generalListStyle: ListStyle? = null,
     val gridItemsPerRow: ItemsPerRow? = null,

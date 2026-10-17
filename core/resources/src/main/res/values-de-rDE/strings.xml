@@ -822,4 +822,8 @@
     <string name="list_group_ready">Bereit zum Schauen</string>
     <string name="list_group_waiting">Wartend</string>
     <string name="list_group_ready_manga">Bereit zum Lesen</string>
+    <string name="watch_sections">Abschnitte in der Schauen-Liste</string>
+    <string name="watch_sections_summary">Oben bereit zum Schauen oder Lesen, darunter wartend.</string>
+    <string name="list_animations">Listen-Animationen</string>
+    <string name="list_animations_summary">Ein Eintrag rutscht in den anderen Abschnitt, wenn sich sein Fortschritt ändert.</string>
 </resources>

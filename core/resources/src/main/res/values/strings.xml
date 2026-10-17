@@ -838,4 +838,8 @@
     <string name="list_group_ready">Ready to watch</string>
     <string name="list_group_waiting">Waiting</string>
     <string name="list_group_ready_manga">Ready to read</string>
+    <string name="watch_sections">Sections in the watching list</string>
+    <string name="watch_sections_summary">Ready to watch or read on top, waiting below.</string>
+    <string name="list_animations">List animations</string>
+    <string name="list_animations_summary">An entry slides into the other section when its progress changes.</string>
 </resources>

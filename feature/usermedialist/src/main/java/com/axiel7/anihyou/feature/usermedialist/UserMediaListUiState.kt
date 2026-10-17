@@ -32,6 +32,8 @@ data class UserMediaListUiState(
     val status: MediaListStatus? = null,
     val isMyList: Boolean = true,
     val showLowPriority: Boolean = false,
+    val watchSections: Boolean = true,
+    val listAnimations: Boolean = true,
     val lowPriorityColor: Color? = null,
     val mediumPriorityColor: Color? = null,
     val highPriorityColor: Color? = null,

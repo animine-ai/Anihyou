@@ -100,6 +100,18 @@ class DefaultPreferencesRepository(
         dataStore.setValue(SHOW_LOW_PRIORITY_KEY, value)
     }
 
+    /** The watching and reading lists in two sections (ready on top, waiting below); on by default. */
+    val watchSections = dataStore.getValue(WATCH_SECTIONS_KEY, default = true)
+    suspend fun setWatchSections(value: Boolean) {
+        dataStore.setValue(WATCH_SECTIONS_KEY, value)
+    }
+
+    /** The slide of an entry into the other section (and the other list animations); on by default. */
+    val listAnimations = dataStore.getValue(LIST_ANIMATIONS_KEY, default = true)
+    suspend fun setListAnimations(value: Boolean) {
+        dataStore.setValue(LIST_ANIMATIONS_KEY, value)
+    }
+
     // temporary hardcoded colors
     val colorLowPriority = dataStore.getValue(COLOR_LOW_PRIORITY_KEY).map {
         it ?: 0xFF7CB342.toInt() // green
@@ -422,6 +434,8 @@ class DefaultPreferencesRepository(
         private val DISPLAY_ADULT_KEY = booleanPreferencesKey("display_adult")
         private val BLUR_ADULT_KEY = booleanPreferencesKey("blur_adult")
         private val SHOW_LOW_PRIORITY_KEY = booleanPreferencesKey("show_low_priority")
+        private val WATCH_SECTIONS_KEY = booleanPreferencesKey("watch_sections")
+        private val LIST_ANIMATIONS_KEY = booleanPreferencesKey("list_animations")
         private val COLOR_LOW_PRIORITY_KEY = intPreferencesKey("color_low_priority")
         private val COLOR_MEDIUM_PRIORITY_KEY = intPreferencesKey("color_medium_priority")
         private val COLOR_HIGH_PRIORITY_KEY = intPreferencesKey("color_high_priority")

@@ -60,7 +60,7 @@ internal class WatchGrouping(
 }
 
 internal fun watchGrouping(uiState: UserMediaListUiState): WatchGrouping? =
-    if (uiState.status == MediaListStatus.CURRENT && uiState.isMyList)
+    if (uiState.watchSections && uiState.status == MediaListStatus.CURRENT && uiState.isMyList)
         WatchGrouping(uiState.mediaType, uiState.releaseByMediaId) else null
 
 @Composable
@@ -82,23 +82,24 @@ internal fun WatchSectionHeader(title: Int, count: Int, modifier: Modifier = Mod
 internal fun LazyListScope.sectionedItems(
     entries: List<CommonMediaListEntry>,
     grouping: WatchGrouping?,
+    animate: Boolean,
     content: @Composable (CommonMediaListEntry) -> Unit,
 ) {
     val unique = entries.distinctBy { it.mediaId }
     val sections = grouping?.split(unique)
     val animation = spring<IntOffset>(stiffness = 400f)
     fun LazyListScope.rows(list: List<CommonMediaListEntry>) = items(items = list, key = { it.mediaId }, contentType = { "entry" }) { entry ->
-        Column(Modifier.animateItem(placementSpec = animation)) { content(entry) }
+        Column(if (animate) Modifier.animateItem(placementSpec = animation) else Modifier) { content(entry) }
     }
     if (sections == null) {
         rows(unique)
     } else {
         item(key = "header_ready", contentType = "header") {
-            WatchSectionHeader(requireNotNull(grouping).readyTitle, sections.first.size, Modifier.animateItem(placementSpec = animation))
+            WatchSectionHeader(requireNotNull(grouping).readyTitle, sections.first.size, if (animate) Modifier.animateItem(placementSpec = animation) else Modifier)
         }
         rows(sections.first)
         item(key = "header_waiting", contentType = "header") {
-            WatchSectionHeader(R.string.list_group_waiting, sections.second.size, Modifier.animateItem(placementSpec = animation))
+            WatchSectionHeader(R.string.list_group_waiting, sections.second.size, if (animate) Modifier.animateItem(placementSpec = animation) else Modifier)
         }
         rows(sections.second)
     }
@@ -107,23 +108,24 @@ internal fun LazyListScope.sectionedItems(
 internal fun LazyGridScope.sectionedItems(
     entries: List<CommonMediaListEntry>,
     grouping: WatchGrouping?,
+    animate: Boolean,
     content: @Composable (CommonMediaListEntry) -> Unit,
 ) {
     val unique = entries.distinctBy { it.mediaId }
     val sections = grouping?.split(unique)
     val animation = spring<IntOffset>(stiffness = 400f)
     fun LazyGridScope.rows(list: List<CommonMediaListEntry>) = items(items = list, key = { it.mediaId }, contentType = { "entry" }) { entry ->
-        Column(Modifier.animateItem(placementSpec = animation)) { content(entry) }
+        Column(if (animate) Modifier.animateItem(placementSpec = animation) else Modifier) { content(entry) }
     }
     if (sections == null) {
         rows(unique)
     } else {
         item(key = "header_ready", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
-            WatchSectionHeader(requireNotNull(grouping).readyTitle, sections.first.size, Modifier.animateItem(placementSpec = animation))
+            WatchSectionHeader(requireNotNull(grouping).readyTitle, sections.first.size, if (animate) Modifier.animateItem(placementSpec = animation) else Modifier)
         }
         rows(sections.first)
         item(key = "header_waiting", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
-            WatchSectionHeader(R.string.list_group_waiting, sections.second.size, Modifier.animateItem(placementSpec = animation))
+            WatchSectionHeader(R.string.list_group_waiting, sections.second.size, if (animate) Modifier.animateItem(placementSpec = animation) else Modifier)
         }
         rows(sections.second)
     }

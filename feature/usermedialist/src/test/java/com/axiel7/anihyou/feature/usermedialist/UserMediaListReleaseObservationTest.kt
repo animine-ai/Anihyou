@@ -156,6 +156,8 @@ class UserMediaListReleaseObservationTest {
             every { it.titleLanguage } returns emptyFlow()
             every { it.scoreFormat } returns emptyFlow()
             every { it.showLowPriority } returns emptyFlow()
+            every { it.watchSections } returns emptyFlow()
+            every { it.listAnimations } returns emptyFlow()
             every { it.colorLowPriority } returns emptyFlow()
             every { it.colorMediumPriority } returns emptyFlow()
             every { it.colorHighPriority } returns emptyFlow()
