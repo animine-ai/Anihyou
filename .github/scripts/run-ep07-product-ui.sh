@@ -68,20 +68,20 @@ for name in required:
     assert name in text, (name,text[-20000:])
 assert 'INSTRUMENTATION_STATUS_CODE: -3' not in text and 'INSTRUMENTATION_STATUS_CODE: -4' not in text, 'skipped/assumption-failed test'
 shots=list((out/'screenshots').glob('*.png'))
-expected={f'calendar-{kind}-{step}' for kind in ('standard-light','grid-light','standard-dark')
+expected={f'calendar-{kind}-{step}' for kind in ('standard-light','standard-dark')
           for step in ('initial-today','history','refresh-keeps-history','returned-today')}
 expected|={'postponements-safe-and-unassigned','rollback-confirmation','manage-overview',
            'manage-overview-dark-narrow-large-text','diagnostics','diagnostics-dark',
            'trust-unavailable-manage','trust-unavailable-notice','manage-installed-version-withdrawn'}
-expected|={'anilist-events-standard','anilist-events-grid','native-root-guest-light',
+expected|={'anilist-events-standard','native-root-guest-light',
            'native-root-account-dark','native-center-groups','providers-both-visible','providers-one-disabled'}
 expected|={'native-source-notifications-german-large','native-source-priorities-german-large'}
 expected|={'native-center-german-black-large','native-sources-empty-german-black-large',
            'native-providers-empty-german-black-large'}
-expected|={'anilist-next-day-standard','anilist-next-day-grid'}
+expected|={'anilist-next-day-standard'}
 expected|={'manage-empty-add-dialog','postponements-search-no-results','providers-two-german-black-large',
            'statistics-user-german-black-large','statistics-user-overview'}
-expected|={f'calendar-tracks-{style}-{state}' for style in ('standard','grid')
+expected|={f'calendar-tracks-{style}-{state}' for style in ('standard','tab')
            for state in ('combined-planned','combined-confirmed','separate')}
 expected|={'home-sub-only-backlog','details-floating-actions','explore-source-metadata-loaded','explore-source-list-filter'}
 names={p.stem for p in shots}
@@ -100,7 +100,7 @@ guard=(out/'guard'/'guard-positive.capture.txt').read_text()
 assert 'activityResumed=true/true' in guard and not (out/'guard'/'guard-negative.png').exists(), guard
 matching_dir=out/'guard'/'matching-ui'
 matching_expected={'matching-list','matching-source-confirmation','matching-editor','matching-empty-dark-large-text'}
-matching_expected|={'matching-no-results','matching-search-unmatched'}
+matching_expected|={'matching-no-results','matching-search-unmatched','matching-malsync-rules'}
 matching_shots={p.stem for p in matching_dir.glob('*.png')}
 assert matching_shots==matching_expected, ('matching UI screenshot set differs',
     sorted(matching_expected-matching_shots), sorted(matching_shots-matching_expected))
