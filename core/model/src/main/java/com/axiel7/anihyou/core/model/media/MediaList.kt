@@ -91,6 +91,7 @@ val exampleCommonMediaListEntry = CommonMediaListEntry(
             id = 0,
         ),
         status = MediaStatus.RELEASING,
+        idMal = null,
         basicMediaDetails = BasicMediaDetails(
             __typename = "",
             id = 1,

@@ -113,6 +113,7 @@ class SourceSeriesMatchingService(
     }
 
     suspend fun learnNumbering(requests: List<DetailMappingRequest>) {
+        val active = policy.policy.value.activeReleaseSource
         for (request in requests) {
             val extent = request.episodeExtent?.takeIf { it in 1..9999 } ?: continue
             if (request.titles.isEmpty()) continue
@@ -120,8 +121,17 @@ class SourceSeriesMatchingService(
             when {
                 known == null -> navigation.rememberNumbering(com.axiel7.anihyou.release.data.extension.ProviderMediaNumbering(
                     request.mediaId, request.titles, extent, request.malId))
-                // The opened details page knows more (MAL id, rules); only a changed episode count is taken over.
-                known.episodeExtent != extent -> navigation.rememberNumbering(known.copy(episodeExtent = extent))
+                // An opened details page may know more (rules); the episode count and a MAL id that was missing are taken over.
+                known.episodeExtent != extent || (known.malId == null && request.malId != null) ->
+                    navigation.rememberNumbering(known.copy(episodeExtent = extent, malId = known.malId ?: request.malId))
+            }
+            // A part of a series places its episodes through an exact external range: the same preparation as a details
+            // page does (the accepted anchor of the previous part, the rules of its MAL id), without the page having been opened.
+            if (active != null && request.malId != null &&
+                request.titles.any { TitleNormalizer.normalize(it).part != null } &&
+                navigation.state.value.segments.none { it.key == active && it.mediaId == request.mediaId }) {
+                ensureNumberingAnchor(active, request)
+                updateRulesForMedia(request.mediaId, force = false)
             }
         }
     }

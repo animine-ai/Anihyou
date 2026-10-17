@@ -65,6 +65,7 @@ fragment CommonMediaListEntry on MediaList {
             native
         }
         synonyms
+        idMal
         format
         countryOfOrigin
         startDate {
