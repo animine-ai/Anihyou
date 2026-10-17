@@ -34,7 +34,11 @@ class ExtensionReleaseRefreshWorkerTest {
     // 2026-10-03 14:00 CEST. The next default slot is 01:00 CEST on the 4th = 23:00Z.
     private val now = Instant.parse("2026-10-03T12:00:00Z")
 
-    private class Schedules(initial: ExtensionRefreshSchedule = ExtensionRefreshSchedule(), var last: Instant? = null) :
+    // The tests of the slot chain keep the daily 01:00 grid they were written for; the hourly default has its own test below.
+    private class Schedules(
+        initial: ExtensionRefreshSchedule = ExtensionRefreshSchedule(60, com.axiel7.anihyou.release.core.api.ExtensionRefreshInterval.HOURS_24),
+        var last: Instant? = null,
+    ) :
         ExtensionRefreshScheduleRepository {
         override val schedule = MutableStateFlow(initial)
         override suspend fun update(schedule: ExtensionRefreshSchedule) { this.schedule.value = schedule }
@@ -66,6 +70,34 @@ class ExtensionReleaseRefreshWorkerTest {
             slot.workSpec.input.getString(ExtensionReleaseRefreshWorker.INPUT_TRIGGER))
         assertTrue(WorkManagerExtensionReleaseRefreshScheduler.SLOT_TAG in slot.tags)
         verify(exactly = 0) { manager.enqueueUniquePeriodicWork(any(), any(), any()) }
+    }
+
+    @Test fun `the hourly default plans the next full hour`() {
+        val manager = manager()
+        val enqueued = mutableMapOf<String, OneTimeWorkRequest>()
+        every { manager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } answers {
+            enqueued[firstArg()] = thirdArg(); mockk(relaxed = true)
+        }
+        scheduler(manager, Schedules(ExtensionRefreshSchedule())).ensureSlotScheduled()
+        // 14:00 CEST now: the next full hour is 15:00 CEST = 13:00Z, one hour away.
+        val slotName = "${WorkManagerExtensionReleaseRefreshScheduler.SLOT}-${Instant.parse("2026-10-03T13:00:00Z").epochSecond}"
+        assertEquals(3_600_000L, requireNotNull(enqueued[slotName]) { "expected $slotName in ${enqueued.keys}" }.workSpec.initialDelay)
+    }
+
+    @Test fun `due release checks are one keep-unique work per planned minute and never in the past`() {
+        val manager = manager()
+        val enqueued = mutableMapOf<String, OneTimeWorkRequest>()
+        every { manager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) } answers {
+            enqueued[firstArg()] = thirdArg(); mockk(relaxed = true)
+        }
+        val later = now.plusSeconds(15 * 60)
+        scheduler(manager).scheduleDueReleases(listOf(now.minusSeconds(60), later))
+        val name = "${WorkManagerExtensionReleaseRefreshScheduler.DUE_RELEASE}-${later.epochSecond}"
+        assertEquals(setOf(name), enqueued.keys)
+        val work = enqueued.getValue(name)
+        assertEquals(15 * 60_000L, work.workSpec.initialDelay)
+        assertEquals(ExtensionRefreshTrigger.DUE_RELEASE.name, work.workSpec.input.getString(ExtensionReleaseRefreshWorker.INPUT_TRIGGER))
+        verify { manager.enqueueUniqueWork(name, ExistingWorkPolicy.KEEP, any<OneTimeWorkRequest>()) }
     }
 
     @Test fun `a changed schedule retires older future slots but never a running or retrying one`() {
