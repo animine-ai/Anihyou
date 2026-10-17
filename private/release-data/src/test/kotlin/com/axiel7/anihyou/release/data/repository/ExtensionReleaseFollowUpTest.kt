@@ -4,6 +4,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshTrigger
+import com.axiel7.anihyou.release.core.api.ListEntryInfo
+import com.axiel7.anihyou.release.core.api.NotificationListStatus
+import com.axiel7.anihyou.release.core.api.NotificationScopeMode
+import com.axiel7.anihyou.release.core.api.ReleaseNotificationScope
 import com.axiel7.anihyou.release.core.api.ReleaseAccountContext
 import com.axiel7.anihyou.release.core.api.ReleaseAccountContextProvider
 import com.axiel7.anihyou.release.core.api.ReleaseGermanTrack
@@ -94,23 +98,22 @@ class ExtensionReleaseFollowUpTest {
     private fun followUp(
         database: ReleaseDatabase, rows: List<ReleaseUiCalendarItem>, enabled: Boolean, progress: Map<Int, Int>,
         recording: Recording, track: ReleaseGermanTrack = ReleaseGermanTrack.DE_SUB, account: Long? = 7L,
-        sourceActive: Boolean = true, wholeSetOnly: Boolean = false,
-        fetchProgress: suspend (Set<Int>) -> Map<Int, Int> = { emptyMap() },
+        sourceActive: Boolean = true, scope: ReleaseNotificationScope = ReleaseNotificationScope(),
+        entries: Map<Int, ListEntryInfo> = progress.mapValues { ListEntryInfo(it.value, NotificationListStatus.CURRENT) },
+        fetch: suspend (Set<Int>) -> Map<Int, ListEntryInfo> = { ids -> entries.filterKeys { it in ids } },
     ) = ExtensionReleaseFollowUp(
         presentation = Presentation(rows),
         preferences = Prefs(enabled, track),
-        accountContext = ReleaseAccountContextProvider { ids ->
-            if (account == null) ReleaseAccountContext(null)
-            // The real provider answers for the whole set or for none of it: one anime off the list makes all unknown.
-            else if (wholeSetOnly && ids.any { it !in progress }) ReleaseAccountContext(account)
-            else ReleaseAccountContext(account, progress.filterKeys { it in ids || ids.isEmpty() })
+        accountContext = ReleaseAccountContextProvider { _ ->
+            if (account == null) ReleaseAccountContext(null) else ReleaseAccountContext(account)
         },
         outbox = RoomNotificationOutboxStore(database, clock),
         outboxScheduler = recording,
         refreshScheduler = recording,
         sourceActive = { sourceActive },
         titleOf = { id -> if (id == 42) "Frieren" else null },
-        fetchProgress = fetchProgress,
+        fetchEntries = fetch,
+        scope = { scope },
         clock = clock,
     )
 
@@ -188,30 +191,78 @@ class ExtensionReleaseFollowUpTest {
         } finally { database.close() }
     }
 
-    @Test fun oneAnimeOffTheListDoesNotHideTheProgressOfTheOthers() = runBlocking {
+    private val recent get() = now.minus(Duration.ofMinutes(5))
+    private fun rowsFor(vararg ids: Int) = ids.map { item(it, 5, recent, true, "series-$it") }
+
+    @Test fun byDefaultOnlyWatchingAndRewatchingAreAnnouncedAndHiddenEntriesAreNot() = runBlocking {
         val database = openDatabase()
         try {
-            val recent = now.minus(Duration.ofMinutes(5))
-            val rows = listOf(item(42, 5, recent, true), item(99, 3, recent, true, "not-on-my-list"))
-            val recording = Recording()
-            followUp(database, rows, true, mapOf(42 to 4), recording, wholeSetOnly = true).run()
-            assertEquals(listOf(42), due(database).map { it.mediaId })
+            val entries = mapOf(
+                1 to ListEntryInfo(4, NotificationListStatus.CURRENT),
+                2 to ListEntryInfo(4, NotificationListStatus.REPEATING),
+                3 to ListEntryInfo(4, NotificationListStatus.PAUSED),
+                4 to ListEntryInfo(4, NotificationListStatus.PLANNING),
+                5 to ListEntryInfo(4, NotificationListStatus.CURRENT, hiddenFromStatusLists = true),
+            )
+            followUp(database, rowsFor(1, 2, 3, 4, 5, 6), true, emptyMap(), Recording(), entries = entries).run()
+            assertEquals(listOf(1, 2), due(database).map { it.mediaId }.sorted())
         } finally { database.close() }
     }
 
-    @Test fun aMediaTheCacheDoesNotKnowIsAskedForOnceAndAnnouncedIfItIsOnTheList() = runBlocking {
+    @Test fun hiddenEntriesCanBeSwitchedOn() = runBlocking {
         val database = openDatabase()
         try {
-            val recent = now.minus(Duration.ofMinutes(5))
-            val rows = listOf(item(50, 5, recent, true, "on-the-list"), item(51, 3, recent, true, "off-the-list"))
+            val entries = mapOf(5 to ListEntryInfo(4, NotificationListStatus.CURRENT, hiddenFromStatusLists = true))
+            followUp(database, rowsFor(5), true, emptyMap(), Recording(), entries = entries,
+                scope = ReleaseNotificationScope(includeHidden = true)).run()
+            assertEquals(listOf(5), due(database).map { it.mediaId })
+        } finally { database.close() }
+    }
+
+    @Test fun allAnnouncesEverythingEvenAnimeThatAreNotOnTheListButStillSkipsWatchedEpisodes() = runBlocking {
+        val database = openDatabase()
+        try {
+            val entries = mapOf(
+                1 to ListEntryInfo(4, NotificationListStatus.COMPLETED),
+                2 to ListEntryInfo(5, NotificationListStatus.CURRENT),
+            )
+            followUp(database, rowsFor(1, 2, 3), true, emptyMap(), Recording(), entries = entries,
+                scope = ReleaseNotificationScope(mode = NotificationScopeMode.ALL)).run()
+            assertEquals(listOf(1, 3), due(database).map { it.mediaId }.sorted())
+        } finally { database.close() }
+    }
+
+    @Test fun customAnnouncesExactlyTheChosenStatusesAndNotOnListOnlyIfAsked() = runBlocking {
+        val database = openDatabase()
+        try {
+            val entries = mapOf(
+                1 to ListEntryInfo(4, NotificationListStatus.PAUSED),
+                2 to ListEntryInfo(4, NotificationListStatus.CURRENT),
+                3 to ListEntryInfo(4, NotificationListStatus.DROPPED),
+            )
+            val chosen = ReleaseNotificationScope(mode = NotificationScopeMode.CUSTOM,
+                statuses = setOf(NotificationListStatus.PAUSED, NotificationListStatus.DROPPED))
+            followUp(database, rowsFor(1, 2, 3, 4), true, emptyMap(), Recording(), entries = entries, scope = chosen).run()
+            assertEquals(listOf(1, 3), due(database).map { it.mediaId }.sorted())
+            followUp(database, rowsFor(4), true, emptyMap(), Recording(), entries = entries,
+                scope = chosen.copy(includeNotOnList = true)).run()
+            assertEquals(listOf(1, 3, 4), due(database).map { it.mediaId }.sorted())
+        } finally { database.close() }
+    }
+
+    @Test fun theListIsAskedOnceWithinTheTtlAndNothingIsAnnouncedIfAniListCannotBeAsked() = runBlocking {
+        val database = openDatabase()
+        try {
             val asked = mutableListOf<Set<Int>>()
-            val follow = followUp(database, rows, true, emptyMap(), Recording(),
-                fetchProgress = { ids -> asked += ids; mapOf(50 to 4) })
-            follow.run()
+            val follow = followUp(database, rowsFor(50, 51), true, mapOf(50 to 4), Recording(),
+                fetch = { ids -> asked += ids; mapOf(50 to ListEntryInfo(4, NotificationListStatus.CURRENT)) })
+            follow.run(); follow.run()
+            assertEquals(listOf(setOf(50, 51)), asked)
             assertEquals(listOf(50), due(database).map { it.mediaId })
-            // The one that is not on the list is not asked for again at the next refresh.
-            follow.run()
-            assertEquals(listOf(setOf(50, 51), setOf(50)), asked)
+            val failing = followUp(database, rowsFor(60), true, emptyMap(), Recording(),
+                fetch = { error("offline") })
+            failing.run()
+            assertEquals(listOf(50), due(database).map { it.mediaId })
         } finally { database.close() }
     }
 

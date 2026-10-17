@@ -157,4 +157,22 @@
     <string name="malsync_rules_description">Refresh episode ranges for known anime and split seasons. Your manual mappings take priority.</string>
     <string name="malsync_rules_last_checked">Last successful check: %1$s</string>
     <string name="malsync_rules_result">Checked: %1$d · Failed: %2$d</string>
+    <string name="notification_scope_title">Which anime are announced</string>
+    <string name="notification_scope_mode">Announce</string>
+    <string name="notification_scope_mode_watching">Only anime I am watching</string>
+    <string name="notification_scope_mode_all">All anime of the source</string>
+    <string name="notification_scope_mode_custom">Custom</string>
+    <string name="notification_status_current">Watching</string>
+    <string name="notification_status_repeating">Rewatching</string>
+    <string name="notification_status_planning">Planning</string>
+    <string name="notification_status_paused">Paused</string>
+    <string name="notification_status_completed">Completed</string>
+    <string name="notification_status_dropped">Dropped</string>
+    <string name="notification_scope_not_on_list">Not on my list</string>
+    <string name="notification_scope_not_on_list_summary">Anime of the source that are not on your AniList list at all.</string>
+    <string name="notification_scope_hidden">Include hidden AniList entries</string>
+    <string name="notification_scope_hidden_summary">Entries AniList hides from the status lists.</string>
+    <string name="notification_scope_watching_hint">Default: only anime with the status Watching or Rewatching.</string>
+    <string name="notification_scope_all_hint">Every episode the source lists, on your list or not.</string>
+    <string name="notification_scope_custom_hint">Only anime with the statuses you switch on.</string>
 </resources>

@@ -157,4 +157,22 @@
     <string name="malsync_rules_description">Episodenbereiche für bekannte Anime und geteilte Staffeln aktualisieren. Deine manuellen Zuordnungen haben Vorrang.</string>
     <string name="malsync_rules_last_checked">Zuletzt erfolgreich geprüft: %1$s</string>
     <string name="malsync_rules_result">Geprüft: %1$d · Fehlgeschlagen: %2$d</string>
+    <string name="notification_scope_title">Welche Anime gemeldet werden</string>
+    <string name="notification_scope_mode">Melden</string>
+    <string name="notification_scope_mode_watching">Nur Anime, die ich schaue</string>
+    <string name="notification_scope_mode_all">Alle Anime der Quelle</string>
+    <string name="notification_scope_mode_custom">Benutzerdefiniert</string>
+    <string name="notification_status_current">Am Schauen</string>
+    <string name="notification_status_repeating">Erneut am Schauen</string>
+    <string name="notification_status_planning">Geplant</string>
+    <string name="notification_status_paused">Pausiert</string>
+    <string name="notification_status_completed">Abgeschlossen</string>
+    <string name="notification_status_dropped">Abgebrochen</string>
+    <string name="notification_scope_not_on_list">Nicht auf meiner Liste</string>
+    <string name="notification_scope_not_on_list_summary">Anime der Quelle, die gar nicht auf deiner AniList-Liste stehen.</string>
+    <string name="notification_scope_hidden">Ausgeblendete AniList-Einträge einbeziehen</string>
+    <string name="notification_scope_hidden_summary">Einträge, die AniList aus den Statuslisten ausblendet.</string>
+    <string name="notification_scope_watching_hint">Standard: nur Anime mit dem Status Am Schauen oder Erneut am Schauen.</string>
+    <string name="notification_scope_all_hint">Jede Folge, die die Quelle listet, auf deiner Liste oder nicht.</string>
+    <string name="notification_scope_custom_hint">Nur Anime mit den Status, die du einschaltest.</string>
 </resources>

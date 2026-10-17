@@ -1,6 +1,8 @@
 package com.axiel7.anihyou.release.data.repository
 
+import com.axiel7.anihyou.release.core.api.ListEntryInfo
 import com.axiel7.anihyou.release.core.api.ReleaseAccountContextProvider
+import com.axiel7.anihyou.release.core.api.ReleaseNotificationScope
 import com.axiel7.anihyou.release.core.api.ReleaseGermanTrack
 import com.axiel7.anihyou.release.core.api.ReleaseOutboxScheduler
 import com.axiel7.anihyou.release.core.api.ReleasePreferencesRepository
@@ -40,14 +42,16 @@ class ExtensionReleaseFollowUp(
     /** The AniList title of a media if it is cached; the source's own series name stands in otherwise. */
     private val titleOf: suspend (mediaId: Int) -> String? = { null },
     /**
-     * The AniList progress of these media from AniList itself (one request for all of them), only those on the user's list.
-     * The local cache cannot tell "not on the list" from "not loaded yet", so a media it does not know is asked for once.
+     * What AniList says about these media on the user's list (progress, status, hidden flag), asked for in one request;
+     * media that are not on the list are simply absent. The local cache cannot tell "not on the list" from "not loaded
+     * yet" and can be out of date, so the answer comes from AniList itself and is kept for [ENTRY_TTL].
      */
-    private val fetchProgress: suspend (mediaIds: Set<Int>) -> Map<Int, Int> = { emptyMap() },
+    private val fetchEntries: suspend (mediaIds: Set<Int>) -> Map<Int, ListEntryInfo> = { emptyMap() },
+    /** Which anime may be announced; read at every run, so a change of the setting applies to the next refresh. */
+    private val scope: () -> ReleaseNotificationScope = { ReleaseNotificationScope() },
     private val clock: Clock = Clock.systemUTC(),
 ) {
-    /** Media AniList said are not on the list, with the time of the answer; not asked for again within [ABSENT_TTL]. */
-    private val absentSince = java.util.concurrent.ConcurrentHashMap<Int, Instant>()
+    private val entryCache = java.util.concurrent.ConcurrentHashMap<Int, Pair<ListEntryInfo?, Instant>>()
 
     /** Never throws except for cancellation: a follow-up must not change the outcome of the refresh it follows. */
     suspend fun run() {
@@ -80,45 +84,68 @@ class ExtensionReleaseFollowUp(
                 // Only whole episodes: a film, a special or a fractional installment has no episode number to compare.
                 item.installment.let { it is Installment.Episode && it.fraction == null }
         }
-        val progress = progressOf(episodes.mapNotNull { it.mediaId }.toSet())
+        val chosen = scope()
+        val entries = entriesFor(episodes.mapNotNull { it.mediaId }.toSet(), now)
         AppLog.i("followup") {
             "start: items=${items.size} preferredTrack=$track episodes=${episodes.size} confirmed=${episodes.count { it.confirmed }} " +
-                "progressKnown=${progress.size} notificationsEnabled=${prefs.notificationsEnabled}"
+                "onList=${entries?.values?.count { it != null }} notificationsEnabled=${prefs.notificationsEnabled} scope=${chosen.mode}"
         }
-        if (prefs.notificationsEnabled) announce(accountId, episodes.filter { it.confirmed }, progress, now)
-        planChecks(episodes.filter { !it.confirmed }, progress, now)
+        if (prefs.notificationsEnabled) announce(accountId, episodes.filter { it.confirmed }, entries, chosen, now)
+        planChecks(episodes.filter { !it.confirmed }, entries, chosen, now)
     }
 
     /**
-     * The account context answers for a whole set of media or for none of it: one anime that is not on the user's list makes
-     * the answer for all of them unknown. A calendar always holds such anime, so the set is asked for first (cheap, one
-     * read) and every media that is still missing is asked for on its own. Not on the list stays unknown, never zero.
+     * The list entry of each media (null: not on the list), or null as a whole if AniList could not be asked. Answers are
+     * kept for [ENTRY_TTL], so the checks after a planned time do not each cost a request.
      */
-    private suspend fun progressOf(mediaIds: Set<Int>): Map<Int, Int> {
+    private suspend fun entriesFor(mediaIds: Set<Int>, now: Instant): Map<Int, ListEntryInfo?>? {
         if (mediaIds.isEmpty()) return emptyMap()
-        val all = accountContext.current(mediaIds).progressByMediaId
-        if (mediaIds.all { it in all }) return all
-        val known = all.toMutableMap()
+        val known = HashMap<Int, ListEntryInfo?>()
+        val ask = mutableListOf<Int>()
         for (id in mediaIds) {
-            if (id in known) continue
-            accountContext.current(setOf(id)).progressByMediaId[id]?.let { known[id] = it }
+            val cached = entryCache[id]
+            if (cached != null && Duration.between(cached.second, now) < ENTRY_TTL) known[id] = cached.first else ask += id
+        }
+        if (ask.isNotEmpty()) {
+            val fetched = try {
+                ask.chunked(ENTRY_REQUEST_SIZE).fold(emptyMap<Int, ListEntryInfo>()) { all, chunk -> all + fetchEntries(chunk.toSet()) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AppLog.w("followup", failure) { "asking AniList for ${ask.size} list entries failed" }
+                return null
+            }
+            for (id in ask) {
+                val entry = fetched[id]
+                entryCache[id] = entry to now
+                known[id] = entry
+            }
+            AppLog.i("followup") { "asked AniList: ${ask.size} media, ${fetched.size} on the list" }
         }
         return known
     }
 
-    private suspend fun announce(accountId: Long, confirmed: List<ReleaseUiCalendarItem>, cached: Map<Int, Int>, now: Instant) {
-        val progress = withAskedProgress(confirmed, cached, now)
+    private suspend fun announce(
+        accountId: Long, confirmed: List<ReleaseUiCalendarItem>, entries: Map<Int, ListEntryInfo?>?,
+        chosen: ReleaseNotificationScope, now: Instant,
+    ) {
+        if (entries == null) {
+            // Without AniList's answer nothing is announced, never a guess; the next check asks again.
+            if (confirmed.isNotEmpty()) AppLog.w("followup") { "no notification: the AniList list could not be read, tried again at the next check" }
+            return
+        }
         var added = 0
         for (item in confirmed) {
             val mediaId = checkNotNull(item.mediaId)
             val episode = item.installment as Installment.Episode
             val released = checkNotNull(item.forecastAt)
-            val known = progress[mediaId]
+            val entry = entries[mediaId]
             val reason = when {
                 released.isBefore(now.minus(ANNOUNCE_WINDOW)) -> "released more than $ANNOUNCE_WINDOW ago"
                 released.isAfter(now.plus(CLOCK_SKEW)) -> "released in the future"
-                known == null -> "not on the AniList list"
-                episode.number <= known -> "already watched (progress $known)"
+                !chosen.allows(entry) -> if (entry == null) "not on the AniList list (not in the chosen scope)"
+                    else "list status ${entry.status ?: "unknown"}${if (entry.hiddenFromStatusLists) " (hidden)" else ""} is not in the chosen scope"
+                entry != null && episode.number <= entry.progress -> "already watched (progress ${entry.progress})"
                 else -> null
             }
             if (reason != null) {
@@ -144,36 +171,14 @@ class ExtensionReleaseFollowUp(
         if (added > 0) outboxScheduler.schedule()
     }
 
-    /** The cached progress plus, for the episodes that could still be announced, what AniList says about the rest. */
-    private suspend fun withAskedProgress(
-        confirmed: List<ReleaseUiCalendarItem>, cached: Map<Int, Int>, now: Instant,
-    ): Map<Int, Int> {
-        val unknown = confirmed.filter { item ->
-            val released = item.forecastAt ?: return@filter false
-            !released.isBefore(now.minus(ANNOUNCE_WINDOW)) && !released.isAfter(now.plus(CLOCK_SKEW))
-        }.mapNotNull { it.mediaId }.filter { id ->
-            id !in cached && absentSince[id]?.let { Duration.between(it, now) < ABSENT_TTL } != true
-        }.toSet()
-        if (unknown.isEmpty()) return cached
-        val asked = try {
-            fetchProgress(unknown)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            AppLog.w("followup", failure) { "asking AniList for the progress of ${unknown.size} media failed" }
-            return cached
-        }
-        unknown.filter { it !in asked }.forEach { absentSince[it] = now }
-        AppLog.i("followup") { "asked AniList: ${unknown.size} media, ${asked.size} on the list" }
-        return cached + asked
-    }
-
-    private fun planChecks(planned: List<ReleaseUiCalendarItem>, progress: Map<Int, Int>, now: Instant) {
-        // Followed means on the AniList list with an episode still ahead of the user's progress. If no progress is known at
-        // all, every bound planned release is followed rather than none: a check costs one request of the hard limits.
-        val followed = if (progress.isEmpty()) planned else planned.filter { item ->
-            val known = progress[item.mediaId] ?: return@filter false
-            (item.installment as Installment.Episode).number > known
+    private fun planChecks(
+        planned: List<ReleaseUiCalendarItem>, entries: Map<Int, ListEntryInfo?>?, chosen: ReleaseNotificationScope, now: Instant,
+    ) {
+        // Followed means inside the chosen scope with an episode still ahead of the user's progress. If AniList could not be
+        // asked, every bound planned release is followed rather than none: a check costs one request of the hard limits.
+        val followed = if (entries == null) planned else planned.filter { item ->
+            val entry = entries[item.mediaId]
+            chosen.allows(entry) && (entry == null || (item.installment as Installment.Episode).number > entry.progress)
         }
         val times = DueReleaseCheckPlanner.plan(followed.mapNotNull { it.forecastAt }, now)
         AppLog.i("followup") {
@@ -197,6 +202,8 @@ class ExtensionReleaseFollowUp(
         /** An episode the source lists long after its release is history, not news. */
         val ANNOUNCE_WINDOW: Duration = Duration.ofHours(12)
         val CLOCK_SKEW: Duration = Duration.ofMinutes(10)
-        val ABSENT_TTL: Duration = Duration.ofHours(1)
+        /** AniList's answer about a list entry is reused this long; the checks after a planned time come within minutes. */
+        val ENTRY_TTL: Duration = Duration.ofMinutes(10)
+        const val ENTRY_REQUEST_SIZE = 50
     }
 }

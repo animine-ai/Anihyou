@@ -1,5 +1,9 @@
 package com.axiel7.anihyou.feature.settings.source
 
+import com.axiel7.anihyou.release.core.api.NotificationListStatus
+import com.axiel7.anihyou.release.core.api.NotificationScopeMode
+import com.axiel7.anihyou.release.core.api.ReleaseNotificationScope
+import kotlinx.collections.immutable.toImmutableList
 import androidx.annotation.DrawableRes
 import android.Manifest
 import android.content.Intent
@@ -59,6 +63,7 @@ import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
 import com.axiel7.anihyou.core.ui.common.navigation.Route
 import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithSmallTopAppBar
 import com.axiel7.anihyou.core.resources.R as CoreR
+import com.axiel7.anihyou.core.ui.composables.ListPreference
 import com.axiel7.anihyou.core.ui.composables.PlainPreference
 import com.axiel7.anihyou.core.ui.composables.PreferencesTitle
 import com.axiel7.anihyou.core.ui.composables.SwitchPreference
@@ -223,6 +228,7 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
                 }
             },
         )
+        if (enabled) state.notificationScope?.let { scope -> NotificationScopePreferences(scope, event) }
         if (enabled && !systemNotificationsOn) {
             // Switched on here, but Android does not let the app post: say so instead of staying silent.
             PlainPreference(
@@ -433,3 +439,92 @@ private fun DiagnosticRows(rows: List<Pair<String, String?>>) {
 private fun isIgnoringBatteryOptimizations(context: android.content.Context): Boolean =
     (context.getSystemService(android.content.Context.POWER_SERVICE) as? PowerManager)
         ?.isIgnoringBatteryOptimizations(context.packageName) == true
+
+
+/** What is announced: the anime being watched (default), everything, or the exact statuses the user picks. */
+@Composable
+private fun NotificationScopePreferences(scope: ReleaseNotificationScope, event: ExtensionSourcesEvent) {
+    PreferencesTitle(text = stringResource(R.string.notification_scope_title))
+    val customRows = if (scope.mode == NotificationScopeMode.CUSTOM) NotificationListStatus.entries.size + 1 else 0
+    val hiddenRow = if (scope.mode == NotificationScopeMode.ALL) 0 else 1
+    val count = 1 + customRows + hiddenRow
+    var index = 0
+    ListPreference(
+        title = stringResource(R.string.notification_scope_mode),
+        icon = CoreR.drawable.filter_list_24,
+        values = NotificationScopeMode.entries.toImmutableList(),
+        labelForValue = { stringResource(scopeModeLabel(it)) },
+        preferenceValue = scope.mode,
+        onValueChange = { mode -> event.updateNotificationScope { it.copy(mode = mode) } },
+        shape = preferenceShape(index++, count),
+        modifier = Modifier.testTag("extension-notification-scope-mode"),
+    )
+    if (scope.mode == NotificationScopeMode.CUSTOM) {
+        NotificationListStatus.entries.forEach { status ->
+            SwitchPreference(
+                title = stringResource(statusLabel(status)),
+                preferenceValue = status in scope.statuses,
+                icon = statusIcon(status),
+                shape = preferenceShape(index++, count),
+                modifier = Modifier.testTag("extension-notification-scope-" + status.name.lowercase()),
+                onValueChange = { on ->
+                    event.updateNotificationScope { it.copy(statuses = if (on) it.statuses + status else it.statuses - status) }
+                },
+            )
+        }
+        SwitchPreference(
+            title = stringResource(R.string.notification_scope_not_on_list),
+            subtitle = stringResource(R.string.notification_scope_not_on_list_summary),
+            preferenceValue = scope.includeNotOnList,
+            icon = CoreR.drawable.playlist_add_24,
+            shape = preferenceShape(index++, count),
+            modifier = Modifier.testTag("extension-notification-scope-not-on-list"),
+            onValueChange = { on -> event.updateNotificationScope { it.copy(includeNotOnList = on) } },
+        )
+    }
+    if (hiddenRow == 1) {
+        SwitchPreference(
+            title = stringResource(R.string.notification_scope_hidden),
+            subtitle = stringResource(R.string.notification_scope_hidden_summary),
+            preferenceValue = scope.includeHidden,
+            icon = CoreR.drawable.visibility_off_24,
+            shape = preferenceShape(index, count),
+            modifier = Modifier.testTag("extension-notification-scope-hidden"),
+            onValueChange = { on -> event.updateNotificationScope { it.copy(includeHidden = on) } },
+        )
+    }
+    Text(
+        text = stringResource(when (scope.mode) {
+            NotificationScopeMode.WATCHING -> R.string.notification_scope_watching_hint
+            NotificationScopeMode.ALL -> R.string.notification_scope_all_hint
+            NotificationScopeMode.CUSTOM -> R.string.notification_scope_custom_hint
+        }),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp),
+    )
+}
+
+private fun scopeModeLabel(mode: NotificationScopeMode) = when (mode) {
+    NotificationScopeMode.WATCHING -> R.string.notification_scope_mode_watching
+    NotificationScopeMode.ALL -> R.string.notification_scope_mode_all
+    NotificationScopeMode.CUSTOM -> R.string.notification_scope_mode_custom
+}
+
+private fun statusLabel(status: NotificationListStatus) = when (status) {
+    NotificationListStatus.CURRENT -> R.string.notification_status_current
+    NotificationListStatus.REPEATING -> R.string.notification_status_repeating
+    NotificationListStatus.PLANNING -> R.string.notification_status_planning
+    NotificationListStatus.PAUSED -> R.string.notification_status_paused
+    NotificationListStatus.COMPLETED -> R.string.notification_status_completed
+    NotificationListStatus.DROPPED -> R.string.notification_status_dropped
+}
+
+private fun statusIcon(status: NotificationListStatus) = when (status) {
+    NotificationListStatus.CURRENT -> CoreR.drawable.play_circle_24
+    NotificationListStatus.REPEATING -> CoreR.drawable.refresh_24
+    NotificationListStatus.PLANNING -> CoreR.drawable.bookmark_24
+    NotificationListStatus.PAUSED -> CoreR.drawable.pause_circle_24
+    NotificationListStatus.COMPLETED -> CoreR.drawable.check_circle_24
+    NotificationListStatus.DROPPED -> CoreR.drawable.cancel_24
+}

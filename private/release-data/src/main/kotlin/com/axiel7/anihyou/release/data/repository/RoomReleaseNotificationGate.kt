@@ -75,15 +75,22 @@ class RoomReleaseNotificationGate(
         val extension = extensionSourceActive?.invoke() == true
         if (!providerEnabled() && !extension) return ReleaseDeliveryDecision.INELIGIBLE
 
+        if (extension) {
+            // The follow-up that enqueued it has just read this anime's list entry from AniList and decided by the user's
+            // scope, which may include anime that are not on the list. Here only a watched episode is left out: progress that
+            // is unknown (not on the list, or not cached) does not block a notification the scope allowed.
+            val context = runCatching { accountContextProvider.current(setOf(mediaId)) }.getOrNull()
+            if (context?.accountId != null && context.accountId != accountId) return ReleaseDeliveryDecision.INELIGIBLE
+            val watched = context?.takeIf { it.accountId == accountId }?.progressFor(mediaId)
+            return if (watched != null && !isTypedEligible(installment, watched)) ReleaseDeliveryDecision.INELIGIBLE
+                else ReleaseDeliveryDecision.ALLOW
+        }
+
         // Do not turn a cold-cache miss into a permanently cancelled notification. No new AniList query policy.
         val accountContext = accountContextProvider.current(setOf(mediaId))
         if (accountContext.accountId == null) return ReleaseDeliveryDecision.UNKNOWN
         if (accountContext.accountId != accountId) return ReleaseDeliveryDecision.INELIGIBLE
         val currentProgress = accountContext.progressFor(mediaId) ?: return ReleaseDeliveryDecision.UNKNOWN
-        if (extension) {
-            return if (isTypedEligible(installment, currentProgress)) ReleaseDeliveryDecision.ALLOW
-                else ReleaseDeliveryDecision.INELIGIBLE
-        }
         val confirmed = database.releaseDao().getValidMediaProjectionsForAccount(accountId, mediaId)
             .asSequence().mapNotNull { it.toDomainOrNull() }.any { projection ->
                 projection.confirmedInstallments.any { candidate ->

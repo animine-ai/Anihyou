@@ -267,6 +267,9 @@ val animetrackerReleaseModule = module {
     single { RoomReleaseMappingRepository(get(), get()) }
     single<ReleaseMappingRepository> { get<RoomReleaseMappingRepository>() }
     single { RoomNotificationOutboxStore(get(), get()) }
+    single<com.axiel7.anihyou.release.core.api.ReleaseNotificationScopeRepository> {
+        com.axiel7.anihyou.release.data.preferences.SharedPreferencesNotificationScopeRepository(androidApplication())
+    }
     single {
         com.axiel7.anihyou.release.data.repository.ExtensionReleaseFollowUp(
             presentation = get<ReleasePresentationRepository>(),
@@ -277,7 +280,8 @@ val animetrackerReleaseModule = module {
             refreshScheduler = get<com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler>(),
             sourceActive = { get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null },
             titleOf = { mediaId -> get<com.axiel7.anihyou.core.domain.repository.MediaRepository>().mediaPreview(mediaId)?.title },
-            fetchProgress = { mediaIds -> askAniListForProgress(get(), get(), mediaIds) },
+            fetchEntries = { mediaIds -> askAniListForEntries(get(), get(), mediaIds) },
+            scope = { get<com.axiel7.anihyou.release.core.api.ReleaseNotificationScopeRepository>().scope.value },
             clock = get<Clock>(),
         )
     }
@@ -290,11 +294,11 @@ val animetrackerReleaseModule = module {
 }
 
 /** One AniList request for the entries of these media on the user's list; media that are not on it are simply absent. */
-private suspend fun askAniListForProgress(
+private suspend fun askAniListForEntries(
     mediaLists: com.axiel7.anihyou.core.domain.repository.MediaListRepository,
     preferences: com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository,
     mediaIds: Set<Int>,
-): Map<Int, Int> {
+): Map<Int, com.axiel7.anihyou.release.core.api.ListEntryInfo> {
     val userId = preferences.userId.first() ?: return emptyMap()
     val scoreFormat = preferences.scoreFormat.first() ?: com.axiel7.anihyou.core.network.type.ScoreFormat.POINT_10
     val ids = mediaIds.sorted().take(50)
@@ -309,9 +313,17 @@ private suspend fun askAniListForProgress(
         perPage = ids.size,
         mediaIds = ids,
     ).first { it !is com.axiel7.anihyou.core.base.PagedResult.Loading }
-    check(result is com.axiel7.anihyou.core.base.PagedResult.Success) { "AniList progress request failed" }
+    check(result is com.axiel7.anihyou.core.base.PagedResult.Success) { "AniList list request failed" }
     return result.list.mapNotNull { entry ->
-        entry.basicMediaListEntry.progressOrVolumes()?.takeIf { it >= 0 }?.let { entry.mediaId to it }
+        val basic = entry.basicMediaListEntry
+        val progress = basic.progressOrVolumes()?.takeIf { it >= 0 } ?: return@mapNotNull null
+        entry.mediaId to com.axiel7.anihyou.release.core.api.ListEntryInfo(
+            progress = progress,
+            status = basic.status?.name?.let { name ->
+                runCatching { com.axiel7.anihyou.release.core.api.NotificationListStatus.valueOf(name) }.getOrNull()
+            },
+            hiddenFromStatusLists = basic.hiddenFromStatusLists == true,
+        )
     }.toMap()
 }
 

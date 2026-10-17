@@ -29,6 +29,8 @@ data class ExtensionSourcesUiState(
     val canEditProductPolicy: Boolean = false,
     /** The release notification switch of the extension data path; null when this build has no such setting. */
     val releaseNotificationsEnabled: Boolean? = null,
+    /** Which anime may produce a release notification; null when this build has no such setting. */
+    val notificationScope: com.axiel7.anihyou.release.core.api.ReleaseNotificationScope? = null,
     /** True only while the old AniWorld lane of earlier builds is still switched on; it can be switched off here, never on. */
     val legacyLaneEnabled: Boolean = false,
     /** False when this build cannot authenticate any source; mutating repository actions are then not offered. */
@@ -63,6 +65,8 @@ interface ExtensionSourcesEvent {
     fun setProviderVisibility(key: ExtensionSelectionKey, visible: Boolean) {}
     fun resetProviderDisplay() {}
     fun setReleaseNotificationsEnabled(enabled: Boolean) {}
+    /** Changes the choice of which anime are announced; applies from the next refresh on. */
+    fun updateNotificationScope(transform: (com.axiel7.anihyou.release.core.api.ReleaseNotificationScope) -> com.axiel7.anihyou.release.core.api.ReleaseNotificationScope) {}
     fun disableLegacyLane() {}
     fun refreshDiagnostics() {}
     /** Asks the extension source for the release data right now, past the automatic hourly window. */
@@ -78,6 +82,7 @@ class ExtensionSourcesViewModel(
     private val releaseOutboxRepository: com.axiel7.anihyou.release.core.api.ReleaseOutboxRepository? = null,
     private val releaseRefreshScheduler: com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler? = null,
     private val statisticsRepository: com.axiel7.anihyou.release.core.source.ExtensionStatisticsRepository? = null,
+    private val notificationScopeRepository: com.axiel7.anihyou.release.core.api.ReleaseNotificationScopeRepository? = null,
 ) : ViewModel(), ExtensionSourcesEvent {
 
     private val _uiState = MutableStateFlow(
@@ -111,6 +116,9 @@ class ExtensionSourcesViewModel(
                     }
                 }
             }
+        }
+        notificationScopeRepository?.let { scopes ->
+            viewModelScope.launch { scopes.scope.collect { value -> _uiState.update { it.copy(notificationScope = value) } } }
         }
         performAction { repository.restoreInstalled() }
         observeStatistics()
@@ -154,6 +162,18 @@ class ExtensionSourcesViewModel(
                 // Asks the source now, so an episode that is already out is announced without waiting for the next slot.
                 releaseRefreshScheduler?.scheduleNow()
             }
+        }
+    }
+
+    override fun updateNotificationScope(
+        transform: (com.axiel7.anihyou.release.core.api.ReleaseNotificationScope) -> com.axiel7.anihyou.release.core.api.ReleaseNotificationScope,
+    ) {
+        val scopes = notificationScopeRepository ?: return
+        viewModelScope.launch {
+            scopes.update(transform)
+            AppLog.i("ui") { "user: notification scope is now ${scopes.scope.value}" }
+            // A wider scope should announce what is already out without waiting for the next slot.
+            releaseRefreshScheduler?.scheduleNow()
         }
     }
 
