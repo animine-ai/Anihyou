@@ -172,6 +172,10 @@ val animetrackerReleaseModule = module {
             clock = get(),
             navigationStore = get(),
             postponementStore = get(),
+            openCooldown = {
+                java.time.Duration.ofMinutes(
+                    get<com.axiel7.anihyou.release.core.api.ExtensionRefreshScheduleRepository>().openCooldownMinutes.value.toLong())
+            },
         )
     }
     single<com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator> {
@@ -181,7 +185,15 @@ val animetrackerReleaseModule = module {
         com.axiel7.anihyou.release.data.repository.ProductionExtensionReleaseRefreshCoordinator(
             sources = get(),
             delegate = get<com.axiel7.anihyou.release.data.repository.SingleSourceShadowRefreshCoordinator>(),
-            afterRefresh = { get<com.axiel7.anihyou.release.data.repository.SourceSeriesMatchingService>().autoMatchPending() },
+            // Matching first, so that a series bound by this refresh counts in the follow-up that announces it.
+            afterRefresh = {
+                try { get<com.axiel7.anihyou.release.data.repository.SourceSeriesMatchingService>().autoMatchPending() }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (failure: Exception) {
+                    com.axiel7.anihyou.release.core.log.AppLog.w("sync", failure) { "auto matching failed: ${failure.javaClass.simpleName}" }
+                }
+                get<com.axiel7.anihyou.release.data.repository.ExtensionReleaseFollowUp>().run()
+            },
         )
     }
     single<com.axiel7.anihyou.release.core.api.ExtensionRefreshScheduleRepository> {
@@ -253,9 +265,25 @@ val animetrackerReleaseModule = module {
     single { RoomReleaseMappingRepository(get(), get()) }
     single<ReleaseMappingRepository> { get<RoomReleaseMappingRepository>() }
     single { RoomNotificationOutboxStore(get(), get()) }
+    single {
+        com.axiel7.anihyou.release.data.repository.ExtensionReleaseFollowUp(
+            presentation = get<ReleasePresentationRepository>(),
+            preferences = get<ReleasePreferencesRepository>(),
+            accountContext = get<ReleaseAccountContextProvider>(),
+            outbox = get(),
+            outboxScheduler = get<ReleaseOutboxScheduler>(),
+            refreshScheduler = get<com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler>(),
+            sourceActive = { get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null },
+            titleOf = { mediaId -> get<com.axiel7.anihyou.core.domain.repository.MediaRepository>().cachedMediaTitle(mediaId) },
+            clock = get<Clock>(),
+        )
+    }
     single<ReleaseOutboxRepository> { RoomReleaseOutboxRepository(get()) }
     single<ReleasePreferencesRepository> { RoomReleasePreferencesRepository(get()) }
-    single<ReleaseNotificationGate> { RoomReleaseNotificationGate(get(), get(), get()) }
+    single<ReleaseNotificationGate> {
+        RoomReleaseNotificationGate(get(), get(), get(),
+            extensionSourceActive = { get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null })
+    }
 }
 
 /** Both the user-source installer and the release Authority boundary receive the same reviewed configuration. */

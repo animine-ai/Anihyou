@@ -150,6 +150,9 @@ class ExtensionSourcesViewModel(
             preferences.setNotificationsEnabled(enabled)
             if (!enabled) {
                 releaseOutboxRepository?.cancelPending("release notifications disabled", java.time.Instant.now())
+            } else {
+                // Asks the source now, so an episode that is already out is announced without waiting for the next slot.
+                releaseRefreshScheduler?.scheduleNow()
             }
         }
     }

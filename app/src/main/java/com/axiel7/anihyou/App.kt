@@ -1,5 +1,6 @@
 package com.axiel7.anihyou
 
+import com.axiel7.anihyou.feature.worker.NotificationWorker.Companion.createDefaultNotificationChannels
 import android.app.Application
 import android.os.Build.VERSION.SDK_INT
 import androidx.core.performance.DefaultDevicePerformance
@@ -76,6 +77,9 @@ class App : Application(), SingletonImageLoader.Factory {
         if (AniWorldShadowDebugActivation.enabledForInternalTest) {
             koinApplication.koin.get<AniWorldShadowScheduler>().scheduleCanaryNow()
         }
+        // Android drops a notification whose channel does not exist, and the channels used to be created only when AniList push
+        // notifications were switched on; creating them is idempotent.
+        runCatching { createDefaultNotificationChannels() }
         startupScope.launch {
             // Registry IO and scheduling never block startup. An empty install schedules no work.
             runCatching {

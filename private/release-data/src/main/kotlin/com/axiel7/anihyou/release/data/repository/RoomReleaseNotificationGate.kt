@@ -23,6 +23,12 @@ class RoomReleaseNotificationGate(
     private val database: ReleaseDatabase,
     private val releasePreferencesStore: ReleasePreferencesStore,
     private val accountContextProvider: ReleaseAccountContextProvider,
+    /**
+     * Whether a usable extension source owns the release data. Its rows are announced by the follow-up of its own refresh,
+     * which only enqueues episodes the source lists as released, so delivery is revalidated against the account's
+     * progress alone. Null (tests, tools) keeps the old provider lane as the only owner.
+     */
+    private val extensionSourceActive: (suspend () -> Boolean)? = null,
 ) : ReleaseNotificationGate {
     override suspend fun suppressAniListAiring(
         accountId: Long,
@@ -66,13 +72,18 @@ class RoomReleaseNotificationGate(
         if (accountId <= 0L || mediaId <= 0 || identityKey.isBlank()) return ReleaseDeliveryDecision.INELIGIBLE
         if (installment == null || installment is Installment.Episode && installment.fraction != null)
             return ReleaseDeliveryDecision.INELIGIBLE
-        if (!providerEnabled()) return ReleaseDeliveryDecision.INELIGIBLE
+        val extension = extensionSourceActive?.invoke() == true
+        if (!providerEnabled() && !extension) return ReleaseDeliveryDecision.INELIGIBLE
 
         // Do not turn a cold-cache miss into a permanently cancelled notification. No new AniList query policy.
         val accountContext = accountContextProvider.current(setOf(mediaId))
         if (accountContext.accountId == null) return ReleaseDeliveryDecision.UNKNOWN
         if (accountContext.accountId != accountId) return ReleaseDeliveryDecision.INELIGIBLE
         val currentProgress = accountContext.progressFor(mediaId) ?: return ReleaseDeliveryDecision.UNKNOWN
+        if (extension) {
+            return if (isTypedEligible(installment, currentProgress)) ReleaseDeliveryDecision.ALLOW
+                else ReleaseDeliveryDecision.INELIGIBLE
+        }
         val confirmed = database.releaseDao().getValidMediaProjectionsForAccount(accountId, mediaId)
             .asSequence().mapNotNull { it.toDomainOrNull() }.any { projection ->
                 projection.confirmedInstallments.any { candidate ->

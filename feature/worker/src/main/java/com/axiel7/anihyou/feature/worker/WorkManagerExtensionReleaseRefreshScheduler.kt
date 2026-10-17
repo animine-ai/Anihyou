@@ -61,6 +61,18 @@ class WorkManagerExtensionReleaseRefreshScheduler(
             delay = Duration.between(now, notBefore).coerceAtLeast(Duration.ZERO), chain = chain)
     }
 
+    override fun scheduleDueReleases(times: List<Instant>) {
+        val now = clock.instant()
+        // One unique work per planned minute: planning the same time again after the next refresh is a no-op (KEEP).
+        times.filter { it.isAfter(now) }.forEach { at ->
+            enqueue("$DUE_RELEASE-${at.epochSecond}", ExtensionRefreshTrigger.DUE_RELEASE, ExistingWorkPolicy.KEEP,
+                delay = Duration.between(now, at), extraTag = DUE_RELEASE_TAG)
+        }
+        com.axiel7.anihyou.release.core.log.AppLog.i("worker") {
+            "due release checks planned: ${times.size}, first=${times.firstOrNull()}"
+        }
+    }
+
     override fun ensureSlotScheduled() {
         scope.launch {
             try { slotMutex.withLock { ensureSlot() } } catch (cancelled: CancellationException) { throw cancelled }
@@ -123,6 +135,8 @@ class WorkManagerExtensionReleaseRefreshScheduler(
         const val MANUAL = "$TAG-manual"
         const val DEFERRED = "$TAG-deferred"
         const val CATCH_UP = "$TAG-catch-up"
+        const val DUE_RELEASE = "$TAG-due-release"
+        const val DUE_RELEASE_TAG = "$TAG-due-release-tag"
         /** The hourly periodic work of earlier builds. */
         const val LEGACY_PERIODIC = "$TAG-periodic"
         /** A missed slot is not made up in the first minutes after it, so a slot that is just late is not doubled. */

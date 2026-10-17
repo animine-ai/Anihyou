@@ -1,6 +1,22 @@
 package com.axiel7.anihyou.feature.settings.source
 
 import androidx.annotation.DrawableRes
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -168,9 +184,24 @@ internal fun installedEntries(state: ExtensionSourcesUiState): List<Pair<Extensi
         source.selectionKey(extension)?.takeIf { extension.isUsableInstalled() }?.let { it to extension }
     } }
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: ExtensionSourcesEvent) {
     val nav = LocalNavActionManager.current
+    val context = LocalContext.current
+    // The switch asks for the permission first and only turns on once it is granted; without it every notification would
+    // be dropped silently, which is how release notifications never appeared.
+    val notificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS) { granted ->
+            if (granted) event.setReleaseNotificationsEnabled(true)
+        }
+    } else null
+    var systemNotificationsOn by remember { mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled()) }
+    var ignoringBatteryOptimizations by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        systemNotificationsOn = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        ignoringBatteryOptimizations = isIgnoringBatteryOptimizations(context)
+    }
     PreferencesTitle(stringResource(R.string.extension_center_management_section))
     PlainPreference(title = stringResource(R.string.extension_center_schedule), icon = CoreR.drawable.schedule_24,
         shape = singleShape, modifier = Modifier.testTag("extension-source-schedule"),
@@ -184,8 +215,50 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
             icon = CoreR.drawable.notifications_24,
             shape = singleShape,
             modifier = Modifier.testTag("extension-preference-release-notifications"),
-            onValueChange = event::setReleaseNotificationsEnabled,
+            onValueChange = { enable ->
+                if (enable && notificationPermission != null && !notificationPermission.status.isGranted) {
+                    notificationPermission.launchPermissionRequest()
+                } else {
+                    event.setReleaseNotificationsEnabled(enable)
+                }
+            },
         )
+        if (enabled && !systemNotificationsOn) {
+            // Switched on here, but Android does not let the app post: say so instead of staying silent.
+            PlainPreference(
+                title = stringResource(R.string.extension_notifications_off_title),
+                subtitle = stringResource(R.string.extension_notifications_off_summary),
+                icon = CoreR.drawable.info_24,
+                shape = singleShape,
+                modifier = Modifier.testTag("extension-notifications-system-off"),
+                onClick = {
+                    context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                },
+            )
+        }
+        if (enabled && !ignoringBatteryOptimizations) {
+            // Optional. The hourly checks run without it; the system may only batch them while the phone rests.
+            PlainPreference(
+                title = stringResource(R.string.extension_background_title),
+                subtitle = stringResource(R.string.extension_background_summary),
+                icon = CoreR.drawable.schedule_24,
+                shape = singleShape,
+                modifier = Modifier.testTag("extension-background-optimization"),
+                onClick = {
+                    val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                        .setData(Uri.parse("package:" + context.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    // Some devices do not offer the direct dialog; the list of all apps does the same.
+                    runCatching { context.startActivity(request) }.onFailure {
+                        runCatching {
+                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                    }
+                },
+            )
+        }
     }
     if (state.legacyLaneEnabled) {
         // Left over from earlier builds: it runs beside the sources and decides Behind and countdowns. Off only.
@@ -356,3 +429,7 @@ private fun DiagnosticRows(rows: List<Pair<String, String?>>) {
         }
     }
 }
+
+private fun isIgnoringBatteryOptimizations(context: android.content.Context): Boolean =
+    (context.getSystemService(android.content.Context.POWER_SERVICE) as? PowerManager)
+        ?.isIgnoringBatteryOptimizations(context.packageName) == true

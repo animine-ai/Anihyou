@@ -118,4 +118,36 @@ class ExtensionRefreshPlannerTest {
         val future = ExtensionSuccessLookup { now.plus(Duration.ofHours(5)) }
         assertIs<ExtensionRefreshPlan.Run>(plan(ExtensionRefreshTrigger.SCHEDULED_SLOT, future))
     }
+
+    @Test fun theOpenCooldownReplacesTheHourlyWindowOfTheThreeRolesAnOpeningAsks() {
+        val policy = com.axiel7.anihyou.release.core.api.ExtensionFreshnessPolicy().withOpenCooldown(Duration.ofMinutes(10))
+        val fiveMinutesAgo = lookup(
+            role(SourceRole.CALENDAR) to Duration.ofMinutes(5), role(SourceRole.RECENT) to Duration.ofMinutes(5),
+            role(SourceRole.POSTPONEMENT) to Duration.ofMinutes(5),
+        )
+        // Inside the pause nothing is asked: the automatic window and every role are still resting.
+        val resting = ExtensionRefreshPlanner.plan(ExtensionRefreshTrigger.FOREGROUND, all, targets, true,
+            now.minus(Duration.ofMinutes(5)), fiveMinutesAgo, now, policy)
+        assertIs<ExtensionRefreshPlan.Skip>(resting)
+        // Eleven minutes after the last asking (the default would have waited an hour) everything is asked again.
+        val elevenMinutesAgo = lookup(
+            role(SourceRole.CALENDAR) to Duration.ofMinutes(11), role(SourceRole.RECENT) to Duration.ofMinutes(11),
+            role(SourceRole.POSTPONEMENT) to Duration.ofMinutes(11),
+        )
+        val run = assertIs<ExtensionRefreshPlan.Run>(ExtensionRefreshPlanner.plan(ExtensionRefreshTrigger.FOREGROUND, all,
+            targets, true, now.minus(Duration.ofMinutes(11)), elevenMinutesAgo, now, policy))
+        assertEquals(setOf(SourceRole.CALENDAR, SourceRole.RECENT, SourceRole.POSTPONEMENT), run.roles)
+        // Without the pause the same state is still inside the hourly window.
+        assertIs<ExtensionRefreshPlan.Skip>(ExtensionRefreshPlanner.plan(ExtensionRefreshTrigger.FOREGROUND, all, targets,
+            true, now.minus(Duration.ofMinutes(11)), elevenMinutesAgo, now))
+    }
+
+    @Test fun aDueReleaseAsksOnlyTheListOfReleasedEpisodesPastSoftFreshnessAndOutsideTheHourlyWindow() {
+        val justAsked = lookup(role(SourceRole.RECENT) to Duration.ofMinutes(1), role(SourceRole.CALENDAR) to Duration.ofMinutes(1))
+        val run = assertIs<ExtensionRefreshPlan.Run>(ExtensionRefreshPlanner.plan(ExtensionRefreshTrigger.DUE_RELEASE, all,
+            targets, true, now.minus(Duration.ofSeconds(30)), justAsked, now))
+        assertEquals(setOf(SourceRole.RECENT), run.roles)
+        assertTrue(run.targetKeys.isEmpty())
+        assertTrue(!run.countsAsAutomaticAttempt)
+    }
 }

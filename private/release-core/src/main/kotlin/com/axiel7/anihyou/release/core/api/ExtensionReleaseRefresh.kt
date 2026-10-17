@@ -19,13 +19,22 @@ enum class ExtensionRefreshTrigger {
     /** An explicit user action: every granted role; may bypass soft freshness, never hard limits. */
     MANUAL,
     /** Pull to refresh on the postponements page: only the postponement role, past soft freshness, never hard limits. */
-    MANUAL_POSTPONEMENTS;
+    MANUAL_POSTPONEMENTS,
+    /**
+     * The planned time of a release has come: only the list of released episodes is asked, past soft freshness and never
+     * past the hard limits. Not a user action and not an automatic app trigger, so it has no hourly window.
+     */
+    DUE_RELEASE;
 
     val automatic: Boolean get() = this == FOREGROUND || this == PROCESS_START
-    val bypassesSoftFreshness: Boolean get() = this == MANUAL || this == MANUAL_POSTPONEMENTS
+    val bypassesSoftFreshness: Boolean get() = this == MANUAL || this == MANUAL_POSTPONEMENTS || this == DUE_RELEASE
     /** The only role this trigger asks for; null means every role its scope allows. */
     val onlyRole: com.axiel7.anihyou.release.core.extension.SourceRole?
-        get() = if (this == MANUAL_POSTPONEMENTS) com.axiel7.anihyou.release.core.extension.SourceRole.POSTPONEMENT else null
+        get() = when (this) {
+            MANUAL_POSTPONEMENTS -> com.axiel7.anihyou.release.core.extension.SourceRole.POSTPONEMENT
+            DUE_RELEASE -> com.axiel7.anihyou.release.core.extension.SourceRole.RECENT
+            else -> null
+        }
 }
 
 /** Product release-data work, separate from repository metadata and the debug canary. */
@@ -48,13 +57,33 @@ interface ExtensionReleaseRefreshScheduler {
     fun schedulePostponements() {}
     /** One bounded follow-up at the time a hard limit lapses; [chain] counts consecutive deferrals. */
     fun scheduleDeferred(trigger: ExtensionRefreshTrigger, notBefore: Instant, chain: Int)
+    /**
+     * Targeted checks of the released-episodes list at [times] (the planned release times of followed series and a few
+     * minutes after them). Idempotent: a time that is already planned is not planned again. Only the nearest times count.
+     */
+    fun scheduleDueReleases(times: List<Instant>) {}
     fun cancel()
 }
 
-/** The persisted full-source schedule; default daily 01:00 device-local time. */
+/**
+ * How long the calendar, the released episodes and the postponements rest after an app opening has asked for them. The
+ * app asks every time it opens once this pause is over, so a quick second opening does not ask the source again.
+ */
+object ExtensionOpenCooldown {
+    const val DEFAULT_MINUTES = 10
+    val OPTIONS_MINUTES: List<Int> = listOf(2, 5, 10, 15, 30, 60)
+
+    fun normalize(minutes: Int?): Int = minutes?.takeIf { it in OPTIONS_MINUTES } ?: DEFAULT_MINUTES
+}
+
+/** The persisted full-source schedule; default hourly on the full hour. */
 interface ExtensionRefreshScheduleRepository {
     val schedule: kotlinx.coroutines.flow.StateFlow<ExtensionRefreshSchedule>
     suspend fun update(schedule: ExtensionRefreshSchedule)
+    /** The pause after an app opening, in minutes; one of [ExtensionOpenCooldown.OPTIONS_MINUTES]. */
+    val openCooldownMinutes: kotlinx.coroutines.flow.StateFlow<Int>
+        get() = kotlinx.coroutines.flow.MutableStateFlow(ExtensionOpenCooldown.DEFAULT_MINUTES)
+    suspend fun updateOpenCooldown(minutes: Int) {}
     /** When a planned slot last ran to an end (committed, fresh skip or deferral), or null if never. */
     suspend fun lastSlotRun(): Instant?
     suspend fun recordSlotRun(at: Instant)
@@ -80,6 +109,10 @@ data class ExtensionFreshnessPolicy(
     init {
         require(listOf(calendar, postponement, recent, direct, automaticTrigger).all { !it.isNegative && !it.isZero })
     }
+
+    /** The same policy with the pause after an app opening: the three roles an opening asks for share one pause. */
+    fun withOpenCooldown(pause: Duration): ExtensionFreshnessPolicy =
+        copy(calendar = pause, postponement = pause, recent = pause, automaticTrigger = pause)
 
     fun forRole(role: SourceRole): Duration = when (role) {
         SourceRole.CALENDAR -> calendar
@@ -109,7 +142,7 @@ enum class ExtensionRefreshInterval(val minutes: Int) {
  */
 data class ExtensionRefreshSchedule(
     val anchorMinuteOfDay: Int = DEFAULT_ANCHOR_MINUTE,
-    val interval: ExtensionRefreshInterval = ExtensionRefreshInterval.HOURS_24,
+    val interval: ExtensionRefreshInterval = ExtensionRefreshInterval.HOURS_1,
 ) {
     init { require(anchorMinuteOfDay in 0 until MINUTES_PER_DAY) }
 
@@ -137,7 +170,7 @@ data class ExtensionRefreshSchedule(
 
     companion object {
         const val MINUTES_PER_DAY = 1440
-        /** 01:00 device-local time. */
+        /** 01:00 device-local time; with the hourly default only the grid matters, which is the full hour. */
         const val DEFAULT_ANCHOR_MINUTE = 60
     }
 }

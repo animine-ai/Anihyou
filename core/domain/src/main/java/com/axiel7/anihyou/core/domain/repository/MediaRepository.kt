@@ -173,6 +173,12 @@ class MediaRepository(
             .data?.Media?.coverImage?.large
     }
 
+    /** The title the user prefers, if the media's details are cached; no request is made. */
+    suspend fun cachedMediaTitle(mediaId: Int): String? = withContext(Dispatchers.IO) {
+        api.mediaDetailsQuery(mediaId).fetchPolicy(FetchPolicy.CacheOnly).execute()
+            .data?.Media?.title?.userPreferred
+    }
+
     suspend fun updateMediaDetailsCache(media: MediaDetailsQuery.Media) {
         api.updateMediaDetailsCache(
             data = MediaDetailsQuery.Data(media)

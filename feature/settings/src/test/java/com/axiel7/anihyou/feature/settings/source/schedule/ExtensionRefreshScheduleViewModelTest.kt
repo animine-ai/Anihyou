@@ -46,10 +46,10 @@ class ExtensionRefreshScheduleViewModelTest {
     @Before fun before() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
     @After fun after() { Dispatchers.resetMain() }
 
-    @Test fun defaultIsDailyAtOneAndNothingIsWrittenWithoutAChange() = runTest {
+    @Test fun defaultIsHourlyAndNothingIsWrittenWithoutAChange() = runTest {
         val model = ExtensionRefreshScheduleViewModel(store, scheduler)
-        assertEquals(ExtensionRefreshSchedule(60, ExtensionRefreshInterval.HOURS_24), model.schedule.value)
-        model.setInterval(ExtensionRefreshInterval.HOURS_24)
+        assertEquals(ExtensionRefreshSchedule(60, ExtensionRefreshInterval.HOURS_1), model.schedule.value)
+        model.setInterval(ExtensionRefreshInterval.HOURS_1)
         model.setAnchor(60)
         assertEquals(emptyList<ExtensionRefreshSchedule>(), store.updates)
         assertEquals(0, scheduler.ensured)

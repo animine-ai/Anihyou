@@ -47,6 +47,12 @@ class SingleSourceShadowRefreshCoordinator(
     /** Shared durable ledger state: soft success freshness and denial times. Hard limits stay in the transport. */
     private val freshness: ExtensionFreshnessLedger = FileExtensionNetworkLedger(networkDirectory),
     private val freshnessPolicy: ExtensionFreshnessPolicy = ExtensionFreshnessPolicy(),
+    /**
+     * The pause the user chose after an app opening, read at every run. Null (tools, tests) keeps [freshnessPolicy] as it is.
+     * It replaces the hourly windows of the three roles an opening asks for, so an opening asks them again as soon as the
+     * pause is over; the hard limits of the transport ledger are not part of it.
+     */
+    private val openCooldown: () -> java.time.Duration? = { null },
 ) : WorkScopedShadowRefreshCoordinator, TriggeredShadowRefreshCoordinator {
     override suspend fun refresh() = refreshForWork(UUID.randomUUID().toString())
 
@@ -108,9 +114,12 @@ class SingleSourceShadowRefreshCoordinator(
                 hasCommittedData = receiptBound && reconciliation.hasCommittedCycles(selected),
                 lastAutomaticAttempt = seen[ExtensionFreshnessKeys.AUTOMATIC_ATTEMPT],
                 lastSuccess = ExtensionSuccessLookup { seen[ExtensionFreshnessKeys.of(it)] },
-                now = now, policy = freshnessPolicy,
+                now = now, policy = openCooldown()?.let(freshnessPolicy::withOpenCooldown) ?: freshnessPolicy,
             )) {
                 is ExtensionRefreshPlan.Skip -> {
+                    com.axiel7.anihyou.release.core.log.AppLog.i("sync") {
+                        "plan trigger=$trigger -> SKIP reason=${decision.reason} next=${decision.nextEligibleAt}"
+                    }
                     if (receiptBound && (old.packageDigest != pinned.packageDigest ||
                             old.packageGeneration != pinned.packageGeneration)) {
                         // An update or rollback of the same source does not reset freshness, so no request
@@ -126,6 +135,10 @@ class SingleSourceShadowRefreshCoordinator(
                     return ShadowRefreshOutcome.Skipped(decision.reason, decision.nextEligibleAt)
                 }
                 is ExtensionRefreshPlan.Run -> {
+                    com.axiel7.anihyou.release.core.log.AppLog.i("sync") {
+                        "plan trigger=$trigger -> RUN roles=${decision.roles.map { it.name }} direct=${decision.targetKeys.size} " +
+                            "automaticAttempt=${decision.countsAsAutomaticAttempt}"
+                    }
                     runRoles = decision.roles
                     dueDirect = decision.targetKeys
                     runTargets = ExtensionTargetSource { candidates.filter { it.canonicalKey in decision.targetKeys } }

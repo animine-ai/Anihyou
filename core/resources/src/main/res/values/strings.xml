@@ -749,7 +749,8 @@
     <string name="style_colored">Colored</string>
     <string name="style_monochrome">Monochrome</string>
 
-    <string name="release_notification_text">%1$s · %2$s</string>
+    <string name="release_notification_title">New episode available</string>
+    <string name="release_notification_text">%1$s · %2$s is available</string>
     <string name="release_notification_unknown_title">AniWorld release</string>
     <string name="release_notification_episode">Episode %1$s</string>
     <string name="release_notification_film">Film</string>

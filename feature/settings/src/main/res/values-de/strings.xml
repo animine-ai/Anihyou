@@ -108,12 +108,23 @@
     <string name="matching_selection_limit">Bis zu 500 Einträge auswählen. Für größere Umfänge die ausdrückliche Quellen- oder Alle-Aktion verwenden.</string>
     <string name="matching_select_entry">%1$s · %2$s · %3$s auswählen</string>
     <string name="matching_unavailable">Die Matchingverwaltung ist derzeit nicht verfügbar.</string>
+    <string name="extension_notifications_off_title">Benachrichtigungen sind für Kiyori ausgeschaltet</string>
+    <string name="extension_notifications_off_summary">Release-Benachrichtigungen können nicht angezeigt werden. Tippen, um die Benachrichtigungs-Einstellungen der App zu öffnen.</string>
+    <string name="extension_background_title">Zuverlässige Hintergrund-Aktualisierung</string>
+    <string name="extension_background_summary">Optional. Die stündlichen Abfragen laufen auch ohne, aber Android kann sie im Ruhezustand bündeln und eine Benachrichtigung kommt dann später. Erlaubt braucht es etwas mehr Akku.</string>
     <string name="extension_schedule_title">Aktualisierung</string>
-    <string name="extension_schedule_explanation">Die aktive Quelle wird in diesem Abstand im Hintergrund vollständig aktualisiert. Beim Öffnen der App werden die Listen zusätzlich höchstens einmal pro Stunde aktualisiert, und eine kürzlich aktualisierte Rolle wird nicht erneut angefragt.</string>
+    <string name="extension_schedule_explanation">Die aktive Quelle wird in diesem Abstand im Hintergrund vollständig aktualisiert.</string>
+    <string name="extension_schedule_open_explanation">Beim Öffnen der App werden Kalender, veröffentlichte Folgen und Verschiebungen erneut abgefragt, sobald diese Pause vorbei ist. Ein schnelles zweites Öffnen fragt die Quelle nicht noch einmal.</string>
+    <string name="extension_schedule_open_cooldown">Pause nach dem Öffnen der App</string>
+    <string name="extension_schedule_pause_minutes">%1$d Minuten</string>
+    <plurals name="extension_schedule_pause_hours">
+        <item quantity="one">%1$d Stunde</item>
+        <item quantity="other">%1$d Stunden</item>
+    </plurals>
     <string name="extension_schedule_interval">Intervall</string>
     <string name="extension_schedule_start">Startzeit</string>
     <string name="extension_schedule_next">Nächster geplanter Lauf: %1$s</string>
-    <string name="extension_schedule_reset">Zurück auf täglich um 01:00</string>
+    <string name="extension_schedule_reset">Zurück auf stündlich</string>
     <string name="extension_schedule_confirm">OK</string>
     <string name="extension_schedule_cancel">Abbrechen</string>
     <string name="extension_schedule_every_minutes">Alle %1$d Minuten</string>

@@ -15,14 +15,30 @@ class ExtensionRefreshScheduleTest {
 
     private fun at(value: String) = Instant.parse(value)
 
-    @Test fun defaultsToDailyAtOneAmLocalTime() {
+    @Test fun defaultsToHourlyOnTheFullHour() {
         val schedule = ExtensionRefreshSchedule()
         assertEquals(60, schedule.anchorMinuteOfDay)
-        assertEquals(ExtensionRefreshInterval.HOURS_24, schedule.interval)
+        assertEquals(ExtensionRefreshInterval.HOURS_1, schedule.interval)
+        // 14:20 CEST on 2026-10-03: the next full hour is 15:00 CEST (13:00Z).
+        assertEquals(at("2026-10-03T13:00:00Z"), schedule.nextSlotAfter(at("2026-10-03T12:20:00Z"), berlin))
+        // Exactly on a slot, the next one is a full interval later.
+        assertEquals(at("2026-10-03T14:00:00Z"), schedule.nextSlotAfter(at("2026-10-03T13:00:00Z"), berlin))
+    }
+
+    @Test fun dailyAtOneAmLocalTimeIsStillAChoice() {
+        val schedule = ExtensionRefreshSchedule(60, ExtensionRefreshInterval.HOURS_24)
         // 14:00 CEST on 2026-10-03: the next 01:00 CEST is the following night (23:00Z).
         assertEquals(at("2026-10-03T23:00:00Z"), schedule.nextSlotAfter(at("2026-10-03T12:00:00Z"), berlin))
         // Exactly on a slot, the next one is a full interval later.
         assertEquals(at("2026-10-04T23:00:00Z"), schedule.nextSlotAfter(at("2026-10-03T23:00:00Z"), berlin))
+    }
+
+    @Test fun theOpenCooldownHasAFixedSetOfChoicesAndATenMinuteDefault() {
+        assertEquals(10, ExtensionOpenCooldown.DEFAULT_MINUTES)
+        assertTrue(ExtensionOpenCooldown.DEFAULT_MINUTES in ExtensionOpenCooldown.OPTIONS_MINUTES)
+        assertEquals(10, ExtensionOpenCooldown.normalize(null))
+        assertEquals(10, ExtensionOpenCooldown.normalize(7))
+        assertEquals(30, ExtensionOpenCooldown.normalize(30))
     }
 
     @Test fun sixHoursFromAnchorOneAmGivesTheFixedGrid() {
@@ -73,7 +89,7 @@ class ExtensionRefreshScheduleTest {
     }
 
     @Test fun aTimeZoneChangeRecomputesFromTheNewWallClock() {
-        val schedule = ExtensionRefreshSchedule()
+        val schedule = ExtensionRefreshSchedule(60, ExtensionRefreshInterval.HOURS_24)
         val now = at("2026-10-03T12:00:00Z")
         assertEquals(at("2026-10-03T23:00:00Z"), schedule.nextSlotAfter(now, berlin))
         assertEquals(at("2026-10-03T16:00:00Z"), schedule.nextSlotAfter(now, tokyo)) // 01:00 JST on 10-04

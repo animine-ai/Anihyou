@@ -37,6 +37,7 @@ import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
 import com.axiel7.anihyou.feature.settings.R
 import com.axiel7.anihyou.core.resources.R as CoreR
+import com.axiel7.anihyou.release.core.api.ExtensionOpenCooldown
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshInterval
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshSchedule
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshScheduleRepository
@@ -55,12 +56,17 @@ fun ExtensionRefreshScheduleView() {
         viewModelFactory { initializer { ExtensionRefreshScheduleViewModel(repository, scheduler) } }
     })
     val schedule by model.schedule.collectAsStateWithLifecycle()
-    ExtensionRefreshScheduleScreen(schedule, model)
+    val openCooldown by model.openCooldownMinutes.collectAsStateWithLifecycle()
+    ExtensionRefreshScheduleScreen(schedule, model, openCooldown)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExtensionRefreshScheduleScreen(schedule: ExtensionRefreshSchedule, event: ExtensionRefreshScheduleEvent) {
+fun ExtensionRefreshScheduleScreen(
+    schedule: ExtensionRefreshSchedule,
+    event: ExtensionRefreshScheduleEvent,
+    openCooldownMinutes: Int = ExtensionOpenCooldown.DEFAULT_MINUTES,
+) {
     val nav = LocalNavActionManager.current
     var picking by remember { mutableStateOf(false) }
     DefaultScaffoldWithSmallTopAppBar(title = stringResource(R.string.extension_schedule_title),
@@ -92,6 +98,20 @@ fun ExtensionRefreshScheduleScreen(schedule: ExtensionRefreshSchedule, event: Ex
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).testTag("extension-schedule-next"))
             Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.extension_schedule_open_explanation), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            ListPreference(
+                title = stringResource(R.string.extension_schedule_open_cooldown),
+                icon = CoreR.drawable.refresh_24,
+                values = ExtensionOpenCooldown.OPTIONS_MINUTES.toImmutableList(),
+                labelForValue = { minutesLabel(it) },
+                preferenceValue = ExtensionOpenCooldown.normalize(openCooldownMinutes),
+                onValueChange = event::setOpenCooldown,
+                shape = singleShape,
+                modifier = Modifier.testTag("extension-schedule-open-cooldown"),
+            )
+            Spacer(Modifier.height(16.dp))
             PlainPreference(
                 title = stringResource(R.string.extension_schedule_reset),
                 icon = CoreR.drawable.refresh_24,
@@ -127,6 +147,13 @@ private fun StartTimeDialog(anchorMinute: Int, onDismiss: () -> Unit, onConfirm:
 internal fun intervalLabel(interval: ExtensionRefreshInterval): String = when (interval.minutes) {
     30 -> stringResource(R.string.extension_schedule_every_minutes, 30)
     else -> pluralStringResource(R.plurals.extension_schedule_every_hours, interval.minutes / 60, interval.minutes / 60)
+}
+
+/** The label of a pause: whole hours read as hours, the rest as minutes. */
+@Composable
+internal fun minutesLabel(minutes: Int): String = when {
+    minutes % 60 == 0 -> pluralStringResource(R.plurals.extension_schedule_pause_hours, minutes / 60, minutes / 60)
+    else -> stringResource(R.string.extension_schedule_pause_minutes, minutes)
 }
 
 private val timeFormat = DateTimeFormatter.ofPattern("HH:mm")

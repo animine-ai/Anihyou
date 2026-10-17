@@ -29,6 +29,9 @@ import com.axiel7.anihyou.release.core.api.ReleaseNotificationGate
 import com.axiel7.anihyou.release.core.api.ReleaseDeliveryDecision
 import com.axiel7.anihyou.release.core.api.ReleaseOutboxRepository
 import com.axiel7.anihyou.release.core.api.ReleasePreferencesRepository
+import com.axiel7.anihyou.release.core.log.AppLog
+import com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository
+import com.axiel7.anihyou.feature.worker.NotificationWorker.Companion.createDefaultNotificationChannels
 import com.axiel7.anihyou.release.core.model.Installment
 import com.axiel7.anihyou.release.core.model.LanguageTrack
 import java.time.Clock
@@ -45,13 +48,26 @@ class ReleaseOutboxDispatcherWorker(
     private val defaultPreferencesRepository: DefaultPreferencesRepository,
     private val clock: Clock,
     private val mediaRepository: MediaRepository,
+    private val productPolicy: ExtensionProductPolicyRepository,
 ) : CoroutineWorker(context, params) {
+
+    /** The user chose a data source in the extension center, or switched the old provider lane on. Either owns release delivery. */
+    private fun releaseDeliveryActive(selectedProvider: String?): Boolean =
+        selectedProvider == PROVIDER_ID || productPolicy.policy.value.activeReleaseSource != null
 
     @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
     override suspend fun doWork(): Result {
         val now = clock.instant()
+        // The channel is created here as well: it used to exist only after AniList push notifications had been switched on,
+        // and Android drops a notification for a channel that does not exist.
+        applicationContext.createDefaultNotificationChannels()
         val preferences = releasePreferencesRepository.releasePreferences.first()
-        if (preferences.selectedProvider != PROVIDER_ID) {
+        AppLog.i("notification") {
+            "dispatcher start: lane=${releaseDeliveryActive(preferences.selectedProvider)} legacyProvider=${preferences.selectedProvider} " +
+                "extensionSource=${productPolicy.policy.value.activeReleaseSource != null} enabled=${preferences.notificationsEnabled} " +
+                "track=${preferences.preferredTrack} permission=${canPostNotifications()}"
+        }
+        if (!releaseDeliveryActive(preferences.selectedProvider)) {
             releaseOutboxRepository.cancelPendingForProvider(
                 providerId = PROVIDER_ID,
                 reason = "provider disabled",
@@ -70,7 +86,9 @@ class ReleaseOutboxDispatcherWorker(
 
         if (defaultPreferencesRepository.userId.firstOrNull() == null) return Result.retry()
         var retryNeeded = false
-        releaseOutboxRepository.observeDue(now).first().forEach { pending ->
+        val due = releaseOutboxRepository.observeDue(now).first()
+        AppLog.i("notification") { "dispatcher: ${due.size} notification(s) due" }
+        due.forEach { pending ->
             val activeAccountId = defaultPreferencesRepository.userId.firstOrNull()?.toLong()
             if (activeAccountId == null) {
                 retryNeeded = true
@@ -117,7 +135,7 @@ class ReleaseOutboxDispatcherWorker(
             catch (_: Exception) { null }
 
             val currentPreferences = releasePreferencesRepository.releasePreferences.first()
-            if (currentPreferences.selectedProvider != PROVIDER_ID ||
+            if (!releaseDeliveryActive(currentPreferences.selectedProvider) ||
                 !currentPreferences.notificationsEnabled
             ) {
                 releaseOutboxRepository.cancel(
@@ -137,6 +155,7 @@ class ReleaseOutboxDispatcherWorker(
             }
 
             if (!canPostNotifications()) {
+                AppLog.w("notification") { "not posted media=${claimed.mediaId}: notification permission or app notifications are off" }
                 releaseOutboxRepository.reschedulePending(
                     eventKey = claimed.eventKey,
                     nextAttemptAt = now.plusSeconds(PERMISSION_RETRY_SECONDS),
@@ -209,7 +228,7 @@ class ReleaseOutboxDispatcherWorker(
                 val posted = applicationContext.showNotification(
                     notificationId = notificationId,
                     channelId = AIRING_CHANNEL_ID,
-                    title = applicationContext.getString(R.string.notifications_airing),
+                    title = applicationContext.getString(R.string.release_notification_title),
                     text = applicationContext.getString(
                         R.string.release_notification_text,
                         claimed.displayTitle
@@ -230,6 +249,7 @@ class ReleaseOutboxDispatcherWorker(
                     retryNeeded = retryNeeded || deferredState == ReleaseDeliveryState.PENDING
                     return@forEach
                 }
+                AppLog.i("notification") { "posted media=${claimed.mediaId} installment=${claimed.installment} id=$notificationId" }
                 if (!releaseOutboxRepository.markDelivered(claimed.eventKey, clock.instant())) {
                     retryNeeded = true
                 }
@@ -289,7 +309,9 @@ class ReleaseOutboxDispatcherWorker(
                     TimeUnit.MINUTES,
                 )
                 .build()
-            enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            // APPEND_OR_REPLACE: a new delivery is not hidden behind a run that waits in its backoff, and a run that is
+            // posting right now is not cancelled.
+            enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
     }
 }

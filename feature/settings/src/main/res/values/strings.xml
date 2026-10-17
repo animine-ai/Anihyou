@@ -108,12 +108,23 @@
     <string name="matching_selection_limit">Select up to 500 entries. Use the explicit source or all-mappings action for larger scopes.</string>
     <string name="matching_select_entry">Select %1$s · %2$s · %3$s</string>
     <string name="matching_unavailable">Matching management is currently unavailable.</string>
+    <string name="extension_notifications_off_title">Notifications are off for Kiyori</string>
+    <string name="extension_notifications_off_summary">Release notifications cannot be shown. Tap to open the notification settings of the app.</string>
+    <string name="extension_background_title">Reliable background updates</string>
+    <string name="extension_background_summary">Optional. The hourly checks run without it, but Android may batch them while the phone rests and a notification can arrive late. Allowing it uses a little more battery.</string>
     <string name="extension_schedule_title">Update schedule</string>
-    <string name="extension_schedule_explanation">The active source is refreshed completely in the background at this interval. Opening the app also refreshes the lists, at most once per hour, and a role that was refreshed recently is not requested again.</string>
+    <string name="extension_schedule_explanation">The active source is refreshed completely in the background at this interval.</string>
+    <string name="extension_schedule_open_explanation">Opening the app asks the calendar, the released episodes and the postponements again as soon as this pause is over, so a quick second opening does not ask the source again.</string>
+    <string name="extension_schedule_open_cooldown">Pause after opening the app</string>
+    <string name="extension_schedule_pause_minutes">%1$d minutes</string>
+    <plurals name="extension_schedule_pause_hours">
+        <item quantity="one">%1$d hour</item>
+        <item quantity="other">%1$d hours</item>
+    </plurals>
     <string name="extension_schedule_interval">Interval</string>
     <string name="extension_schedule_start">Start time</string>
     <string name="extension_schedule_next">Next planned run: %1$s</string>
-    <string name="extension_schedule_reset">Back to daily at 01:00</string>
+    <string name="extension_schedule_reset">Back to hourly</string>
     <string name="extension_schedule_confirm">OK</string>
     <string name="extension_schedule_cancel">Cancel</string>
     <string name="extension_schedule_every_minutes">Every %1$d minutes</string>
