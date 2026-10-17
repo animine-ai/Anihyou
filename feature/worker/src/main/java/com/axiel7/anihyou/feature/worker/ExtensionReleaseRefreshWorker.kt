@@ -71,10 +71,22 @@ class ExtensionReleaseRefreshWorker(
         if (trigger == ExtensionRefreshTrigger.SCHEDULED_SLOT && evaluation.decision != ExtensionSourceRefreshDecision.RETRY) {
             schedules.recordSlotRun(Instant.now())
         }
+        // Whatever the run found (or did not find) is what the widget should show now; a retry will tell it when it ends.
+        if (evaluation.decision != ExtensionSourceRefreshDecision.RETRY) notifyWidget()
         return when (evaluation.decision) {
             ExtensionSourceRefreshDecision.SUCCESS -> Result.success()
             ExtensionSourceRefreshDecision.RETRY -> Result.retry()
             ExtensionSourceRefreshDecision.FAILURE -> Result.failure()
+        }
+    }
+
+    private fun notifyWidget() {
+        runCatching {
+            applicationContext.sendBroadcast(
+                android.content.Intent(com.axiel7.anihyou.core.base.ACTION_RELEASE_DATA_UPDATED)
+                    .setClassName(applicationContext.packageName, com.axiel7.anihyou.core.base.AIRING_WIDGET_RECEIVER_CLASS),
+            )
+            AppLog.d("worker") { "widget told that the release data may have changed" }
         }
     }
 

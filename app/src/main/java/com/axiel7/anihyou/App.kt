@@ -109,7 +109,11 @@ class App : Application(), SingletonImageLoader.Factory {
             startupScope.launch {
                 runCatching {
                     val policy = koinApplication.koin.get<ExtensionProductPolicyRepository>()
-                    if (policy.policy.value.activeReleaseSource != null) {
+                    val active = policy.policy.value.activeReleaseSource != null
+                    com.axiel7.anihyou.release.core.log.AppLog.i("app") {
+                        "foreground transition: release source active=$active -> ${if (active) "ask it (scheduleForeground)" else "nothing to ask"}"
+                    }
+                    if (active) {
                         koinApplication.koin.get<ExtensionReleaseRefreshScheduler>().scheduleForeground()
                     }
                 }

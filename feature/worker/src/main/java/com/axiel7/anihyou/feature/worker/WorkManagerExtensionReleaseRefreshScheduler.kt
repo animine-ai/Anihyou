@@ -110,6 +110,9 @@ class WorkManagerExtensionReleaseRefreshScheduler(
         name: String, trigger: ExtensionRefreshTrigger, policy: ExistingWorkPolicy,
         delay: Duration = Duration.ZERO, chain: Int = 0, extraTag: String? = null,
     ) {
+        com.axiel7.anihyou.release.core.log.AppLog.d("worker") {
+            "enqueue release refresh name=$name trigger=$trigger policy=$policy delay=${delay.seconds}s chain=$chain"
+        }
         val builder = OneTimeWorkRequestBuilder<ExtensionReleaseRefreshWorker>()
             .setConstraints(constraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)

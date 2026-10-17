@@ -31,6 +31,16 @@ import androidx.glance.appwidget.CircularProgressIndicator
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.action.ActionParameters
+import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.updateAll
+import com.axiel7.anihyou.core.base.ACTION_RELEASE_DATA_UPDATED
+import com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler
+import com.axiel7.anihyou.release.core.log.AppLog
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
@@ -199,7 +209,7 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
         ) {
             LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
                 item(itemId = 0) {
-                    Header(onRefresh = onRefresh)
+                    Header()
                 }
                 if (result is DataResult.Success || providerRows.isNotEmpty()) {
                     itemsIndexed(
@@ -247,7 +257,7 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
     }
 
     @Composable
-    private fun Header(onRefresh: () -> Unit) {
+    private fun Header() {
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -278,7 +288,9 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                     .width(54.dp)
                     .height(32.dp)
                     .cornerRadius(20.dp)
-                    .clickable(onRefresh),
+                    // A background action, not an activity: it runs from the lock screen without unlocking the phone. It asks
+                    // the release source and AniList for new data and the widget redraws with what comes back.
+                    .clickable(actionRunCallback<RefreshAiringWidgetAction>()),
                 contentAlignment = Alignment.Center
             ) {
                 Image(
@@ -545,7 +557,7 @@ private fun ReleaseUiCalendarItem.widgetText(context: Context): String {
                 com.axiel7.anihyou.release.core.model.LanguageTrack.DE_SUB -> " · SUB"
                 com.axiel7.anihyou.release.core.model.LanguageTrack.DE_DUB -> " · DUB"
                 else -> ""
-            }
+            } + if (confirmed) " ✓" else ""
     } else {
         time.orEmpty()
     }
@@ -553,6 +565,41 @@ private fun ReleaseUiCalendarItem.widgetText(context: Context): String {
 
 class AiringWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = AiringWidget()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != ACTION_RELEASE_DATA_UPDATED) {
+            super.onReceive(context, intent)
+            return
+        }
+        // A refresh of the release source ended: every widget reads the new rows and asks AniList again.
+        val pending = goAsync()
+        scope.launch {
+            try {
+                AppLog.i("widget") { "release data updated: widgets redraw" }
+                glanceAppWidget.updateAll(context)
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+}
+
+/**
+ * The refresh button of the widget. It runs in the app without opening it: the release source is asked now (the same manual
+ * refresh as in the app, which also plans the checks and notifications), and the widget redraws at once with AniList's data.
+ * The widget redraws again when the release work reports that it has ended.
+ */
+class RefreshAiringWidgetAction : ActionCallback, KoinComponent {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val scheduler: ExtensionReleaseRefreshScheduler by inject()
+        AppLog.i("widget") { "refresh tapped: release source and AniList are asked" }
+        runCatching { scheduler.scheduleNow() }.onFailure {
+            AppLog.w("widget", it) { "release refresh could not be scheduled: ${it.javaClass.simpleName}" }
+        }
+        AiringWidget().update(context, glanceId)
+    }
 }
 
 /** Source priority is per media, never an all-or-nothing replacement of the AniList widget list. */

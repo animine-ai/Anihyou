@@ -50,3 +50,9 @@ const val UNKNOWN_CHAR = "─"
 const val CUSTOM_URL_NAME_PLACEHOLDER = "{name}"
 
 const val UTF_8 = "UTF-8"
+
+/** Sent inside the app when a refresh of the release source has ended, so the widget shows what it found. */
+const val ACTION_RELEASE_DATA_UPDATED = "app.kiyori.action.RELEASE_DATA_UPDATED"
+
+/** The widget receiver by class name: the worker that sends the broadcast does not depend on the widget module. */
+const val AIRING_WIDGET_RECEIVER_CLASS = "com.axiel7.anihyou.widget.AiringWidgetReceiver"
