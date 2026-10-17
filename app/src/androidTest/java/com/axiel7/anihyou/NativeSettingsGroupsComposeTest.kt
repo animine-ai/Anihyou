@@ -163,6 +163,11 @@ class NativeSettingsGroupsComposeTest {
     }
 
     @Test fun dataSourcePageOwnsTheReleaseNotificationSwitch() {
+        // The switch asks for the notification permission first; with it granted the switch simply switches.
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+                .grantRuntimePermission(rule.activity.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         var changed: Boolean? = null
         rule.setContent { AniHyouTheme(darkTheme = false, dynamicColor = false) { Column(Modifier.verticalScroll(rememberScrollState())) {
             val event = object : ExtensionSourcesEvent by noSourceEvent { override fun setReleaseNotificationsEnabled(enabled: Boolean) { changed = enabled } }

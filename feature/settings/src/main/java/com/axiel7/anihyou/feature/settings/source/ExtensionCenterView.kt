@@ -1,5 +1,8 @@
 package com.axiel7.anihyou.feature.settings.source
 
+import android.content.ContextWrapper
+import android.content.Context
+import android.app.Activity
 import com.axiel7.anihyou.release.core.api.NotificationListStatus
 import com.axiel7.anihyou.release.core.api.NotificationScopeMode
 import com.axiel7.anihyou.release.core.api.ReleaseNotificationScope
@@ -200,7 +203,8 @@ fun ExtensionDataSourcePreferences(state: ExtensionSourcesUiState, event: Extens
     val context = LocalContext.current
     // The switch asks for the permission first and only turns on once it is granted; without it every notification would
     // be dropped silently, which is how release notifications never appeared.
-    val notificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    // (Previews and tests that compose this without an activity have no one to ask: there the switch just switches.)
+    val notificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && context.hasActivity()) {
         rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS) { granted ->
             if (granted) event.setReleaseNotificationsEnabled(true)
         }
@@ -551,4 +555,14 @@ private fun statusIcon(status: NotificationListStatus) = when (status) {
     NotificationListStatus.PAUSED -> CoreR.drawable.pause_circle_24
     NotificationListStatus.COMPLETED -> CoreR.drawable.check_circle_24
     NotificationListStatus.DROPPED -> CoreR.drawable.cancel_24
+}
+
+
+private fun Context.hasActivity(): Boolean {
+    var current: Context = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return true
+        current = current.baseContext
+    }
+    return false
 }
