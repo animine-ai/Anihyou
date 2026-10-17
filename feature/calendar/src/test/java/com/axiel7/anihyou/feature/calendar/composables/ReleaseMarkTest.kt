@@ -14,7 +14,7 @@ import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** One rule marks every calendar style: dimmed when past the planned time without proof, checked when proven. */
+/** One rule marks every calendar style: dimmed when the planned time has passed, checked when proven, both when both. */
 class ReleaseMarkTest {
     private val now = Instant.parse("2026-10-17T16:00:00Z")
 
@@ -42,8 +42,12 @@ class ReleaseMarkTest {
         assertEquals(ReleaseMark.THEORETICAL, providerRow(item(now, false)).releaseMark(now))
     }
 
-    @Test fun anEpisodeTheSourceListsIsConfirmedWhateverItsTime() {
-        assertEquals(ReleaseMark.CONFIRMED, providerRow(item(now.minus(Duration.ofHours(2)), true)).releaseMark(now))
+    @Test fun anEpisodeTheSourceListsAfterItsTimeIsCheckedAndDimmed() {
+        assertEquals(ReleaseMark.CONFIRMED_PAST, providerRow(item(now.minus(Duration.ofHours(2)), true)).releaseMark(now))
+        assertEquals(ReleaseMark.CONFIRMED_PAST, providerRow(item(now, true)).releaseMark(now))
+    }
+
+    @Test fun anEpisodeTheSourceListsBeforeItsTimeIsCheckedButNotDimmed() {
         assertEquals(ReleaseMark.CONFIRMED, providerRow(item(now.plus(Duration.ofMinutes(1)), true)).releaseMark(now))
     }
 

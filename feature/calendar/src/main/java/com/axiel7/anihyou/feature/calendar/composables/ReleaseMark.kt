@@ -14,29 +14,37 @@ import java.time.Instant
 import kotlinx.coroutines.delay
 
 /**
- * Where a calendar entry stands in its release: not yet due, past its planned time without proof that it is out (dimmed),
- * or proven out by the source (checked). The same rule marks the entry in every calendar style.
+ * Where a calendar entry stands in its release. Two independent facts: the planned time has passed (the entry is dimmed)
+ * and the source lists the episode (the entry is checked). An entry that is both ends up dimmed and checked. The same
+ * rule marks the entry in every calendar style.
+ *
+ * [UPCOMING] time not reached, not proven; [THEORETICAL] time passed, not proven (dimmed); [CONFIRMED] proven out, time not
+ * passed or not known (checked); [CONFIRMED_PAST] proven out and the time has passed (dimmed and checked).
  */
-internal enum class ReleaseMark { UPCOMING, THEORETICAL, CONFIRMED }
+internal enum class ReleaseMark { UPCOMING, THEORETICAL, CONFIRMED, CONFIRMED_PAST }
 
 internal fun CalendarRow.releaseMark(now: Instant): ReleaseMark {
     val representative = releasePresentations.takeIf { it.isNotEmpty() }
         ?.let { ReleaseCalendarUiSelection.representative(it) }
     if (representative != null) {
-        if (representative.confirmed) return ReleaseMark.CONFIRMED
-        val plannedAt = representative.forecastAt ?: return ReleaseMark.UPCOMING
-        return if (plannedAt.isAfter(now)) ReleaseMark.UPCOMING else ReleaseMark.THEORETICAL
+        val plannedAt = representative.forecastAt
+        val passed = plannedAt != null && !plannedAt.isAfter(now)
+        return when {
+            representative.confirmed -> if (passed) ReleaseMark.CONFIRMED_PAST else ReleaseMark.CONFIRMED
+            passed -> ReleaseMark.THEORETICAL
+            else -> ReleaseMark.UPCOMING
+        }
     }
     // An AniList airing time cannot be confirmed by a source: once it has passed the entry is past, nothing more.
     val airing = airingEvent ?: return ReleaseMark.UPCOMING
     return if (airing.airingAt.toLong() > now.epochSecond) ReleaseMark.UPCOMING else ReleaseMark.THEORETICAL
 }
 
-/** An entry that is past its planned time but not proven out is dimmed slightly; checked and upcoming ones are not. */
+/** An entry whose planned time has passed is dimmed slightly, checked or not; upcoming ones are not. */
 internal const val THEORETICAL_ALPHA = 0.55f
 
 internal fun Modifier.releaseDim(mark: ReleaseMark): Modifier =
-    if (mark == ReleaseMark.THEORETICAL) alpha(THEORETICAL_ALPHA) else this
+    if (mark == ReleaseMark.THEORETICAL || mark == ReleaseMark.CONFIRMED_PAST) alpha(THEORETICAL_ALPHA) else this
 
 /** The current time, renewed every half minute, so an entry dims when its time passes while the calendar is open. */
 @Composable
