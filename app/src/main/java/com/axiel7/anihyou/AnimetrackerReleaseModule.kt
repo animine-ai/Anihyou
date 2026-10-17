@@ -282,6 +282,7 @@ val animetrackerReleaseModule = module {
             titleOf = { mediaId -> get<com.axiel7.anihyou.core.domain.repository.MediaRepository>().mediaPreview(mediaId)?.title },
             fetchEntries = { mediaIds -> askAniListForEntries(get(), get(), mediaIds) },
             scope = { get<com.axiel7.anihyou.release.core.api.ReleaseNotificationScopeRepository>().scope.value },
+            learnNumbering = { requests -> get<com.axiel7.anihyou.release.core.api.MatchingManagementRepository>().learnNumbering(requests) },
             clock = get<Clock>(),
         )
     }
@@ -328,8 +329,24 @@ private suspend fun askAniListForEntries(
                 runCatching { com.axiel7.anihyou.release.core.api.NotificationListStatus.valueOf(name) }.getOrNull()
             },
             hiddenFromStatusLists = basic.hiddenFromStatusLists == true,
+            numbering = numberingRequest(entry),
         )
     }.toMap()
+}
+
+/** What the numbering needs of an anime, from the list entry AniList already returned: titles, format and episode count. */
+private fun numberingRequest(entry: com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry):
+    com.axiel7.anihyou.release.core.api.DetailMappingRequest? {
+    val media = entry.media ?: return null
+    val titles = (setOfNotNull(media.basicMediaDetails.title?.userPreferred, media.title?.romaji, media.title?.english,
+        media.title?.native) + media.synonyms.orEmpty().filterNotNull())
+        .map(String::trim).filter { it.isNotBlank() && it.length <= 512 }.take(64).toSet()
+    val extent = media.basicMediaDetails.episodes ?: media.nextAiringEpisode?.episode
+    if (titles.isEmpty() || extent == null) return null
+    return com.axiel7.anihyou.release.core.api.DetailMappingRequest(
+        mediaId = entry.mediaId, titles = titles, format = media.basicMediaDetails.format?.name,
+        startYear = media.startDate?.fuzzyDate?.year, episodeExtent = extent,
+    )
 }
 
 /** Both the user-source installer and the release Authority boundary receive the same reviewed configuration. */

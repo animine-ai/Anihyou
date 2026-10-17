@@ -49,6 +49,8 @@ class ExtensionReleaseFollowUp(
     private val fetchEntries: suspend (mediaIds: Set<Int>) -> Map<Int, ListEntryInfo> = { emptyMap() },
     /** Which anime may be announced; read at every run, so a change of the setting applies to the next refresh. */
     private val scope: () -> ReleaseNotificationScope = { ReleaseNotificationScope() },
+    /** Hands titles and episode counts of the followed anime to the numbering, so Behind can be decided by the source. */
+    private val learnNumbering: suspend (List<com.axiel7.anihyou.release.core.api.DetailMappingRequest>) -> Unit = {},
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val entryCache = java.util.concurrent.ConcurrentHashMap<Int, Pair<ListEntryInfo?, Instant>>()
@@ -77,17 +79,21 @@ class ExtensionReleaseFollowUp(
             return
         }
         val today = now.atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate()
-        val items = presentation.currentCalendar(accountId, today.minusDays(2)..today.plusDays(2))
+        val items = presentation.currentCalendar(accountId, today.minusDays(NUMBERING_DAYS)..today.plusDays(NUMBERING_DAYS))
         val track = prefs.preferredTrack.toLanguageTrack()
-        val episodes = items.filter { item ->
+        val wholeEpisodes = items.filter { item ->
             item.isAuthoritative && item.mediaId != null && item.track == track && item.forecastAt != null &&
                 // Only whole episodes: a film, a special or a fractional installment has no episode number to compare.
                 item.installment.let { it is Installment.Episode && it.fraction == null }
         }
+        // Notifications and checks concern the days around now; the wider range only teaches the numbering.
+        val windowStart = now.minus(Duration.ofDays(2))
+        val windowEnd = now.plus(Duration.ofDays(2))
+        val episodes = wholeEpisodes.filter { item -> item.forecastAt!!.let { !it.isBefore(windowStart) && !it.isAfter(windowEnd) } }
         val chosen = scope()
-        val entries = entriesFor(episodes.mapNotNull { it.mediaId }.toSet(), now)
+        val entries = entriesFor(wholeEpisodes.mapNotNull { it.mediaId }.toSet(), now)
         AppLog.i("followup") {
-            "start: items=${items.size} preferredTrack=$track episodes=${episodes.size} confirmed=${episodes.count { it.confirmed }} " +
+            "start: items=${items.size} preferredTrack=$track episodes=${episodes.size} media=${wholeEpisodes.mapNotNull { it.mediaId }.toSet().size} confirmed=${episodes.count { it.confirmed }} " +
                 "onList=${entries?.values?.count { it != null }} notificationsEnabled=${prefs.notificationsEnabled} scope=${chosen.mode}"
         }
         if (prefs.notificationsEnabled) announce(accountId, episodes.filter { it.confirmed }, entries, chosen, now)
@@ -119,6 +125,14 @@ class ExtensionReleaseFollowUp(
                 val entry = fetched[id]
                 entryCache[id] = entry to now
                 known[id] = entry
+            }
+            val requests = fetched.values.mapNotNull { it.numbering }
+            if (requests.isNotEmpty()) try {
+                learnNumbering(requests)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AppLog.w("followup", failure) { "learning the numbering of ${requests.size} anime failed" }
             }
             AppLog.i("followup") { "asked AniList: ${ask.size} media, ${fetched.size} on the list" }
         }
@@ -206,5 +220,7 @@ class ExtensionReleaseFollowUp(
         /** AniList's answer about a list entry is reused this long; the checks after a planned time come within minutes. */
         val ENTRY_TTL: Duration = Duration.ofMinutes(10)
         const val ENTRY_REQUEST_SIZE = 50
+        /** Days either side of today whose anime teach the numbering; notifications use two. */
+        const val NUMBERING_DAYS = 10L
     }
 }

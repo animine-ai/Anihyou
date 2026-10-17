@@ -485,6 +485,8 @@ class RoomMatchingManagementRepository(
 
     override suspend fun ensureDetailMapping(request: DetailMappingRequest) = service.ensureForMedia(request)
 
+    override suspend fun learnNumbering(requests: List<DetailMappingRequest>) = service.learnNumbering(requests)
+
     // --- matcher options: none of the matcher's settings is a user option, so there is nothing to configure ---------
     override fun observeMatcherOptions(): Flow<List<MatcherOption>> = flowOf(emptyList())
 

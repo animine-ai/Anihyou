@@ -112,6 +112,20 @@ class SourceSeriesMatchingService(
         flight.await()
     }
 
+    suspend fun learnNumbering(requests: List<DetailMappingRequest>) {
+        for (request in requests) {
+            val extent = request.episodeExtent?.takeIf { it in 1..9999 } ?: continue
+            if (request.titles.isEmpty()) continue
+            val known = navigation.state.value.mediaNumbering.singleOrNull { it.mediaId == request.mediaId }
+            when {
+                known == null -> navigation.rememberNumbering(com.axiel7.anihyou.release.data.extension.ProviderMediaNumbering(
+                    request.mediaId, request.titles, extent, request.malId))
+                // The opened details page knows more (MAL id, rules); only a changed episode count is taken over.
+                known.episodeExtent != extent -> navigation.rememberNumbering(known.copy(episodeExtent = extent))
+            }
+        }
+    }
+
     private suspend fun resolve(active: ExtensionSelectionKey, request: DetailMappingRequest) {
         val sourceKey = MappingEntryIds.sourceKey(active)
         val media = request.mediaId

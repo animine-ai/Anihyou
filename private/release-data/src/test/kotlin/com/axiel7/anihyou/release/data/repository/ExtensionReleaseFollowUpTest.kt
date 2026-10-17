@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler
 import com.axiel7.anihyou.release.core.api.ExtensionRefreshTrigger
+import com.axiel7.anihyou.release.core.api.DetailMappingRequest
 import com.axiel7.anihyou.release.core.api.ListEntryInfo
 import com.axiel7.anihyou.release.core.api.NotificationListStatus
 import com.axiel7.anihyou.release.core.api.NotificationScopeMode
@@ -101,6 +102,7 @@ class ExtensionReleaseFollowUpTest {
         sourceActive: Boolean = true, scope: ReleaseNotificationScope = ReleaseNotificationScope(),
         entries: Map<Int, ListEntryInfo> = progress.mapValues { ListEntryInfo(it.value, NotificationListStatus.CURRENT) },
         fetch: suspend (Set<Int>) -> Map<Int, ListEntryInfo> = { ids -> entries.filterKeys { it in ids } },
+        learn: suspend (List<DetailMappingRequest>) -> Unit = {},
     ) = ExtensionReleaseFollowUp(
         presentation = Presentation(rows),
         preferences = Prefs(enabled, track),
@@ -114,6 +116,7 @@ class ExtensionReleaseFollowUpTest {
         titleOf = { id -> if (id == 42) "Frieren" else null },
         fetchEntries = fetch,
         scope = { scope },
+        learnNumbering = learn,
         clock = clock,
     )
 
@@ -262,6 +265,19 @@ class ExtensionReleaseFollowUpTest {
             followUp(database, rowsFor(1, 2, 3, 4), true, emptyMap(), Recording(), entries = entries, scope = chosen).run()
             // 1 switched off, 2 switched on, 3 switched on but already watched, 4 switched on and not on the list.
             assertEquals(listOf(2, 4), due(database).map { it.mediaId }.sorted())
+        } finally { database.close() }
+    }
+
+    @Test fun theNumberingOfFollowedAnimeIsTaughtOnceFromTheEntriesAniListReturned() = runBlocking {
+        val database = openDatabase()
+        try {
+            val taught = mutableListOf<List<DetailMappingRequest>>()
+            val request = DetailMappingRequest(50, setOf("Series 50", "Series Fifty"), episodeExtent = 12)
+            val entries = mapOf(50 to ListEntryInfo(4, NotificationListStatus.CURRENT, numbering = request))
+            val follow = followUp(database, rowsFor(50, 51), true, emptyMap(), Recording(), entries = entries,
+                learn = { taught += it })
+            follow.run(); follow.run()
+            assertEquals(listOf(listOf(request)), taught)
         } finally { database.close() }
     }
 

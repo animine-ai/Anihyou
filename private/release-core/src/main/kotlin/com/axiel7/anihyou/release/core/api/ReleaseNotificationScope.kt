@@ -21,6 +21,8 @@ data class ListEntryInfo(
     val status: NotificationListStatus?,
     /** AniList's "hidden from status lists" flag: such entries are left out of the status lists by default. */
     val hiddenFromStatusLists: Boolean = false,
+    /** Titles, format and episode count of the anime as AniList gave them with the entry: what numbering needs. */
+    val numbering: DetailMappingRequest? = null,
 )
 
 /**

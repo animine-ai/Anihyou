@@ -89,6 +89,13 @@ interface MatchingManagementRepository {
     /** Bounded cancellable targeted work; keep accepted bindings until a valid fenced replacement. */
     fun rematch(token: MappingActionToken): Flow<MappingRematchProgress>
     /** Detail entry only. Persisted lookup first; coalesce missing exact identities across callers. */
+    /**
+     * Remembers titles and episode count of anime the user follows, so the source's episodes can be placed on the AniList
+     * numbering without the details of each anime having been opened. Never runs the matcher and never replaces what an
+     * opened details page learned (MAL id, rules): only a missing record is added and a changed episode count updated.
+     */
+    suspend fun learnNumbering(requests: List<DetailMappingRequest>) {}
+
     suspend fun ensureDetailMapping(mediaId: Int)
     /** Override when first resolution needs titles; the ID-only path can use existing local metadata. */
     suspend fun ensureDetailMapping(request: DetailMappingRequest) = ensureDetailMapping(request.mediaId)
