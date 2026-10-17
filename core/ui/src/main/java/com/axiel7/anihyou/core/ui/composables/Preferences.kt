@@ -63,6 +63,9 @@ val bottomShape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart
 val middleShape = RoundedCornerShape(4.dp)
 val singleShape = RoundedCornerShape(24.dp)
 
+/** Same row height and icon-to-text distance for plain, switch and list preferences (icon box 48 dp + this twice). */
+private val PREFERENCE_VERTICAL_PADDING = 8.dp
+
 fun preferenceShape(index: Int, count: Int) = when {
     count == 1 -> singleShape
     index == 0 -> topShape
@@ -98,7 +101,6 @@ fun PlainPreference(
     shape: RoundedCornerShape = RoundedCornerShape(4.dp),
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh
 ) {
-    val verticalPadding = if (subtitle == null) 8.dp else 1.dp
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -110,7 +112,7 @@ fun PlainPreference(
             modifier = modifier
                 .fillMaxWidth()
                 .clickable(enabled = enabled, onClick = onClick)
-                .padding(vertical = verticalPadding),
+                .padding(vertical = PREFERENCE_VERTICAL_PADDING),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -178,7 +180,6 @@ fun SwitchPreference(
     shape: RoundedCornerShape = RoundedCornerShape(4.dp),
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh
 ) {
-    val verticalPadding = 12.dp
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -192,7 +193,7 @@ fun SwitchPreference(
                 .clickable(enabled = enabled) {
                     onValueChange(preferenceValue?.not() ?: false)
                 }
-                .padding(vertical = verticalPadding),
+                .padding(vertical = PREFERENCE_VERTICAL_PADDING),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -262,7 +263,6 @@ fun <T> ListPreference(
     val windowInfo = LocalWindowInfo.current.containerSize
     var openDialog by remember { mutableStateOf(false) }
 
-    val verticalPadding = if (preferenceValue == null) 8.dp else 1.dp
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -274,7 +274,7 @@ fun <T> ListPreference(
             modifier = modifier
                 .fillMaxWidth()
                 .clickable { openDialog = true }
-                .padding(vertical = verticalPadding),
+                .padding(vertical = PREFERENCE_VERTICAL_PADDING),
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -282,19 +282,19 @@ fun <T> ListPreference(
                 Icon(
                     painter = painterResource(icon),
                     contentDescription = title,
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(12.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )
             } else {
                 Spacer(
                     modifier = Modifier
-                        .padding(16.dp)
+                        .padding(12.dp)
                         .size(24.dp)
                 )
             }
 
             Column(
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.weight(1f).padding(start = 4.dp, end = 16.dp)
             ) {
                 Text(
                     text = title,

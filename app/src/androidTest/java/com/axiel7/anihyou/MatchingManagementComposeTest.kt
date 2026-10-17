@@ -42,7 +42,7 @@ class MatchingManagementComposeTest {
         composeRule.onNodeWithTag("matching-list").performScrollToNode(hasTestTag("mapping-row-fixture"))
         composeRule.onNodeWithText(entry.sourceTitle!!).assertIsDisplayed()
         composeRule.onNodeWithText("AniList target · AniList #42").assertIsDisplayed()
-        composeRule.onNodeWithText(entry.partLabel).assertIsDisplayed()
+        composeRule.onNodeWithText(entry.partLabel, substring = true).assertIsDisplayed()
         capture("matching-list") { composeRule.onNodeWithText(entry.sourceTitle!!).assertIsDisplayed() }
         assertEquals(0, event.starts)
     }

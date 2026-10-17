@@ -106,20 +106,30 @@ class PostponementsViewModel(
                     // Mapping changes cancel obsolete requests; metadata cannot grant a binding.
                     // All entries in a few requests (50 per page) instead of one details request each.
                     ids.filterNot(metadata.value::containsKey).chunked(MEDIA_BY_IDS_PAGE).forEach { chunk ->
-                        val result = runCatching {
-                            mediaRepository.getMediaByIdsPage(chunk, page = 1, perPage = MEDIA_BY_IDS_PAGE)
-                                .first { it !is PagedResult.Loading }
-                        }.onFailure { error -> if (error is CancellationException) throw error }.getOrNull()
-                        if (result is PagedResult.Success) {
-                            metadata.value = metadata.value + result.list.associate { media ->
-                                media.id to PostponementMediaMetadata(
-                                    title = media.basicMediaDetails.title?.userPreferred,
-                                    cover = media.coverImage?.large,
-                                    adult = media.basicMediaDetails.isAdult == true,
-                                )
+                        // One failed request (AniList rate limit while the matcher runs, no network) must not leave the
+                        // entries without poster for good: the id set only changes with a new snapshot, so retry here.
+                        var attempt = 0
+                        while (true) {
+                            val result = runCatching {
+                                mediaRepository.getMediaByIdsPage(chunk, page = 1, perPage = MEDIA_BY_IDS_PAGE)
+                                    .first { it !is PagedResult.Loading }
+                            }.onFailure { error -> if (error is CancellationException) throw error }.getOrNull()
+                            if (result is PagedResult.Success) {
+                                metadata.value = metadata.value + result.list.associate { media ->
+                                    media.id to PostponementMediaMetadata(
+                                        title = media.basicMediaDetails.title?.userPreferred,
+                                        cover = media.coverImage?.large,
+                                        adult = media.basicMediaDetails.isAdult == true,
+                                    )
+                                }
+                                val missing = chunk.filter { id -> result.list.none { it.id == id } }
+                                if (missing.isNotEmpty()) AppLog.w("ui") { "AniList returned no media for $missing" }
+                                break
                             }
-                        } else {
-                            AppLog.w("ui") { "cover and title for ${chunk.size} postponed entries unavailable" }
+                            attempt++
+                            AppLog.w("ui") { "cover and title for ${chunk.size} postponed entries unavailable (attempt $attempt)" }
+                            if (attempt >= COVER_RETRIES) break
+                            kotlinx.coroutines.delay(COVER_RETRY_MILLIS * attempt)
                         }
                     }
                 }
@@ -127,4 +137,6 @@ class PostponementsViewModel(
     }
 }
 
+private const val COVER_RETRIES = 4
+private const val COVER_RETRY_MILLIS = 5_000L
 private const val REFRESH_WAIT_MILLIS = 30_000L

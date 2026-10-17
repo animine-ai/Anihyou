@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.feature.settings.source.matching
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,13 +15,19 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.axiel7.anihyou.core.domain.repository.SearchRepository
+import com.axiel7.anihyou.core.model.media.localized
 import com.axiel7.anihyou.core.ui.common.LocalNavActionManager
+import com.axiel7.anihyou.core.ui.composables.media.MediaItemHorizontal
+import kotlinx.coroutines.delay
 import com.axiel7.anihyou.core.ui.composables.DefaultScaffoldWithSmallTopAppBar
 import com.axiel7.anihyou.core.ui.composables.ListPreference
 import com.axiel7.anihyou.core.ui.composables.PlainPreference
@@ -68,9 +75,14 @@ private fun MatchingManagementUnavailable() {
 fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingManagementEvent) {
     val nav = LocalNavActionManager.current
     val unmatched = state.visibleUnmatched
-    // The page uses the language of the rest of the app: the pill search field of the anime and explore tabs, the grouped
-    // rounded preference rows of the settings, chips for filters and 24 dp cards for the entries.
-    DefaultScaffoldWithSmallTopAppBar(title = stringResource(R.string.matching_title),
+    val editing = state.editor
+    val assigning = state.unmatchedEditor
+    // Picking the AniList entry is a page of its own (search field and posters like Discover), never a popup.
+    // The list page uses the language of the rest of the app: the pill search field of the anime and explore tabs, the
+    // grouped rounded preference rows of the settings, chips for filters and 24 dp cards for the entries.
+    if (editing != null) MappingEditor(state, editing, event)
+    else if (assigning != null) UnmatchedEditor(state, assigning, event)
+    else DefaultScaffoldWithSmallTopAppBar(title = stringResource(R.string.matching_title),
         navigationIcon = { BackIconButton(nav::goBack) }, scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize().testTag("matching-list"),
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
@@ -179,15 +191,16 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp).fillMaxWidth()
                         .testTag("unmatched-row-${series.seriesKey}-${series.season}")) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text(series.title, style = MaterialTheme.typography.titleMedium)
-                        Text(series.sourceLabel,
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(stringResource(R.string.matching_unmatched_season, series.season),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text(series.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(listOf(series.sourceLabel.takeIf { it.isNotBlank() },
+                            stringResource(R.string.matching_unmatched_season, series.season)).filterNotNull().joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                         series.suggestion?.let { suggestion ->
                             Text(stringResource(R.string.matching_unmatched_suggestion, suggestion.title),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.testTag("unmatched-suggestion-${series.seriesKey}-${series.season}"))
                         }
                     }
@@ -258,8 +271,6 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
             }
         }
     }
-    state.editor?.let { MappingEditor(state, it, event) }
-    state.unmatchedEditor?.let { UnmatchedEditor(state, it, event) }
     state.confirmation?.let { confirmation ->
         AlertDialog(onDismissRequest = event::dismissConfirmation,
             title = { Text(stringResource(if (confirmation.action == MappingAction.RESET) R.string.matching_reset else R.string.matching_rematch)) },
@@ -307,13 +318,14 @@ private fun SourceFilter(state: MatchingManagementState, event: MatchingManageme
 private fun MappingIdentity(entry: ManagedMapping) {
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant
     Text(entry.sourceTitle?.takeIf { it.isNotBlank() } ?: stringResource(R.string.matching_source_id, entry.sourceIdentity),
-        style = MaterialTheme.typography.titleMedium)
-    Text(entry.sourceLabel.ifBlank { stringResource(R.string.matching_unknown_source) }, style = MaterialTheme.typography.bodySmall, color = secondary)
-    if (entry.partLabel.isNotBlank()) Text(entry.partLabel, style = MaterialTheme.typography.bodySmall, color = secondary)
-    val target = entry.targetTitle?.takeIf { it.isNotBlank() }?.let { "$it · AniList #${entry.mediaId}" } ?: "AniList #${entry.mediaId}"
-    Text(target, style = MaterialTheme.typography.bodyMedium)
-    Text(stringResource(if (entry.manual) R.string.matching_manual else R.string.matching_automatic),
-        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    Text(entry.targetTitle?.takeIf { it.isNotBlank() }?.let { "$it · AniList #${entry.mediaId}" } ?: "AniList #${entry.mediaId}",
+        style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    // One short line for everything else: where it comes from, which part, and who decided.
+    Text(listOf(entry.sourceLabel.ifBlank { stringResource(R.string.matching_unknown_source) },
+        entry.partLabel.takeIf { it.isNotBlank() },
+        stringResource(if (entry.manual) R.string.matching_manual else R.string.matching_automatic)).filterNotNull().joinToString(" · "),
+        style = MaterialTheme.typography.bodySmall, color = secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
@@ -338,73 +350,104 @@ private fun ScopeActions(
 
 @Composable
 private fun MappingEditor(state: MatchingManagementState, entry: ManagedMapping, event: MatchingManagementEvent) {
-    AlertDialog(onDismissRequest = event::closeEditor, modifier = Modifier.testTag("mapping-editor"),
-        title = { Text(stringResource(R.string.matching_edit)) },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.heightIn(max = 440.dp)) {
-                item {
-                    MappingIdentity(entry)
-                    Text(entry.sourceIdentity, style = MaterialTheme.typography.bodySmall)
-                    SearchPillField(value = state.targetQuery, onValueChange = event::targetQuery, enabled = !state.busy,
-                        placeholder = stringResource(R.string.matching_target_search),
-                        onSearch = { if (state.targetQuery.isNotBlank()) event.findTargets(false) },
-                        modifier = Modifier.testTag("matching-target-search"))
-                    TextButton(onClick = { event.findTargets(false) }, enabled = !state.busy && !state.targetLoading && state.targetQuery.isNotBlank(),
-                        modifier = Modifier.testTag("matching-find-targets")) { Text(stringResource(R.string.matching_find)) }
-                    if (state.targetLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    state.notice?.let { Text(stringResource(noticeText(it))) }
-                }
-                items(state.targets, key = { it.id }) { target ->
-                    TextButton(onClick = { event.choose(target) }, enabled = !state.busy,
-                        modifier = Modifier.testTag("mapping-target-${target.id}")) {
-                        Text("${if (state.chosenTarget == target) "✓ " else ""}${target.title} · #${target.id}")
-                    }
-                }
-                if (state.hasMoreTargets) item {
-                    TextButton(onClick = { event.findTargets(true) }, enabled = !state.busy && !state.targetLoading) { Text(stringResource(R.string.matching_next)) }
-                }
-                item { ScopeActions(stringResource(R.string.matching_scope_entry), !state.busy && !state.preparing,
-                    MappingScope.Entries(mapOf(entry.id to entry.revision)), event, "entry") }
-            }
+    TargetPickerPage(state, title = stringResource(R.string.matching_edit), tag = "mapping-editor",
+        confirmLabel = stringResource(R.string.matching_save_target), confirmTag = "matching-save-target",
+        onClose = event::closeEditor, onConfirm = event::correct, event = event,
+        header = {
+            MappingIdentity(entry)
+            Text(entry.sourceIdentity, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
-        confirmButton = { TextButton(onClick = event::correct, enabled = !state.busy && state.chosenTarget != null,
-            modifier = Modifier.testTag("matching-save-target")) { Text(stringResource(R.string.matching_save_target)) } },
-        dismissButton = { TextButton(onClick = event::closeEditor, enabled = !state.busy) { Text(stringResource(R.string.matching_close)) } })
+        footer = {
+            ScopeActions(stringResource(R.string.matching_scope_entry), !state.busy && !state.preparing,
+                MappingScope.Entries(mapOf(entry.id to entry.revision)), event, "entry")
+        })
 }
 
 @Composable
 private fun UnmatchedEditor(state: MatchingManagementState, series: UnmatchedSeries, event: MatchingManagementEvent) {
-    AlertDialog(onDismissRequest = event::closeUnmatched, modifier = Modifier.testTag("unmatched-editor"),
-        title = { Text(stringResource(R.string.matching_assign_title)) },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.heightIn(max = 440.dp)) {
-                item {
-                    Text(series.title, style = MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.matching_unmatched_season, series.season),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    SearchPillField(value = state.targetQuery, onValueChange = event::targetQuery, enabled = !state.busy,
-                        placeholder = stringResource(R.string.matching_target_search),
-                        onSearch = { if (state.targetQuery.isNotBlank()) event.findTargets(false) },
-                        modifier = Modifier.testTag("matching-target-search"))
-                    TextButton(onClick = { event.findTargets(false) }, enabled = !state.busy && !state.targetLoading && state.targetQuery.isNotBlank(),
-                        modifier = Modifier.testTag("matching-find-targets")) { Text(stringResource(R.string.matching_find)) }
-                    if (state.targetLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    state.notice?.let { Text(stringResource(noticeText(it))) }
-                }
+    TargetPickerPage(state, title = stringResource(R.string.matching_assign_title), tag = "unmatched-editor",
+        confirmLabel = stringResource(R.string.matching_assign), confirmTag = "matching-assign-target",
+        onClose = event::closeUnmatched, onConfirm = event::assign, event = event,
+        header = {
+            Text(series.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(listOf(series.sourceLabel.takeIf { it.isNotBlank() },
+                stringResource(R.string.matching_unmatched_season, series.season)).filterNotNull().joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        })
+}
+
+/**
+ * Manual matching as a page: the pill search field and the poster rows of Discover, without tags and filters. The search
+ * starts by itself shortly after typing stops (and at once on the keyboard's search key); choosing a row only marks it,
+ * the button at the bottom saves.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TargetPickerPage(
+    state: MatchingManagementState, title: String, tag: String, confirmLabel: String, confirmTag: String,
+    onClose: () -> Unit, onConfirm: () -> Unit, event: MatchingManagementEvent,
+    header: @Composable ColumnScope.() -> Unit, footer: @Composable ColumnScope.() -> Unit = {},
+) {
+    BackHandler(enabled = !state.busy, onBack = onClose)
+    LaunchedEffect(state.targetQuery) {
+        if (state.targetQuery.isNotBlank() && state.targets.isEmpty() && !state.targetLoading) {
+            delay(600)
+            event.findTargets(false)
+        }
+    }
+    DefaultScaffoldWithSmallTopAppBar(title = title, modifier = Modifier.testTag(tag),
+        navigationIcon = { BackIconButton(onClose) }, scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                header()
+            }
+            Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                SearchPillField(value = state.targetQuery, onValueChange = event::targetQuery, enabled = !state.busy,
+                    placeholder = stringResource(R.string.matching_target_search),
+                    onSearch = { if (state.targetQuery.isNotBlank()) event.findTargets(false) },
+                    modifier = Modifier.testTag("matching-target-search"))
+            }
+            if (state.targetLoading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            state.notice?.let {
+                Text(stringResource(noticeText(it)), style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp).testTag("matching-notice"))
+            }
+            LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("matching-target-list")) {
                 items(state.targets, key = { it.id }) { target ->
-                    TextButton(onClick = { event.choose(target) }, enabled = !state.busy,
-                        modifier = Modifier.testTag("mapping-target-${target.id}")) {
-                        Text("${if (state.chosenTarget == target) "✓ " else ""}${target.title} · #${target.id}")
-                    }
+                    TargetRow(target, chosen = state.chosenTarget == target, enabled = !state.busy,
+                        onClick = { event.choose(target) })
                 }
                 if (state.hasMoreTargets) item {
-                    TextButton(onClick = { event.findTargets(true) }, enabled = !state.busy && !state.targetLoading) { Text(stringResource(R.string.matching_next)) }
+                    TextButton(onClick = { event.findTargets(true) }, enabled = !state.busy && !state.targetLoading,
+                        modifier = Modifier.padding(horizontal = 8.dp)) { Text(stringResource(R.string.matching_next)) }
                 }
+                item { Column { footer() } }
             }
-        },
-        confirmButton = { TextButton(onClick = event::assign, enabled = !state.busy && state.chosenTarget != null,
-            modifier = Modifier.testTag("matching-assign-target")) { Text(stringResource(R.string.matching_assign)) } },
-        dismissButton = { TextButton(onClick = event::closeUnmatched, enabled = !state.busy) { Text(stringResource(R.string.matching_close)) } })
+            Button(onClick = onConfirm, enabled = !state.busy && state.chosenTarget != null,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).navigationBarsPadding()
+                    .testTag(confirmTag)) { Text(confirmLabel) }
+        }
+    }
+}
+
+@Composable
+private fun TargetRow(target: MappingTarget, chosen: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val infos = listOfNotNull(target.format?.localized(), target.year?.toString(),
+        target.episodes?.takeIf { it > 0 }?.let { pluralStringResource(CoreR.plurals.num_episodes, it, it) },
+        "#${target.id}")
+    val badge: (@Composable RowScope.() -> Unit)? = if (chosen) {
+        { Icon(painterResource(CoreR.drawable.check_24), contentDescription = null, modifier = Modifier.size(18.dp)) }
+    } else null
+    Surface(color = if (chosen) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        shape = MaterialTheme.shapes.large, modifier = Modifier.padding(horizontal = 8.dp).fillMaxWidth()
+            .testTag("mapping-target-${target.id}")) {
+        MediaItemHorizontal(title = target.title, imageUrl = target.imageUrl, blurImage = false,
+            subtitle1 = { Text(infos.joinToString(" · "), style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant) },
+            status = null, topBadgeContent = badge, onClick = { if (enabled) onClick() })
+    }
 }
 
 /** Rendering cap only. The repository supplies the complete unmatched list; filter before this cap. */
