@@ -345,7 +345,7 @@ private fun numberingRequest(entry: com.axiel7.anihyou.core.network.fragment.Com
     if (titles.isEmpty() || extent == null) return null
     return com.axiel7.anihyou.release.core.api.DetailMappingRequest(
         mediaId = entry.mediaId, titles = titles, format = media.basicMediaDetails.format?.name,
-        startYear = media.startDate?.fuzzyDate?.year, episodeExtent = extent,
+        startYear = media.startDate?.year, episodeExtent = extent,
     )
 }
 
