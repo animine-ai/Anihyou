@@ -322,6 +322,7 @@ private fun LazyListGrid(
     listState: LazyGridState,
     stickyHeaderContent: (@Composable () -> Unit)
 ) {
+    val grouping = watchGrouping(uiState)
     val navPadding = WindowInsets.navigationBars.asPaddingValues()
 
     LazyVerticalGrid(
@@ -352,10 +353,7 @@ private fun LazyListGrid(
                 )
             }
         }
-        items(
-            items = mediaList,
-            contentType = { it.basicMediaListEntry }
-        ) { item ->
+        sectionedItems(mediaList, grouping) { item ->
             GridUserMediaListItem(
                 item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -384,6 +382,7 @@ private fun LazyListTablet(
     listState: LazyGridState,
     stickyHeaderContent: (@Composable () -> Unit)
 ) {
+    val grouping = watchGrouping(uiState)
     val navPadding = WindowInsets.navigationBars.asPaddingValues()
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -413,10 +412,7 @@ private fun LazyListTablet(
         }
         when (uiState.listStyle) {
             ListStyle.STANDARD -> {
-                items(
-                    items = mediaList,
-                    contentType = { it.basicMediaListEntry }
-                ) { item ->
+                sectionedItems(mediaList, grouping) { item ->
                     StandardUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -436,10 +432,7 @@ private fun LazyListTablet(
             }
 
             ListStyle.COMPACT -> {
-                items(
-                    items = mediaList,
-                    contentType = { it.basicMediaListEntry }
-                ) { item ->
+                sectionedItems(mediaList, grouping) { item ->
                     CompactUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -459,10 +452,7 @@ private fun LazyListTablet(
             }
 
             ListStyle.MINIMAL -> {
-                items(
-                    items = mediaList,
-                    contentType = { it.basicMediaListEntry }
-                ) { item ->
+                sectionedItems(mediaList, grouping) { item ->
                     MinimalUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -500,6 +490,7 @@ private fun LazyListPhone(
     listState: LazyListState,
     stickyHeaderContent: (@Composable () -> Unit)
 ) {
+    val grouping = watchGrouping(uiState)
     LazyColumn(
         modifier = modifier,
         state = listState,
@@ -526,10 +517,7 @@ private fun LazyListPhone(
         }
         when (uiState.listStyle) {
             ListStyle.STANDARD -> {
-                items(
-                    items = mediaList,
-                    contentType = { it.basicMediaListEntry }
-                ) { item ->
+                sectionedItems(mediaList, grouping) { item ->
                     StandardUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -550,10 +538,7 @@ private fun LazyListPhone(
             }
 
             ListStyle.COMPACT -> {
-                items(
-                    items = mediaList,
-                    contentType = { it.basicMediaListEntry }
-                ) { item ->
+                sectionedItems(mediaList, grouping) { item ->
                     CompactUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),
@@ -574,10 +559,7 @@ private fun LazyListPhone(
             }
 
             ListStyle.MINIMAL -> {
-                items(
-                    items = mediaList,
-                    contentType = { it.basicMediaListEntry }
-                ) { item ->
+                sectionedItems(mediaList, grouping) { item ->
                     MinimalUserMediaListItem(
                         item = item,
                         releasePresentations = uiState.releaseByMediaId[item.mediaId].orEmpty(),

@@ -819,4 +819,7 @@
     <string name="saved_filters">Gespeicherte Filter</string>
     <string name="filter_name">Filtername</string>
     <string name="save_current_filters">Aktuelle Filter speichern</string>
+    <string name="list_group_ready">Bereit zum Schauen</string>
+    <string name="list_group_waiting">Wartend</string>
+    <string name="list_group_ready_manga">Bereit zum Lesen</string>
 </resources>
