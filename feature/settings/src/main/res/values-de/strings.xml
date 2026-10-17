@@ -175,4 +175,13 @@
     <string name="notification_scope_watching_hint">Standard: nur Anime mit dem Status Am Schauen oder Erneut am Schauen.</string>
     <string name="notification_scope_all_hint">Jede Folge, die die Quelle listet, auf deiner Liste oder nicht.</string>
     <string name="notification_scope_custom_hint">Nur Anime mit den Status, die du einschaltest.</string>
+    <string name="notification_anime_title">Einzelne Anime</string>
+    <string name="notification_anime_summary">%1$d immer, %2$d nie</string>
+    <string name="notification_anime_search">Anime suchen</string>
+    <string name="notification_anime_hint">Anime aus dem Kalender der Quelle. Deine Wahl für einen Anime geht der allgemeinen Einstellung vor.</string>
+    <string name="notification_anime_default">Wie Einstellung</string>
+    <string name="notification_anime_always">Immer</string>
+    <string name="notification_anime_never">Nie</string>
+    <string name="notification_anilist_airing">Auch AniList-Folgenmeldungen</string>
+    <string name="notification_anilist_airing_summary">Aus: Die eigenen „Folge ist erschienen“-Meldungen von AniList entfallen, solange die Quelle Releases meldet.</string>
 </resources>

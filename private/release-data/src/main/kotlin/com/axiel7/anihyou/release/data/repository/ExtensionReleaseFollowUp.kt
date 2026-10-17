@@ -143,7 +143,8 @@ class ExtensionReleaseFollowUp(
             val reason = when {
                 released.isBefore(now.minus(ANNOUNCE_WINDOW)) -> "released more than $ANNOUNCE_WINDOW ago"
                 released.isAfter(now.plus(CLOCK_SKEW)) -> "released in the future"
-                !chosen.allows(entry) -> if (entry == null) "not on the AniList list (not in the chosen scope)"
+                !chosen.allows(mediaId, entry) -> if (chosen.overrides[mediaId] == false) "switched off for this anime"
+                    else if (entry == null) "not on the AniList list (not in the chosen scope)"
                     else "list status ${entry.status ?: "unknown"}${if (entry.hiddenFromStatusLists) " (hidden)" else ""} is not in the chosen scope"
                 entry != null && episode.number <= entry.progress -> "already watched (progress ${entry.progress})"
                 else -> null
@@ -178,7 +179,7 @@ class ExtensionReleaseFollowUp(
         // asked, every bound planned release is followed rather than none: a check costs one request of the hard limits.
         val followed = if (entries == null) planned else planned.filter { item ->
             val entry = entries[item.mediaId]
-            chosen.allows(entry) && (entry == null || (item.installment as Installment.Episode).number > entry.progress)
+            chosen.allows(item.mediaId ?: return@filter false, entry) && (entry == null || (item.installment as Installment.Episode).number > entry.progress)
         }
         val times = DueReleaseCheckPlanner.plan(followed.mapNotNull { it.forecastAt }, now)
         AppLog.i("followup") {

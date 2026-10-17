@@ -250,6 +250,21 @@ class ExtensionReleaseFollowUpTest {
         } finally { database.close() }
     }
 
+    @Test fun aDecisionAboutOneAnimeBeatsTheScopeButNeverAnnouncesAWatchedEpisode() = runBlocking {
+        val database = openDatabase()
+        try {
+            val entries = mapOf(
+                1 to ListEntryInfo(4, NotificationListStatus.CURRENT),
+                2 to ListEntryInfo(4, NotificationListStatus.DROPPED),
+                3 to ListEntryInfo(5, NotificationListStatus.DROPPED),
+            )
+            val chosen = ReleaseNotificationScope(overrides = mapOf(1 to false, 2 to true, 3 to true, 4 to true))
+            followUp(database, rowsFor(1, 2, 3, 4), true, emptyMap(), Recording(), entries = entries, scope = chosen).run()
+            // 1 switched off, 2 switched on, 3 switched on but already watched, 4 switched on and not on the list.
+            assertEquals(listOf(2, 4), due(database).map { it.mediaId }.sorted())
+        } finally { database.close() }
+    }
+
     @Test fun theListIsAskedOnceWithinTheTtlAndNothingIsAnnouncedIfAniListCannotBeAsked() = runBlocking {
         val database = openDatabase()
         try {

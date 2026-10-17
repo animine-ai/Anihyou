@@ -289,7 +289,12 @@ val animetrackerReleaseModule = module {
     single<ReleasePreferencesRepository> { RoomReleasePreferencesRepository(get()) }
     single<ReleaseNotificationGate> {
         RoomReleaseNotificationGate(get(), get(), get(),
-            extensionSourceActive = { get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null })
+            extensionSourceActive = { get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null },
+            aniListAiringSuppressedByExtension = {
+                get<com.axiel7.anihyou.release.core.source.ExtensionProductPolicyRepository>().policy.value.activeReleaseSource != null &&
+                    get<ReleasePreferencesRepository>().releasePreferences.first().notificationsEnabled &&
+                    !get<com.axiel7.anihyou.release.core.api.ReleaseNotificationScopeRepository>().scope.value.alsoAniListAiring
+            })
     }
 }
 

@@ -32,9 +32,15 @@ data class ReleaseNotificationScope(
     val statuses: Set<NotificationListStatus> = WATCHING_STATUSES,
     val includeNotOnList: Boolean = false,
     val includeHidden: Boolean = false,
+    /** AniList's own "episode aired" notifications stay off while the release notifications of the source are on. */
+    val alsoAniListAiring: Boolean = false,
+    /** Single anime the user decided on: true is always announced, false never; everything else follows [mode]. */
+    val overrides: Map<Int, Boolean> = emptyMap(),
 ) {
-    /** [entry] is null for an anime that is not on the user's list. */
-    fun allows(entry: ListEntryInfo?): Boolean = when (mode) {
+    /** [entry] is null for an anime that is not on the user's list. A decision about this very anime comes first. */
+    fun allows(mediaId: Int, entry: ListEntryInfo?): Boolean = overrides[mediaId] ?: allowsByMode(entry)
+
+    private fun allowsByMode(entry: ListEntryInfo?): Boolean = when (mode) {
         NotificationScopeMode.ALL -> true
         NotificationScopeMode.WATCHING ->
             entry != null && entry.status in WATCHING_STATUSES && (includeHidden || !entry.hiddenFromStatusLists)

@@ -31,6 +31,8 @@ class SharedPreferencesNotificationScopeRepository(
                     .putString(STATUSES, next.statuses.joinToString(",") { it.name })
                     .putBoolean(NOT_ON_LIST, next.includeNotOnList)
                     .putBoolean(HIDDEN, next.includeHidden)
+                    .putBoolean(ANILIST_AIRING, next.alsoAniListAiring)
+                    .putString(OVERRIDES, next.overrides.entries.joinToString(",") { (id, on) -> "$id:${if (on) 1 else 0}" })
                     .apply()
                 mutable.value = next
             }
@@ -49,6 +51,11 @@ class SharedPreferencesNotificationScopeRepository(
             statuses = statuses,
             includeNotOnList = preferences.getBoolean(NOT_ON_LIST, defaults.includeNotOnList),
             includeHidden = preferences.getBoolean(HIDDEN, defaults.includeHidden),
+            alsoAniListAiring = preferences.getBoolean(ANILIST_AIRING, defaults.alsoAniListAiring),
+            overrides = preferences.getString(OVERRIDES, null).orEmpty().split(',').mapNotNull { pair ->
+                val (id, on) = pair.split(':').takeIf { it.size == 2 } ?: return@mapNotNull null
+                (id.toIntOrNull()?.takeIf { it > 0 } ?: return@mapNotNull null) to (on == "1")
+            }.toMap(),
         )
     }
 
@@ -58,5 +65,7 @@ class SharedPreferencesNotificationScopeRepository(
         const val STATUSES = "statuses"
         const val NOT_ON_LIST = "not_on_list"
         const val HIDDEN = "hidden"
+        const val ANILIST_AIRING = "anilist_airing"
+        const val OVERRIDES = "overrides"
     }
 }

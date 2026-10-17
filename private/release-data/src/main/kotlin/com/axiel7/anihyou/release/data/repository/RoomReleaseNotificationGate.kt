@@ -29,6 +29,11 @@ class RoomReleaseNotificationGate(
      * progress alone. Null (tests, tools) keeps the old provider lane as the only owner.
      */
     private val extensionSourceActive: (suspend () -> Boolean)? = null,
+    /**
+     * True while the extension's release notifications are on and the user did not ask for AniList's own airing ones too:
+     * AniList's "episode aired" messages are then left out, so an episode is announced once, by the source.
+     */
+    private val aniListAiringSuppressedByExtension: (suspend () -> Boolean)? = null,
 ) : ReleaseNotificationGate {
     override suspend fun suppressAniListAiring(
         accountId: Long,
@@ -36,6 +41,10 @@ class RoomReleaseNotificationGate(
         episode: Int,
     ): Boolean {
         if (accountId <= 0L || mediaId <= 0 || episode <= 0) return false
+        if (aniListAiringSuppressedByExtension?.invoke() == true) {
+            AppLog.i("notification") { "AniList airing media=$mediaId episode=$episode suppressed: the source announces releases" }
+            return true
+        }
         if (!providerEnabled()) return false
         val suppress = database.releaseDao()
             .getValidMediaProjectionsForAccount(accountId, mediaId)

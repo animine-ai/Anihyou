@@ -142,6 +142,10 @@ fun ExtensionCenterPageView(pageId: String) {
         com.axiel7.anihyou.feature.settings.source.matching.MatchingManagementView()
         return
     }
+    if (pageId == "notification-anime") {
+        com.axiel7.anihyou.feature.settings.source.notifications.NotificationAnimeView()
+        return
+    }
     if (pageId == "schedule") {
         com.axiel7.anihyou.feature.settings.source.schedule.ExtensionRefreshScheduleView()
         return
@@ -447,7 +451,9 @@ private fun NotificationScopePreferences(scope: ReleaseNotificationScope, event:
     PreferencesTitle(text = stringResource(R.string.notification_scope_title))
     val customRows = if (scope.mode == NotificationScopeMode.CUSTOM) NotificationListStatus.entries.size + 1 else 0
     val hiddenRow = if (scope.mode == NotificationScopeMode.ALL) 0 else 1
-    val count = 1 + customRows + hiddenRow
+    // The mode, its status rows, the hidden switch, the single-anime page and the AniList switch form one group.
+    val count = 1 + customRows + hiddenRow + 2
+    val nav = LocalNavActionManager.current
     var index = 0
     ListPreference(
         title = stringResource(R.string.notification_scope_mode),
@@ -488,11 +494,29 @@ private fun NotificationScopePreferences(scope: ReleaseNotificationScope, event:
             subtitle = stringResource(R.string.notification_scope_hidden_summary),
             preferenceValue = scope.includeHidden,
             icon = CoreR.drawable.visibility_off_24,
-            shape = preferenceShape(index, count),
+            shape = preferenceShape(index++, count),
             modifier = Modifier.testTag("extension-notification-scope-hidden"),
             onValueChange = { on -> event.updateNotificationScope { it.copy(includeHidden = on) } },
         )
     }
+    PlainPreference(
+        title = stringResource(R.string.notification_anime_title),
+        subtitle = stringResource(
+            R.string.notification_anime_summary, scope.overrides.count { it.value }, scope.overrides.count { !it.value }),
+        icon = CoreR.drawable.list_alt_24,
+        shape = preferenceShape(index++, count),
+        modifier = Modifier.testTag("extension-notification-anime"),
+        onClick = { nav.navigate(Route.ExtensionCenterPage("notification-anime")) },
+    )
+    SwitchPreference(
+        title = stringResource(R.string.notification_anilist_airing),
+        subtitle = stringResource(R.string.notification_anilist_airing_summary),
+        preferenceValue = scope.alsoAniListAiring,
+        icon = CoreR.drawable.notifications_24,
+        shape = preferenceShape(index, count),
+        modifier = Modifier.testTag("extension-notification-anilist-airing"),
+        onValueChange = { on -> event.updateNotificationScope { it.copy(alsoAniListAiring = on) } },
+    )
     Text(
         text = stringResource(when (scope.mode) {
             NotificationScopeMode.WATCHING -> R.string.notification_scope_watching_hint
