@@ -36,6 +36,8 @@ class WorkManagerExtensionReleaseRefreshScheduler(
     private val clock: Clock = Clock.systemUTC(),
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    /** Wakes the app at the planned time, also while the phone is idle; the delayed work below is the fallback. */
+    private val alarms: DueCheckAlarms = DueCheckAlarms.None,
 ) : ExtensionReleaseRefreshScheduler {
     private val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
     private val slotMutex = Mutex()
@@ -67,6 +69,7 @@ class WorkManagerExtensionReleaseRefreshScheduler(
         times.filter { it.isAfter(now) }.forEach { at ->
             enqueue("$DUE_RELEASE-${at.epochSecond}", ExtensionRefreshTrigger.DUE_RELEASE, ExistingWorkPolicy.KEEP,
                 delay = Duration.between(now, at), extraTag = DUE_RELEASE_TAG)
+            alarms.setDueCheck(at)
         }
         com.axiel7.anihyou.release.core.log.AppLog.i("worker") {
             "due release checks planned: ${times.size}, first=${times.firstOrNull()}"
@@ -88,6 +91,7 @@ class WorkManagerExtensionReleaseRefreshScheduler(
         val slotTag = "$SLOT_TAG_PREFIX${next.epochSecond}"
         enqueue("$SLOT-${next.epochSecond}", ExtensionRefreshTrigger.SCHEDULED_SLOT, ExistingWorkPolicy.KEEP,
             delay = Duration.between(now, next), extraTag = slotTag)
+        alarms.setSlot(next)
         // A changed schedule leaves older future slots pending: retire exactly those. A slot that is running
         // or retrying has a slot instant in the past and is never touched.
         manager.getWorkInfosByTagFlow(SLOT_TAG).first().forEach { info ->

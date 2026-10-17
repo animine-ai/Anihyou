@@ -395,23 +395,26 @@ class ExtensionHostCoordinator(
         /**
          * The host hands every response of one refresh to a single parse call. The measured guest cost of the three AniWorld pages
          * together is about 47 million fuel (calendar 22.5M, recent 22.4M, postponements 2.5M); 25 million trapped on real data.
-         * The hard ceiling is twice that, the 2 s deadline still bounds the wall clock.
+         * The hard ceiling is twice that. The deadline only bounds the wall clock, which fuel does not: a cold process that
+         * starts the runtime while several refreshes run at once took 3.5 s for the plan call (device log, 18:24) and the 2 s
+         * deadline failed a run that had done nothing wrong, so it is [DEADLINE_MILLIS].
          */
         const val MAX_PARSE_FUEL_GRANT = 100_000_000L
+        const val DEADLINE_MILLIS = 10_000L
         const val MAX_TARGETS = 256
         val PLAN_LIMITS = ExtensionExecutionLimits(
             maxInputBytes = 256 * 1024,
             maxOutputBytes = 64 * 1024,
             memoryBytes = 32 * 1024 * 1024,
             fuel = 10_000_000,
-            deadlineMillis = 2_000,
+            deadlineMillis = DEADLINE_MILLIS,
         )
         val PARSE_LIMITS = ExtensionExecutionLimits(
             maxInputBytes = 4 * 1024 * 1024,
             maxOutputBytes = 1024 * 1024,
             memoryBytes = 32 * 1024 * 1024,
             fuel = 10_000_000,
-            deadlineMillis = 2_000,
+            deadlineMillis = DEADLINE_MILLIS,
         )
         val SHA256 = Regex("[0-9a-f]{64}")
         val DNS_NAME = Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*")

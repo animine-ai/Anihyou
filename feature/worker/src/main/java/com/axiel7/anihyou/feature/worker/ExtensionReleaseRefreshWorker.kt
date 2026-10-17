@@ -81,6 +81,22 @@ class ExtensionReleaseRefreshWorker(
         }
     }
 
+    /**
+     * Only for expedited runs below Android 12, which run as a foreground service and need its notification; later versions
+     * never show it. The channel is the one of the other background work.
+     */
+    override suspend fun getForegroundInfo(): androidx.work.ForegroundInfo = androidx.work.ForegroundInfo(
+        FOREGROUND_NOTIFICATION_ID,
+        androidx.core.app.NotificationCompat.Builder(applicationContext, SYNC_CHANNEL_ID)
+            .setContentTitle(applicationContext.getString(com.axiel7.anihyou.core.resources.R.string.upcoming))
+            .setSmallIcon(com.axiel7.anihyou.core.resources.R.drawable.kiyori_24)
+            .setOngoing(true)
+            .build(),
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        } else 0,
+    )
+
     private fun notifyWidget() {
         runCatching {
             applicationContext.sendBroadcast(
@@ -98,6 +114,8 @@ class ExtensionReleaseRefreshWorker(
         const val INPUT_FORCE = "extension_release_refresh_force"
         const val REASON_BUDGET_DEFERRED = "extension-budget-deferred"
         const val MAX_DEFERRED_CHAIN = 3
+        private const val SYNC_CHANNEL_ID = "sync_channel_id"
+        private const val FOREGROUND_NOTIFICATION_ID = 7107
     }
 }
 

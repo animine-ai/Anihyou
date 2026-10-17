@@ -11,6 +11,7 @@ android {
 dependencies {
     testImplementation(libs.junit)
     implementation(project(":private:release-core"))
+    implementation(project(":feature:calendar"))
     implementation(libs.apollo.normalized.cache)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.preview)

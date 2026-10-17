@@ -6,7 +6,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -17,7 +16,6 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import androidx.datastore.preferences.core.Preferences
-import com.apollographql.cache.normalized.FetchPolicy
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
@@ -68,17 +66,17 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import com.axiel7.anihyou.core.base.APP_PACKAGE_NAME
-import com.axiel7.anihyou.core.base.DataResult
+import com.axiel7.anihyou.core.base.PagedResult
 import com.axiel7.anihyou.core.domain.repository.DefaultPreferencesRepository
 import com.axiel7.anihyou.core.domain.repository.MediaRepository
 import com.axiel7.anihyou.release.core.api.ReleasePresentationRepository
-import com.axiel7.anihyou.release.core.api.ReleaseUiCalendarItem
+import com.axiel7.anihyou.feature.calendar.CalendarEntry
+import com.axiel7.anihyou.feature.calendar.calendarEntries
+import com.axiel7.anihyou.core.model.media.CalendarAiringEvent
+import com.axiel7.anihyou.core.network.fragment.ExploreMedia
+import java.util.concurrent.ConcurrentHashMap
 import com.axiel7.anihyou.release.core.sync.ReleaseSourceTimePolicy
-import com.axiel7.anihyou.release.core.model.Installment
-import com.axiel7.anihyou.release.core.model.ReleaseKind
 import com.axiel7.anihyou.core.model.DeepLink
-import com.axiel7.anihyou.core.model.media.exampleAiringWidgetEntry
-import com.axiel7.anihyou.core.network.AiringWidgetQuery
 import com.axiel7.anihyou.core.network.NetworkVariables
 import com.axiel7.anihyou.core.resources.ColorUtils.colorFromHex
 import com.axiel7.anihyou.core.resources.R
@@ -92,13 +90,7 @@ import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
-private val ANI_WORLD_SOURCE_ZONE: ZoneId = ReleaseSourceTimePolicy.ANI_WORLD_ZONE
-
-internal data class WidgetAiringItem(
-    val eventKey: String,
-    val media: AiringWidgetQuery.Medium?,
-    val releaseRows: List<ReleaseUiCalendarItem>,
-)
+private val DEVICE_ZONE: ZoneId get() = ZoneId.systemDefault()
 
 class AiringWidget : GlanceAppWidget(), KoinComponent {
 
@@ -112,93 +104,123 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         networkVariables.accessToken = defaultPreferencesRepository.accessToken.first()
-
-        val today = clock.instant().atZone(ANI_WORLD_SOURCE_ZONE).toLocalDate()
-        val accountId = defaultPreferencesRepository.userId.first()?.toLong()
-        val providerRows = runCatching {
-            releasePresentationRepository.currentCalendar(accountId = accountId, range = today..today.plusDays(14))
-        }.getOrDefault(emptyList()).filter { it.isAuthoritative }
-
-        val cachedResult = mediaRepository.getAiringWidgetData(
-            page = 1,
-            perPage = 50,
-            fetchPolicy = FetchPolicy.CacheOnly,
-        )
+        // What the release source knows and what is remembered of AniList is there at once; AniList's own answers follow.
+        val first = loadEntries(withAniList = false, fresh = false)
         provideContent {
-            val scope = rememberCoroutineScope()
             val prefs = currentState<Preferences>()
             val isColored = prefs[IS_COLORED_KEY] ?: true
-            val resultState = remember { mutableStateOf(cachedResult) }
+            val entries = remember { mutableStateOf(first) }
             LaunchedEffect(Unit) {
-                resultState.value = mediaRepository.getAiringWidgetData(
-                    page = 1, perPage = 50, fetchPolicy = FetchPolicy.NetworkFirst,
-                )
+                val fresh = takeFreshRequest()
+                entries.value = loadEntries(withAniList = true, fresh = fresh)
             }
-
             GlanceTheme(colors = DynamicThemeColorProviders) {
-                Content(
-                    result = resultState.value,
-                    isColored = isColored,
-                    onRefresh = { scope.launch { update(context, id) } },
-                    providerRows = providerRows,
-                )
+                Content(entries = entries.value, isColored = isColored, now = clock.instant())
             }
         }
     }
 
+    /**
+     * The entries the calendar tab shows from today on, by the calendar's own code and with the calendar's own settings
+     * (list filter, AniList entries without a source match, simultaneous tracks). Nothing here is a setting of the widget.
+     */
+    private suspend fun loadEntries(withAniList: Boolean, fresh: Boolean): List<CalendarEntry> {
+        val now = clock.instant()
+        val today = now.atZone(DEVICE_ZONE).toLocalDate()
+        val accountId = defaultPreferencesRepository.userId.first()?.toLong()
+        val onMyList = defaultPreferencesRepository.calendarOnMyList.first()
+        val showExtras = defaultPreferencesRepository.calendarShowAniListExtras.first() == true
+        val combine = defaultPreferencesRepository.calendarCombineTracks.first() != false
+        val rows = runCatching {
+            releasePresentationRepository.currentCalendar(accountId = accountId, range = today..today.plusDays(RELEASE_DAYS))
+        }.onFailure { AppLog.w("widget", it) { "release rows could not be read" } }.getOrDefault(emptyList())
+        val sourceIsMain = rows.any { it.isAuthoritative }
+        val media = if (withAniList) loadMedia(rows.mapNotNull { it.mediaId }.toSet(), fresh) else cachedMedia(rows.mapNotNull { it.mediaId }.toSet())
+        // AniList's schedule is only part of the calendar when no source supplies rows or the user asked for the extras.
+        val airing = if (withAniList && (!sourceIsMain || showExtras)) {
+            loadAiring(today, onMyList, fresh)
+        } else emptyMap()
+        val entries = calendarEntries(
+            today = today, now = now, onMyList = onMyList, showAniListExtras = showExtras, combineSimultaneousTracks = combine,
+            airingByDate = airing, media = media + airing.values.flatten().associate { it.media.id to it.media }, releaseRows = rows,
+        )
+        AppLog.i("widget") {
+            "entries from $today on: ${entries.size} (rows=${rows.size} source=$sourceIsMain extras=$showExtras onMyList=$onMyList " +
+                "combine=$combine media=${media.size} airing=${airing.values.sumOf { it.size }} aniList=$withAniList fresh=$fresh)"
+        }
+        return entries
+    }
+
+    private fun cachedMedia(ids: Set<Int>): Map<Int, ExploreMedia> =
+        ids.mapNotNull { id -> mediaCache[id]?.let { id to it.first } }.toMap()
+
+    /** Cover, title and list status of the media the source names: asked by id, once per half hour for each. */
+    private suspend fun loadMedia(ids: Set<Int>, fresh: Boolean): Map<Int, ExploreMedia> {
+        val now = clock.instant()
+        val missing = ids.filter { id ->
+            val cached = mediaCache[id]
+            fresh || cached == null || cached.second.plus(MEDIA_TTL).isBefore(now)
+        }
+        missing.chunked(MEDIA_BY_IDS_PAGE).forEach { chunk ->
+            val result = runCatching {
+                mediaRepository.getMediaByIdsPage(chunk, page = 1, perPage = MEDIA_BY_IDS_PAGE)
+                    .first { it !is PagedResult.Loading }
+            }.getOrNull()
+            if (result is PagedResult.Success) result.list.forEach { mediaCache[it.id] = it to now }
+            else AppLog.w("widget") { "cover and title for ${chunk.size} entries unavailable: ${(result as? PagedResult.Error)?.message?.take(120)}" }
+        }
+        return cachedMedia(ids)
+    }
+
+    /** AniList's own schedule of the next days, the way the calendar tab loads a day. */
+    private suspend fun loadAiring(today: LocalDate, onMyList: Boolean?, fresh: Boolean): Map<LocalDate, List<CalendarAiringEvent>> {
+        val adult = defaultPreferencesRepository.displayAdult.first() == true
+        val byDay = LinkedHashMap<LocalDate, List<CalendarAiringEvent>>()
+        for (offset in 0 until AIRING_DAYS) {
+            val day = today.plusDays(offset.toLong())
+            val from = day.atStartOfDay(DEVICE_ZONE).toEpochSecond()
+            val to = day.plusDays(1).atStartOfDay(DEVICE_ZONE).toEpochSecond() - 1
+            val events = ArrayList<CalendarAiringEvent>()
+            var page = 1
+            while (page <= AIRING_PAGES) {
+                val result = runCatching {
+                    mediaRepository.getCalendarAiringEventsPage(
+                        airingAtGreater = from, airingAtLesser = to, onMyList = onMyList, isAdult = adult,
+                        page = page, perPage = 50, fetchFromNetwork = fresh,
+                    ).first { it !is PagedResult.Loading }
+                }.getOrNull()
+                if (result !is PagedResult.Success) {
+                    AppLog.w("widget") { "AniList schedule of $day unavailable: ${(result as? PagedResult.Error)?.message?.take(120)}" }
+                    break
+                }
+                events += result.list
+                if (!result.hasNextPage) break
+                page++
+            }
+            byDay[day] = events
+        }
+        return byDay
+    }
+
     override suspend fun providePreview(context: Context, widgetCategory: Int) {
         networkVariables.accessToken = defaultPreferencesRepository.accessToken.first()
-
-        val result = mediaRepository.getAiringWidgetData(page = 1, perPage = 50)
-            .takeIf { it is DataResult.Success }
-            ?: DataResult.Success(
-                data = listOf(
-                    exampleAiringWidgetEntry,
-                    exampleAiringWidgetEntry,
-                    exampleAiringWidgetEntry,
-                    exampleAiringWidgetEntry,
-                )
+        val day = clock.instant().atZone(DEVICE_ZONE).toLocalDate()
+        val sample = listOf("Anime One" to 1, "Anime Two" to 2, "Anime Three" to 3).mapIndexed { index, (title, episode) ->
+            CalendarEntry(
+                date = day, key = "preview-$index", media = null, releases = emptyList(), airingEvent = null, title = title,
+                dimmed = index == 0, checked = index == 0, episode = episode, timeText = "1${index}:10", trackLabel = "SUB",
             )
-
+        }
         provideContent {
             GlanceTheme(colors = DynamicThemeColorProviders) {
-                Content(
-                    result = result,
-                    isColored = true,
-                    onRefresh = {},
-                )
+                Content(entries = sample, isColored = true, now = clock.instant())
             }
         }
     }
 
     @Composable
-    private fun Content(
-        result: DataResult<List<AiringWidgetQuery.Medium>>,
-        isColored: Boolean,
-        onRefresh: () -> Unit,
-        providerRows: List<ReleaseUiCalendarItem> = emptyList(),
-    ) {
-        val unsortedItems = mergeWidgetAiringItems((result as? DataResult.Success)?.data.orEmpty(), providerRows)
-
-        fun providerTimestampFor(item: WidgetAiringItem): Long? {
-            val providerTimestamp = item.releaseRows.minOfOrNull { release ->
-                release.forecastAt?.epochSecond
-                    ?: release.sourceDate?.atStartOfDay(ANI_WORLD_SOURCE_ZONE)?.toEpochSecond()
-                    ?: Long.MAX_VALUE
-            }?.takeIf { it != Long.MAX_VALUE }
-            return if (item.releaseRows.isNotEmpty()) {
-                providerTimestamp
-            } else {
-                item.media?.nextAiringEpisode?.airingAt?.toLong()
-            }
-        }
-
-        val widgetItems = unsortedItems.sortedWith(
-            compareBy<WidgetAiringItem> { providerTimestampFor(it) ?: Long.MAX_VALUE }.thenBy { it.eventKey },
-        )
-
-        val todayString = clock.instant().atZone(ANI_WORLD_SOURCE_ZONE).toLocalDate().toString()
-
+    private fun Content(entries: List<CalendarEntry>, isColored: Boolean, now: Instant) {
+        val today = now.atZone(DEVICE_ZONE).toLocalDate()
         RoundedDrawableBox(
             shapeRes = R.drawable.widget_background_24,
             color = GlanceTheme.colors.widgetBackground,
@@ -211,46 +233,16 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                 item(itemId = 0) {
                     Header()
                 }
-                if (result is DataResult.Success || providerRows.isNotEmpty()) {
-                    itemsIndexed(
-                        items = widgetItems,
-                        itemId = { _, item -> stableWidgetId(item.eventKey) }
-                    ) { index, item ->
-                        val currentDay = providerTimestampFor(item)
-                            ?.let { it.sourceDateString("yyyy-MM-dd") }
-                        val previousDay = if (index > 0) {
-                            providerTimestampFor(widgetItems[index - 1])
-                                ?.let { it.sourceDateString("yyyy-MM-dd") }
-                        } else null
-
-                        val showDate = currentDay != previousDay
-                        val isToday = currentDay == todayString
-                        ItemView(
-                            item = item.media,
-                            showDate = showDate,
-                            isToday = isToday,
-                            isColored = isColored,
-                            releasePresentations = item.releaseRows,
-                        )
-                    }
-                } else {
-                    item {
-                        Column(
-                            modifier = GlanceModifier.fillMaxSize(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            if (result is DataResult.Loading) {
-                                CircularProgressIndicator(color = GlanceTheme.colors.primary)
-                            } else if (result is DataResult.Error) {
-                                Text(
-                                    text = result.message,
-                                    modifier = GlanceModifier.padding(24.dp),
-                                    style = TextStyle(color = GlanceTheme.colors.onSurface)
-                                )
-                            }
-                        }
-                    }
+                itemsIndexed(
+                    items = entries,
+                    itemId = { _, entry -> stableWidgetId(entry.key) },
+                ) { index, entry ->
+                    ItemView(
+                        entry = entry,
+                        showDate = index == 0 || entries[index - 1].date != entry.date,
+                        isToday = entry.date == today,
+                        isColored = isColored,
+                    )
                 }
             }
         }
@@ -306,37 +298,14 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
 
     @Composable
     private fun ItemView(
-        item: AiringWidgetQuery.Medium?,
+        entry: CalendarEntry,
         showDate: Boolean,
         isToday: Boolean,
         isColored: Boolean,
-        releasePresentations: List<ReleaseUiCalendarItem> = emptyList(),
-        releasePresentation: ReleaseUiCalendarItem? = null,
     ) {
-        val presentations = if (releasePresentations.isNotEmpty()) {
-            releasePresentations
-        } else {
-            releasePresentation?.let(::listOf).orEmpty()
-        }
-        val providerTimestamp = presentations.minOfOrNull { release ->
-            release.forecastAt?.epochSecond
-                ?: release.sourceDate?.atStartOfDay(ANI_WORLD_SOURCE_ZONE)?.toEpochSecond()
-                ?: Long.MAX_VALUE
-        }?.takeIf { it != Long.MAX_VALUE }
-        val timestamp = if (presentations.isNotEmpty()) {
-            providerTimestamp
-        } else {
-            item?.nextAiringEpisode?.airingAt?.toLong()
-        }
-        val sourceDateTime = timestamp?.let {
-            Instant.ofEpochSecond(it).atZone(ANI_WORLD_SOURCE_ZONE)
-        }
-        val dayOfWeek = sourceDateTime
-            ?.format(DateTimeFormatter.ofPattern("E", Locale.getDefault()))
-            .orEmpty()
-        val dayOfMonth = sourceDateTime
-            ?.format(DateTimeFormatter.ofPattern("d", Locale.getDefault()))
-            .orEmpty()
+        val dayOfWeek = entry.date.format(DateTimeFormatter.ofPattern("E", Locale.getDefault()))
+        val dayOfMonth = entry.date.format(DateTimeFormatter.ofPattern("d", Locale.getDefault()))
+        val item = entry.media
 
         val baseMediaColor = remember(item?.coverImage?.color, isColored) {
             if (isColored) {
@@ -346,24 +315,23 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
             } else null
         }
 
-        val primaryColor = GlanceTheme.colors.primary.getColor(LocalContext.current)
+        val context = LocalContext.current
+        val primaryColor = GlanceTheme.colors.primary.getColor(context)
+        val surfaceColor = GlanceTheme.colors.widgetBackground.getColor(context)
 
-        val backgroundColor = if (baseMediaColor != null) {
-            ColorProvider(
-                day = baseMediaColor.harmonize(primaryColor).darken(2f),
-                night = baseMediaColor.harmonize(primaryColor).darken(2f)
-            )
-        } else {
-            GlanceTheme.colors.secondaryContainer
-        }
-        val defaultTextColor = GlanceTheme.colors.onSecondaryContainer
-
-        val textColor = remember(baseMediaColor, defaultTextColor) {
-            baseMediaColor?.let {
-                val tone = TonalPalette.from(it).toneColor(95)
-                ColorProvider(day = tone, night = tone)
-            } ?: defaultTextColor
-        }
+        val rawBackground = baseMediaColor?.harmonize(primaryColor)?.darken(2f)
+            ?: GlanceTheme.colors.secondaryContainer.getColor(context)
+        val rawText = baseMediaColor?.let { TonalPalette.from(it).toneColor(95) }
+            ?: GlanceTheme.colors.onSecondaryContainer.getColor(context)
+        // An entry whose planned time has passed is dimmed as in the calendar tab: its colors give way to the widget's.
+        val backgroundColor = ColorProvider(
+            day = if (entry.dimmed) rawBackground.dimmedInto(surfaceColor) else rawBackground,
+            night = if (entry.dimmed) rawBackground.dimmedInto(surfaceColor) else rawBackground,
+        )
+        val textColor = ColorProvider(
+            day = if (entry.dimmed) rawText.dimmedInto(surfaceColor) else rawText,
+            night = if (entry.dimmed) rawText.dimmedInto(surfaceColor) else rawText,
+        )
 
         Row(
             modifier = GlanceModifier
@@ -439,7 +407,7 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                     .defaultWeight()
                     .cornerRadius(12.dp)
                     .then(
-                        item?.id?.let { mediaId ->
+                        (item?.id ?: entry.releases.firstOrNull()?.mediaId)?.let { mediaId ->
                             GlanceModifier.clickable(
                                 onClick = LocalContext.current.openDeepLink(
                                     DeepLink(
@@ -457,8 +425,7 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = item?.title?.userPreferred.orEmpty()
-                            .ifBlank { glanceStringResource(R.string.release_provider_only) },
+                        text = entry.title ?: glanceStringResource(R.string.release_provider_only),
                         style = TextStyle(
                             color = textColor,
                             fontSize = 14.sp,
@@ -466,21 +433,8 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
                         ),
                         maxLines = 1
                     )
-                    val providerText = presentations
-                        .filter { it.isAuthoritative }
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { releases ->
-                            val context = LocalContext.current
-                            releases.joinToString("\n") { it.widgetText(context) }
-                        }
                     Text(
-                        text = providerText ?: item?.nextAiringEpisode?.let { nextAiringEpisode ->
-                            glanceStringResource(
-                                R.string.episode_airing_at,
-                                nextAiringEpisode.episode,
-                                nextAiringEpisode.airingAt.toLong().sourceTimeString()
-                            )
-                        } ?: glanceStringResource(R.string.unknown),
+                        text = entry.scheduleLine(context),
                         style = TextStyle(
                             color = textColor,
                             fontSize = 13.sp
@@ -509,35 +463,38 @@ class AiringWidget : GlanceAppWidget(), KoinComponent {
     @Preview(widthDp = 255, heightDp = 150)
     @Composable
     private fun Preview() {
-        GlanceTheme {
-            Content(
-                result = DataResult.Success(
-                    data = listOf(
-                        exampleAiringWidgetEntry,
-                        exampleAiringWidgetEntry,
-                        exampleAiringWidgetEntry,
-                        exampleAiringWidgetEntry,
-                    )
-                ),
-                isColored = true,
-                onRefresh = {}
+        val day = LocalDate.of(2026, 10, 17)
+        val sample = listOf("Anime One", "Anime Two").mapIndexed { index, title ->
+            CalendarEntry(
+                date = day, key = "preview-$index", media = null, releases = emptyList(), airingEvent = null, title = title,
+                dimmed = index == 0, checked = index == 0, episode = index + 1, timeText = "1$index:10", trackLabel = "SUB",
             )
+        }
+        GlanceTheme {
+            Content(entries = sample, isColored = true, now = Instant.parse("2026-10-17T12:00:00Z"))
         }
     }
 
     companion object {
         val IS_COLORED_KEY = booleanPreferencesKey("is_colored")
+
+        private const val RELEASE_DAYS = 14L
+        private const val AIRING_DAYS = 5
+        private const val AIRING_PAGES = 3
+        private const val MEDIA_BY_IDS_PAGE = 50
+        private val MEDIA_TTL: java.time.Duration = java.time.Duration.ofMinutes(30)
+
+        /** Cover and title of what the source names, kept for the widget's process; the refresh button asks again. */
+        private val mediaCache = ConcurrentHashMap<Int, Pair<ExploreMedia, Instant>>()
+
+        @Volatile private var freshRequested = false
+
+        /** The refresh button asks for AniList's current answer; the next redraw takes it and clears the request. */
+        internal fun requestFresh() { freshRequested = true }
+        private fun takeFreshRequest(): Boolean = freshRequested.also { freshRequested = false }
     }
 }
 
-
-private fun Long.sourceDateString(pattern: String): String =
-    DateTimeFormatter.ofPattern(pattern, Locale.getDefault())
-        .format(Instant.ofEpochSecond(this).atZone(ANI_WORLD_SOURCE_ZONE))
-
-private fun Long.sourceTimeString(): String =
-    DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
-        .format(Instant.ofEpochSecond(this).atZone(ANI_WORLD_SOURCE_ZONE))
 
 /**
  * The item id of a row. Glance reserves the ids below Long.MIN_VALUE / 2 and throws for them, and a 64-bit hash lands there
@@ -552,21 +509,28 @@ internal fun stableWidgetId(eventKey: String): Long {
     return (hash ushr 2) + 1L
 }
 
-/** The original wording of the widget ("Ep 3 airing at 14:30") with the data of the release source. */
-private fun ReleaseUiCalendarItem.widgetText(context: Context): String {
-    val episode = (installment as? Installment.Episode)?.number
-    val time = forecastAt?.epochSecond?.sourceTimeString()
-    return if (episode != null && time != null) {
-        context.getString(R.string.episode_airing_at, episode, time) +
-            when (stream.languageTrack) {
-                com.axiel7.anihyou.release.core.model.LanguageTrack.DE_SUB -> " · SUB"
-                com.axiel7.anihyou.release.core.model.LanguageTrack.DE_DUB -> " · DUB"
-                else -> ""
-            } + if (confirmed) " ✓" else ""
-    } else {
-        time.orEmpty()
-    }
+/** "Ep 3 airing at 03:10 · SUB/DUB ✓", the wording of the calendar tab. */
+private fun CalendarEntry.scheduleLine(context: Context): String {
+    val episode = episode
+    val time = timeText
+    if (episode == null || time == null) return time.orEmpty().ifBlank { context.getString(R.string.unknown) }
+    return context.getString(R.string.episode_airing_at, episode, time) +
+        (trackLabel?.let { " · $it" } ?: "") + if (checked) " ✓" else ""
 }
+
+/** The color of [this] moved toward [surface], the way the calendar tab lets a dimmed entry give way to its background. */
+internal fun Color.dimmedInto(surface: Color, amount: Float = DIM_AMOUNT): Color = Color(
+    red = red + (surface.red - red) * amount,
+    green = green + (surface.green - green) * amount,
+    blue = blue + (surface.blue - blue) * amount,
+    alpha = 1f,
+)
+
+private const val DIM_AMOUNT = 0.45f
+
+private val REDRAW_ACTIONS = setOf(
+    ACTION_RELEASE_DATA_UPDATED, Intent.ACTION_DATE_CHANGED, Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED,
+)
 
 class AiringWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = AiringWidget()
@@ -574,15 +538,16 @@ class AiringWidgetReceiver : GlanceAppWidgetReceiver() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_RELEASE_DATA_UPDATED) {
+        if (intent.action !in REDRAW_ACTIONS) {
             super.onReceive(context, intent)
             return
         }
-        // A refresh of the release source ended: every widget reads the new rows and asks AniList again.
+        // A refresh of the release source ended, or the day changed: every widget reads the rows again. At midnight the
+        // day before drops out and the new day moves to the top.
         val pending = goAsync()
         scope.launch {
             try {
-                AppLog.i("widget") { "release data updated: widgets redraw" }
+                AppLog.i("widget") { "redraw for ${intent.action}" }
                 glanceAppWidget.updateAll(context)
             } finally {
                 pending.finish()
@@ -600,21 +565,10 @@ class RefreshAiringWidgetAction : ActionCallback, KoinComponent {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val scheduler: ExtensionReleaseRefreshScheduler by inject()
         AppLog.i("widget") { "refresh tapped: release source and AniList are asked" }
+        AiringWidget.requestFresh()
         runCatching { scheduler.scheduleNow() }.onFailure {
             AppLog.w("widget", it) { "release refresh could not be scheduled: ${it.javaClass.simpleName}" }
         }
         AiringWidget().update(context, glanceId)
     }
-}
-
-/** Source priority is per media, never an all-or-nothing replacement of the AniList widget list. */
-internal fun mergeWidgetAiringItems(
-    media: List<AiringWidgetQuery.Medium>, releases: List<ReleaseUiCalendarItem>,
-): List<WidgetAiringItem> {
-    val metadata = media.associateBy { it.id }
-    val authoritative = releases.filter { it.isAuthoritative }.distinctBy { it.eventKey }
-    val coveredMedia = authoritative.mapNotNull { it.mediaId }.toSet()
-    return authoritative.map { WidgetAiringItem(it.eventKey, it.mediaId?.let(metadata::get), listOf(it)) } +
-        media.distinctBy { it.id }.filter { it.id !in coveredMedia }
-            .map { WidgetAiringItem("anilist-media-${it.id}", it, emptyList()) }
 }

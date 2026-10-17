@@ -88,8 +88,8 @@ class ProductionNavigationDispatcher(
     }
 
     private companion object {
-        val PLAN_LIMITS = ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
-        val PARSE_LIMITS = ExtensionExecutionLimits(4 * 1024 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000, 2_000)
+        val PLAN_LIMITS = ExtensionExecutionLimits(256 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000, ExtensionHostCoordinator.DEADLINE_MILLIS)
+        val PARSE_LIMITS = ExtensionExecutionLimits(4 * 1024 * 1024, 64 * 1024, 32 * 1024 * 1024, 10_000_000, ExtensionHostCoordinator.DEADLINE_MILLIS)
         fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 255) }
     }

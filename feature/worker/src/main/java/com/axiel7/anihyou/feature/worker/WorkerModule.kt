@@ -3,6 +3,7 @@ package com.axiel7.anihyou.feature.worker
 import androidx.work.WorkManager
 import com.axiel7.anihyou.release.core.api.ReleaseForecastRecheckScheduler
 import com.axiel7.anihyou.release.core.api.ReleaseOutboxScheduler
+import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
 import org.koin.plugin.module.dsl.worker
 
@@ -15,7 +16,7 @@ val workerModule = module {
     worker<ExtensionSourceRefreshWorker>()
     worker<ExtensionReleaseRefreshWorker>()
     single<com.axiel7.anihyou.release.core.api.ExtensionReleaseRefreshScheduler> {
-        WorkManagerExtensionReleaseRefreshScheduler(get(), get())
+        WorkManagerExtensionReleaseRefreshScheduler(get(), get(), alarms = AndroidDueCheckAlarms(androidContext()))
     }
     single<ReleaseOutboxScheduler> { WorkManagerReleaseOutboxScheduler(get()) }
     single<ReleaseForecastRecheckScheduler> { WorkManagerReleaseForecastRecheckScheduler(get()) }
