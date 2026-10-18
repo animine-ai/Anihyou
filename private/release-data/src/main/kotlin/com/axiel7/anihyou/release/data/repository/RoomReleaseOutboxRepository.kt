@@ -3,6 +3,7 @@ package com.axiel7.anihyou.release.data.repository
 import com.axiel7.anihyou.release.core.api.ReleaseDeliveryState
 import com.axiel7.anihyou.release.core.api.ReleaseDeliveryWork
 import com.axiel7.anihyou.release.core.api.ReleaseOutboxRepository
+import com.axiel7.anihyou.release.core.model.ConfirmationEvidenceKind
 import com.axiel7.anihyou.release.data.db.NotificationOutboxRecord
 import com.axiel7.anihyou.release.data.db.NotificationOutboxStatus
 import java.time.Instant
@@ -59,6 +60,7 @@ private fun NotificationOutboxRecord.toReleaseDeliveryWork(): ReleaseDeliveryWor
         track = track,
         state = status.toReleaseDeliveryState(),
         attemptCount = attemptCount,
+        byCalendar = evidenceKind == ConfirmationEvidenceKind.CALENDAR_PLANNED_TIME.name,
     )
 
 private fun NotificationOutboxStatus.toReleaseDeliveryState(): ReleaseDeliveryState = when (this) {

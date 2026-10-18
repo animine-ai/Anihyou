@@ -22,6 +22,8 @@ data class ReleaseDeliveryWork(
     val track: LanguageTrack?,
     val state: ReleaseDeliveryState,
     val attemptCount: Int,
+    /** True when the row was queued from the calendar time alone, not from a source confirmation. */
+    val byCalendar: Boolean = false,
 )
 
 interface ReleaseOutboxRepository {

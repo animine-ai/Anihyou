@@ -39,6 +39,12 @@ data class ReleaseNotificationScope(
     val includeHidden: Boolean = false,
     /** AniList's own "episode aired" notifications stay off while the release notifications of the source are on. */
     val alsoAniListAiring: Boolean = false,
+    /**
+     * Off by default: an episode is announced only when the source lists it as released. On: an episode of the calendar whose
+     * time has passed is announced too, if the source still did not list it after the checks of its time, marked as "by the
+     * calendar". The source is asked all the same, and a confirmation that comes first is announced as usual.
+     */
+    val announceByCalendar: Boolean = false,
     /** Single anime the user decided on: true is always announced, false never; everything else follows [mode]. */
     val overrides: Map<Int, Boolean> = emptyMap(),
 ) {

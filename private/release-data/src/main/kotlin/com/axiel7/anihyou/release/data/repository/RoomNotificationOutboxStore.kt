@@ -24,6 +24,9 @@ class RoomNotificationOutboxStore(
         createdAt: Instant? = null,
     ): Boolean = dao.insertNotificationIfAbsent(candidate.toEntity(createdAt ?: clock.instant())) != -1L
 
+    /** Whether a notification with this key was ever put in the outbox, whatever became of it. */
+    suspend fun contains(eventKey: String): Boolean = dao.getNotificationOutbox(eventKey) != null
+
     fun observeDue(
         now: Instant? = null,
     ): Flow<List<NotificationOutboxRecord>> = dao.observePendingNotifications(

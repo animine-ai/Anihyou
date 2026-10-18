@@ -367,6 +367,40 @@ class ExtensionReleaseFollowUpTest {
         } finally { database.close() }
     }
 
+    @Test fun withTheCalendarOptInAnUnconfirmedEpisodeIsAnnouncedOnceAfterTheChecksAndMarkedAsByTheCalendar() = runBlocking {
+        val database = openDatabase()
+        try {
+            val scope = ReleaseNotificationScope(announceByCalendar = true)
+            val recording = Recording()
+            val late = listOf(item(42, 5, now.minus(Duration.ofMinutes(20)), confirmed = false))
+            followUp(database, late, enabled = true, progress = mapOf(42 to 4), recording = recording, scope = scope).run()
+            followUp(database, late, enabled = true, progress = mapOf(42 to 4), recording = recording, scope = scope).run()
+            val pending = due(database)
+            assertEquals(1, pending.size)
+            assertTrue(pending.single().byCalendar)
+            assertEquals("Frieren", pending.single().displayTitle)
+            // The source confirms it later: the episode is not announced a second time.
+            val confirmed = listOf(item(42, 5, now.minus(Duration.ofMinutes(20)), confirmed = true))
+            followUp(database, confirmed, enabled = true, progress = mapOf(42 to 4), recording = recording, scope = scope).run()
+            assertEquals(1, due(database).size)
+        } finally { database.close() }
+    }
+
+    @Test fun theCalendarOptInWaitsForTheChecksAndStaysQuietWhenItIsOffOrTheEpisodeIsWatched() = runBlocking {
+        val database = openDatabase()
+        try {
+            val scope = ReleaseNotificationScope(announceByCalendar = true)
+            val tooEarly = listOf(item(42, 5, now.minus(Duration.ofMinutes(3)), confirmed = false))
+            followUp(database, tooEarly, enabled = true, progress = mapOf(42 to 4), recording = Recording(), scope = scope).run()
+            val tooOld = listOf(item(42, 6, now.minus(Duration.ofHours(4)), confirmed = false))
+            followUp(database, tooOld, enabled = true, progress = mapOf(42 to 4), recording = Recording(), scope = scope).run()
+            val watched = listOf(item(42, 5, now.minus(Duration.ofMinutes(20)), confirmed = false))
+            followUp(database, watched, enabled = true, progress = mapOf(42 to 5), recording = Recording(), scope = scope).run()
+            followUp(database, watched, enabled = true, progress = mapOf(42 to 4), recording = Recording()).run()
+            assertTrue(due(database).isEmpty())
+        } finally { database.close() }
+    }
+
     @Test fun withoutAnActiveSourceOrAccountNothingHappens() = runBlocking {
         val database = openDatabase()
         try {

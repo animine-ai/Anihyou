@@ -183,5 +183,7 @@
     <string name="notification_anime_always">Immer</string>
     <string name="notification_anime_never">Nie</string>
     <string name="notification_anilist_airing">Auch AniList-Folgenmeldungen</string>
+    <string name="notification_calendar_time">Zur Kalenderzeit benachrichtigen</string>
+    <string name="notification_calendar_time_summary">Aus: Nur bestätigte Folgen werden gemeldet. An: Hat die Quelle eine Folge einige Minuten nach ihrer Kalenderzeit nicht bestätigt, kommt trotzdem eine Meldung, gekennzeichnet als nicht bestätigt.</string>
     <string name="notification_anilist_airing_summary">Aus: Die eigenen „Folge ist erschienen“-Meldungen von AniList entfallen, solange die Quelle Releases meldet.</string>
 </resources>

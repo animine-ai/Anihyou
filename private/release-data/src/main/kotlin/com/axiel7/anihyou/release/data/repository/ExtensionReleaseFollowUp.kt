@@ -106,6 +106,9 @@ class ExtensionReleaseFollowUp(
                 "onList=${entries?.values?.count { it != null }} notificationsEnabled=${prefs.notificationsEnabled} scope=${chosen.mode}"
         }
         if (prefs.notificationsEnabled) announce(accountId, episodes.filter { it.confirmed }, entries, chosen, now)
+        if (prefs.notificationsEnabled && chosen.announceByCalendar) {
+            announceByCalendar(accountId, episodes.filter { !it.confirmed }, entries, chosen, now)
+        }
         planChecks(episodes.filter { !it.confirmed }, entries, chosen, now)
     }
 
@@ -169,6 +172,8 @@ class ExtensionReleaseFollowUp(
             val entry = fresh[mediaId]
             val reason = when {
                 announcedKey(item) in announced -> "already announced"
+                chosen.announceByCalendar && outbox.contains(calendarEventKey(accountId, item)) ->
+                    "already announced by the calendar time"
                 released.isBefore(now.minus(ANNOUNCE_WINDOW)) -> "released more than $ANNOUNCE_WINDOW ago"
                 released.isAfter(now.plus(CLOCK_SKEW)) -> "released in the future"
                 !chosen.allows(mediaId, entry) -> if (chosen.overrides[mediaId] == false) "switched off for this anime"
@@ -210,6 +215,67 @@ class ExtensionReleaseFollowUp(
         }
         if (added > 0) outboxScheduler.schedule()
     }
+
+    /**
+     * The opt-in: an episode of the calendar whose time passed and that the source did not list after the checks of its time
+     * is announced anyway, as "by the calendar". The source was asked at its time and a few minutes after it (the planned
+     * checks); only what stays unconfirmed after [CALENDAR_NOTICE_DELAY] is announced here. A confirmation that comes later
+     * is not announced a second time (see [announce]).
+     */
+    private suspend fun announceByCalendar(
+        accountId: Long, planned: List<ReleaseUiCalendarItem>, entries: Map<Int, ListEntryInfo?>?,
+        chosen: ReleaseNotificationScope, now: Instant,
+    ) {
+        if (entries == null) return
+        val due = planned.filter { item ->
+            val released = item.forecastAt ?: return@filter false
+            !released.isAfter(now.minus(CALENDAR_NOTICE_DELAY)) && !released.isBefore(now.minus(CALENDAR_WINDOW))
+        }
+        if (due.isEmpty()) return
+        val fresh = freshEntriesFor(due, entries, chosen, now) ?: return
+        var added = 0
+        for (item in due) {
+            val mediaId = checkNotNull(item.mediaId)
+            val episode = item.installment as Installment.Episode
+            val entry = fresh[mediaId]
+            val reason = when {
+                announcedKey(item) in announced -> "already announced"
+                !chosen.allows(mediaId, entry) -> "not in the chosen scope"
+                entry != null && episode.number <= entry.progress -> "already watched (progress ${entry.progress})"
+                else -> null
+            }
+            if (reason != null) {
+                AppLog.d("followup") { "no calendar notification media=$mediaId episode=${episode.number}: $reason" }
+                continue
+            }
+            if (!announced.add(announcedKey(item))) continue
+            val candidate = ReleaseNotificationCandidate(
+                accountId = accountId,
+                mediaId = mediaId,
+                identity = SourceIdentity(item.stream, item.installment),
+                evidenceKind = ConfirmationEvidenceKind.CALENDAR_PLANNED_TIME,
+                observedAt = now,
+                displayTitle = entry?.title ?: (try { titleOf(mediaId) } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { null }) ?: sourceSeriesTitle(item),
+            )
+            entry?.coverUrl?.let { art.remember(mediaId, it) }
+            val isNew = try { outbox.enqueue(candidate) } catch (failure: Exception) {
+                announced -= announcedKey(item)
+                throw failure
+            }
+            AppLog.i("followup") {
+                "calendar notification media=$mediaId episode=${episode.number} track=${item.track} planned=${item.forecastAt} new=$isNew (the source did not list it)"
+            }
+            if (isNew) added++
+        }
+        if (added > 0) outboxScheduler.schedule()
+    }
+
+    private fun calendarEventKey(accountId: Long, item: ReleaseUiCalendarItem): String =
+        com.axiel7.anihyou.release.core.notification.ReleaseNotificationPolicy.eventKey(
+            accountId, checkNotNull(item.mediaId), SourceIdentity(item.stream, item.installment),
+            ConfirmationEvidenceKind.CALENDAR_PLANNED_TIME,
+        )
 
     /**
      * AniList's list could not be read (its rate limit, a bad connection), so what is released cannot be weighed against what
@@ -295,6 +361,10 @@ class ExtensionReleaseFollowUp(
         /** An episode the source lists long after its release is history, not news. */
         val ANNOUNCE_WINDOW: Duration = Duration.ofHours(12)
         val CLOCK_SKEW: Duration = Duration.ofMinutes(10)
+        /** After its planned time the source gets the checks at +1 and +6 minutes; what stays unlisted then is announced by the calendar. */
+        val CALENDAR_NOTICE_DELAY: Duration = Duration.ofMinutes(6)
+        /** An episode whose calendar time is older than this is not announced by it any more. */
+        val CALENDAR_WINDOW: Duration = Duration.ofHours(3)
         /** AniList's answer about a list entry is reused this long; the checks after a planned time come within minutes. */
         val ENTRY_TTL: Duration = Duration.ofMinutes(10)
         const val ENTRY_REQUEST_SIZE = 50

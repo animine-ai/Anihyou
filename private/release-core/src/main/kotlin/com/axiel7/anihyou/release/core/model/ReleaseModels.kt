@@ -93,6 +93,11 @@ enum class ConfirmationEvidenceKind {
     RECENT_LIST_EXPLICIT_MARKER,
     CURRENT_PAGE_EXPLICIT_MARKER,
     MANUAL_CONFIRMATION,
+    /**
+     * Not a confirmation: the planned time of the calendar has passed and the source did not (yet) list the episode. Only
+     * announced if the user asked for it, and said so in the message.
+     */
+    CALENDAR_PLANNED_TIME,
 }
 
 data class Confirmation(

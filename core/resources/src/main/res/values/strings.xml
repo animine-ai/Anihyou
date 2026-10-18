@@ -750,6 +750,8 @@
     <string name="style_monochrome">Monochrome</string>
 
     <string name="release_notification_title">New episode available</string>
+    <string name="release_notification_title_calendar">New episode by the calendar</string>
+    <string name="release_notification_text_calendar">%1$s · %2$s is out by the calendar (not confirmed yet)</string>
     <string name="release_notification_text">%1$s · %2$s is available</string>
     <string name="release_notification_unknown_title">AniWorld release</string>
     <string name="release_notification_episode">Episode %1$s</string>

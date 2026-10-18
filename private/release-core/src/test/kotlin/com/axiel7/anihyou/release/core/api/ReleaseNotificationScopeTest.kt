@@ -17,6 +17,7 @@ class ReleaseNotificationScopeTest {
         assertFalse(scope.allows(1, entry(NotificationListStatus.CURRENT, hidden = true)))
         assertFalse(scope.allows(1, null))
         assertFalse(scope.alsoAniListAiring)
+        assertFalse(scope.announceByCalendar)
     }
 
     @Test fun hiddenEntriesCanBeSwitchedOnAndAllIgnoresStatusAndHiddenFlags() {

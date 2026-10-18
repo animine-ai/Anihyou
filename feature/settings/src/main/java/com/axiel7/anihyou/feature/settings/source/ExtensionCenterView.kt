@@ -457,7 +457,7 @@ private fun NotificationScopePreferences(scope: ReleaseNotificationScope, event:
     val customRows = if (scope.mode == NotificationScopeMode.CUSTOM) NotificationListStatus.entries.size + 1 else 0
     val hiddenRow = if (scope.mode == NotificationScopeMode.ALL) 0 else 1
     // The mode, its status rows, the hidden switch, the single-anime page and the AniList switch form one group.
-    val count = 1 + customRows + hiddenRow + 2
+    val count = 1 + customRows + hiddenRow + 3
     val nav = LocalNavActionManager.current
     var index = 0
     ListPreference(
@@ -518,9 +518,18 @@ private fun NotificationScopePreferences(scope: ReleaseNotificationScope, event:
         subtitle = stringResource(R.string.notification_anilist_airing_summary),
         preferenceValue = scope.alsoAniListAiring,
         icon = CoreR.drawable.notifications_24,
-        shape = preferenceShape(index, count),
+        shape = preferenceShape(index++, count),
         modifier = Modifier.testTag("extension-notification-anilist-airing"),
         onValueChange = { on -> event.updateNotificationScope { it.copy(alsoAniListAiring = on) } },
+    )
+    SwitchPreference(
+        title = stringResource(R.string.notification_calendar_time),
+        subtitle = stringResource(R.string.notification_calendar_time_summary),
+        preferenceValue = scope.announceByCalendar,
+        icon = CoreR.drawable.calendar_month_24,
+        shape = preferenceShape(index, count),
+        modifier = Modifier.testTag("extension-notification-calendar-time"),
+        onValueChange = { on -> event.updateNotificationScope { it.copy(announceByCalendar = on) } },
     )
     Text(
         text = stringResource(when (scope.mode) {

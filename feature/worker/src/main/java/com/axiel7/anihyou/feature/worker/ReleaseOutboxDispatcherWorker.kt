@@ -220,12 +220,17 @@ class ReleaseOutboxDispatcherWorker(
             try {
                 val notificationId = com.axiel7.anihyou.release.core.notification.ReleaseNotificationId
                     .fromEventKey(claimed.eventKey)
+                val byCalendar = claimed.byCalendar
                 val posted = applicationContext.showNotification(
                     notificationId = notificationId,
                     channelId = AIRING_CHANNEL_ID,
-                    title = applicationContext.getString(R.string.release_notification_title),
+                    title = applicationContext.getString(
+                        if (byCalendar) R.string.release_notification_title_calendar
+                        else R.string.release_notification_title,
+                    ),
                     text = applicationContext.getString(
-                        R.string.release_notification_text,
+                        if (byCalendar) R.string.release_notification_text_calendar
+                        else R.string.release_notification_text,
                         claimed.displayTitle
                             ?: applicationContext.getString(R.string.release_notification_unknown_title),
                         claimed.installment.notificationLabel(applicationContext),

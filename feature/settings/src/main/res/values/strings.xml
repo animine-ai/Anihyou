@@ -183,5 +183,7 @@
     <string name="notification_anime_always">Always</string>
     <string name="notification_anime_never">Never</string>
     <string name="notification_anilist_airing">Also AniList episode messages</string>
+    <string name="notification_calendar_time">Notify at the calendar time</string>
+    <string name="notification_calendar_time_summary">Off: only confirmed episodes are announced. On: if the source has not confirmed an episode a few minutes after its calendar time, you still get a message, marked as not confirmed.</string>
     <string name="notification_anilist_airing_summary">Off: AniList\'s own \"episode aired\" messages are left out while the source announces releases.</string>
 </resources>
