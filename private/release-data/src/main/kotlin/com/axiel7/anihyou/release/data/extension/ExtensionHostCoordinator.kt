@@ -14,7 +14,6 @@ import com.axiel7.anihyou.release.core.extension.ParseInputV1
 import com.axiel7.anihyou.release.core.extension.ParseOutputV1
 import com.axiel7.anihyou.release.core.extension.PlanInputV1
 import com.axiel7.anihyou.release.core.extension.ProviderId
-import com.axiel7.anihyou.release.core.extension.ExtensionReportOutcome
 import com.axiel7.anihyou.release.core.extension.ProviderObservationV1
 import com.axiel7.anihyou.release.core.extension.RequestSpec
 import com.axiel7.anihyou.release.core.extension.ResponseEnvelope
@@ -224,14 +223,6 @@ class ExtensionHostCoordinator(
                             report.outcome.name + report.diagnostics.joinToString(prefix = "[", postfix = "]") { it.code.take(48) }
                         }
                 }
-                // A page the extension read only in part: which of its episode links gave no observation, so the row that
-                // the extension finds ambiguous can be named instead of guessed.
-                if (parsed.responseReports.any { it.outcome == ExtensionReportOutcome.PARTIAL }) {
-                    val missed = unreadEpisodeLinks(response.bodyUtf8.orEmpty(), parsed.observations)
-                    if (missed.isNotEmpty()) AppLog.w("host") {
-                        "parsed ${planned.requestId}: ${missed.size} episode link(s) of the page gave no observation: ${missed.joinToString()}"
-                    }
-                }
                 allObservations += parsed.observations
                 allReports += parsed.responseReports
                 if (allObservations.size > 4096) {
@@ -436,24 +427,3 @@ internal object ExtensionExecutionSlot {
 }
 
 private data class PhysicalRequestKey(val method: ExtensionMethod, val normalizedUrl: String)
-
-
-/**
- * The episode links of a page ("/anime/stream/<series>[/staffel-N[/episode-M]]") that no observation of its parse covers, at
- * most [limit] of them, in page order. A partial report only says that some row was ambiguous; this names the rows.
- */
-internal fun unreadEpisodeLinks(body: String, observations: List<ProviderObservationV1>, limit: Int = 8): List<String> {
-    val links = LinkPattern.findAll(body).map { it.groupValues[1] }.distinct()
-    return links.filter { href ->
-        val parts = href.removePrefix("/anime/stream/").split('/')
-        val series = parts.getOrNull(0).orEmpty()
-        val season = parts.getOrNull(1)?.removePrefix("staffel-")?.toIntOrNull()
-        val episode = parts.getOrNull(2)?.removePrefix("episode-")
-        observations.none { o ->
-            o.providerSeriesKey == series && (season == null || o.navigationSeason == season) &&
-                (episode == null || o.installment.number == episode)
-        }
-    }.take(limit).toList()
-}
-
-private val LinkPattern = Regex("""href="(/anime/stream/[^"#?\s]+)"""")
