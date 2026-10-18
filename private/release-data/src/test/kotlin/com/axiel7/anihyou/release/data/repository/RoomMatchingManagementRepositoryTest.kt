@@ -692,6 +692,86 @@ class RoomMatchingManagementRepositoryTest {
         database.reconciliationDao().upsertSourceProjection(forecastRow(keyA, slug, season, t0.plusSeconds(3_600)))
     }
 
+    // The cases below use what AniList really returned for these titles (the "AniList probe" workflow, 18 Oct 2026).
+
+    private fun sourceMedia(key: String) = rigTitles.getValue(key)
+
+    private val rigTitles = mapOf(
+        "suikoden" to IdentityCandidate(187316, setOf("Gensou Suikoden", "Suikoden: The Anime", "幻想水滸伝"), "TV",
+            java.time.LocalDate.of(2026, 10, 3)),
+        "suikoden-demon-century" to IdentityCandidate(1766, setOf("Youseiki Suikoden", "Suikoden Demon Century",
+            "Suikoden - Demon Century: Le siècle de l'enfer"), "OVA", java.time.LocalDate.of(1993, 9, 25)),
+        "aristocrat-1" to IdentityCandidate(164702, setOf("Tensei Kizoku, Kantei Skill de Nariagaru",
+            "As a Reincarnated Aristocrat, I'll Use My Appraisal Skill to Rise in the World", "KanteiSkill"), "TV",
+            java.time.LocalDate.of(2024, 4, 7)),
+        "aristocrat-2" to IdentityCandidate(178434, setOf("Tensei Kizoku, Kantei Skill de Nariagaru 2nd Season",
+            "As a Reincarnated Aristocrat, I'll Use My Appraisal Skill to Rise in the World Season 2", "KanteiSkill 2"), "TV",
+            java.time.LocalDate.of(2024, 9, 29)),
+        "aristocrat-3" to IdentityCandidate(185756, setOf("Tensei Kizoku, Kantei Skill de Nariagaru 3rd Season",
+            "As a Reincarnated Aristocrat, I'll Use My Appraisal Skill to Rise in the World Season 3"), "TV",
+            java.time.LocalDate.of(2026, 9, 27)),
+        "black-clover-1" to IdentityCandidate(97940, setOf("Black Clover", "Black Clover"), "TV", java.time.LocalDate.of(2017, 10, 3)),
+        "black-clover-2" to IdentityCandidate(195604, setOf("Black Clover 2nd Season", "Black Clover Season 2"), "TV",
+            java.time.LocalDate.of(2026, 10, 3)),
+        "black-clover-movie" to IdentityCandidate(131680, setOf("Black Clover: Mahou Tei no Ken",
+            "Black Clover: Sword of the Wizard King", "Black Clover Movie"), "MOVIE", java.time.LocalDate.of(2023, 6, 16)),
+        "paw-palaces" to IdentityCandidate(166443, setOf("Zi Jin: Yu Miao Fang", "Paw & Palaces",
+            "Forbidden City - Impurrial Cat Room"), "ONA", java.time.LocalDate.of(2025, 12, 3)),
+    )
+
+    @Test fun aTitleThatDiffersOnlyByGenericWordsIsTheSameTitle() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("suikoden", "Suikoden", 1))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(sourceMedia("suikoden"), sourceMedia("suikoden-demon-century")))
+        val report = rig.service.autoMatchPending()
+        assertEquals(1, report.matched)
+        assertEquals("187316", rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("suikoden", 1).stableKey, "anilist")!!.externalId)
+        assertEquals("no single search was needed", 0, rig.candidates.targetedCalls)
+    }
+
+    @Test fun aTitleOfOneWordMoreOrLessIsMatchedWhenTheSeasonMarkerAgrees() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("kizoku", "As a Reincarnated Aristocrat, I'll Use My Appraisal Skill to Rise in the New World", 3))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(sourceMedia("aristocrat-1"), sourceMedia("aristocrat-2"),
+            sourceMedia("aristocrat-3")))
+        assertEquals(1, rig.service.autoMatchPending().matched)
+        assertEquals("only the entry that carries season 3", "185756", rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId,
+            keyA.publisherId, keyA.providerId, subject("kizoku", 3).stableKey, "anilist")!!.externalId)
+    }
+
+    @Test fun aLaterSeasonNeverTakesTheFirstSeasonOfAnotherAirDate() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("black-clover", "Black Clover", 3))
+        rig.candidates.pools = mapOf("season-pool:fall:2025" to listOf(sourceMedia("black-clover-1")))
+        rig.candidates.targeted = listOf(sourceMedia("black-clover-1"), sourceMedia("black-clover-movie"))
+        assertEquals(0, rig.service.autoMatchPending().matched)
+        assertEquals(0, rig.service.searchPendingNow().matched)
+    }
+
+    @Test fun theSearchTakesTheSeasonOfTheSourceAndTheOneEntryThatAirsNow() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("black-clover", "Black Clover", 2), Triple("paw-palaces", "Paw & Palaces", 1))
+        rig.candidates.targeted = listOf(sourceMedia("black-clover-1"), sourceMedia("black-clover-2"),
+            sourceMedia("black-clover-movie"), sourceMedia("paw-palaces"))
+        assertEquals("nothing is searched by itself", 0, rig.service.autoMatchPending().matched)
+        assertEquals(2, rig.service.searchPendingNow().matched)
+        fun media(slug: String, season: Int) = rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId,
+            keyA.providerId, subject(slug, season).stableKey, "anilist")!!.externalId
+        assertEquals("195604", media("black-clover", 2))
+        assertEquals("an ONA with no AniList season is found by its English title", "166443", media("paw-palaces", 1))
+    }
+
+    @Test fun theSuggestionShowsTheTitleThatReadsMostLikeTheSeries() = runBlocking {
+        val rig = Rig()
+        rig.seedSeries(Triple("kizoku", "As a Reincarnated Aristocrat I Use My Appraisal Skill", 2))
+        rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(sourceMedia("aristocrat-2")))
+        rig.service.autoMatchPending()
+        val suggestion = rig.repository.observeUnmatched().first().single().suggestion
+        assertEquals("As a Reincarnated Aristocrat, I'll Use My Appraisal Skill to Rise in the World Season 2",
+            suggestion?.title)
+    }
+
     @Test fun autoMatchTakesTheAniListCalendarFirstAndStopsAsSoonAsNothingIsOpen() = runBlocking {
         val rig = Rig()
         rig.seedSeries(Triple("show", "Show", 2))

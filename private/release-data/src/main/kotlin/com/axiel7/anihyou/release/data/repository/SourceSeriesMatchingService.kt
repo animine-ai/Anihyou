@@ -605,13 +605,18 @@ class SourceSeriesMatchingService(
             val nearest = closestEntries(series.request, everything, takenMedia)
             val key = "${MappingEntryIds.sourceKey(active)}|${series.slug}|${series.season}"
             val best = nearest.firstOrNull()?.takeIf { it.second >= SUGGESTION_MIN_SCORE }
-            if (best != null) suggestions[key] = UnmatchedSuggestion(best.first.mediaId, best.first.titles.first(), best.second)
+            if (best != null) suggestions[key] = UnmatchedSuggestion(best.first.mediaId, nearestTitle(best.first, series.request), best.second)
             else suggestions.remove(key)
             if (index < OPEN_SERIES_LOGGED) AppLog.i("matching") {
+                // Entries another series already holds are left out of the offer above; the log still names them.
+                val heldElsewhere = closestEntries(series.request, everything.filter { it.mediaId in takenMedia }, emptySet(), 1)
+                    .firstOrNull()?.takeIf { it.second >= SUGGESTION_MIN_SCORE }
+                    ?.let { (candidate, score) -> " | nearest one already bound to another series: '${candidate.titles.first()}' " +
+                        "(${candidate.mediaId}, ${"%.2f".format(score)})" }.orEmpty()
                 "auto match: open series=${series.slug} season=${series.season} title='${series.title}' closest: " +
                     nearest.joinToString("; ") { (candidate, score) ->
                         "'${candidate.titles.first()}' (${candidate.mediaId}, ${candidate.format ?: "-"}, ${candidate.startDate ?: "-"}, ${"%.2f".format(score)})"
-                    }.ifEmpty { "none shares a word" }
+                    }.ifEmpty { "none shares a word" } + heldElsewhere
             }
         }
         suggestionRevision.value += 1
@@ -704,12 +709,7 @@ class SourceSeriesMatchingService(
         val request = series.request
         val local = (series.local + pool).distinctBy { it.mediaId }
         var decision: MatchDecision = decide(request, local)
-        var accepted = (decision as? MatchDecision.Matched)?.takeIf { it.tier in AUTO_TIERS }
-        // The same title with other spaces or hyphens ("Kurumichan", "Kurumi-chan") is the same title.
-        if (accepted == null) accepted = compactTitle(request, local)
-        // The numbering of the source differs from AniList for long franchises (season 5 there, "Season 2" here): the one
-        // entry of that title that airs now is the continuation.
-        if (accepted == null) accepted = continuation(request, pool)
+        var accepted = autoAccepted(decision) ?: fallbackMatch(request, local, pool)
         if (accepted == null && search != null) {
             // Count dispatches, not elapsed time: a fast network response is still a lookup. The cache remains
             // inside the candidate source, so this conservative bound also covers instant cached answers.
@@ -719,8 +719,10 @@ class SourceSeriesMatchingService(
                     signature = "auto-match|${identity.stableKey}|$title")).candidates
             }.orEmpty()
             delay(AUTO_SEARCH_PACE_MS)
-            decision = decide(request, (local + searched).distinctBy { it.mediaId })
-            accepted = (decision as? MatchDecision.Matched)?.takeIf { it.tier in AUTO_TIERS }
+            val everything = (local + searched).distinctBy { it.mediaId }
+            decision = decide(request, everything)
+            // The same rules as for the pools: what a search returns is held to the season rule and the title rules, too.
+            accepted = autoAccepted(decision) ?: fallbackMatch(request, everything, everything)
         }
         if (accepted == null) {
             if (search != null) AppLog.d("matching") { "auto: series=$slug season=$season title='$title' -> no automatic match (${decision.javaClass.simpleName})" }
@@ -737,6 +739,44 @@ class SourceSeriesMatchingService(
         }
         AppLog.i("matching") { "auto: series=$slug season=$season title='$title' -> media=${accepted.mediaId} tier=${accepted.tier} via $via" }
         return Bind.BOUND
+    }
+
+    /**
+     * A decision the matcher may write without the user: an exact title, a title with the season marker the source gives
+     * it, an alias, or a near-identical title (a word more or less: "Rise in the New World" / "Rise in the World") that the
+     * season rule already confirmed and that clearly beats every other entry.
+     */
+    private fun autoAccepted(decision: MatchDecision): MatchDecision.Matched? {
+        val matched = decision as? MatchDecision.Matched ?: return null
+        if (matched.tier in AUTO_TIERS) return matched
+        if (matched.tier == MatchTier.FUZZY && matched.score >= FUZZY_AUTO_SCORE &&
+            (matched.runnerUpMargin ?: 1.0) >= FUZZY_AUTO_MARGIN) return matched
+        return null
+    }
+
+    /** What is tried when the matcher found no accepted title: the spelling, the generic words, the airing continuation. */
+    private fun fallbackMatch(request: ReleaseMatchRequest, candidates: List<IdentityCandidate>,
+                              pool: List<IdentityCandidate>): MatchDecision.Matched? =
+        compactTitle(request, candidates)
+            // The numbering of the source differs from AniList for long franchises (season 5 there, "Season 2" here): the one
+            // entry of that title that airs now is the continuation.
+            ?: genericVariant(request, candidates)
+            ?: continuation(request, pool)
+
+    /**
+     * A title that differs only by words that say nothing ("The Anime", "TV"): "Suikoden" is "Suikoden: The Anime" (a
+     * synonym of AniList's "Gensou Suikoden"). Only the one entry the season rule lets through counts.
+     */
+    private fun genericVariant(request: ReleaseMatchRequest, pool: List<IdentityCandidate>): MatchDecision.Matched? {
+        val today = clock.instant().atZone(ReleaseSourceTimePolicy.ANI_WORLD_ZONE).toLocalDate()
+        fun essence(title: String) = TitleNormalizer.normalize(title).tokens.filter { it !in GENERIC_WORDS }.joinToString(" ")
+        val wanted = (listOf(request.title) + request.aliases).map(::essence).filter { it.length >= GENERIC_MIN_LENGTH }.toSet()
+        if (wanted.isEmpty()) return null
+        val only = SeasonCandidateRule.filter(request.season, pool, today).filter { candidate ->
+            (candidate.format == null || candidate.format in CONTINUATION_FORMATS) &&
+                candidate.titles.any { essence(it) in wanted }
+        }.singleOrNull() ?: return null
+        return MatchDecision.Matched(only.mediaId, MatchTier.ALIAS, 0.9, null, "generic-words", only)
     }
 
     /** The one entry that carries the title of the series up to its spaces and hyphens and that the season rule lets through. */
@@ -780,6 +820,19 @@ class SourceSeriesMatchingService(
             }.singleOrNull() ?: return null
         }
         return MatchDecision.Matched(only.mediaId, MatchTier.ALIAS, 0.9, null, "airing-continuation", only)
+    }
+
+    /** The title of the entry that reads most like the series, not just the first one (often the romaji one). */
+    private fun nearestTitle(candidate: IdentityCandidate, request: ReleaseMatchRequest): String {
+        val wanted = (listOf(request.title) + request.aliases).map { TitleNormalizer.normalize(it).tokens.toSet() }
+            .filter { it.isNotEmpty() }
+        return candidate.titles.maxByOrNull { title ->
+            val tokens = TitleNormalizer.normalize(title).tokens.toSet()
+            wanted.maxOfOrNull { words ->
+                val shared = words.intersect(tokens).size
+                if (shared == 0) 0.0 else shared.toDouble() / words.union(tokens).size
+            } ?: 0.0
+        } ?: candidate.titles.first()
     }
 
     /** For a series that stays open: the entries of the pool whose titles share the most words with it, nearest first. */
@@ -958,9 +1011,15 @@ class SourceSeriesMatchingService(
         const val AUTO_SEARCH_PACE_MS = 1_100L
         const val OPEN_SERIES_LOGGED = 40
         const val CONTINUATION_MIN_PREFIX = 5
+        /** Words of a title that identify nothing; "Suikoden" and "Suikoden: The Anime" are one title. */
+        val GENERIC_WORDS = setOf("the", "anime", "animation", "series", "tv", "show")
+        const val GENERIC_MIN_LENGTH = 5
+        /** A near-identical title is accepted from this score on, and only when it clearly beats the next entry. */
+        const val FUZZY_AUTO_SCORE = 0.9
+        const val FUZZY_AUTO_MARGIN = 0.1
         val CONTINUATION_FORMATS = setOf("TV", "TV_SHORT", "ONA")
         val AUTO_FORMATS = setOf("TV", "TV_SHORT", "ONA", "OVA")
-        /** A fuzzy hit is never accepted without the user. */
+        /** An exact title, an alias or the season marker; a near-identical title only under [FUZZY_AUTO_SCORE]. */
         val AUTO_TIERS = setOf(MatchTier.EXACT_NORMALIZED, MatchTier.EXACT_BASE_SEASON, MatchTier.ALIAS)
     }
 }
