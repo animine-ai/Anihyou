@@ -328,7 +328,9 @@ class SourceSeriesMatchingService(
      * user asked for them), nearest releases first.
      */
     /** The unbound (series, season) pairs of this source's rows, nearest releases first, plus what is already taken. */
-    private class Pending(val subjects: Int, val bound: Int, val series: List<Pair<String, Int>>, val takenMedia: Set<Int>)
+    private class Pending(val subjects: Int, val bound: Int, val series: List<Pair<String, Int>>, val takenMedia: Set<Int>,
+                          /** The entry of AniList -> the series and season it is bound to. */
+                          val takenBy: Map<Int, Pair<String, Int>> = emptyMap())
 
     private suspend fun findPending(active: ExtensionSelectionKey): Pending {
         val now = clock.instant()
@@ -353,9 +355,16 @@ class SourceSeriesMatchingService(
             active.providerId).first()
         val bound = bindings.filter { it.subjectType == "SEASON" && it.navigationSeason != null }
             .map { it.siteSlug to it.navigationSeason!! }.toSet()
-        return Pending(subjects.size, bound.size,
-            subjects.entries.filter { it.key !in bound }.sortedBy { it.value }.map { it.key },
-            bindings.mapNotNull { it.externalId?.toIntOrNull() }.toSet())
+        // Nearest releases first, and the seasons of one series together with the latest season first: a season that airs
+        // now is the new one, and an older season of the same series must not take its AniList entry before it.
+        val open = subjects.entries.filter { it.key !in bound }
+        val nearestOfSeries = open.groupBy { it.key.first }.mapValues { (_, rows) -> rows.minOf { it.value } }
+        val ordered = open.sortedWith(compareBy<Map.Entry<Pair<String, Int>, Long>> { nearestOfSeries.getValue(it.key.first) }
+            .thenBy { it.key.first }.thenByDescending { it.key.second }).map { it.key }
+        return Pending(subjects.size, bound.size, ordered,
+            bindings.mapNotNull { it.externalId?.toIntOrNull() }.toSet(),
+            bindings.filter { it.subjectType == "SEASON" && it.navigationSeason != null && it.externalId?.toIntOrNull() != null }
+                .associate { it.externalId!!.toInt() to (it.siteSlug to it.navigationSeason!!) })
     }
 
     /** The accepted matcher on the candidates that the season rule lets through. */
@@ -460,6 +469,7 @@ class SourceSeriesMatchingService(
         if (dropped > 0) AppLog.i("matching") { "auto match: $dropped automatic bindings of an earlier matcher version dropped" }
         val found = findPending(active)
         val takenMedia = found.takenMedia.toMutableSet()
+        val takenBy = found.takenBy.toMutableMap()
         // A series is matched once, as an anime (series and season), and the binding stays. Only the ones without a binding
         // are looked at, and one that found nothing is tried again after a few hours at the earliest (or by the button).
         val now = clock.instant()
@@ -501,7 +511,7 @@ class SourceSeriesMatchingService(
                 // Nothing new for this series since the last round: the answer is the same, so it is not asked again.
                 if (relevant.size == series.compared) { still += series; continue }
                 series.compared = relevant.size
-                if (bind(active, series, relevant, takenMedia, search = null, via = via) == Bind.BOUND) matched++ else still += series
+                if (bind(active, series, relevant, takenMedia, takenBy, search = null, via = via) == Bind.BOUND) matched++ else still += series
             }
             left = still
         }
@@ -578,7 +588,7 @@ class SourceSeriesMatchingService(
         val searchOrder = if (maxSearches > 0 && resumeAfter in 1 until left.size)
             left.drop(resumeAfter) + left.take(resumeAfter) else left
         for (series in searchOrder) {
-            if (searches < maxSearches && bind(active, series, pool.sharing(series.tokens, series.compacts), takenMedia,
+            if (searches < maxSearches && bind(active, series, pool.sharing(series.tokens, series.compacts), takenMedia, takenBy,
                     search = {
                         searches++
                         lastTargetedSubject[sourceKey] = "${series.slug}|${series.season}"
@@ -605,7 +615,13 @@ class SourceSeriesMatchingService(
             val nearest = closestEntries(series.request, everything, takenMedia)
             val key = "${MappingEntryIds.sourceKey(active)}|${series.slug}|${series.season}"
             val best = nearest.firstOrNull()?.takeIf { it.second >= SUGGESTION_MIN_SCORE }
-            if (best != null) suggestions[key] = UnmatchedSuggestion(best.first.mediaId, nearestTitle(best.first, series.request), best.second)
+            // A season of the same series that holds the nearest entry is the reason this one stays open (AniWorld splits
+            // one long AniList entry into several seasons); say so instead of offering nothing.
+            val held = closestEntries(series.request, everything.filter { takenBy[it.mediaId]?.first == series.slug }, emptySet(), 1)
+                .firstOrNull()?.takeIf { it.second >= SUGGESTION_MIN_SCORE && it.second > (best?.second ?: 0.0) }
+            if (held != null) suggestions[key] = UnmatchedSuggestion(held.first.mediaId, nearestTitle(held.first, series.request),
+                held.second, heldBySeason = takenBy.getValue(held.first.mediaId).second)
+            else if (best != null) suggestions[key] = UnmatchedSuggestion(best.first.mediaId, nearestTitle(best.first, series.request), best.second)
             else suggestions.remove(key)
             if (index < OPEN_SERIES_LOGGED) AppLog.i("matching") {
                 // Entries another series already holds are left out of the offer above; the log still names them.
@@ -700,7 +716,7 @@ class SourceSeriesMatchingService(
     /** One prepared series against the candidates at hand; [search] non-null also asks AniList for this one title (last resort). */
     private suspend fun bind(
         active: ExtensionSelectionKey, series: Prepared, pool: List<IdentityCandidate>,
-        takenMedia: MutableSet<Int>, search: (() -> Unit)?, via: String,
+        takenMedia: MutableSet<Int>, takenBy: MutableMap<Int, Pair<String, Int>>, search: (() -> Unit)?, via: String,
     ): Bind {
         val slug = series.slug
         val season = series.season
@@ -737,6 +753,7 @@ class SourceSeriesMatchingService(
             AppLog.i("matching") { "auto: series=$slug season=$season write skipped after reset or concurrent binding" }
             return Bind.NONE
         }
+        takenBy[accepted.mediaId] = slug to season
         AppLog.i("matching") { "auto: series=$slug season=$season title='$title' -> media=${accepted.mediaId} tier=${accepted.tier} via $via" }
         return Bind.BOUND
     }

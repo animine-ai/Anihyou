@@ -272,9 +272,10 @@ private fun MatchingListPage(
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 series.suggestion?.let { suggestion ->
-                                    Text(stringResource(R.string.matching_unmatched_suggestion, suggestion.title),
+                                    Text(suggestion.heldBySeason?.let { stringResource(R.string.matching_unmatched_suggestion_held, suggestion.title, it) }
+                                        ?: stringResource(R.string.matching_unmatched_suggestion, suggestion.title),
                                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.testTag("unmatched-suggestion-${series.seriesKey}-${series.season}"))
                                 }
                             }

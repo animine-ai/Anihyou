@@ -762,6 +762,26 @@ class RoomMatchingManagementRepositoryTest {
         assertEquals("an ONA with no AniList season is found by its English title", "166443", media("paw-palaces", 1))
     }
 
+    @Test fun theNewSeasonOfASplitSeriesTakesItsEntryFirstAndTheOlderSeasonSaysWhoHoldsIt() = runBlocking {
+        // AniWorld: seasons 1-4 are AniList's one long entry, season 5 is its "Season 2"; the dub of season 2 is also listed.
+        listOf(listOf(2, 5), listOf(5, 2)).forEach { order ->
+            context.deleteDatabase(name)
+            val rig = Rig()
+            rig.seedSeries(*order.map { Triple("black-clover", "Black Clover", it) }.toTypedArray())
+            rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(sourceMedia("black-clover-2")))
+            assertEquals("order $order", 1, rig.service.autoMatchPending().matched)
+            fun media(season: Int) = rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+                subject("black-clover", season).stableKey, "anilist")?.externalId
+            assertEquals("order $order: the season that airs now", "195604", media(5))
+            assertNull("order $order: the older season is not given the same entry", media(2))
+            val suggestion = rig.repository.observeUnmatched().first().single { it.season == 2 }.suggestion
+            assertEquals(195604, suggestion?.mediaId)
+            assertEquals("order $order", 5, suggestion?.heldBySeason)
+            rig.database.close()
+            openDatabases.remove(rig.database)
+        }
+    }
+
     @Test fun theSuggestionShowsTheTitleThatReadsMostLikeTheSeries() = runBlocking {
         val rig = Rig()
         rig.seedSeries(Triple("kizoku", "As a Reincarnated Aristocrat I Use My Appraisal Skill", 2))

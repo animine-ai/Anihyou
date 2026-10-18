@@ -63,7 +63,9 @@ data class UnmatchedSeries(val source: ExtensionSelectionKey, val seriesKey: Str
     val suggestion: UnmatchedSuggestion? = null, val sourceLabel: String = source.sourceId)
 
 /** The AniList entry whose title came nearest to a series the matcher could not settle; only an offer, never a binding. */
-data class UnmatchedSuggestion(val mediaId: Int, val title: String, val score: Double)
+data class UnmatchedSuggestion(val mediaId: Int, val title: String, val score: Double,
+    /** Another season of the same series already holds this entry (a long AniList entry that the source splits). */
+    val heldBySeason: Int? = null)
 
 interface MatchingManagementRepository {
     fun observeEpisodeRulesStatus(): Flow<EpisodeRulesUpdateStatus> =
