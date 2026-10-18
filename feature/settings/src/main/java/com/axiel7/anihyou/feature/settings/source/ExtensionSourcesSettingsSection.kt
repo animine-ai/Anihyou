@@ -75,8 +75,11 @@ import com.axiel7.anihyou.release.core.source.selectionKey
 fun ExtensionSourcesSettingsSection(
     uiState: ExtensionSourcesUiState,
     event: ExtensionSourcesEvent,
+    /** The query of a search field the caller pins itself; null keeps the field at the top of this section. */
+    pinnedQuery: String? = null,
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
+    var ownQuery by rememberSaveable { mutableStateOf("") }
+    val query = pinnedQuery ?: ownQuery
     var showAdd by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(uiState.trustPrompt, uiState.addResult) {
         if (uiState.trustPrompt != null || uiState.addResult is AddExtensionSourceResult.Added ||
@@ -87,6 +90,7 @@ fun ExtensionSourcesSettingsSection(
             extension.version, repositoryHost(source.url), extension.supportedTracks.joinToString(" ")) }
     val active = entries.filter { it.second.installedDigest != null }
     val available = entries.filter { it.second.installedDigest == null }
+    if (pinnedQuery == null) ExtensionSearchField(ownQuery) { ownQuery = it }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) { PreferencesTitle(stringResource(R.string.extension_sources_title)) }
         IconButton(onClick = { showAdd = true }, enabled = uiState.trustAvailable && !uiState.isAdding,
@@ -100,12 +104,8 @@ fun ExtensionSourcesSettingsSection(
         ExtensionSourceCard(source, uiState.busySourceIds, uiState.trustAvailable, event,
             shape = preferenceShape(index, uiState.sources.size))
     }
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-        SearchPillField(value = query, onValueChange = { query = it.take(256) },
-            placeholder = stringResource(R.string.extension_manage_search), modifier = Modifier.testTag("extensions-search"))
-        if (uiState.actionFailed) TextButton(onClick = event::clearActionFailure) {
-            Text(stringResource(R.string.extension_sources_action_failed))
-        }
+    if (uiState.actionFailed) TextButton(onClick = event::clearActionFailure, modifier = Modifier.padding(horizontal = 8.dp)) {
+        Text(stringResource(R.string.extension_sources_action_failed))
     }
     if (active.isNotEmpty()) {
         PreferencesTitle(stringResource(R.string.extension_manage_active_title))
@@ -131,6 +131,15 @@ fun ExtensionSourcesSettingsSection(
         } })
     uiState.trustPrompt?.let { UnverifiedSourceDialog(it, busy = uiState.isAdding,
         onConfirm = event::confirmTrust, onCancel = event::cancelTrust) }
+}
+
+/** The extension search: one pill, always at the same place whatever the sources below it do. */
+@Composable
+fun ExtensionSearchField(query: String, onQueryChange: (String) -> Unit) {
+    Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        SearchPillField(value = query, onValueChange = { onQueryChange(it.take(256)) },
+            placeholder = stringResource(R.string.extension_manage_search), modifier = Modifier.testTag("extensions-search"))
+    }
 }
 
 @Composable

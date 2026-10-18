@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -159,7 +160,11 @@ fun ExtensionCenterPageView(pageId: String) {
     LaunchedEffect(state.sources, state.productPolicy.generation) {
         if (page == ExtensionCenterPage.DIAGNOSTICS) model.refreshDiagnostics()
     }
-    ExtensionCenterScaffold(stringResource(page.title)) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val pinned: (@Composable () -> Unit)? = if (page == ExtensionCenterPage.MANAGE) {
+        { ExtensionSearchField(query) { query = it } }
+    } else null
+    ExtensionCenterScaffold(stringResource(page.title), pinned) {
         if (!state.trustAvailable) ExtensionTrustUnavailableNotice()
         if (page == ExtensionCenterPage.DIAGNOSTICS) {
             Spacer(Modifier.height(8.dp))
@@ -172,7 +177,7 @@ fun ExtensionCenterPageView(pageId: String) {
         }
         when (page) {
             ExtensionCenterPage.MATCHING -> Unit // Handled by the settings-only route above.
-            ExtensionCenterPage.MANAGE -> ExtensionSourcesSettingsSection(state, model)
+            ExtensionCenterPage.MANAGE -> ExtensionSourcesSettingsSection(state, model, pinnedQuery = query)
             ExtensionCenterPage.SOURCE -> ExtensionDataSourcePreferences(state, model)
             ExtensionCenterPage.PROVIDERS -> ExtensionProviderDisplay(state, model)
             ExtensionCenterPage.STATISTICS -> ExtensionStatistics(state, model::refreshReleasesNow)
@@ -183,12 +188,15 @@ fun ExtensionCenterPageView(pageId: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ExtensionCenterScaffold(title: String, content: @Composable () -> Unit) {
+private fun ExtensionCenterScaffold(title: String, pinned: (@Composable () -> Unit)? = null, content: @Composable () -> Unit) {
     val nav = LocalNavActionManager.current
     DefaultScaffoldWithSmallTopAppBar(title = title,
         navigationIcon = { BackIconButton(nav::goBack) },
         scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
-        Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) { content() }
+        Column(Modifier.padding(padding)) {
+            pinned?.invoke()
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { content() }
+        }
     }
 }
 
