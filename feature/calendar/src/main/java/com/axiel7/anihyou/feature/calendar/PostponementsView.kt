@@ -58,7 +58,10 @@ fun PostponementsView(
     PostponementsViewContent(state, modifier, onRefresh = model::refresh, onSearch = model::search)
 }
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
 @Composable
 fun PostponementsViewContent(
     state: PostponementsUiState,
