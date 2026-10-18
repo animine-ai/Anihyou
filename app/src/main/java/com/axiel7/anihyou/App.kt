@@ -85,6 +85,7 @@ class App : Application(), SingletonImageLoader.Factory {
             runCatching {
                 if (koinApplication.koin.get<ExtensionSourceRepository>().sources.value.any { it.enabled }) {
                     koinApplication.koin.get<ExtensionSourceScheduler>().scheduleRefresh()
+                    koinApplication.koin.get<ExtensionSourceScheduler>().schedulePeriodic()
                 }
             }
         }
@@ -115,6 +116,10 @@ class App : Application(), SingletonImageLoader.Factory {
                     }
                     if (active) {
                         koinApplication.koin.get<ExtensionReleaseRefreshScheduler>().scheduleForeground()
+                    }
+                    // Opening the app also asks the sources, so a new extension version does not wait for the periodic check.
+                    if (koinApplication.koin.get<ExtensionSourceRepository>().sources.value.any { it.enabled }) {
+                        koinApplication.koin.get<ExtensionSourceScheduler>().scheduleRefresh()
                     }
                 }
             }

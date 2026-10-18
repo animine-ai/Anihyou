@@ -112,4 +112,6 @@ interface ExtensionSourceRepository {
 
 interface ExtensionSourceScheduler {
     fun scheduleRefresh()
+    /** Checks the sources again every few hours while the app is closed, so a new extension version is installed without opening it. */
+    fun schedulePeriodic() {}
 }

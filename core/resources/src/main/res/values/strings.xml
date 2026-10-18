@@ -842,4 +842,9 @@
     <string name="watch_sections_summary">Ready to watch or read on top, waiting below.</string>
     <string name="list_animations">List animations</string>
     <string name="list_animations_summary">An entry slides into the other section when its progress changes.</string>
+    <string name="extension_update_channel">Extension updates</string>
+    <string name="extension_update_installed_title">Extension updated</string>
+    <string name="extension_update_installed_text">%1$s is now version %2$s.</string>
+    <string name="extension_update_failed_title">Extension update failed</string>
+    <string name="extension_update_failed_text">%1$s %2$s could not be installed. Open the extension settings to see why.</string>
 </resources>

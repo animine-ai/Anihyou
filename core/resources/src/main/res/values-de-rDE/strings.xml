@@ -826,4 +826,9 @@
     <string name="watch_sections_summary">Oben bereit zum Schauen oder Lesen, darunter wartend.</string>
     <string name="list_animations">Listen-Animationen</string>
     <string name="list_animations_summary">Ein Eintrag rutscht in den anderen Abschnitt, wenn sich sein Fortschritt ändert.</string>
+    <string name="extension_update_channel">Extension-Updates</string>
+    <string name="extension_update_installed_title">Extension aktualisiert</string>
+    <string name="extension_update_installed_text">%1$s ist jetzt in Version %2$s.</string>
+    <string name="extension_update_failed_title">Extension-Update fehlgeschlagen</string>
+    <string name="extension_update_failed_text">%1$s %2$s konnte nicht installiert werden. In den Extension-Einstellungen steht der Grund.</string>
 </resources>

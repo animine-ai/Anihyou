@@ -110,4 +110,24 @@ class WorkManagerExtensionSourceSchedulerTest {
             override suspend fun refreshEnabled(): Boolean = refresh()
             override suspend fun activate(sourceId: String, extensionId: String) = Unit
         }
+
+    @Test
+    fun schedulesAPeriodicConnectedCheckThatKeepsAnExistingOne() {
+        val workManager = mockk<WorkManager>()
+        val operation = mockk<Operation>(relaxed = true)
+        val request = slot<androidx.work.PeriodicWorkRequest>()
+        every {
+            workManager.enqueueUniquePeriodicWork(
+                WorkManagerExtensionSourceScheduler.PERIODIC_WORK_NAME,
+                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                capture(request),
+            )
+        } returns operation
+
+        WorkManagerExtensionSourceScheduler(workManager).schedulePeriodic()
+
+        assertEquals(NetworkType.CONNECTED, request.captured.workSpec.constraints.requiredNetworkType)
+        assertEquals(java.util.concurrent.TimeUnit.HOURS.toMillis(WorkManagerExtensionSourceScheduler.PERIODIC_HOURS),
+            request.captured.workSpec.intervalDuration)
+    }
 }
