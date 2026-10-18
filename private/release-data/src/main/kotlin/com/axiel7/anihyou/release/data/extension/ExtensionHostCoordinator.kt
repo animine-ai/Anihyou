@@ -220,7 +220,10 @@ class ExtensionHostCoordinator(
                 AppLog.i("host") {
                     "parsed ${planned.requestId}: observations=${parsed.observations.size} reports=" +
                         parsed.responseReports.joinToString { report ->
-                            report.outcome.name + report.diagnostics.joinToString(prefix = "[", postfix = "]") { it.code.take(48) }
+                            report.outcome.name + report.diagnostics.joinToString(prefix = "[", postfix = "]") {
+                                // The message is the extension's own detail (which rows it skipped); the host never reads it.
+                                if (it.message == it.code) it.code.take(48) else it.message.take(256)
+                            }
                         }
                 }
                 allObservations += parsed.observations
