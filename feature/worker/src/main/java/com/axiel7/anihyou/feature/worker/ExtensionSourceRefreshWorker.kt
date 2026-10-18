@@ -47,7 +47,10 @@ class ExtensionSourceRefreshWorker(
         AppLog.i("worker") { "source refresh start attempt=$runAttemptCount" }
         val decision = evaluateExtensionSourceRefresh(repository, runAttemptCount)
         AppLog.i("worker") { "source refresh decision=$decision attempt=$runAttemptCount" }
-        if (decision == ExtensionSourceRefreshDecision.SUCCESS) installUpdates()
+        if (decision == ExtensionSourceRefreshDecision.SUCCESS && !installUpdates() && runAttemptCount + 1 < MAX_ATTEMPTS) {
+            // A package could not even be tried (the source was busy): the work runs again, with the usual backoff.
+            return Result.retry()
+        }
         return when (decision) {
             ExtensionSourceRefreshDecision.SUCCESS -> Result.success()
             ExtensionSourceRefreshDecision.RETRY -> Result.retry()
@@ -56,16 +59,16 @@ class ExtensionSourceRefreshWorker(
     }
 
     /** Installs a newer signed package of an installed extension and says so, also when it could not be installed. */
-    private suspend fun installUpdates() {
+    private suspend fun installUpdates(): Boolean {
         val outcomes = try {
             installAvailableExtensionUpdates(repository, SharedPreferencesExtensionUpdateLedger(applicationContext))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             AppLog.w("worker", error) { "extension update check failed" }
-            return
+            return true
         }
-        outcomes.forEach { outcome ->
+        outcomes.filter { it.attempted }.forEach { outcome ->
             runCatching {
                 if (!NotificationManagerCompat.from(applicationContext).areNotificationsEnabled() ||
                     (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -98,6 +101,7 @@ class ExtensionSourceRefreshWorker(
                 AppLog.i("notification") { "extension update ${outcome.displayName} ${outcome.toVersion}: installed=${outcome.installed} posted=$posted" }
             }
         }
+        return outcomes.all { it.attempted }
     }
 
     companion object {

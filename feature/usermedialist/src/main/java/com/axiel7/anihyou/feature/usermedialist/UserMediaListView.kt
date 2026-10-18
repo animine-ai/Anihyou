@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -26,7 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.pullToRefresh
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -82,6 +83,8 @@ fun UserMediaListView(
     stickyHeaderContent: (@Composable () -> Unit),
     /** The scroll connection of the collapsing search bar. It is held back while the list is being pulled to refresh. */
     barScrollConnection: NestedScrollConnection? = null,
+    /** False while the search bar is hidden or on its way: showing the bar is that drag, the pull to refresh waits for it. */
+    pullEnabled: Boolean = true,
 ) {
     val isDark = isSystemInDarkTheme()
     val haptic = LocalHapticFeedback.current
@@ -117,18 +120,14 @@ fun UserMediaListView(
         event?.onClickPlusOne(increment, item)
     }
 
-    PullToRefreshBox(
-        isRefreshing = uiState.fetchFromNetwork,
-        onRefresh = { event?.refreshList() },
-        modifier = Modifier.fillMaxSize(),
-        state = pullRefreshState,
-        indicator = {
-            PullToRefreshDefaults.LoadingIndicator(
-                state = pullRefreshState,
-                isRefreshing = uiState.fetchFromNetwork,
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
-        }
+    // The same box as PullToRefreshBox, with the switch it does not have: one drag either shows the search bar or pulls.
+    Box(
+        modifier = Modifier.fillMaxSize().pullToRefresh(
+            isRefreshing = uiState.fetchFromNetwork,
+            state = pullRefreshState,
+            enabled = pullEnabled,
+            onRefresh = { event?.refreshList() },
+        ),
     ) {
         if (uiState.separateNovelsAndManga && uiState.mediaType == MediaType.MANGA) {
             TabbedView(
@@ -163,6 +162,11 @@ fun UserMediaListView(
                 stickyHeaderContent = stickyHeaderContent
             )
         }
+        PullToRefreshDefaults.LoadingIndicator(
+            state = pullRefreshState,
+            isRefreshing = uiState.fetchFromNetwork,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
     }//: Box
 }
 
@@ -598,7 +602,7 @@ private fun LazyListPhone(
     }//: LazyColumn
 }
 
-/** Passes the scroll to [delegate] unless [paused] says it must rest; a paused connection consumes nothing. */
+/** Passes the scroll to [delegate] unless [paused] says it must rest; a paused connection consumes no scroll. Flings always pass. */
 private class PauseWhile(
     private val delegate: NestedScrollConnection,
     private val paused: () -> Boolean,
@@ -609,9 +613,9 @@ private class PauseWhile(
     override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
         if (paused()) Offset.Zero else delegate.onPostScroll(consumed, available, source)
 
-    override suspend fun onPreFling(available: Velocity): Velocity =
-        if (paused()) Velocity.Zero else delegate.onPreFling(available)
+    // The settling of the bar after a drag always runs: a bar left half way would jump when the next drag starts.
+    override suspend fun onPreFling(available: Velocity): Velocity = delegate.onPreFling(available)
 
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
-        if (paused()) Velocity.Zero else delegate.onPostFling(consumed, available)
+        delegate.onPostFling(consumed, available)
 }

@@ -3,6 +3,7 @@ package com.axiel7.anihyou.feature.worker
 import com.axiel7.anihyou.release.core.source.ExtensionSource
 import com.axiel7.anihyou.release.core.source.ExtensionSourceRepository
 import com.axiel7.anihyou.release.core.source.ExtensionSourceStatus
+import com.axiel7.anihyou.release.core.source.ExtensionUpdateFailure
 import com.axiel7.anihyou.release.core.source.SourceExtension
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -35,12 +36,13 @@ class ExtensionUpdatesTest {
     )
 
     /** A repository whose activate installs the offered package, or leaves the old one when [succeeds] is false. */
-    private fun repository(start: SourceExtension, succeeds: Boolean): Pair<ExtensionSourceRepository, MutableStateFlow<List<ExtensionSource>>> {
+    private fun repository(start: SourceExtension, succeeds: Boolean, recordsFailure: Boolean = true): Pair<ExtensionSourceRepository, MutableStateFlow<List<ExtensionSource>>> {
         val sources = MutableStateFlow(listOf(source(start)))
         val repository = mockk<ExtensionSourceRepository>()
         coEvery { repository.sources } returns sources
         coEvery { repository.activate("s", "de.aniworld") } coAnswers {
             if (succeeds) sources.value = listOf(source(start.copy(installedDigest = "new", installedVersion = "1.0.2", updateAvailable = false)))
+            else if (recordsFailure) sources.value = listOf(source(start.copy(lastUpdateFailure = ExtensionUpdateFailure.NETWORK)))
         }
         return repository to sources
     }
@@ -72,5 +74,16 @@ class ExtensionUpdatesTest {
             assertTrue(installAvailableExtensionUpdates(repository, MemoryLedger()).isEmpty())
             coVerify(exactly = 0) { repository.activate(any(), any()) }
         }
+    }
+
+    @Test fun `a request the source skipped is neither reported nor remembered, and is asked for again`() = runBlocking {
+        // activate leaves the extension as it was and records no failure: that is how a skipped request looks.
+        val (repository, _) = repository(extension(), succeeds = false, recordsFailure = false)
+        val ledger = MemoryLedger()
+        val outcomes = installAvailableExtensionUpdates(repository, ledger, retryMillis = 0)
+        assertEquals(1, outcomes.size)
+        assertFalse(outcomes.single().attempted)
+        assertFalse("not remembered", "new" in ledger.digests)
+        coVerify(exactly = 3) { repository.activate("s", "de.aniworld") }
     }
 }

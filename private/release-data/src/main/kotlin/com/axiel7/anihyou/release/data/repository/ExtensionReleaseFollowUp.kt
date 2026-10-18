@@ -181,6 +181,12 @@ class ExtensionReleaseFollowUp(
                 AppLog.d("followup") { "no notification media=$mediaId episode=${episode.number}: $reason" }
                 continue
             }
+            // Several runs can be at this point at once (an alarm, a deferred check, the app opening); the first one takes the
+            // episode, the others see it taken. The outbox refuses a second row as well, this keeps the work from being done twice.
+            if (!announced.add(announcedKey(item))) {
+                AppLog.d("followup") { "no notification media=$mediaId episode=${episode.number}: another run announces it" }
+                continue
+            }
             val candidate = ReleaseNotificationCandidate(
                 accountId = accountId,
                 mediaId = mediaId,
@@ -193,8 +199,10 @@ class ExtensionReleaseFollowUp(
                     catch (_: Exception) { null }) ?: sourceSeriesTitle(item),
             )
             entry?.coverUrl?.let { art.remember(mediaId, it) }
-            val isNew = outbox.enqueue(candidate)
-            announced += announcedKey(item)
+            val isNew = try { outbox.enqueue(candidate) } catch (failure: Exception) {
+                announced -= announcedKey(item)
+                throw failure
+            }
             AppLog.i("followup") {
                 "notification media=$mediaId episode=${episode.number} track=${item.track} released=$released new=$isNew"
             }

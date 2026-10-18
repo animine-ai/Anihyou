@@ -138,6 +138,8 @@ private fun UserMediaListHostContent(
     val gridState = rememberLazyGridState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val isScrollingUp by rememberIsScrollingUp(listState = listState, gridState = gridState)
+    // Pulling to refresh starts only with the search bar fully shown; before that the drag is the bar coming back.
+    val barRevealed by remember { derivedStateOf { scrollBehavior.state.heightOffset > -0.5f } }
 
     val bottomBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
@@ -266,6 +268,7 @@ private fun UserMediaListHostContent(
                 isCompactScreen = isCompactScreen,
                 modifier = Modifier.fillMaxSize(),
                 barScrollConnection = scrollBehavior.nestedScrollConnection,
+                pullEnabled = barRevealed,
                 contentPadding = if (!uiState.isMyList)
                     PaddingValues(bottom = 58.dp + padding.calculateBottomPadding())
                 else PaddingValues(bottom = 58.dp),

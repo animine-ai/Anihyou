@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
@@ -50,8 +51,14 @@ class AndroidDueCheckAlarms(private val context: Context) : DueCheckAlarms {
             context, (at.epochSecond / 60L).toInt() * 2 + if (kind == ReleaseCheckAlarmReceiver.KIND_SLOT) 1 else 0,
             intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        runCatching { manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), pending) }
-            .onFailure { AppLog.w("worker", it) { "alarm for the $kind at $at could not be set" } }
+        // An exact alarm that may fire while the phone idles starts the check at its minute: the inexact one can wait for
+        // the app's standby bucket (a rarely used app gets very few of them). Without the permission it stays inexact.
+        val exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
+        runCatching {
+            if (exact) manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), pending)
+            else manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toEpochMilli(), pending)
+            AppLog.d("worker") { "alarm armed: $kind at $at exact=$exact" }
+        }.onFailure { AppLog.w("worker", it) { "alarm for the $kind at $at could not be set" } }
     }
 }
 
