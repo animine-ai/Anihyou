@@ -264,9 +264,8 @@ private fun UserMediaListHostContent(
                 uiState = uiState,
                 event = event,
                 isCompactScreen = isCompactScreen,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                modifier = Modifier.fillMaxSize(),
+                barScrollConnection = scrollBehavior.nestedScrollConnection,
                 contentPadding = if (!uiState.isMyList)
                     PaddingValues(bottom = 58.dp + padding.calculateBottomPadding())
                 else PaddingValues(bottom = 58.dp),

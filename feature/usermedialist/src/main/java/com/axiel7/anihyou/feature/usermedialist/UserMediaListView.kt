@@ -40,6 +40,11 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -74,11 +79,20 @@ fun UserMediaListView(
     onShowEditSheet: (CommonMediaListEntry) -> Unit,
     lazyListState: LazyListState,
     lazyGridState: LazyGridState,
-    stickyHeaderContent: (@Composable () -> Unit)
+    stickyHeaderContent: (@Composable () -> Unit),
+    /** The scroll connection of the collapsing search bar. It is held back while the list is being pulled to refresh. */
+    barScrollConnection: NestedScrollConnection? = null,
 ) {
     val isDark = isSystemInDarkTheme()
     val haptic = LocalHapticFeedback.current
     val pullRefreshState = rememberPullToRefreshState()
+    // The bar hides and shows with the scroll, the pull to refresh moves the list with the pull. Both on one drag fought
+    // over the same movement (the list jumped back and forth), so the bar rests while a pull is on.
+    val listModifier = if (barScrollConnection == null) modifier else modifier.nestedScroll(
+        remember(barScrollConnection, pullRefreshState) {
+            PauseWhile(barScrollConnection) { pullRefreshState.distanceFraction > 0f }
+        },
+    )
 
     val priorityNoneColor = MaterialTheme.colorScheme.secondaryContainer
     val lowPriorityColors = remember(uiState.lowPriorityColor, isDark) {
@@ -121,7 +135,7 @@ fun UserMediaListView(
                 uiState = uiState,
                 event = event,
                 isCompactScreen = isCompactScreen,
-                modifier = modifier,
+                modifier = listModifier,
                 contentPadding = contentPadding,
                 navActionManager = navActionManager,
                 onShowEditSheet = onShowEditSheet,
@@ -138,7 +152,7 @@ fun UserMediaListView(
                 customMediaList = null,
                 event = event,
                 isCompactScreen = isCompactScreen,
-                modifier = modifier,
+                modifier = listModifier,
                 contentPadding = contentPadding,
                 navActionManager = navActionManager,
                 onShowEditSheet = onShowEditSheet,
@@ -582,4 +596,22 @@ private fun LazyListPhone(
             else -> {}
         }
     }//: LazyColumn
+}
+
+/** Passes the scroll to [delegate] unless [paused] says it must rest; a paused connection consumes nothing. */
+private class PauseWhile(
+    private val delegate: NestedScrollConnection,
+    private val paused: () -> Boolean,
+) : NestedScrollConnection {
+    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+        if (paused()) Offset.Zero else delegate.onPreScroll(available, source)
+
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+        if (paused()) Offset.Zero else delegate.onPostScroll(consumed, available, source)
+
+    override suspend fun onPreFling(available: Velocity): Velocity =
+        if (paused()) Velocity.Zero else delegate.onPreFling(available)
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        if (paused()) Velocity.Zero else delegate.onPostFling(consumed, available)
 }
