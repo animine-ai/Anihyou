@@ -186,6 +186,8 @@ class SingleSourceShadowRefreshCoordinator(
                         observations = outcome.presentationObservations.filter {
                             it.track == ObservationTrack.UNKNOWN || it.track.name in effectiveTracks
                         },
+                        // Only a page whose every row was read says what is gone; a partial one never does.
+                        complete = SourceRole.POSTPONEMENT in outcome.successfulRoles,
                     )
                 }
                 val reducer = AniWorldReleaseAuthorityReducer()

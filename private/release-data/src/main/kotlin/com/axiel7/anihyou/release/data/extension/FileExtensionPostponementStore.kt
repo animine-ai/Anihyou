@@ -90,6 +90,7 @@ class FileExtensionPostponementStore(
         packageGeneration: Long,
         observedAt: Instant,
         observations: List<ProviderObservationV1>,
+        complete: Boolean = false,
     ) {
         require(releaseGeneration >= 0 && packageGeneration >= 0)
         require(packageDigest.matches(SHA256))
@@ -130,10 +131,12 @@ class FileExtensionPostponementStore(
         )
         withContext(Dispatchers.IO) {
             mutex.withLock {
-                // Missing rows in a partial upstream page are not removal authority.
+                // Missing rows in a partial upstream page are not removal authority. A page that was read completely is: what
+                // the source no longer lists (a postponement that was taken back) is no longer shown.
                 val previous = mutableSnapshot.value.takeIf { it.source == source }
                 val incomingKeys = notices.mapTo(mutableSetOf()) { it.presentationKey }
-                val retained = previous?.notices.orEmpty().filter { it.presentationKey !in incomingKeys }
+                val retained = if (complete) emptyList()
+                else previous?.notices.orEmpty().filter { it.presentationKey !in incomingKeys }
                 val incremental = next.copy(notices = (notices + retained).take(MAX_NOTICES))
                 persist(incremental)
                 mutableSnapshot.value = incremental

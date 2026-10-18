@@ -86,6 +86,22 @@ class FileExtensionPostponementStoreTest {
         assertTrue(store.snapshot.value.notices.isEmpty())
     }
 
+    @Test fun aCompletelyReadPageDropsWhatTheSourceTookBackAndAPartialOneKeepsIt() = runBlocking {
+        val store = FileExtensionPostponementStore(temporary.newFolder(), database)
+        val other = observation().copy(rawTitle = "Other series", providerSeriesKey = "other")
+        store.record(key, 1, "a".repeat(64), 1, now, listOf(observation(), other))
+        assertEquals(2, store.snapshot.value.notices.size)
+        // Partial: the row that is missing is not proof that it was taken back.
+        store.record(key, 1, "a".repeat(64), 1, now.plusSeconds(60), listOf(other), complete = false)
+        assertEquals(2, store.snapshot.value.notices.size)
+        // Complete: the source no longer lists the first one.
+        store.record(key, 1, "a".repeat(64), 1, now.plusSeconds(120), listOf(other), complete = true)
+        assertEquals(listOf("Other series"), store.snapshot.value.notices.map { it.title })
+        // A complete page with no postponements at all empties the list.
+        store.record(key, 1, "a".repeat(64), 1, now.plusSeconds(180), emptyList(), complete = true)
+        assertTrue(store.snapshot.value.notices.isEmpty())
+    }
+
     @Test fun filmRequiresItsOwnMappingAndCannotBorrowASeasonBinding() = runBlocking {
         val store = FileExtensionPostponementStore(temporary.newFolder(), database)
         database.releaseDao().upsertExternalMapping(mapping())
