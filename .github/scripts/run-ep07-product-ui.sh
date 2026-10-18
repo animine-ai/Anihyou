@@ -63,7 +63,8 @@ assert match and int(match[1])>0 and 'INSTRUMENTATION_CODE: -1' in text, text[-2
 required={'ExtensionCalendarComposeTest','ExtensionUpdateComposeTest','ExtensionSourcesUserFlowTest',
           'MainNavigationProductComposeTest','MainNavigationChartChromeTest','ReleaseScheduleTextComposeTest','MediaDetailsNavigationComposeTest','MatchingManagementComposeTest',
           'ExtensionRefreshScheduleComposeTest','ScreenshotCaptureGuardTest',
-          'AniListCalendarEventComposeTest','NativeSettingsGroupsComposeTest','ExploreSourceAiringComposeTest'}
+          'AniListCalendarEventComposeTest','NativeSettingsGroupsComposeTest','ExploreSourceAiringComposeTest',
+          'CalendarFastScrollerComposeTest'}
 for name in required:
     assert name in text, (name,text[-20000:])
 assert 'INSTRUMENTATION_STATUS_CODE: -3' not in text and 'INSTRUMENTATION_STATUS_CODE: -4' not in text, 'skipped/assumption-failed test'
