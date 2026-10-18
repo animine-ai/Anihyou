@@ -356,7 +356,9 @@ private fun LazyListGrid(
             stickyHeaderContent()
         }
 
-        if (uiState.isLoading) {
+        // The placeholders stand for a list that is not there yet. Above rows that are, they pushed the rows (animated) out of the screen
+        // every time the list reloaded.
+        if (uiState.isLoading && mediaList.isEmpty()) {
             items(10) {
                 MediaItemVerticalPlaceholder()
             }
@@ -413,7 +415,9 @@ private fun LazyListTablet(
             stickyHeaderContent()
         }
 
-        if (uiState.isLoading) {
+        // The placeholders stand for a list that is not there yet. Above rows that are, they pushed the rows (animated) out of the screen
+        // every time the list reloaded.
+        if (uiState.isLoading && mediaList.isEmpty()) {
             items(10) {
                 MediaItemHorizontalPlaceholder()
             }
@@ -518,7 +522,9 @@ private fun LazyListPhone(
             stickyHeaderContent()
         }
 
-        if (uiState.isLoading) {
+        // The placeholders stand for a list that is not there yet. Above rows that are, they pushed the rows (animated) out of the screen
+        // every time the list reloaded.
+        if (uiState.isLoading && mediaList.isEmpty()) {
             items(10) {
                 MediaItemHorizontalPlaceholder()
             }
