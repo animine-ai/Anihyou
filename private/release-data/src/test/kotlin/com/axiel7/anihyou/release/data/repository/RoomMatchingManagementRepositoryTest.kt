@@ -770,7 +770,7 @@ class RoomMatchingManagementRepositoryTest {
             rig.seedSeries(*order.map { Triple("black-clover", "Black Clover", it) }.toTypedArray())
             rig.candidates.pools = mapOf("season-pool:fall:2026" to listOf(sourceMedia("black-clover-2")))
             assertEquals("order $order", 1, rig.service.autoMatchPending().matched)
-            fun media(season: Int) = rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            suspend fun media(season: Int) = rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
                 subject("black-clover", season).stableKey, "anilist")?.externalId
             assertEquals("order $order: the season that airs now", "195604", media(5))
             assertNull("order $order: the older season is not given the same entry", media(2))
