@@ -130,4 +130,10 @@
     <string name="extension_manage_search">Extensions suchen</string>
     <string name="extension_manage_no_results">Keine Treffer für „%1$s“</string>
     <string name="extension_repository_actions">Repository-Aktionen</string>
+    <string name="extension_capability_calendar">Kalender</string>
+    <string name="extension_capability_recent">Neue Folgen</string>
+    <string name="extension_capability_direct">Direktprüfung</string>
+    <string name="extension_capability_postponement">Verschiebungen</string>
+    <string name="extension_capability_overview">Serienübersicht</string>
+    <string name="extension_capability_episodes">Folgen-Links</string>
 </resources>

@@ -238,9 +238,13 @@ class ExtensionUpdateComposeTest {
 
         composeRule.onNodeWithTag("extension-details-${key.extensionId}").performScrollTo().performClick()
         composeRule.onNodeWithText("Release-data capabilities").performScrollTo().assertIsDisplayedCompat()
-        composeRule.onNodeWithText("CALENDAR, RECENT, DIRECT, POSTPONEMENT").performScrollTo().assertIsDisplayedCompat()
+        listOf("Calendar", "New episodes", "Direct check", "Postponements").forEach {
+            composeRule.onNodeWithText(it).performScrollTo().assertIsDisplayedCompat()
+        }
         composeRule.onNodeWithText("Navigation capabilities").performScrollTo().assertIsDisplayedCompat()
-        composeRule.onNodeWithText("OVERVIEW_NAVIGATION, EPISODE_NAVIGATION").performScrollTo().assertIsDisplayedCompat()
+        listOf("Series overview", "Episode links").forEach {
+            composeRule.onNodeWithText(it).performScrollTo().assertIsDisplayedCompat()
+        }
         composeRule.onNodeWithText("Navigation access does not grant release-data authority.").performScrollTo().assertIsDisplayedCompat()
     }
 

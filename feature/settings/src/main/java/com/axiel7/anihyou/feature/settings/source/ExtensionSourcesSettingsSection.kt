@@ -1,6 +1,7 @@
 package com.axiel7.anihyou.feature.settings.source
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
@@ -253,12 +254,25 @@ private fun ExtensionSourceCard(
         }
     }
     if (details) AlertDialog(onDismissRequest = { details = false },
+        shape = RoundedCornerShape(28.dp),
+        icon = { Icon(painterResource(CoreR.drawable.rss_feed_24), contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
         title = { Text(repositoryDisplayName(source.url) ?: stringResource(R.string.extension_manage_unknown_repository)) },
-        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-            Text(source.url); Text(source.id, style = MaterialTheme.typography.bodySmall)
-            Text(stringResource(R.string.extension_sources_status, stringResource(sourceStatusString(source.status))))
-            if (source.manuallyTrusted) Text(stringResource(R.string.extension_manage_manual_trust))
-        } }, confirmButton = { TextButton(onClick = { details = false }) { Text(stringResource(R.string.extension_manage_close)) } })
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(source.url, style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.extension_sources_status, stringResource(sourceStatusString(source.status))),
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                if (source.manuallyTrusted) Text(stringResource(R.string.extension_manage_manual_trust),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(source.id, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = { details = false }) { Text(stringResource(R.string.extension_manage_close)) } })
     if (showRemoveConfirmation) {
         AlertDialog(
             onDismissRequest = { showRemoveConfirmation = false },
@@ -455,51 +469,109 @@ private data class RollbackRequest(
     val reason: Int?,
 )
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ExtensionCapabilityDialog(extension: SourceExtension, repositoryTrust: String?, busy: Boolean,
     onRemove: () -> Unit, onRollback: () -> Unit, onDismiss: () -> Unit) {
     val releaseCapabilities = extension.capabilities.filter { it in setOf("CALENDAR", "RECENT", "DIRECT", "POSTPONEMENT") }
     val navigationCapabilities = extension.capabilities.filter { it in setOf("OVERVIEW_NAVIGATION", "EPISODE_NAVIGATION") }
     val otherCapabilities = extension.capabilities.filterNot { it in releaseCapabilities || it in navigationCapabilities }
+    var technical by rememberSaveable { mutableStateOf(false) }
+    val statusColor = if (extension.revoked || !extension.installedUsable && extension.installedDigest != null)
+        MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.extension_manage_details_title, extension.displayName)) },
+        shape = RoundedCornerShape(28.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(52.dp).clearAndSetSemantics { }) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(extension.displayName.take(1).uppercase(), style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+                Column {
+                    Text(extension.displayName, style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        listOfNotNull(extension.installedVersion ?: extension.latestAvailableVersion,
+                            if (extension.installedDigest != null) stringResource(installedPackageStatusLabel(extension)) else null)
+                            .joinToString(" · "),
+                        style = MaterialTheme.typography.bodyMedium, color = statusColor,
+                    )
+                }
+            }
+        },
         text = {
-            Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
-                Text(stringResource(R.string.extension_manage_installed_version, extension.installedVersion ?: stringResource(R.string.extension_manage_not_installed)),
-                    modifier = Modifier.testTag("extension-installed-version-${extension.extensionId}"))
-                Text(stringResource(R.string.extension_manage_latest_authenticated_version, extension.latestAvailableVersion ?: stringResource(R.string.extension_manage_unavailable)),
-                    modifier = Modifier.testTag("extension-latest-version-${extension.extensionId}"))
-                Text(stringResource(R.string.extension_manage_package_trust, stringResource(installedPackageStatusLabel(extension))),
-                    modifier = Modifier.testTag("extension-installed-status-${extension.extensionId}"))
-                if (extension.installedDigest != null) TextButton(onClick = onRemove, enabled = !busy,
-                    modifier = Modifier.testTag("extension-remove-${extension.extensionId}")) { Text(stringResource(R.string.extension_remove)) }
-                if (extension.rollbackTarget != null) TextButton(onClick = onRollback, enabled = !busy,
-                    modifier = Modifier.testTag("extension-rollback-${extension.extensionId}")) { Text(stringResource(R.string.extension_manage_previous_good)) }
-                Text(stringResource(R.string.extension_manage_release_capabilities), style = MaterialTheme.typography.titleSmall)
-                Text(releaseCapabilities.joinToString().ifBlank { stringResource(R.string.extension_manage_none) })
-                Text(stringResource(R.string.extension_manage_navigation_capabilities),
-                    style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
-                Text(navigationCapabilities.joinToString().ifBlank { stringResource(R.string.extension_manage_none) })
-                Text(stringResource(R.string.extension_manage_authority_separation),
-                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
-                if (otherCapabilities.isNotEmpty()) {
-                    Text(stringResource(R.string.extension_manage_other_capabilities),
-                        style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
-                    Text(otherCapabilities.joinToString())
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(stringResource(R.string.extension_manage_installed_version, extension.installedVersion ?: stringResource(R.string.extension_manage_not_installed)),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.testTag("extension-installed-version-${extension.extensionId}"))
+                        Text(stringResource(R.string.extension_manage_latest_authenticated_version, extension.latestAvailableVersion ?: stringResource(R.string.extension_manage_unavailable)),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.testTag("extension-latest-version-${extension.extensionId}"))
+                        Text(stringResource(R.string.extension_manage_package_trust, stringResource(installedPackageStatusLabel(extension))),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.testTag("extension-installed-status-${extension.extensionId}"))
+                    }
                 }
-                // Identity and package facts a user rarely needs, kept out of the list.
-                Text(stringResource(R.string.extension_manage_technical_title),
-                    style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
-                Text(stringResource(R.string.extension_manage_signed_id, extension.extensionId),
-                    style = MaterialTheme.typography.bodySmall)
-                extension.installedDigest?.let { installed ->
-                    Text(stringResource(R.string.extension_manage_package_summary, extension.packageGeneration, installed.take(12)),
-                        style = MaterialTheme.typography.bodySmall)
+                if (extension.installedDigest != null || extension.rollbackTarget != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (extension.rollbackTarget != null) OutlinedButton(onClick = onRollback, enabled = !busy,
+                            modifier = Modifier.testTag("extension-rollback-${extension.extensionId}")) {
+                            Text(stringResource(R.string.extension_manage_previous_good))
+                        }
+                        if (extension.installedDigest != null) OutlinedButton(onClick = onRemove, enabled = !busy,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.testTag("extension-remove-${extension.extensionId}")) {
+                            Icon(painterResource(CoreR.drawable.delete_24), contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp).size(18.dp))
+                            Text(stringResource(R.string.extension_remove))
+                        }
+                    }
                 }
-                repositoryTrust?.let { trust ->
-                    Text(stringResource(R.string.extension_manage_authenticated_trust, trust),
-                        style = MaterialTheme.typography.bodySmall)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.extension_manage_release_capabilities), style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary)
+                    CapabilityChips(releaseCapabilities)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.extension_manage_navigation_capabilities), style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary)
+                    CapabilityChips(navigationCapabilities)
+                    Text(stringResource(R.string.extension_manage_authority_separation),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (otherCapabilities.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.extension_manage_other_capabilities), style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary)
+                    CapabilityChips(otherCapabilities)
+                }
+                // Identity and package facts a user rarely needs: folded away until asked for.
+                Column {
+                    Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { technical = !technical }.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.extension_manage_technical_title), style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                        Icon(painterResource(if (technical) CoreR.drawable.expand_less_24 else CoreR.drawable.expand_more_24),
+                            contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (technical) Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(stringResource(R.string.extension_manage_signed_id, extension.extensionId),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        extension.installedDigest?.let { installed ->
+                            Text(stringResource(R.string.extension_manage_package_summary, extension.packageGeneration, installed.take(12)),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        repositoryTrust?.let { trust ->
+                            Text(stringResource(R.string.extension_manage_authenticated_trust, trust),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
         },
@@ -510,6 +582,40 @@ private fun ExtensionCapabilityDialog(extension: SourceExtension, repositoryTrus
         },
     )
 }
+
+/** The capabilities of an extension as quiet chips with readable names; an unknown one keeps its code. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun CapabilityChips(capabilities: List<String>) {
+    if (capabilities.isEmpty()) {
+        Text(stringResource(R.string.extension_manage_none), style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        capabilities.forEach { capability ->
+            Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer) {
+                Text(capabilityLabel(capability), style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun capabilityLabel(capability: String): String = when (capability) {
+    "CALENDAR" -> stringResource(R.string.extension_capability_calendar)
+    "RECENT" -> stringResource(R.string.extension_capability_recent)
+    "DIRECT" -> stringResource(R.string.extension_capability_direct)
+    "POSTPONEMENT" -> stringResource(R.string.extension_capability_postponement)
+    "OVERVIEW_NAVIGATION" -> stringResource(R.string.extension_capability_overview)
+    "EPISODE_NAVIGATION" -> stringResource(R.string.extension_capability_episodes)
+    else -> capability
+}
+
 
 internal fun ExtensionUpdateState.isInFlight(): Boolean = when (this) {
     ExtensionUpdateState.CHECKING,
