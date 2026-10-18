@@ -56,6 +56,19 @@ class SeasonEpisodeNumberingTest {
         assertTrue(effectiveEpisodeSegments(key, emptyList(), emptyList(), listOf(metadata())).isEmpty())
         assertTrue(effectiveEpisodeSegments(key, listOf(binding(media = 99)), emptyList(), listOf(metadata())).isEmpty())
     }
+    @Test fun aSeasonCutOutOfALongEntryKeepsTheNumberingOfTheFirstSeasonAndGetsItsOwnOffset() {
+        // AniWorld's seasons 1-4 of Black Clover are AniList's one entry of 170 episodes; season 2 starts at episode 52 there.
+        val split = ProviderEpisodeSegment(key, 42, "ordinary-show", 2, 1, 52, 999)
+        val segments = effectiveEpisodeSegments(key, listOf(binding(1), binding(2)), listOf(split), listOf(metadata(extent = 170)))
+        val first = segments.single { it.sourceSeason == 1 }
+        assertEquals(170, first.count)
+        assertEquals(BigDecimal("9"), first.canonicalEpisode(BigDecimal("9")))
+        val second = segments.single { it.sourceSeason == 2 }
+        assertEquals(BigDecimal("54"), second.canonicalEpisode(BigDecimal("3")))
+        assertEquals(2, segments.size)
+        assertEquals("without the segment the two bindings of one entry stay ambiguous", emptyList<ProviderEpisodeSegment>(),
+            effectiveEpisodeSegments(key, listOf(binding(1), binding(2)), emptyList(), listOf(metadata(extent = 170))))
+    }
     @Test fun staleOrUnvalidatedBindingsNeverBecomeEpisodeCoordinates() {
         assertTrue(effectiveEpisodeSegments(key, listOf(binding().copy(staleAt = now.toString())), emptyList(), listOf(metadata())).isEmpty())
         assertTrue(effectiveEpisodeSegments(key, listOf(binding().copy(validatedAt = null)), emptyList(), listOf(metadata())).isEmpty())

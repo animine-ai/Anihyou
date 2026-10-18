@@ -473,8 +473,8 @@ class RoomMatchingManagementRepository(
         service.searchPendingNow().matched
     }
 
-    override suspend fun assignUnmatched(series: UnmatchedSeries, mediaId: Int): MappingMutationResult =
-        withContext(Dispatchers.IO) { mutation.withLock { service.assign(series, mediaId) } }
+    override suspend fun assignUnmatched(series: UnmatchedSeries, mediaId: Int, firstEpisode: Int): MappingMutationResult =
+        withContext(Dispatchers.IO) { mutation.withLock { service.assign(series, mediaId, firstEpisode) } }
 
     // --- detail entry -----------------------------------------------------------------------------------------------
     override fun observeEpisodeRulesStatus() = service.observeEpisodeRulesStatus()

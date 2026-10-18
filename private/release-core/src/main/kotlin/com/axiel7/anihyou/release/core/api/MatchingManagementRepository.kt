@@ -78,7 +78,7 @@ interface MatchingManagementRepository {
     /** Opt-in: also asks AniList for the title of the series that stay open, a few per run. Returns how many it bound. */
     suspend fun searchUnmatchedNow(): Int = 0
     /** The user's own choice for one unbound series. Never overwrites an existing binding. */
-    suspend fun assignUnmatched(series: UnmatchedSeries, mediaId: Int): MappingMutationResult = MappingMutationResult.UNAVAILABLE
+    suspend fun assignUnmatched(series: UnmatchedSeries, mediaId: Int, firstEpisode: Int = 1): MappingMutationResult = MappingMutationResult.UNAVAILABLE
 
     /** Bounded persistent query; no network metadata hydration and no automatic matching. */
     fun observePage(query: MappingQuery): Flow<MappingPage>

@@ -10,6 +10,7 @@ import com.axiel7.anihyou.release.core.api.MappingRematchOutcome
 import com.axiel7.anihyou.release.core.api.UnmatchedSeries
 import com.axiel7.anihyou.release.core.api.UnmatchedSuggestion
 import com.axiel7.anihyou.release.core.api.TargetedIdentityQuery
+import com.axiel7.anihyou.release.core.navigation.ProviderEpisodeSegment
 import com.axiel7.anihyou.release.core.matching.MatchDecision
 import com.axiel7.anihyou.release.core.matching.MatchTier
 import com.axiel7.anihyou.release.core.matching.ReleaseMatchRequest
@@ -421,12 +422,12 @@ class SourceSeriesMatchingService(
      * The user's own choice for one unbound series. An existing binding (also one of the older provider-wide rows) is
      * never overwritten here; the correction of a binding has its own path.
      */
-    suspend fun assign(series: UnmatchedSeries, mediaId: Int): MappingMutationResult {
+    suspend fun assign(series: UnmatchedSeries, mediaId: Int, firstEpisode: Int = 1): MappingMutationResult {
         val active = policy.policy.value.activeReleaseSource?.takeIf { it == series.source } ?: return MappingMutationResult.STALE
-        if (mediaId <= 0 || series.season !in 1..99) return MappingMutationResult.UNAVAILABLE
+        if (mediaId <= 0 || series.season !in 1..99 || firstEpisode !in 1..MAX_FIRST_EPISODE) return MappingMutationResult.UNAVAILABLE
         val subject = runCatching { AniWorldMappingSubject.Season(AniWorldSiteIdentifier(series.seriesKey), series.season) }
             .getOrNull() ?: return MappingMutationResult.UNAVAILABLE
-        return database.withTransaction {
+        val result = database.withTransaction {
             if (alreadyAccepted(active, subject)) return@withTransaction MappingMutationResult.STALE
             val now = clock.instant()
             val domain = ExternalMapping(subject, ExternalProvider.ANILIST, mediaId.toString(), MappingSource.MANUAL,
@@ -436,6 +437,17 @@ class SourceSeriesMatchingService(
             AppLog.i("matching") { "user: assigned series=${series.seriesKey} season=${series.season} -> media=$mediaId" }
             MappingMutationResult.APPLIED
         }
+        // A season the source cuts out of a longer AniList entry (it starts at the given episode there): the binding proves the
+        // entry, the segment tells where in it this season begins, so the episodes of the season are shown, announced and
+        // counted by their AniList numbers.
+        if (result == MappingMutationResult.APPLIED && firstEpisode > 1) {
+            val count = minOf(SPLIT_SEGMENT_EPISODES, MAX_FIRST_EPISODE - firstEpisode + 1)
+            navigation.upsertSegment(ProviderEpisodeSegment(active, mediaId, series.seriesKey, series.season, 1, firstEpisode, count))
+            AppLog.i("matching") {
+                "user: season ${series.season} of ${series.seriesKey} starts at episode $firstEpisode of media $mediaId"
+            }
+        }
+        return result
     }
 
     private val runLock = Mutex()
@@ -1012,6 +1024,9 @@ class SourceSeriesMatchingService(
         const val SEARCH_PACE_MS = 700L
         /** AniList answers about 90 requests a minute; one explicit search run stays far below it. */
         const val SEARCHES_PER_USER_RUN = 8
+        /** The last episode number a segment can start at, and how many episodes a split season may span (the season's real size is not known). */
+        const val MAX_FIRST_EPISODE = 9_000
+        const val SPLIT_SEGMENT_EPISODES = 999
         val RETRY_AFTER: java.time.Duration = java.time.Duration.ofHours(6)
         /** Bumped with every change of the rules; automatic bindings of another version are decided again. */
         const val MATCHER_VERSION = "v3-season-strict-1"

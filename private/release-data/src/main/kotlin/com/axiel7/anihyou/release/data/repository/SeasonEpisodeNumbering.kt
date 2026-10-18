@@ -41,15 +41,22 @@ internal fun effectiveEpisodeSegments(
     manual: List<ProviderEpisodeSegment>, metadata: List<ProviderMediaNumbering>,
 ): List<ProviderEpisodeSegment> {
     val accepted = acceptedSeasonBindings(bindings)
+    // A split season: the source cuts one long AniList entry into several seasons (AniWorld's Black Clover seasons 1-4 are
+    // AniList's one entry), and the user told the host where this season starts in that entry. Such a segment does not start at
+    // the first AniList episode. It neither replaces the derived numbering of the entry's own season nor makes the binding of
+    // that season ambiguous.
+    val splits = manual.filter { it.key == key && it.canonicalFirst > 1 }
+    fun isSplit(binding: ExternalMappingEntity) = splits.any { it.seriesKey == binding.siteSlug &&
+        it.sourceSeason == binding.navigationSeason && it.mediaId.toString() == binding.externalId }
     fun segment(m: ProviderMediaNumbering, visiting: Set<Int>): ProviderEpisodeSegment? {
         if (m.mediaId in visiting || visiting.size >= 16) return null
-        val explicit = manual.filter { it.key == key && it.mediaId == m.mediaId }
+        val explicit = manual.filter { it.key == key && it.mediaId == m.mediaId && it.canonicalFirst <= 1 }
         if (explicit.isNotEmpty()) return explicit.singleOrNull()?.takeIf {
             it.canonicalFirst == 1 && it.count == m.episodeExtent
         }
         val title = numberingTitle(m) ?: return null
         if (title.part == 1) {
-            val bound = accepted.filter { it.externalId == m.mediaId.toString() }.singleOrNull() ?: return null
+            val bound = accepted.filter { it.externalId == m.mediaId.toString() && !isSplit(it) }.singleOrNull() ?: return null
             if (bound.navigationSeason != title.season || accepted.any {
                 it.siteSlug == bound.siteSlug && it.navigationSeason == bound.navigationSeason && it.externalId != bound.externalId
             }) return null
@@ -73,7 +80,7 @@ internal fun effectiveEpisodeSegments(
         return ProviderEpisodeSegment(key, m.mediaId, prior.seriesKey, prior.sourceSeason,
             rule.first, rule.second, rule.third)
     }
-    val automatic = metadata.filterNot { m -> manual.any { it.key == key && it.mediaId == m.mediaId } }
+    val automatic = metadata.filterNot { m -> manual.any { it.key == key && it.mediaId == m.mediaId && it.canonicalFirst <= 1 } }
         .mapNotNull { segment(it, emptySet()) }
     return manual + automatic
 }

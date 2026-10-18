@@ -665,6 +665,33 @@ class RoomMatchingManagementRepositoryTest {
         assertTrue(rig.candidates.dayRequests.isEmpty() && rig.candidates.poolRequests.isEmpty())
     }
 
+    @Test fun aSeasonCutOutOfALongEntryIsBoundWithTheEpisodeItStartsAt() = runBlocking {
+        val rig = Rig()
+        rig.dao.upsertLabel(label(keyA, "black-clover", "Black Clover"))
+        listOf(1, 2).forEach { rig.database.reconciliationDao().upsertSourceProjection(forecastRow(keyA, "black-clover", it, t0.plusSeconds(3_600))) }
+        rig.dao.upsertSourceMapping(sourceRow(keyA, "black-clover", 1, 97940))
+        val list = rig.repository.observeUnmatched().first()
+        assertEquals(listOf(2), list.map { it.season })
+        assertEquals(MappingMutationResult.UNAVAILABLE, rig.repository.assignUnmatched(list.single(), 97940, 0))
+        assertEquals(MappingMutationResult.APPLIED, rig.repository.assignUnmatched(list.single(), 97940, 52))
+        val row = rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId, keyA.providerId,
+            subject("black-clover", 2).stableKey, "anilist")!!
+        assertEquals("97940", row.externalId)
+        assertEquals(listOf(ProviderEpisodeSegment(keyA, 97940, "black-clover", 2, 1, 52, 999)),
+            rig.navigation.state.value.segments)
+        assertEquals("the shifted number is what the calendar and the announcements use", 54,
+            (canonicalPresentationInstallment(keyA, 97940, "/anime/stream/black-clover", 2,
+                Installment.Episode(3), rig.navigation.state.value.segments) as Installment.Episode).number)
+    }
+
+    @Test fun anOrdinaryAssignmentWritesNoSegment() = runBlocking {
+        val rig = Rig()
+        rig.dao.upsertLabel(label(keyA, "aot", "Attack on Titan"))
+        rig.database.reconciliationDao().upsertSourceProjection(forecastRow(keyA, "aot", 1, t0.plusSeconds(3_600)))
+        assertEquals(MappingMutationResult.APPLIED, rig.repository.assignUnmatched(rig.repository.observeUnmatched().first().single(), 7))
+        assertTrue(rig.navigation.state.value.segments.isEmpty())
+    }
+
     @Test fun statisticsHideReceiptsFromAnotherSelectionOrPackage() = runBlocking {
         val rig = Rig()
         rig.seedSeries(Triple("show", "Show", 1))

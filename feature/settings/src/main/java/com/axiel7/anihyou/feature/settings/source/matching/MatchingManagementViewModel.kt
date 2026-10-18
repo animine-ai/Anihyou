@@ -37,6 +37,8 @@ data class MatchingManagementState(
     /** The series of the active source that no binding covers yet. */
     val unmatched: List<UnmatchedSeries> = emptyList(),
     val unmatchedEditor: UnmatchedSeries? = null,
+    /** Where the open series starts in a longer AniList entry that the source cuts into seasons; digits only, empty means 1. */
+    val firstEpisode: String = "",
     /** How many series the last "match now" bound; null before the first run. */
     val lastMatched: Int? = null,
 ) {
@@ -77,6 +79,8 @@ interface MatchingManagementEvent {
     fun searchNow() {}
     fun openUnmatched(series: UnmatchedSeries) {}
     fun closeUnmatched() {}
+    /** The AniList episode the open series' first episode is (a source season cut out of a longer entry). */
+    fun firstEpisode(text: String) {}
     /** Binds the open unbound series to the chosen AniList entry. */
     fun assign() {}
 }
@@ -220,12 +224,15 @@ class MatchingManagementViewModel(
         searchJob?.cancel(); searchGeneration++
         // The search starts from the nearest AniList title the matcher saw, else from the title the source gave; the user only has to press find.
         mutable.update { it.copy(unmatchedEditor = series, editor = null, targetQuery = (series.suggestion?.title ?: series.title).take(256), targets = emptyList(),
-            targetPage = 1, chosenTarget = null, hasMoreTargets = false, targetLoading = false, notice = null) }
+            targetPage = 1, chosenTarget = null, hasMoreTargets = false, targetLoading = false, notice = null, firstEpisode = "") }
+    }
+    override fun firstEpisode(text: String) {
+        mutable.update { it.copy(firstEpisode = text.filter(Char::isDigit).take(4)) }
     }
     override fun closeUnmatched() {
         if (state.value.busy) return
         searchJob?.cancel(); searchGeneration++
-        mutable.update { it.copy(unmatchedEditor = null, targets = emptyList(), targetLoading = false, chosenTarget = null) }
+        mutable.update { it.copy(unmatchedEditor = null, targets = emptyList(), targetLoading = false, chosenTarget = null, firstEpisode = "") }
     }
     override fun assign() {
         val snapshot = state.value
@@ -233,7 +240,7 @@ class MatchingManagementViewModel(
         val target = snapshot.chosenTarget ?: return
         if (snapshot.busy || snapshot.preparing) return
         mutate {
-            val result = repository.assignUnmatched(series, target.id)
+            val result = repository.assignUnmatched(series, target.id, snapshot.firstEpisode.toIntOrNull()?.takeIf { it > 1 } ?: 1)
             mutable.update { it.copy(notice = result.notice(),
                 unmatchedEditor = if (result == MappingMutationResult.APPLIED) null else it.unmatchedEditor) }
         }

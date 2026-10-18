@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -455,6 +457,13 @@ private fun UnmatchedEditor(state: MatchingManagementState, series: UnmatchedSer
                 stringResource(R.string.matching_unmatched_season, series.season)).filterNotNull().joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // For a season the source cuts out of a longer AniList entry (AniWorld's Black Clover season 2 is episodes 52 to 102).
+            OutlinedTextField(value = state.firstEpisode, onValueChange = event::firstEpisode, singleLine = true,
+                enabled = !state.busy, shape = RoundedCornerShape(28.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                label = { Text(stringResource(R.string.matching_first_episode)) },
+                supportingText = { Text(stringResource(R.string.matching_first_episode_hint)) },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).testTag("matching-first-episode"))
         })
 }
 
