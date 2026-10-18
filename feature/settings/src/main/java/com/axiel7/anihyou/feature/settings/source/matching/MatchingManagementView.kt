@@ -35,6 +35,7 @@ import com.axiel7.anihyou.core.ui.composables.PreferencesTitle
 import com.axiel7.anihyou.core.ui.composables.preferenceShape
 import com.axiel7.anihyou.core.ui.composables.singleShape
 import com.axiel7.anihyou.core.ui.composables.common.BackIconButton
+import com.axiel7.anihyou.core.ui.composables.common.CenteredMessage
 import com.axiel7.anihyou.core.ui.composables.common.SearchPillField
 import com.axiel7.anihyou.core.resources.R as CoreR
 import kotlinx.collections.immutable.toImmutableList
@@ -70,203 +71,25 @@ private fun MatchingManagementUnavailable() {
     }
 }
 
+/**
+ * Two pages instead of one long one. The hub holds what is done to the matching (assign, rules, options); the list holds
+ * what is looked at and changed entry by entry (search, filter, unassigned and saved mappings). Feedback ("saved") is a
+ * snackbar, never a line that pushes the page around. Both use the shapes and rows of the settings pages.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingManagementEvent) {
-    val nav = LocalNavActionManager.current
-    val unmatched = state.visibleUnmatched
+fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingManagementEvent, startOnList: Boolean = false) {
+    var onList by rememberSaveable { mutableStateOf(startOnList) }
     val editing = state.editor
     val assigning = state.unmatchedEditor
+    val snackbar = remember { SnackbarHostState() }
+    val noticeMessage = state.notice?.let { stringResource(noticeText(it)) }
+    LaunchedEffect(state.notice) { noticeMessage?.let { snackbar.showSnackbar(it) } }
     // Picking the AniList entry is a page of its own (search field and posters like Discover), never a popup.
-    // The list page uses the language of the rest of the app: the pill search field of the anime and explore tabs, the
-    // grouped rounded preference rows of the settings, chips for filters and 24 dp cards for the entries.
     if (editing != null) MappingEditor(state, editing, event)
     else if (assigning != null) UnmatchedEditor(state, assigning, event)
-    else DefaultScaffoldWithSmallTopAppBar(title = stringResource(R.string.matching_title),
-        navigationIcon = { BackIconButton(nav::goBack) }, scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
-        LazyColumn(Modifier.padding(padding).fillMaxSize().testTag("matching-list"),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
-            item {
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SearchPillField(value = state.query.text, onValueChange = event::search,
-                        placeholder = stringResource(R.string.matching_search), enabled = !state.busy,
-                        modifier = Modifier.testTag("matching-search"))
-                    SourceFilter(state, event)
-                    Text(stringResource(R.string.matching_search_count, state.page.total, state.page.scopeTotal, state.selected.size),
-                        style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 8.dp))
-                    state.notice?.let {
-                        Surface(shape = singleShape, color = MaterialTheme.colorScheme.secondaryContainer,
-                            modifier = Modifier.fillMaxWidth()) {
-                            Text(stringResource(noticeText(it)), style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(16.dp).testTag("matching-notice"))
-                        }
-                    }
-                    if (state.loading || state.preparing) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    if (state.busy) {
-                        state.progress?.let { Text(stringResource(R.string.matching_progress, it.completed, it.total),
-                            style = MaterialTheme.typography.bodyMedium) }
-                        OutlinedButton(onClick = event::cancel, modifier = Modifier.testTag("matching-cancel")) {
-                            Text(stringResource(R.string.matching_cancel))
-                        }
-                    }
-                }
-            }
-            item {
-                Column {
-                    PreferencesTitle(stringResource(R.string.malsync_rules))
-                    PlainPreference(title = stringResource(R.string.malsync_rules_update),
-                        subtitle = stringResource(R.string.malsync_rules_description),
-                        icon = CoreR.drawable.refresh_24,
-                        enabled = !state.busy && !state.preparing && !state.episodeRules.checking,
-                        isLoading = state.episodeRules.checking,
-                        onClick = event::updateEpisodeRules, shape = singleShape,
-                        modifier = Modifier.testTag("matching-update-episode-rules"))
-                    state.episodeRules.checkedAt?.let { timestamp ->
-                        Text(stringResource(R.string.malsync_rules_last_checked,
-                            java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,
-                                java.text.DateFormat.SHORT).format(java.util.Date(timestamp))),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
-                    }
-                    if (!state.episodeRules.checking && state.episodeRules.completed) {
-                        Text(stringResource(R.string.malsync_rules_result,
-                            state.episodeRules.updated, state.episodeRules.failed),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
-                                .testTag("matching-episode-rules-result"))
-                    }
-                }
-            }
-            item {
-                val enabled = !state.busy && !state.preparing && state.confirmation == null
-                Column {
-                    if (state.selected.isNotEmpty()) {
-                        ScopeActions(stringResource(R.string.matching_scope_selected, state.selected.size), enabled,
-                            scope = MappingScope.Entries(state.selected.mapValues { it.value.revision }), event = event, tag = "selection",
-                            onClear = event::clearSelection)
-                    }
-                    if (!state.searching) state.query.source?.let { key ->
-                        val facet = state.sourceFacets.singleOrNull { it.key == key }
-                        ScopeActions(stringResource(R.string.matching_scope_source, "${facet?.label ?: key.sourceId} · ${key.sourceId} / ${key.extensionId}"), enabled,
-                            scope = MappingScope.Source(key), event = event, tag = "source")
-                    }
-                    if (!state.searching) ScopeActions(stringResource(R.string.matching_scope_all), enabled,
-                        scope = MappingScope.All, event = event, tag = "all")
-                }
-            }
-            if (unmatched.isNotEmpty() || (!state.searching && state.query.source == null)) item {
-                Column {
-                    PreferencesTitle(stringResource(R.string.matching_unmatched_title, unmatched.size))
-                    Text(stringResource(R.string.matching_unmatched_count, unmatched.size, state.scopedUnmatched.size,
-                        minOf(unmatched.size, UNMATCHED_SHOWN)), style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (!state.searching) {
-                    PlainPreference(title = stringResource(R.string.matching_match_now), icon = CoreR.drawable.refresh_24,
-                        enabled = !state.busy && !state.preparing && state.confirmation == null, isLoading = state.busy,
-                        onClick = event::matchNow, shape = singleShape,
-                        modifier = Modifier.testTag("matching-match-now"))
-                    // Only on the user's wish: one AniList search per open title is slow, guesses and loads AniList.
-                    PlainPreference(title = stringResource(R.string.matching_search_now),
-                        subtitle = stringResource(R.string.matching_search_now_summary), icon = CoreR.drawable.search_24,
-                        enabled = !state.busy && !state.preparing && state.confirmation == null && state.unmatched.isNotEmpty(),
-                        onClick = event::searchNow, shape = singleShape,
-                        modifier = Modifier.testTag("matching-search-now"))
-                    state.lastMatched?.let {
-                        Text(stringResource(R.string.matching_matched_now, it), style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp).testTag("matching-matched-now"))
-                    }
-                    }
-                    if (unmatched.isEmpty()) Text(stringResource(R.string.matching_unmatched_empty),
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp).testTag("matching-unmatched-empty"))
-                }
-            }
-            itemsIndexed(unmatched.take(UNMATCHED_SHOWN), key = { _, series -> "unmatched-${series.source.testTagPart()}-${series.seriesKey}-${series.season}" }) { index, series ->
-                Card(onClick = { event.openUnmatched(series) }, enabled = !state.busy && !state.preparing,
-                    shape = preferenceShape(index, minOf(unmatched.size, UNMATCHED_SHOWN)),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp).fillMaxWidth()
-                        .testTag("unmatched-row-${series.seriesKey}-${series.season}")) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                        Text(series.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(listOf(series.sourceLabel.takeIf { it.isNotBlank() },
-                            stringResource(R.string.matching_unmatched_season, series.season)).filterNotNull().joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        series.suggestion?.let { suggestion ->
-                            Text(stringResource(R.string.matching_unmatched_suggestion, suggestion.title),
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.testTag("unmatched-suggestion-${series.seriesKey}-${series.season}"))
-                        }
-                    }
-                }
-            }
-            if (!state.loading && state.page.total == 0 && unmatched.isEmpty()) item {
-                Text(if (state.searching) stringResource(R.string.matching_no_results, state.query.text.trim())
-                    else stringResource(R.string.matching_empty), style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).testTag(if (state.searching) "matching-no-results" else "matching-empty"))
-            }
-            if (state.page.total > 0) item {
-                Column {
-                    PreferencesTitle(stringResource(R.string.matching_saved_title))
-                    MappingPager(state, event, "top")
-                }
-            }
-            itemsIndexed(state.page.entries, key = { _, entry -> entry.id }) { index, entry ->
-                Card(onClick = { event.open(entry) }, enabled = !state.busy && !state.preparing,
-                    shape = preferenceShape(index, state.page.entries.size),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp).fillMaxWidth().testTag("mapping-row-${entry.id}")) {
-                    Row(Modifier.padding(horizontal = 8.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val selectionLabel = stringResource(R.string.matching_select_entry,
-                            entry.sourceTitle?.takeIf { it.isNotBlank() } ?: entry.sourceIdentity,
-                            entry.sourceLabel, entry.partLabel)
-                        Checkbox(checked = entry.id in state.selected,
-                            onCheckedChange = { event.select(entry, it) }, enabled = !state.busy && !state.preparing,
-                            modifier = Modifier.testTag("mapping-select-${entry.id}").semantics { contentDescription = selectionLabel })
-                        Column(Modifier.weight(1f).padding(end = 8.dp)) { MappingIdentity(entry) }
-                    }
-                }
-            }
-            item { MappingPager(state, event, "bottom") }
-            if (state.recentResults.isNotEmpty()) item {
-                Column(Modifier.padding(horizontal = 24.dp)) {
-                    Text(stringResource(R.string.matching_results), style = MaterialTheme.typography.titleSmall)
-                    state.recentResults.forEach { result ->
-                        Text("${result.entryId}: ${stringResource(outcomeText(result.outcome))}", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-            item {
-                Column {
-                    PreferencesTitle(stringResource(R.string.matching_configuration))
-                    if (state.options.isEmpty()) {
-                        Text(stringResource(R.string.matching_no_options), style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
-                    }
-                    val optionCount = state.options.size + if (state.options.isNotEmpty()) 1 else 0
-                    state.options.forEachIndexed { index, option ->
-                        ListPreference(title = option.label, values = option.choices.toImmutableList(),
-                            icon = CoreR.drawable.settings_24,
-                            preferenceValue = option.value, onValueChange = { event.setOption(option.key, it) },
-                            shape = preferenceShape(index, optionCount))
-                    }
-                    if (state.options.isNotEmpty()) PlainPreference(title = stringResource(R.string.matching_reset_configuration),
-                        icon = CoreR.drawable.refresh_24, enabled = !state.busy, onClick = event::askConfigurationReset,
-                        shape = preferenceShape(optionCount - 1, optionCount),
-                        modifier = Modifier.testTag("matching-reset-configuration"))
-                }
-            }
-        }
-    }
+    else if (onList) MatchingListPage(state, event, snackbar, onBack = { onList = false })
+    else MatchingHubPage(state, event, snackbar, openList = { onList = true })
     state.confirmation?.let { confirmation ->
         AlertDialog(onDismissRequest = event::dismissConfirmation,
             title = { Text(stringResource(if (confirmation.action == MappingAction.RESET) R.string.matching_reset else R.string.matching_rematch)) },
@@ -287,6 +110,249 @@ fun MatchingManagementScreen(state: MatchingManagementState, event: MatchingMana
         text = { Text(stringResource(R.string.matching_configuration_reset_help)) },
         confirmButton = { TextButton(onClick = event::resetConfiguration) { Text(stringResource(R.string.matching_confirm)) } },
         dismissButton = { TextButton(onClick = event::dismissConfigurationReset) { Text(stringResource(R.string.matching_cancel)) } })
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MatchingHubPage(
+    state: MatchingManagementState, event: MatchingManagementEvent, snackbar: SnackbarHostState, openList: () -> Unit,
+) {
+    val nav = LocalNavActionManager.current
+    val idle = !state.busy && !state.preparing && state.confirmation == null
+    DefaultScaffoldWithSmallTopAppBar(title = stringResource(R.string.matching_title),
+        navigationIcon = { BackIconButton(nav::goBack) }, snackbarHost = { SnackbarHost(snackbar) },
+        scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
+        LazyColumn(Modifier.padding(padding).fillMaxSize().testTag("matching-hub"),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
+            if (state.loading || state.preparing || state.busy) item {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (state.busy) {
+                        state.progress?.let { Text(stringResource(R.string.matching_progress, it.completed, it.total),
+                            style = MaterialTheme.typography.bodyMedium) }
+                        OutlinedButton(onClick = event::cancel, modifier = Modifier.testTag("matching-cancel")) {
+                            Text(stringResource(R.string.matching_cancel))
+                        }
+                    }
+                }
+            }
+            item { PreferencesTitle(stringResource(R.string.matching_hub_assign)) }
+            item {
+                PlainPreference(title = stringResource(R.string.matching_match_now),
+                    subtitle = stringResource(R.string.matching_hub_unassigned, state.unmatched.size),
+                    icon = CoreR.drawable.refresh_24, enabled = idle, isLoading = state.busy,
+                    onClick = event::matchNow, shape = preferenceShape(0, 2),
+                    modifier = Modifier.testTag("matching-match-now"))
+            }
+            item {
+                // Only on the user's wish: one AniList search per open title is slow, guesses and loads AniList.
+                PlainPreference(title = stringResource(R.string.matching_search_now),
+                    subtitle = stringResource(R.string.matching_search_now_summary), icon = CoreR.drawable.search_24,
+                    enabled = idle && state.unmatched.isNotEmpty(),
+                    onClick = event::searchNow, shape = preferenceShape(1, 2),
+                    modifier = Modifier.testTag("matching-search-now"))
+            }
+            state.lastMatched?.let { matched ->
+                item {
+                    Text(stringResource(R.string.matching_matched_now, matched), style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp).testTag("matching-matched-now"))
+                }
+            }
+            item { PreferencesTitle(stringResource(R.string.matching_saved_title)) }
+            item {
+                PlainPreference(title = stringResource(R.string.matching_hub_manage),
+                    subtitle = stringResource(R.string.matching_hub_manage_summary, state.page.scopeTotal, state.unmatched.size),
+                    icon = CoreR.drawable.format_list_bulleted_24, onClick = openList, shape = singleShape,
+                    modifier = Modifier.testTag("matching-open-list"))
+            }
+            item { PreferencesTitle(stringResource(R.string.malsync_rules)) }
+            item {
+                PlainPreference(title = stringResource(R.string.malsync_rules_update),
+                    subtitle = stringResource(R.string.malsync_rules_description),
+                    icon = CoreR.drawable.refresh_24,
+                    enabled = !state.busy && !state.preparing && !state.episodeRules.checking,
+                    isLoading = state.episodeRules.checking,
+                    onClick = event::updateEpisodeRules, shape = singleShape,
+                    modifier = Modifier.testTag("matching-update-episode-rules"))
+            }
+            state.episodeRules.checkedAt?.let { timestamp ->
+                item {
+                    Text(stringResource(R.string.malsync_rules_last_checked,
+                        java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,
+                            java.text.DateFormat.SHORT).format(java.util.Date(timestamp))),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp))
+                }
+            }
+            if (!state.episodeRules.checking && state.episodeRules.completed) item {
+                Text(stringResource(R.string.malsync_rules_result, state.episodeRules.updated, state.episodeRules.failed),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp).testTag("matching-episode-rules-result"))
+            }
+            item { PreferencesTitle(stringResource(R.string.matching_configuration)) }
+            if (state.options.isEmpty()) item {
+                Text(stringResource(R.string.matching_no_options), style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+            }
+            val optionCount = state.options.size + if (state.options.isNotEmpty()) 1 else 0
+            itemsIndexed(state.options, key = { _, option -> option.key }) { index, option ->
+                ListPreference(title = option.label, values = option.choices.toImmutableList(),
+                    icon = CoreR.drawable.settings_24,
+                    preferenceValue = option.value, onValueChange = { event.setOption(option.key, it) },
+                    shape = preferenceShape(index, optionCount))
+            }
+            if (state.options.isNotEmpty()) item {
+                PlainPreference(title = stringResource(R.string.matching_reset_configuration),
+                    icon = CoreR.drawable.refresh_24, enabled = !state.busy, onClick = event::askConfigurationReset,
+                    shape = preferenceShape(optionCount - 1, optionCount),
+                    modifier = Modifier.testTag("matching-reset-configuration"))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MatchingListPage(
+    state: MatchingManagementState, event: MatchingManagementEvent, snackbar: SnackbarHostState, onBack: () -> Unit,
+) {
+    BackHandler(onBack = onBack)
+    val unmatched = state.visibleUnmatched
+    val idle = !state.busy && !state.preparing && state.confirmation == null
+    // The wide actions (everything / the filtered source) sit in the menu of the bar, away from the entries.
+    val wideScope: MappingScope? = if (state.searching) null else state.query.source?.let { MappingScope.Source(it) } ?: MappingScope.All
+    var menu by remember { mutableStateOf(false) }
+    DefaultScaffoldWithSmallTopAppBar(title = stringResource(R.string.matching_list_title),
+        navigationIcon = { BackIconButton(onBack) }, snackbarHost = { SnackbarHost(snackbar) },
+        actions = {
+            if (wideScope != null) Box {
+                IconButton(onClick = { menu = true }, enabled = idle, modifier = Modifier.testTag("matching-menu")) {
+                    Icon(painterResource(CoreR.drawable.more_vert_24), contentDescription = stringResource(R.string.matching_menu))
+                }
+                DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                    val suffix = if (wideScope is MappingScope.All) "all" else "source"
+                    DropdownMenuItem(text = { Text(stringResource(R.string.matching_menu_rematch)) },
+                        modifier = Modifier.testTag("matching-rematch-$suffix"),
+                        onClick = { menu = false; event.prepare(MappingAction.REMATCH, wideScope) })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.matching_menu_reset),
+                        color = MaterialTheme.colorScheme.error) },
+                        modifier = Modifier.testTag("matching-reset-$suffix"),
+                        onClick = { menu = false; event.prepare(MappingAction.RESET, wideScope) })
+                }
+            }
+        },
+        scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
+        Box(Modifier.padding(padding).fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize().testTag("matching-list"),
+                contentPadding = PaddingValues(top = 8.dp, bottom = if (state.selected.isNotEmpty()) 104.dp else 24.dp)) {
+                item {
+                    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SearchPillField(value = state.query.text, onValueChange = event::search,
+                            placeholder = stringResource(R.string.matching_search), enabled = !state.busy,
+                            modifier = Modifier.testTag("matching-search"))
+                        SourceFilter(state, event)
+                        if (state.loading || state.preparing) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                }
+                if (unmatched.isNotEmpty()) {
+                    item { PreferencesTitle(stringResource(R.string.matching_unmatched_title, unmatched.size)) }
+                    itemsIndexed(unmatched.take(UNMATCHED_SHOWN), key = { _, series -> "unmatched-${series.source.testTagPart()}-${series.seriesKey}-${series.season}" }) { index, series ->
+                        Card(onClick = { event.openUnmatched(series) }, enabled = !state.busy && !state.preparing,
+                            shape = preferenceShape(index, minOf(unmatched.size, UNMATCHED_SHOWN)),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp).fillMaxWidth()
+                                .testTag("unmatched-row-${series.seriesKey}-${series.season}")) {
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                                Text(series.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(listOf(series.sourceLabel.takeIf { it.isNotBlank() },
+                                    stringResource(R.string.matching_unmatched_season, series.season)).filterNotNull().joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                series.suggestion?.let { suggestion ->
+                                    Text(stringResource(R.string.matching_unmatched_suggestion, suggestion.title),
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.testTag("unmatched-suggestion-${series.seriesKey}-${series.season}"))
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!state.loading && state.page.total == 0 && unmatched.isEmpty()) item {
+                    Box(Modifier.fillParentMaxWidth().fillParentMaxHeight(0.6f), contentAlignment = Alignment.Center) {
+                        CenteredMessage(
+                            iconRes = if (state.searching) CoreR.drawable.search_24 else CoreR.drawable.format_list_bulleted_24,
+                            text = if (state.searching) stringResource(R.string.matching_no_results, state.query.text.trim())
+                            else stringResource(R.string.matching_empty),
+                            modifier = Modifier.testTag(if (state.searching) "matching-no-results" else "matching-empty"),
+                        )
+                    }
+                }
+                if (state.page.total > 0) {
+                    item {
+                        Column {
+                            PreferencesTitle(stringResource(R.string.matching_saved_title))
+                            Text(stringResource(R.string.matching_list_count, state.page.total, state.page.scopeTotal),
+                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp).testTag("matching-count"))
+                            MappingPager(state, event, "top")
+                        }
+                    }
+                    itemsIndexed(state.page.entries, key = { _, entry -> entry.id }) { index, entry ->
+                        Card(onClick = { event.open(entry) }, enabled = !state.busy && !state.preparing,
+                            shape = preferenceShape(index, state.page.entries.size),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.dp).fillMaxWidth().testTag("mapping-row-${entry.id}")) {
+                            Row(Modifier.padding(horizontal = 8.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                val selectionLabel = stringResource(R.string.matching_select_entry,
+                                    entry.sourceTitle?.takeIf { it.isNotBlank() } ?: entry.sourceIdentity,
+                                    entry.sourceLabel, entry.partLabel)
+                                Checkbox(checked = entry.id in state.selected,
+                                    onCheckedChange = { event.select(entry, it) }, enabled = !state.busy && !state.preparing,
+                                    modifier = Modifier.testTag("mapping-select-${entry.id}").semantics { contentDescription = selectionLabel })
+                                Column(Modifier.weight(1f).padding(end = 8.dp)) { MappingIdentity(entry) }
+                            }
+                        }
+                    }
+                    item { MappingPager(state, event, "bottom") }
+                }
+                if (state.recentResults.isNotEmpty()) item {
+                    Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+                        Text(stringResource(R.string.matching_results), style = MaterialTheme.typography.titleSmall)
+                        state.recentResults.forEach { result ->
+                            Text("${result.entryId}: ${stringResource(outcomeText(result.outcome))}", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+            if (state.selected.isNotEmpty()) SelectionBar(state, event, idle,
+                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp))
+        }
+    }
+}
+
+/** What can be done to the ticked mappings, as a bar over the list: matching again, removing, or letting go. */
+@Composable
+private fun SelectionBar(state: MatchingManagementState, event: MatchingManagementEvent, enabled: Boolean, modifier: Modifier) {
+    val scope = MappingScope.Entries(state.selected.mapValues { it.value.revision })
+    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = 3.dp, shadowElevation = 6.dp, modifier = modifier.fillMaxWidth().testTag("matching-selection-bar")) {
+        Row(Modifier.padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.matching_selection_count, state.selected.size), style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.weight(1f))
+            TextButton(onClick = { event.prepare(MappingAction.REMATCH, scope) }, enabled = enabled,
+                modifier = Modifier.testTag("matching-rematch-selection")) { Text(stringResource(R.string.matching_rematch)) }
+            TextButton(onClick = { event.prepare(MappingAction.RESET, scope) }, enabled = enabled,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.testTag("matching-reset-selection")) { Text(stringResource(R.string.matching_reset)) }
+            IconButton(onClick = event::clearSelection, enabled = enabled, modifier = Modifier.testTag("matching-clear-selection")) {
+                Icon(painterResource(CoreR.drawable.close_24), contentDescription = stringResource(R.string.matching_clear_selection))
+            }
+        }
+    }
 }
 
 /** Previous and next page of the saved mappings; shown above and below the list, only when there is more than one page. */

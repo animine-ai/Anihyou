@@ -38,7 +38,7 @@ class MatchingManagementComposeTest {
     }
 
     @Test fun listShowsSourceTitleAsPrimaryAndTargetAndTrackAsSecondary() {
-        composeRule.setContent { MaterialTheme { MatchingManagementScreen(fixture(), event) } }
+        composeRule.setContent { MaterialTheme { MatchingManagementScreen(fixture(), event, startOnList = true) } }
         composeRule.onNodeWithTag("matching-list").performScrollToNode(hasTestTag("mapping-row-fixture"))
         composeRule.onNodeWithText(entry.sourceTitle!!).assertIsDisplayed()
         composeRule.onNodeWithText("AniList target · AniList #42").assertIsDisplayed()
@@ -73,7 +73,7 @@ class MatchingManagementComposeTest {
     }
     @Test fun unknownLegacySourceUsesHonestIdAndNeverSubstitutesAniListTitle() {
         val legacy = entry.copy(id = "legacy", source = null, sourceTitle = null, sourceLabel = "")
-        composeRule.setContent { MaterialTheme { MatchingManagementScreen(fixture().copy(page = MappingPage(listOf(legacy), 1)), event) } }
+        composeRule.setContent { MaterialTheme { MatchingManagementScreen(fixture().copy(page = MappingPage(listOf(legacy), 1)), event, startOnList = true) } }
         composeRule.onNodeWithTag("matching-list").performScrollToNode(hasTestTag("mapping-row-legacy"))
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         composeRule.onNodeWithText(context.getString(com.axiel7.anihyou.feature.settings.R.string.matching_source_id, legacy.sourceIdentity)).assertIsDisplayed()
@@ -84,7 +84,7 @@ class MatchingManagementComposeTest {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, 1.3f)) {
                 MaterialTheme(colorScheme = darkColorScheme()) {
-                    MatchingManagementScreen(fixture().copy(page = MappingPage(emptyList(), 0)), event)
+                    MatchingManagementScreen(fixture().copy(page = MappingPage(emptyList(), 0)), event, startOnList = true)
                 }
             }
         }
@@ -97,7 +97,7 @@ class MatchingManagementComposeTest {
             UnmatchedSeries(source, "late", 2, "L’Été", UnmatchedSuggestion(99, "Queen’s return", 0.8))
         val state = fixture().copy(query = MappingQuery("queens ete", source),
             page = MappingPage(emptyList(), 0, fixture().page.sources, 125), unmatched = rows)
-        composeRule.setContent { MaterialTheme { MatchingManagementScreen(state, event) } }
+        composeRule.setContent { MaterialTheme { MatchingManagementScreen(state, event, startOnList = true) } }
         listOf("matching-match-now", "matching-search-now", "matching-reset-all", "matching-rematch-all",
             "matching-reset-source", "matching-rematch-source").forEach { composeRule.onNodeWithTag(it).assertDoesNotExist() }
         composeRule.onNodeWithTag("matching-list").performScrollToNode(hasTestTag("unmatched-row-late-2"))
@@ -106,7 +106,7 @@ class MatchingManagementComposeTest {
     }
     @Test fun searchWithoutResultsHasItsOwnEmptyState() {
         val state = fixture().copy(query = MappingQuery("missing"), page = MappingPage(emptyList(), 0))
-        composeRule.setContent { MaterialTheme { MatchingManagementScreen(state, event) } }
+        composeRule.setContent { MaterialTheme { MatchingManagementScreen(state, event, startOnList = true) } }
         composeRule.onNodeWithTag("matching-no-results").assertIsDisplayed()
         composeRule.onNodeWithTag("matching-empty").assertDoesNotExist()
         capture("matching-no-results") { composeRule.onNodeWithTag("matching-no-results").assertIsDisplayed() }

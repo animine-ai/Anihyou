@@ -833,7 +833,7 @@ class SourceSeriesMatchingService(
         val local = attempt { candidates.localCandidates(setOf(identity)).candidates }.orEmpty()
         var decision = decide(request, local)
         val localHit = decision as? MatchDecision.Matched
-        if (localHit == null || localHit.tier !in AUTO_TIERS) {
+        if ((localHit == null || localHit.tier !in AUTO_TIERS) && !searches.localOnly) {
             // The explicit run has a bounded number of AniList searches; an entry it cannot examine stays as it is.
             if (searches.remaining <= 0) return MappingRematchOutcome.UNAVAILABLE
             searches.remaining--
@@ -969,7 +969,8 @@ class SourceSeriesMatchingService(
 data class AutoMatchReport(val pending: Int = 0, val examined: Int = 0, val matched: Int = 0, val searches: Int = 0)
 
 /** The AniList searches one explicit rematch run may still spend; local candidates never cost any. */
-internal class SearchBudget(var remaining: Int)
+/** [localOnly]: the run never asks AniList for a single title; it only compares with the pool that is already known. */
+internal class SearchBudget(var remaining: Int, val localOnly: Boolean = false)
 
 /** An entry key is "<subject key>|<external provider>"; the subject key itself never contains the last bar. */
 internal fun splitEntryKey(entryKey: String): Pair<String, String> =

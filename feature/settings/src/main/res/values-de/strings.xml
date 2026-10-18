@@ -85,7 +85,7 @@
     <string name="matching_rematch">Erneut matchen</string>
     <string name="matching_confirm_count">Betroffene gespeicherte Einträge: %1$d</string>
     <string name="matching_reset_help">Nur diese Zuordnungen werden entfernt. Quellen- und AniList-Daten bleiben erhalten. Dies startet kein Matching.</string>
-    <string name="matching_rematch_help">Begrenzten Matchingauftrag für diese Einträge starten. Akzeptierte Zuordnungen bleiben bis zu einem gültigen Ersatz erhalten.</string>
+    <string name="matching_rematch_help">Vergleicht diese Einträge erneut mit den AniList-Daten, die schon bekannt sind. Es werden keine einzelnen Titel bei AniList gesucht. Eine Zuordnung bleibt, bis ein gültiger Ersatz gefunden ist.</string>
     <string name="matching_start">Bestätigen und starten</string>
     <string name="matching_confirm">Bestätigen</string>
     <string name="matching_cancel">Abbrechen</string>

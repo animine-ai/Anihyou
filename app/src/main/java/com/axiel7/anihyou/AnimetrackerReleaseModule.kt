@@ -231,6 +231,8 @@ val animetrackerReleaseModule = module {
             service = get(),
             fence = get(),
             clock = get<Clock>(),
+            // "Rematch" compares with what is already known; one AniList search per title is its own, explicit button.
+            searchesPerRun = 0,
         )
     }
     single { ReleaseIdentityMatcher(candidateSource = get(), clock = get()) }

@@ -136,4 +136,14 @@
     <string name="extension_capability_postponement">Verschiebungen</string>
     <string name="extension_capability_overview">Serienübersicht</string>
     <string name="extension_capability_episodes">Folgen-Links</string>
+    <string name="matching_hub_assign">Zuordnen</string>
+    <string name="matching_hub_unassigned">%1$d noch nicht zugeordnet</string>
+    <string name="matching_hub_manage">Zuordnungen verwalten</string>
+    <string name="matching_hub_manage_summary">%1$d gespeichert · %2$d nicht zugeordnet</string>
+    <string name="matching_list_title">Zuordnungen</string>
+    <string name="matching_list_count">%1$d von %2$d Zuordnungen</string>
+    <string name="matching_menu">Weitere Aktionen</string>
+    <string name="matching_menu_rematch">Alle erneut abgleichen</string>
+    <string name="matching_menu_reset">Alle Zuordnungen entfernen</string>
+    <string name="matching_selection_count">%1$d ausgewählt</string>
 </resources>

@@ -417,7 +417,7 @@ class RoomMatchingManagementRepository(
         // Process the full confirmed scope so the UI cannot report a truncated batch as complete.
         val total = action.entryCount
         emit(MappingRematchProgress(0, total))
-        val searches = SearchBudget(searchesPerRun)
+        val searches = SearchBudget(searchesPerRun, localOnly = searchesPerRun == 0)
         var from = 0
         var done = 0
         while (done < total) {

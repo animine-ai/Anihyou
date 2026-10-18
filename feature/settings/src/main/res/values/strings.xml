@@ -85,7 +85,7 @@
     <string name="matching_rematch">Match again</string>
     <string name="matching_confirm_count">Affected saved entries: %1$d</string>
     <string name="matching_reset_help">Only these mappings are removed. Source data and AniList data remain. This does not start matching.</string>
-    <string name="matching_rematch_help">Start a bounded matching request for these entries. Existing accepted mappings remain until a valid replacement is saved.</string>
+    <string name="matching_rematch_help">Compares these entries again with the AniList data that is already known. No single title is searched on AniList. A mapping stays until a valid replacement is found.</string>
     <string name="matching_start">Confirm and start</string>
     <string name="matching_confirm">Confirm</string>
     <string name="matching_cancel">Cancel</string>

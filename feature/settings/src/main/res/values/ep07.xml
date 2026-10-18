@@ -136,4 +136,14 @@
     <string name="extension_capability_postponement">Postponements</string>
     <string name="extension_capability_overview">Series overview</string>
     <string name="extension_capability_episodes">Episode links</string>
+    <string name="matching_hub_assign">Assign</string>
+    <string name="matching_hub_unassigned">%1$d not assigned yet</string>
+    <string name="matching_hub_manage">Manage mappings</string>
+    <string name="matching_hub_manage_summary">%1$d saved · %2$d not assigned</string>
+    <string name="matching_list_title">Mappings</string>
+    <string name="matching_list_count">%1$d of %2$d mappings</string>
+    <string name="matching_menu">More actions</string>
+    <string name="matching_menu_rematch">Match all again</string>
+    <string name="matching_menu_reset">Remove all mappings</string>
+    <string name="matching_selection_count">%1$d selected</string>
 </resources>

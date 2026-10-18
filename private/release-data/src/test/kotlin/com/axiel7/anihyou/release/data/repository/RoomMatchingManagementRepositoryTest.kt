@@ -1036,6 +1036,22 @@ class RoomMatchingManagementRepositoryTest {
         assertEquals("nothing was removed or changed", 3, rig.page().total)
     }
 
+    @Test fun rematchWithoutASearchBudgetOnlyComparesWithTheKnownPoolAndNeverAsksAniList() = runBlocking {
+        val rig = Rig()
+        listOf("a" to 1, "b" to 2, "c" to 3).forEach { (slug, media) ->
+            rig.dao.upsertSourceMapping(sourceRow(keyA, slug, 1, media))
+            rig.dao.upsertLabel(label(keyA, slug, "Series $slug"))
+        }
+        val local = RoomMatchingManagementRepository(rig.database, rig.navigation, rig.sources, rig.service,
+            rig.fence, rig.clock, searchesPerRun = 0)
+        val token = local.capture(MappingScope.All)
+        val outcomes = local.rematch(token).toList().filter { it.entryId != null }.map { it.outcome }
+        assertEquals(3, outcomes.size)
+        assertEquals("no title was searched on AniList", 0, rig.candidates.targetedCalls)
+        assertTrue("an entry the pool cannot settle keeps its binding", outcomes.all { it == MappingRematchOutcome.RETAINED })
+        assertEquals("nothing was removed or changed", 3, rig.page().total)
+    }
+
     @Test fun rematchKeepsABindingWhenNothingBetterExistsOrItChangedSinceConfirmation() = runBlocking {
         val rig = Rig()
         rig.dao.upsertSourceMapping(sourceRow(keyA, "aot", 1, 7))
