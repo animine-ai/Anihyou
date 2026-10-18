@@ -40,6 +40,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.axiel7.anihyou.feature.calendar.CalendarDay
@@ -140,6 +141,7 @@ internal fun BoxScope.CalendarFastScroller(
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
                 .width(STRIP_WIDTH)
+                .testTag("calendar-scroller")
                 .onSizeChanged { trackHeight = it.height.toFloat() }
                 .pointerInput(days.size, starts) {
                     awaitEachGesture {
