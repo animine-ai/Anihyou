@@ -256,8 +256,12 @@ class ExtensionShadowSyncOrchestrator(
             val codes = reports.flatMap { report -> report.diagnostics.map { it.code } }
                 .map { code -> code.takeIf { SAFE_CODE.matches(it) } ?: "OTHER" }.distinct()
             val observations = result.observations.count { it.requestId in ids }
+            // The extension's own words for what it skipped (its message differs from its code), shown as it wrote them.
+            val detail = reports.flatMap { it.diagnostics }.firstOrNull { it.message != it.code }?.message
+                ?.filter { it.isLetterOrDigit() || it in " /_.:-,…" }?.take(DETAIL_CHARS)?.takeIf { it.isNotBlank() }
             "${role.name}: http=$http report=${reports.joinToString("/") { it.outcome.name }.ifEmpty { "none" }} obs=$observations" +
-                (if (codes.isEmpty()) "" else " diag=${codes.joinToString(",")}")
+                (if (codes.isEmpty()) "" else " diag=${codes.joinToString(",")}") +
+                (if (detail == null) "" else " detail=[$detail]")
         }.take(500)
 
     /** A role succeeded only if every one of its requests was a real 2xx response with a SUCCESS report. */
@@ -350,6 +354,7 @@ class ExtensionShadowSyncOrchestrator(
         const val REASON_DEFERRED = "extension-budget-deferred"
         private val WORK_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,111}")
         private val SAFE_CODE = Regex("[A-Z0-9_]{1,48}")
+        private const val DETAIL_CHARS = 200
         private const val EXTENSION_PARSER_VERSION = "aniworld-v3-extension-v1"
         private val LIST_ROLES = setOf(SourceRole.CALENDAR, SourceRole.RECENT, SourceRole.POSTPONEMENT)
         private val SOURCE_ROLES = LIST_ROLES + SourceRole.DIRECT
