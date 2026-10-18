@@ -1,5 +1,7 @@
 package com.axiel7.anihyou.feature.settings.source
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import com.axiel7.anihyou.core.ui.composables.common.CenteredMessage
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -30,7 +32,8 @@ fun ProviderDisplayEditor(state: ExtensionSourcesUiState, event: ExtensionSource
         modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp),
         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     if (entries.isEmpty()) {
-        Text(stringResource(R.string.extension_provider_empty), modifier = Modifier.padding(24.dp))
+        CenteredMessage(iconRes = com.axiel7.anihyou.core.resources.R.drawable.info_24,
+            text = stringResource(R.string.extension_provider_empty), modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp))
         return
     }
     listOf(R.string.extension_provider_shown to shown, R.string.extension_provider_hidden to hidden).forEach { (title, group) ->

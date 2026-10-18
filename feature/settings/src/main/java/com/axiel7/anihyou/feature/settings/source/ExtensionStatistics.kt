@@ -1,5 +1,7 @@
 package com.axiel7.anihyou.feature.settings.source
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import com.axiel7.anihyou.core.ui.composables.common.CenteredMessage
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -21,7 +23,8 @@ fun ExtensionStatistics(state: ExtensionSourcesUiState, onRefresh: (() -> Unit)?
     val key = state.productPolicy.activeReleaseSource
     val extension = installedEntries(state).singleOrNull { it.first == key }?.second
     if (key == null || extension == null) {
-        Text(stringResource(R.string.extension_statistics_empty), modifier = Modifier.padding(24.dp))
+        CenteredMessage(iconRes = CoreR.drawable.info_24,
+            text = stringResource(R.string.extension_statistics_empty), modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp))
         return
     }
     val statistics = state.statistics[key]

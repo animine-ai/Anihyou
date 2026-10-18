@@ -162,12 +162,13 @@ fun ExtensionCenterPageView(pageId: String) {
     ExtensionCenterScaffold(stringResource(page.title)) {
         if (!state.trustAvailable) ExtensionTrustUnavailableNotice()
         if (page == ExtensionCenterPage.DIAGNOSTICS) {
-            TextButton(onClick = model::refreshDiagnostics, modifier = Modifier.testTag("extension-details-refresh")) {
-                Text(stringResource(R.string.extension_details_refresh))
-            }
-            TextButton(onClick = model::refreshReleasesNow, modifier = Modifier.testTag("extension-releases-refresh-now")) {
-                Text(stringResource(R.string.extension_releases_refresh_now))
-            }
+            Spacer(Modifier.height(8.dp))
+            PlainPreference(title = stringResource(R.string.extension_details_refresh), icon = CoreR.drawable.refresh_24,
+                shape = preferenceShape(0, 2), modifier = Modifier.testTag("extension-details-refresh"),
+                onClick = model::refreshDiagnostics)
+            PlainPreference(title = stringResource(R.string.extension_releases_refresh_now), icon = CoreR.drawable.refresh_24,
+                shape = preferenceShape(1, 2), modifier = Modifier.testTag("extension-releases-refresh-now"),
+                onClick = model::refreshReleasesNow)
         }
         when (page) {
             ExtensionCenterPage.MATCHING -> Unit // Handled by the settings-only route above.
@@ -399,12 +400,12 @@ fun ExtensionDiagnostics(state: ExtensionSourcesUiState) {
             PreferencesTitle(stringResource(R.string.extension_diagnostics_processing))
             DiagnosticRows(otherRows.map { it.key to it.value })
         }
-        TextButton(onClick = { clipboard.setText(AnnotatedString(
-            safeDiagnosticEntries(values).joinToString("\n") { (name, value) -> "$name: $value" })) },
-            modifier = Modifier.testTag("diagnostics-copy-" + key.testTagPart())) {
-            Text(stringResource(R.string.extension_diagnostics_copy))
-        }
-        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+        Spacer(Modifier.height(8.dp))
+        PlainPreference(title = stringResource(R.string.extension_diagnostics_copy), icon = CoreR.drawable.content_copy_24,
+            shape = singleShape, modifier = Modifier.testTag("diagnostics-copy-" + key.testTagPart()),
+            onClick = { clipboard.setText(AnnotatedString(
+                safeDiagnosticEntries(values).joinToString("\n") { (name, value) -> "$name: $value" })) })
+        Spacer(Modifier.height(20.dp))
     }
 }
 

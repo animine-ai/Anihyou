@@ -1,5 +1,6 @@
 package com.axiel7.anihyou.feature.settings.source
 
+import com.axiel7.anihyou.core.ui.composables.common.CenteredMessage
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -93,8 +94,8 @@ fun ExtensionSourcesSettingsSection(
             Icon(painterResource(CoreR.drawable.add_24), contentDescription = stringResource(R.string.extension_sources_add))
         }
     }
-    if (uiState.sources.isEmpty()) Text(stringResource(R.string.extension_sources_empty),
-        modifier = Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.bodyMedium)
+    if (uiState.sources.isEmpty()) CenteredMessage(iconRes = CoreR.drawable.rss_feed_24,
+        text = stringResource(R.string.extension_sources_empty), modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp))
     else uiState.sources.forEachIndexed { index, source ->
         ExtensionSourceCard(source, uiState.busySourceIds, uiState.trustAvailable, event,
             shape = preferenceShape(index, uiState.sources.size))
