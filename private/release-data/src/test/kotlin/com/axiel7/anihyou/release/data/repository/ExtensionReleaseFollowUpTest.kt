@@ -377,7 +377,7 @@ class ExtensionReleaseFollowUpTest {
             followUp(database, late, enabled = true, progress = mapOf(42 to 4), recording = recording, scope = scope).run()
             val pending = due(database)
             assertEquals(1, pending.size)
-            assertTrue(pending.single().byCalendar)
+            assertEquals("CALENDAR_PLANNED_TIME", pending.single().evidenceKind)
             assertEquals("Frieren", pending.single().displayTitle)
             // The source confirms it later: the episode is not announced a second time.
             val confirmed = listOf(item(42, 5, now.minus(Duration.ofMinutes(20)), confirmed = true))
