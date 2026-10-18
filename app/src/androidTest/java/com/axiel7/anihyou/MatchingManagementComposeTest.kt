@@ -125,7 +125,8 @@ class MatchingManagementComposeTest {
         composeRule.runOnIdle { state.value = state.value.copy(episodeRules = EpisodeRulesUpdateStatus(checking = true)) }
         composeRule.onNodeWithTag("matching-update-episode-rules").assertIsNotEnabled()
         composeRule.runOnIdle { state.value = state.value.copy(episodeRules = EpisodeRulesUpdateStatus(updated = 2, failed = 1, completed = true)) }
-        composeRule.onNodeWithTag("matching-episode-rules-result").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("matching-hub").performScrollToNode(hasTestTag("matching-episode-rules-result"))
+        composeRule.onNodeWithTag("matching-episode-rules-result").assertIsDisplayed()
         capture("matching-malsync-rules") { composeRule.onNodeWithTag("matching-episode-rules-result").assertIsDisplayed() }
     }
 
