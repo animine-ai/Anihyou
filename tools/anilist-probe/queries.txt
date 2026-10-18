@@ -1,0 +1,7 @@
+# One AniList search per line (the title as AniWorld shows it). Output: the log of the "AniList probe" workflow.
+Suikoden
+Gensou Suikoden
+As a Reincarnated Aristocrat, I'll Use My Appraisal Skill to Rise in the New World
+Tensei Kizoku, Kantei Skill de Nariagaru
+Paw & Palaces
+Black Clover

@@ -1,0 +1,24 @@
+name: AniList probe
+run-name: "AniList probe ${{ github.sha }}"
+# A diagnostic: asks AniList (the sandbox of the assistant cannot reach it) what its entries for the titles in
+# tools/anilist-probe/queries.txt look like, so the AniWorld matcher is built on what AniList really says.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/release-refresh-notify-2026-10-17
+    paths:
+      - "tools/anilist-probe/**"
+      - ".github/workflows/anilist-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Ask AniList
+        run: python3 tools/anilist-probe/probe.py tools/anilist-probe/queries.txt
