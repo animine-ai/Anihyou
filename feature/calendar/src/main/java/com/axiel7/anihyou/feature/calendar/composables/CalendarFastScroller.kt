@@ -41,6 +41,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.axiel7.anihyou.feature.calendar.CalendarDay
@@ -100,7 +102,11 @@ internal fun BoxScope.CalendarFastScroller(
             .padding(top = topGap, bottom = bottomGap),
     ) {
         // Drawing only: it takes no touch, the strip below does.
-        Canvas(Modifier.fillMaxSize().alpha(visible)) {
+        Canvas(
+            Modifier.fillMaxSize().alpha(visible).testTag("calendar-scroller-track")
+                // What the canvas draws, for the UI test: a dot for every day while held, else the short handle.
+                .semantics { stateDescription = if (dots > 0f) "dots:${days.size}" else "handle" },
+        ) {
             val x = size.width - with(density) { 14.dp.toPx() }
             if (dots > 0f) days.forEachIndexed { index, day ->
                 val y = (index + 0.5f) * size.height / days.size
@@ -126,7 +132,8 @@ internal fun BoxScope.CalendarFastScroller(
             Surface(
                 shape = RoundedCornerShape(50),
                 color = container,
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-36).dp, y = centerY - 18.dp),
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-36).dp, y = centerY - 18.dp)
+                    .testTag("calendar-scroller-bubble"),
             ) {
                 Text(
                     text = days[shownDay].date.bubbleLabel(),

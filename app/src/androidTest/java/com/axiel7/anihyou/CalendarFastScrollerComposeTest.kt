@@ -6,6 +6,12 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -18,6 +24,7 @@ import com.axiel7.anihyou.release.core.api.*
 import com.axiel7.anihyou.release.core.model.*
 import com.axiel7.anihyou.release.core.model.ProviderId
 import java.time.LocalDate
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,5 +67,43 @@ class CalendarFastScrollerComposeTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("calendar-day-${days.first()}").assertIsDisplayed()
         strip.performTouchInput { up() }
+    }
+
+    private fun showCalendar(days: List<LocalDate>) {
+        val state = CalendarUiState(
+            today = today, day = today.atStartOfDay(), isLoading = false, hasNextPage = false,
+            providerRowsByDate = days.associateWith { date -> (1..3).map { row(date, it) } },
+            todayFirstItemIndex = 0, todayAnchorReady = true,
+        )
+        composeRule.setContent {
+            val navigation = rememberNavigationState(Route.Calendar, MainNavigationResolver.allRoutes)
+            val navigator = remember(navigation) { Navigator(navigation) }
+            CompositionLocalProvider(LocalNavActionManager provides NavActionManager(navigator)) {
+                MaterialTheme(colorScheme = darkColorScheme()) { CalendarViewContent(isLoggedIn = false, uiState = state, event = null) }
+            }
+        }
+        composeRule.waitForIdle()
+    }
+
+    @Test fun theStripKeepsItsDistanceAndHoldingItShowsADotForEveryDayAndTheDate() {
+        val days = (0 until 30).map { today.plusDays(it.toLong()) }
+        showCalendar(days)
+        val strip = composeRule.onNodeWithTag("calendar-scroller")
+        val gap = 72f * composeRule.activity.resources.displayMetrics.density
+        val root = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
+        val bounds = strip.fetchSemanticsNode().boundsInRoot
+        assertTrue("strip starts ${bounds.top} px down, gap is $gap", bounds.top >= gap - 1f)
+        assertTrue("strip ends ${root.bottom - bounds.bottom} px above the bottom, gap is $gap", root.bottom - bounds.bottom >= gap - 1f)
+
+        val track = composeRule.onNodeWithTag("calendar-scroller-track")
+        track.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "handle"))
+        composeRule.onNodeWithTag("calendar-scroller-bubble").assertDoesNotExist()
+        strip.performTouchInput { down(Offset(centerX, height / 2f)) }
+        composeRule.waitForIdle()
+        track.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "dots:30"))
+        composeRule.onNodeWithTag("calendar-scroller-bubble").assertExists()
+        strip.performTouchInput { up() }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("calendar-scroller-bubble").assertDoesNotExist()
     }
 }
