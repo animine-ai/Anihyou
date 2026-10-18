@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -78,6 +79,7 @@ import com.axiel7.anihyou.feature.calendar.composables.CalendarAiringHorizontalI
 import com.axiel7.anihyou.feature.calendar.composables.CalendarAiringHorizontalItemPlaceholder
 import com.axiel7.anihyou.feature.calendar.composables.CalendarBanner
 import com.axiel7.anihyou.feature.calendar.composables.CalendarBannerPlaceholder
+import com.axiel7.anihyou.feature.calendar.composables.CalendarFastScroller
 import com.axiel7.anihyou.feature.calendar.composables.releaseDim
 import com.axiel7.anihyou.feature.calendar.composables.releaseMark
 import com.axiel7.anihyou.feature.calendar.composables.rememberNowInstant
@@ -576,8 +578,9 @@ private fun ListView(
         }
     }
 
+    Box(modifier = modifier) {
     LazyColumn(
-        modifier = modifier.testTag("calendar-list"),
+        modifier = Modifier.fillMaxSize().testTag("calendar-list"),
         contentPadding = contentPadding,
         state = listState,
     ) {
@@ -631,4 +634,20 @@ private fun ListView(
             }
         }
     }
+    CalendarFastScroller(
+        days = days,
+        today = uiState.today,
+        listState = listState,
+        topGap = SCROLLER_GAP,
+        bottomGap = contentPadding.calculateBottomPadding() + SCROLLER_GAP,
+        onScrub = {
+            // The user took over the position: no later focus on today may move the list away from the chosen day.
+            trackAnchor = true
+            event?.onAutoScrolled()
+        },
+    )
+    }
 }
+
+/** The strip of the scroller keeps this far from the top bar and from the bottom bar, so it never covers them. */
+private val SCROLLER_GAP = 72.dp
