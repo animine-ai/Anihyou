@@ -1,7 +1,6 @@
 package com.axiel7.anihyou.feature.login
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -20,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.axiel7.anihyou.core.base.ANIHYOU_AUTH_URL
 import com.axiel7.anihyou.core.common.utils.ContextUtils.openActionView
 import com.axiel7.anihyou.core.resources.R
+import com.axiel7.anihyou.core.ui.composables.common.CenteredMessage
 import com.axiel7.anihyou.core.ui.theme.AniHyouTheme
 
 @Composable
@@ -30,29 +30,25 @@ fun LoginView(
 ) {
     val context = LocalContext.current
 
-    Column(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        CenteredMessage(
+            iconRes = R.drawable.person_24,
             text = stringResource(R.string.not_logged_text),
-            modifier = Modifier.padding(8.dp)
-        )
-
-        Button(
-            onClick = { context.openActionView(ANIHYOU_AUTH_URL) }
         ) {
-            Text(text = stringResource(R.string.login))
-        }
-        if (showSettingsButton) {
-            TextButton(onClick = navigateToSettings) {
-                Icon(
-                    painter = painterResource(R.drawable.settings_24),
-                    contentDescription = stringResource(R.string.settings),
-                    modifier = Modifier.padding(end = 8.dp)
-                )
-                Text(text = stringResource(R.string.settings))
+            Button(
+                onClick = { context.openActionView(ANIHYOU_AUTH_URL) }
+            ) {
+                Text(text = stringResource(R.string.login))
+            }
+            if (showSettingsButton) {
+                TextButton(onClick = navigateToSettings) {
+                    Icon(
+                        painter = painterResource(R.drawable.settings_24),
+                        contentDescription = stringResource(R.string.settings),
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text(text = stringResource(R.string.settings))
+                }
             }
         }
     }
