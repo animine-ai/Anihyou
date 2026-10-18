@@ -74,6 +74,7 @@ internal class ScreenshotNotOfAppException(message: String) : AssertionError(mes
 internal class VerifiedScreenshot(val bitmap: Bitmap, val report: String)
 
 private const val CAPTURE_LOG_TAG = "EP07CAPTURE"
+private const val MAX_SETTLE_ROUNDS = 3
 
 /** Reads the real foreground state through UiAutomation and the activity. Never throws for a missing window. */
 internal fun readForegroundSnapshot(activity: ComponentActivity): ForegroundSnapshot {
@@ -107,6 +108,7 @@ internal fun ComposeTestRule.captureVerifiedScreenshot(
     activity: ComponentActivity,
     name: String,
     timeoutMs: Long = 10_000,
+    settleRounds: Int = 0,
     assertTarget: () -> Unit,
 ): VerifiedScreenshot {
     val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
@@ -143,6 +145,15 @@ internal fun ComposeTestRule.captureVerifiedScreenshot(
         bitmap.recycle()
         throw ScreenshotNotOfAppException("$name: the foreground changed during the capture: $afterProblems; windows=${after.windowPackages}")
     }
+    if (after.windowFocused != before.windowFocused) {
+        // An own dialog opened or closed while the frame was taken: the picture may show either state. Take it again.
+        bitmap.recycle()
+        if (settleRounds >= MAX_SETTLE_ROUNDS) {
+            throw ScreenshotNotOfAppException("$name: the app's own dialog state kept changing during the capture")
+        }
+        Thread.sleep(400)
+        return captureVerifiedScreenshot(activity, name, timeoutMs, settleRounds + 1, assertTarget)
+    }
     assertTarget()
     check(distinctSampledColors(bitmap) >= 3) { "$name: the captured frame is blank" }
     val waitedMs = SystemClock.elapsedRealtime() - started
@@ -157,6 +168,7 @@ internal fun ComposeTestRule.captureVerifiedScreenshot(
         appendLine("appDialogInFront=${ScreenshotForegroundPolicy.appDialogInFront(before)}/${ScreenshotForegroundPolicy.appDialogInFront(after)}")
         appendLine("windowPackages=${before.windowPackages}")
         appendLine("attempts=$attempts")
+        appendLine("settleRounds=$settleRounds")
         appendLine("firstAttemptViolations=$firstViolations")
         appendLine("waitedMs=$waitedMs")
         appendLine("bitmap=${bitmap.width}x${bitmap.height}")
