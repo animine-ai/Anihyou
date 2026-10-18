@@ -1,6 +1,6 @@
 """Asks AniList for the entries a title search returns and prints what a matcher can use: every title and synonym, the
 format, the start date, the episode count and the prequel/sequel chain. A diagnostic for the AniWorld matcher, not part of the app."""
-import json, sys, time, urllib.request
+import json, sys, time, urllib.error, urllib.request
 
 QUERY = """
 query($s:String){ Page(perPage:6){ media(search:$s, type:ANIME, sort:SEARCH_MATCH){
@@ -12,14 +12,20 @@ query($s:String){ Page(perPage:6){ media(search:$s, type:ANIME, sort:SEARCH_MATC
 
 def ask(term):
     body = json.dumps({"query": QUERY, "variables": {"s": term}}).encode()
-    request = urllib.request.Request("https://graphql.anilist.co", body, {"Content-Type": "application/json", "Accept": "application/json"})
+    request = urllib.request.Request("https://graphql.anilist.co", body, {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "Kiyori-matcher-probe/1.0 (diagnostic)"})
     for attempt in range(4):
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return json.load(response)["data"]["Page"]["media"]
-        except Exception as error:  # rate limit or network: wait and retry
+        except urllib.error.HTTPError as error:
+            body = error.read()[:300]
+            print("  HTTP", error.code, body, file=sys.stderr)
+            if error.code not in (429, 500, 502, 503, 504):
+                return []
+            time.sleep(int(error.headers.get("Retry-After", 10)))
+        except Exception as error:
             print("  retry", attempt, error, file=sys.stderr)
-            time.sleep(8 * (attempt + 1))
+            time.sleep(8)
     return []
 
 def date(d):
