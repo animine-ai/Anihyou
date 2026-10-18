@@ -12,6 +12,11 @@ on:
         description: Unique client request identifier
         required: false
         type: string
+      id_suffix:
+        description: Application id suffix; a different one installs beside the other build (".debug" is app.kiyori.debug)
+        required: false
+        default: ".debug"
+        type: string
   # Registers the workflow for manual dispatch from this branch; it only runs on a push that changes this file.
   push:
     branches:
@@ -78,7 +83,14 @@ jobs:
           python3 .github/scripts/test-performance-logging.py
           python3 .github/scripts/verify-performance-logging.py
       - name: Assemble Foss performance APK
-        run: ./gradlew --console=plain --stacktrace :app:assembleFossPerformance
+        env:
+          ID_SUFFIX: ${{ inputs.id_suffix || '.debug' }}
+        run: |
+          case "$ID_SUFFIX" in
+            .[a-z][a-z0-9_]*) ;;
+            *) echo "::error::id_suffix must look like .debug2"; exit 1 ;;
+          esac
+          ./gradlew --console=plain --stacktrace -PappIdSuffix="$ID_SUFFIX" :app:assembleFossPerformance
       - name: Collect the ARM64 APK and record its digest
         run: |
           set -eu

@@ -138,7 +138,8 @@ android {
         create("performance") {
             initWith(getByName("release"))
             matchingFallbacks += listOf("release")
-            applicationIdSuffix = ".debug"
+            // A second build can be installed beside the first one: ./gradlew -PappIdSuffix=.debug2 gives app.kiyori.debug2.
+            applicationIdSuffix = (project.findProperty("appIdSuffix") as String?)?.takeIf { it.isNotBlank() } ?: ".debug"
             versionNameSuffix = "-PERF-" + (System.getenv("GITHUB_SHA")?.take(8) ?: "local")
             signingConfig = signingConfigs.getByName("debug")
             isDebuggable = false
