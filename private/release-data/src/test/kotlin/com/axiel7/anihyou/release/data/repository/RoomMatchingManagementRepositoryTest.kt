@@ -756,7 +756,7 @@ class RoomMatchingManagementRepositoryTest {
             sourceMedia("black-clover-movie"), sourceMedia("paw-palaces"))
         assertEquals("nothing is searched by itself", 0, rig.service.autoMatchPending().matched)
         assertEquals(2, rig.service.searchPendingNow().matched)
-        fun media(slug: String, season: Int) = rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId,
+        suspend fun media(slug: String, season: Int) = rig.dao.sourceMapping(keyA.sourceId, keyA.extensionId, keyA.publisherId,
             keyA.providerId, subject(slug, season).stableKey, "anilist")!!.externalId
         assertEquals("195604", media("black-clover", 2))
         assertEquals("an ONA with no AniList season is found by its English title", "166443", media("paw-palaces", 1))
