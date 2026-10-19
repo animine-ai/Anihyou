@@ -2,9 +2,11 @@ package com.axiel7.anihyou.feature.worker
 
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -46,7 +48,34 @@ class WorkManagerExtensionReleaseRefreshScheduler(
         // Earlier builds ran an hourly periodic Full job; it is replaced by the slot chain below.
         manager.cancelUniqueWork(LEGACY_PERIODIC)
         ensureSlotScheduled()
+        ensureBackbone()
         enqueue(AUTO, ExtensionRefreshTrigger.PROCESS_START, ExistingWorkPolicy.KEEP)
+    }
+
+    override fun ensureBackbone() {
+        scope.launch {
+            runCatching {
+                // The interval the user chose, but at least the 15 minutes WorkManager allows; the flex window lets the system
+                // pick the moment inside its last minutes (the way the library update job of Komikku does).
+                val minutes = schedules.schedule.value.interval.minutes.toLong().coerceAtLeast(BACKBONE_MIN_MINUTES)
+                val flex = minOf(BACKBONE_FLEX_MINUTES, minutes / 2)
+                val request = PeriodicWorkRequestBuilder<ExtensionReleaseRefreshWorker>(minutes, TimeUnit.MINUTES, flex, TimeUnit.MINUTES)
+                    .setConstraints(constraints)
+                    .setBackoffCriteria(BackoffPolicy.LINEAR, 10, TimeUnit.MINUTES)
+                    .setInputData(workDataOf(
+                        // The same run as a planned slot: every granted role (the freshness windows keep the traffic small),
+                        // and it plans the next slot and the alarms again.
+                        ExtensionReleaseRefreshWorker.INPUT_TRIGGER to ExtensionRefreshTrigger.SCHEDULED_SLOT.name,
+                        ExtensionReleaseRefreshWorker.INPUT_CHAIN to 0,
+                    ))
+                    .addTag(TAG)
+                    .addTag(BACKBONE_TAG)
+                    .build()
+                // UPDATE changes the job when the interval changed and leaves a running one alone.
+                manager.enqueueUniquePeriodicWork(BACKBONE, ExistingPeriodicWorkPolicy.UPDATE, request)
+                com.axiel7.anihyou.release.core.log.AppLog.d("worker") { "backbone: periodic refresh every $minutes min (flex $flex min)" }
+            }.onFailure { com.axiel7.anihyou.release.core.log.AppLog.w("worker", it) { "the periodic backbone could not be planned" } }
+        }
     }
 
     override fun scheduleForeground() = enqueue(AUTO, ExtensionRefreshTrigger.FOREGROUND, ExistingWorkPolicy.KEEP)
@@ -144,6 +173,10 @@ class WorkManagerExtensionReleaseRefreshScheduler(
         const val CATCH_UP = "$TAG-catch-up"
         const val DUE_RELEASE = "$TAG-due-release"
         const val DUE_RELEASE_TAG = "$TAG-due-release-tag"
+        const val BACKBONE = "$TAG-backbone"
+        const val BACKBONE_TAG = "$TAG-backbone-tag"
+        const val BACKBONE_MIN_MINUTES = 15L
+        const val BACKBONE_FLEX_MINUTES = 15L
         /** The hourly periodic work of earlier builds. */
         const val LEGACY_PERIODIC = "$TAG-periodic"
         /** A missed slot is not made up in the first minutes after it, so a slot that is just late is not doubled. */

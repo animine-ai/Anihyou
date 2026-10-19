@@ -49,6 +49,12 @@ interface ExtensionReleaseRefreshScheduler {
      * when a slot was missed. Never cancels a running worker, so a slot may call it for its successor.
      */
     fun ensureSlotScheduled()
+    /**
+     * The periodic backbone: one WorkManager periodic job with the interval of the stored schedule. WorkManager keeps it
+     * through reboots and kills and starts it again by itself, so the refresh, the planned checks and the alarms are
+     * re-armed even when nothing else of the chain survived. Idempotent; a changed interval updates it.
+     */
+    fun ensureBackbone() {}
     /** A real foreground transition. Shares one unique work with process start, so both never duplicate. */
     fun scheduleForeground()
     /** Explicit user action. */

@@ -57,7 +57,10 @@ class ExtensionReleaseRefreshWorker(
             // Work enqueued by an earlier build only knows the force flag.
             ?: if (inputData.getBoolean(INPUT_FORCE, false)) ExtensionRefreshTrigger.MANUAL else ExtensionRefreshTrigger.PROCESS_START
         val chain = inputData.getInt(INPUT_CHAIN, 0)
-        AppLog.i("worker") { "release refresh start trigger=$trigger chain=$chain attempt=$runAttemptCount" }
+        AppLog.i("worker") {
+            "release refresh start trigger=$trigger chain=$chain attempt=$runAttemptCount " +
+                "backbone=${WorkManagerExtensionReleaseRefreshScheduler.BACKBONE_TAG in tags}"
+        }
         // The successor is scheduled before the run, under its own name: a crash or retry cannot end the chain.
         if (trigger == ExtensionRefreshTrigger.SCHEDULED_SLOT) scheduler.ensureSlotScheduled()
         val evaluation = evaluateExtensionReleaseRefresh(coordinator, "${id}_$runAttemptCount", trigger, runAttemptCount)

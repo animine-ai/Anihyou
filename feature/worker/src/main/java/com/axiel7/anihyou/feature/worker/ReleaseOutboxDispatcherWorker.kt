@@ -12,6 +12,7 @@ import androidx.work.BackoffPolicy
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.axiel7.anihyou.core.base.APP_PACKAGE_NAME
@@ -52,6 +53,23 @@ class ReleaseOutboxDispatcherWorker(
     private val productPolicy: ExtensionProductPolicyRepository,
     private val mediaArt: ReleaseMediaArtStore,
 ) : CoroutineWorker(context, params) {
+
+    /**
+     * Only for expedited runs below Android 12, which run as a foreground service and need its notification; later versions
+     * never show it. A delivery is expedited because an announcement that waits for the phone's next maintenance window
+     * arrives late.
+     */
+    override suspend fun getForegroundInfo(): androidx.work.ForegroundInfo = androidx.work.ForegroundInfo(
+        FOREGROUND_NOTIFICATION_ID,
+        androidx.core.app.NotificationCompat.Builder(applicationContext, SYNC_CHANNEL_ID)
+            .setContentTitle(applicationContext.getString(R.string.upcoming))
+            .setSmallIcon(R.drawable.kiyori_24)
+            .setOngoing(true)
+            .build(),
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        } else 0,
+    )
 
     /** The user chose a data source in the extension center, or switched the old provider lane on. Either owns release delivery. */
     private fun releaseDeliveryActive(selectedProvider: String?): Boolean =
@@ -329,6 +347,8 @@ class ReleaseOutboxDispatcherWorker(
         private const val PROVIDER_ID = "aniworld"
         private const val AIRING_CHANNEL_ID = "airing_channel_id"
         private const val PERMISSION_RETRY_SECONDS = 15L * 60L
+        private const val SYNC_CHANNEL_ID = "sync_channel_id"
+        private const val FOREGROUND_NOTIFICATION_ID = 7108
 
         fun WorkManager.scheduleReleaseOutboxWork() {
             val request = OneTimeWorkRequestBuilder<ReleaseOutboxDispatcherWorker>()
@@ -337,6 +357,7 @@ class ReleaseOutboxDispatcherWorker(
                     10L,
                     TimeUnit.MINUTES,
                 )
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .build()
             // APPEND_OR_REPLACE: a new delivery is not hidden behind a run that waits in its backoff, and a run that is
             // posting right now is not cancelled.

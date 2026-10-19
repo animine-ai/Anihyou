@@ -51,6 +51,7 @@ class ExtensionRefreshScheduleViewModel(
             if (next == current) return@launch
             repository.update(next)
             scheduler.ensureSlotScheduled()
+            scheduler.ensureBackbone()
         }
     }
 }

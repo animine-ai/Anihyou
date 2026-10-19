@@ -72,6 +72,31 @@ class ExtensionReleaseRefreshWorkerTest {
         verify(exactly = 0) { manager.enqueueUniquePeriodicWork(any(), any(), any()) }
     }
 
+    @Test fun `the periodic backbone follows the interval of the schedule and runs the same refresh as a slot`() {
+        val manager = manager()
+        val periodic = mutableMapOf<String, androidx.work.PeriodicWorkRequest>()
+        val policies = mutableMapOf<String, androidx.work.ExistingPeriodicWorkPolicy>()
+        every { manager.enqueueUniquePeriodicWork(any(), any(), any<androidx.work.PeriodicWorkRequest>()) } answers {
+            periodic[firstArg()] = thirdArg(); policies[firstArg()] = secondArg(); mockk(relaxed = true)
+        }
+        val hourly = Schedules(ExtensionRefreshSchedule(60, ExtensionRefreshInterval.HOURS_1))
+        scheduler(manager, hourly).ensureBackbone()
+        val request = requireNotNull(periodic[WorkManagerExtensionReleaseRefreshScheduler.BACKBONE])
+        assertEquals(androidx.work.ExistingPeriodicWorkPolicy.UPDATE, policies[WorkManagerExtensionReleaseRefreshScheduler.BACKBONE])
+        assertEquals(60 * 60_000L, request.workSpec.intervalDuration)
+        assertEquals(15 * 60_000L, request.workSpec.flexDuration)
+        assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
+        assertEquals(ExtensionRefreshTrigger.SCHEDULED_SLOT.name,
+            request.workSpec.input.getString(ExtensionReleaseRefreshWorker.INPUT_TRIGGER))
+        assertTrue(WorkManagerExtensionReleaseRefreshScheduler.BACKBONE_TAG in request.tags)
+        assertTrue(WorkManagerExtensionReleaseRefreshScheduler.TAG in request.tags)
+        // Half an hour is the shortest interval of the schedule: the flex window never exceeds half the period.
+        scheduler(manager, Schedules(ExtensionRefreshSchedule(60, ExtensionRefreshInterval.MINUTES_30))).ensureBackbone()
+        val shortest = requireNotNull(periodic[WorkManagerExtensionReleaseRefreshScheduler.BACKBONE])
+        assertEquals(30 * 60_000L, shortest.workSpec.intervalDuration)
+        assertEquals(15 * 60_000L, shortest.workSpec.flexDuration)
+    }
+
     @Test fun `the hourly default plans the next full hour`() {
         val manager = manager()
         val enqueued = mutableMapOf<String, OneTimeWorkRequest>()
