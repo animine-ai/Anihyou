@@ -59,7 +59,14 @@ class AnimeListPullRefreshComposeTest {
 
     private val noEvent = Proxy.newProxyInstance(
         UserMediaListEvent::class.java.classLoader, arrayOf(UserMediaListEvent::class.java),
-    ) { _, _, _ -> null } as UserMediaListEvent
+    ) { proxy, method, args ->
+        when (method.name) {
+            "equals" -> proxy === args?.firstOrNull()
+            "hashCode" -> System.identityHashCode(proxy)
+            "toString" -> "NoEvent"
+            else -> null
+        }
+    } as UserMediaListEvent
 
     @Test fun pullingAndReloadingDoesNotMoveTheList() {
         var state by mutableStateOf(
