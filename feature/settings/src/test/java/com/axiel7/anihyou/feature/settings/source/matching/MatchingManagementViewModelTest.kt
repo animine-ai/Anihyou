@@ -16,7 +16,8 @@ class MatchingManagementViewModelTest {
     private val entry = ManagedMapping("a", "revision-1", key, "Signed source", "Source anime", "anime/season-2", "Season 2 / DE_SUB", 42)
     private val repository = FakeRepository()
     private var searchCalls = 0
-    private val search = MatchingTargetSearch { _, _ -> searchCalls++; MappingTargetPage(listOf(MappingTarget(55, "Correct anime")), false) }
+    private var hits = listOf(MappingTarget(55, "Correct anime"))
+    private val search = MatchingTargetSearch { _, _ -> searchCalls++; MappingTargetPage(hits, false) }
     @Before fun before() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
     @After fun after() { Dispatchers.resetMain() }
     private fun model(): MatchingManagementViewModel {
@@ -142,6 +143,54 @@ class MatchingManagementViewModelTest {
         assertEquals(MappingRematchOutcome.RETAINED, vm.state.value.recentResults.single().outcome)
         assertTrue(repository.resets.isEmpty())
     }
+    @Test fun aSecondTapOnTheRunningRowStopsTheRunAndTheOtherRowWaits() = runTest {
+        repository.matchGate = CompletableDeferred()
+        val vm = model()
+        vm.matchNow()
+        assertTrue(vm.state.value.busy); assertEquals(MatchRun.MATCH, vm.state.value.activeRun)
+        vm.searchNow()
+        assertEquals("the other row does nothing while a run goes", MatchRun.MATCH, vm.state.value.activeRun)
+        assertEquals(1, repository.unmatchedRuns)
+        vm.matchNow()
+        assertFalse(vm.state.value.busy); assertNull(vm.state.value.activeRun)
+        assertEquals(MatchingNotice.CANCELLED, vm.state.value.notice)
+    }
+    @Test fun theSingleHitOfASearchIsMarkedForAnUnmatchedSeriesButNeverSaved() = runTest {
+        val series = UnmatchedSeries(key, "black-clover", 2, "Black Clover")
+        repository.unmatched.value = listOf(series)
+        val vm = model(); vm.openUnmatched(series)
+        vm.findTargets()
+        assertEquals(55, vm.state.value.chosenTarget?.id)
+        assertTrue("choosing is not assigning", repository.assigned.isEmpty())
+    }
+    @Test fun severalHitsAreNarrowedByTheSeasonOfTheSeriesAndTheNewestYear() = runTest {
+        hits = listOf(MappingTarget(1, "Black Clover", year = 2017), MappingTarget(2, "Black Clover Season 2", year = 2026),
+            MappingTarget(3, "Black Clover: Sword of the Wizard King", year = 2023))
+        val series = UnmatchedSeries(key, "black-clover", 2, "Black Clover")
+        repository.unmatched.value = listOf(series)
+        val vm = model(); vm.openUnmatched(series); vm.findTargets()
+        assertEquals(2, vm.state.value.chosenTarget?.id)
+        hits = listOf(MappingTarget(1, "Black Clover", year = 2017), MappingTarget(3, "Black Clover: Sword of the Wizard King", year = 2023))
+        vm.targetQuery("black clover again"); vm.findTargets()
+        assertNull("no hit carries season 2: nothing is guessed", vm.state.value.chosenTarget)
+        val first = UnmatchedSeries(key, "black-clover", 1, "Black Clover")
+        repository.unmatched.value = listOf(first)
+        vm.openUnmatched(first); hits = listOf(MappingTarget(1, "Black Clover", year = 2017),
+            MappingTarget(2, "Black Clover Season 2", year = 2026)); vm.findTargets()
+        assertEquals("the first season takes the entry without a season marker", 1, vm.state.value.chosenTarget?.id)
+    }
+    @Test fun anEntryAnotherSeasonOfTheSameSeriesHoldsIsNotMarkedByItself() = runTest {
+        hits = listOf(MappingTarget(2, "Black Clover Season 2", year = 2026))
+        val series = UnmatchedSeries(key, "black-clover", 2, "Black Clover", UnmatchedSuggestion(2, "Black Clover Season 2", 0.9, heldBySeason = 5))
+        repository.unmatched.value = listOf(series)
+        val vm = model(); vm.openUnmatched(series); vm.findTargets()
+        assertNull(vm.state.value.chosenTarget)
+    }
+    @Test fun aMappingEditorNeverMarksATargetByItself() = runTest {
+        val vm = model(); vm.open(entry); vm.targetQuery("correct anime"); vm.findTargets()
+        assertNull(vm.state.value.chosenTarget)
+    }
+
     @Test fun configurationResetNeverCapturesResetsOrRematchesBindings() = runTest {
         repository.options.value = listOf(MatcherOption("known", "Known option", listOf("default", "other"), "other"))
         val vm = model(); vm.resetConfiguration(); assertEquals(0, repository.configResets)
@@ -179,8 +228,13 @@ class MatchingManagementViewModelTest {
         var rematchCancelled = false
         override fun observePage(query: MappingQuery): Flow<MappingPage> { queries += query; return rows }
         override fun observeUnmatched(): Flow<List<UnmatchedSeries>> = unmatched
-        override suspend fun matchUnmatchedNow(): Int { unmatchedRuns++; return 0 }
+        var matchGate: CompletableDeferred<Unit>? = null
+        val assigned = mutableListOf<Pair<UnmatchedSeries, Int>>()
+        override suspend fun matchUnmatchedNow(): Int { unmatchedRuns++; matchGate?.await(); return 0 }
         override suspend fun searchUnmatchedNow(): Int { unmatchedRuns++; return 0 }
+        override suspend fun assignUnmatched(series: UnmatchedSeries, mediaId: Int, firstEpisode: Int): MappingMutationResult {
+            assigned += series to mediaId; return MappingMutationResult.APPLIED
+        }
         override suspend fun capture(scope: MappingScope): MappingActionToken {
             captures += scope
             return captureGate?.await() ?: MappingActionToken("frozen-${captures.size}", if (scope is MappingScope.Entries) scope.revisions.size else 125)

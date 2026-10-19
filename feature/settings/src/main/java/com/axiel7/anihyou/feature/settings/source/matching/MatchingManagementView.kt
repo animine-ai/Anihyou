@@ -127,23 +127,13 @@ private fun MatchingHubPage(
         scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize().testTag("matching-hub"),
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
-            if (state.loading || state.preparing || state.busy) item {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                    if (state.busy) {
-                        state.progress?.let { Text(stringResource(R.string.matching_progress, it.completed, it.total),
-                            style = MaterialTheme.typography.bodyMedium) }
-                        OutlinedButton(onClick = event::cancel, modifier = Modifier.testTag("matching-cancel")) {
-                            Text(stringResource(R.string.matching_cancel))
-                        }
-                    }
-                }
-            }
             item { PreferencesTitle(stringResource(R.string.matching_hub_assign)) }
             item {
+                // The loading mark of the row is the only progress; tapping the row while it runs stops the run.
                 PlainPreference(title = stringResource(R.string.matching_match_now),
                     subtitle = stringResource(R.string.matching_hub_unassigned, state.unmatched.size),
-                    icon = CoreR.drawable.refresh_24, enabled = idle, isLoading = state.busy,
+                    icon = CoreR.drawable.refresh_24, enabled = idle || running(state, MatchRun.MATCH),
+                    isLoading = running(state, MatchRun.MATCH),
                     onClick = event::matchNow, shape = preferenceShape(0, 2),
                     modifier = Modifier.testTag("matching-match-now"))
             }
@@ -151,7 +141,8 @@ private fun MatchingHubPage(
                 // Only on the user's wish: one AniList search per open title is slow, guesses and loads AniList.
                 PlainPreference(title = stringResource(R.string.matching_search_now),
                     subtitle = stringResource(R.string.matching_search_now_summary), icon = CoreR.drawable.search_24,
-                    enabled = idle && state.unmatched.isNotEmpty(),
+                    enabled = (idle && state.unmatched.isNotEmpty()) || running(state, MatchRun.SEARCH),
+                    isLoading = running(state, MatchRun.SEARCH),
                     onClick = event::searchNow, shape = preferenceShape(1, 2),
                     modifier = Modifier.testTag("matching-search-now"))
             }
@@ -257,6 +248,15 @@ private fun MatchingListPage(
                             modifier = Modifier.testTag("matching-search"))
                         SourceFilter(state, event)
                         if (state.loading || state.preparing) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        // A rematch started from this list has no row of its own to stop it with: its progress and the stop stay here.
+                        if (state.busy && state.activeRun == null) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                            state.progress?.let { Text(stringResource(R.string.matching_progress, it.completed, it.total),
+                                style = MaterialTheme.typography.bodyMedium) }
+                            OutlinedButton(onClick = event::cancel, modifier = Modifier.testTag("matching-cancel")) {
+                                Text(stringResource(R.string.matching_cancel))
+                            }
+                        }
                     }
                 }
                 if (unmatched.isNotEmpty()) {
@@ -429,6 +429,8 @@ private fun ScopeActions(
         enabled = enabled, onClick = onClear, shape = preferenceShape(2, count),
         modifier = Modifier.testTag("matching-clear-selection"))
 }
+
+private fun running(state: MatchingManagementState, run: MatchRun) = state.busy && state.activeRun == run
 
 @Composable
 private fun MappingEditor(state: MatchingManagementState, entry: ManagedMapping, event: MatchingManagementEvent) {

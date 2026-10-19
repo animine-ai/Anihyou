@@ -1,6 +1,7 @@
 package com.axiel7.anihyou.feature.settings.source.matching
 
 import androidx.lifecycle.ViewModel
+import com.axiel7.anihyou.release.core.matching.TitleNormalizer
 import androidx.lifecycle.viewModelScope
 import com.axiel7.anihyou.release.core.api.*
 import com.axiel7.anihyou.release.core.source.ExtensionSelectionKey
@@ -37,6 +38,8 @@ data class MatchingManagementState(
     /** The series of the active source that no binding covers yet. */
     val unmatched: List<UnmatchedSeries> = emptyList(),
     val unmatchedEditor: UnmatchedSeries? = null,
+    /** Which of the two runs of the hub is going on, so its own row shows the progress and a second tap on it stops it. */
+    val activeRun: MatchRun? = null,
     /** Where the open series starts in a longer AniList entry that the source cuts into seasons; digits only, empty means 1. */
     val firstEpisode: String = "",
     /** How many series the last "match now" bound; null before the first run. */
@@ -51,6 +54,8 @@ data class MatchingManagementState(
         SearchTitleFolding.matches(query.text, it.title, it.seriesKey, it.suggestion?.title)
     }
 }
+
+enum class MatchRun { MATCH, SEARCH }
 
 interface MatchingManagementEvent {
     fun search(text: String)
@@ -194,7 +199,9 @@ class MatchingManagementViewModel(
                 val result = targetSearch.search(snapshot.targetQuery, page)
                 if (generation == searchGeneration) mutable.update { it.copy(
                     targets = result.targets, targetPage = page, hasMoreTargets = result.hasNext,
-                    targetLoading = false, chosenTarget = null) }
+                    targetLoading = false,
+                    // Only marked, never saved: the button still decides. Where the data leaves one entry, that one is marked.
+                    chosenTarget = if (page == 1) autoChoice(snapshot.unmatchedEditor, result.targets) else null) }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { if (generation == searchGeneration) mutable.update {
                 it.copy(targetLoading = false, notice = MatchingNotice.FAILED)
@@ -205,15 +212,18 @@ class MatchingManagementViewModel(
         if (!state.value.busy && target in state.value.targets) mutable.update { it.copy(chosenTarget = target) }
     }
     override fun matchNow() {
+        // A second tap on the row that is running stops the run.
+        if (state.value.busy && state.value.activeRun == MatchRun.MATCH) { cancel(); return }
         if (state.value.busy || state.value.preparing || state.value.searching || !activeScopeVisible()) return
-        mutate {
+        mutate(MatchRun.MATCH) {
             val bound = repository.matchUnmatchedNow()
             mutable.update { it.copy(lastMatched = bound, notice = MatchingNotice.FINISHED) }
         }
     }
     override fun searchNow() {
+        if (state.value.busy && state.value.activeRun == MatchRun.SEARCH) { cancel(); return }
         if (state.value.busy || state.value.preparing || state.value.searching || !activeScopeVisible()) return
-        mutate {
+        mutate(MatchRun.SEARCH) {
             val bound = repository.searchUnmatchedNow()
             mutable.update { it.copy(lastMatched = bound, notice = MatchingNotice.FINISHED) }
         }
@@ -322,16 +332,35 @@ class MatchingManagementViewModel(
         mutable.update { it.copy(confirmConfigurationReset = false) }
         mutate { repository.resetMatcherOptions(); mutable.update { it.copy(notice = MatchingNotice.APPLIED) } }
     }
-    private fun mutate(block: suspend () -> Unit) {
+    private fun mutate(run: MatchRun? = null, block: suspend () -> Unit) {
         if (state.value.busy) return
-        mutable.update { it.copy(busy = true, notice = null) }
+        mutable.update { it.copy(busy = true, notice = null, activeRun = run) }
         actionJob = viewModelScope.launch {
             try { block() }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { mutable.update { it.copy(notice = MatchingNotice.FAILED) } }
-            finally { mutable.update { it.copy(busy = false) } }
+            finally { mutable.update { it.copy(busy = false, activeRun = null) } }
         }
     }
+    /**
+     * The entry to mark when the data of AniList (title with its season marker, release year) leaves only one: the single hit of
+     * a search, or the one hit that carries the season of the series (the newest one if several do). An entry that another season
+     * of the same series already holds is not offered by itself.
+     */
+    private fun autoChoice(series: UnmatchedSeries?, targets: List<MappingTarget>): MappingTarget? {
+        series ?: return null
+        val held = series.suggestion?.takeIf { it.heldBySeason != null }?.mediaId
+        val open = targets.filter { it.id != held }
+        if (open.size == 1) return open.single()
+        val sameSeason = open.filter { target ->
+            val marker = TitleNormalizer.normalize(target.title).season
+            if (series.season <= 1) marker == null || marker == 1 else marker == series.season
+        }
+        if (sameSeason.size == 1) return sameSeason.single()
+        val newest = sameSeason.mapNotNull { it.year }.maxOrNull() ?: return null
+        return sameSeason.filter { it.year == newest }.singleOrNull()
+    }
+
     private fun activeScopeVisible(): Boolean = state.value.query.source.let { filter ->
         filter == null || state.value.unmatched.any { it.source == filter }
     }

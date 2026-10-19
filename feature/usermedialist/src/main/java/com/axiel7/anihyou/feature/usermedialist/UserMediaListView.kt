@@ -2,6 +2,7 @@ package com.axiel7.anihyou.feature.usermedialist
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
@@ -31,6 +32,7 @@ import androidx.compose.material3.pulltorefresh.pullToRefresh
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -121,6 +123,9 @@ fun UserMediaListView(
     }
 
     // The same box as PullToRefreshBox, with the switch it does not have: one drag either shows the search bar or pulls.
+    // The list brings no stretch of its own: a pull that nobody consumes (while the list reloads, or while the bar comes
+    // back) used to stretch and push the whole list down over the screen.
+    CompositionLocalProvider(LocalOverscrollFactory provides null) {
     Box(
         modifier = Modifier.fillMaxSize().pullToRefresh(
             isRefreshing = uiState.fetchFromNetwork,
@@ -168,6 +173,7 @@ fun UserMediaListView(
             modifier = Modifier.align(Alignment.TopCenter),
         )
     }//: Box
+    }//: CompositionLocalProvider
 }
 
 
