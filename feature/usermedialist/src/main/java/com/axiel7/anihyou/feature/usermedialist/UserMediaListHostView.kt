@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -136,11 +137,7 @@ private fun UserMediaListHostContent(
     val snackbarManager = rememberSnackbarManager(scope)
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val isScrollingUp by rememberIsScrollingUp(listState = listState, gridState = gridState)
-    // Pulling to refresh starts only with the search bar fully shown; before that the drag is the bar coming back.
-    val barRevealed by remember { derivedStateOf { scrollBehavior.state.heightOffset > -0.5f } }
-
     val bottomBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     var showListsSheet by rememberSaveable { mutableStateOf(false) }
@@ -209,16 +206,6 @@ private fun UserMediaListHostContent(
 
     Scaffold(
         modifier = modifier,
-        topBar = {
-            TopSearchBar(
-                uiState = uiState,
-                event = event,
-                textFieldState = textFieldState,
-                isSearchFocused = isSearchFocused,
-                onFocusChange = { isSearchFocused = it },
-                scrollBehavior = scrollBehavior
-            )
-        },
         floatingActionButton = {
             FloatingActionButton(
                 uiState = uiState,
@@ -267,8 +254,22 @@ private fun UserMediaListHostContent(
                 event = event,
                 isCompactScreen = isCompactScreen,
                 modifier = Modifier.fillMaxSize(),
-                barScrollConnection = scrollBehavior.nestedScrollConnection,
-                pullEnabled = barRevealed,
+                topContent = {
+                    // The first row of the list, so it scrolls with it. The status bar is the bar's own only where the screen
+                    // does not take it from its scaffold.
+                    TopSearchBar(
+                        uiState = uiState,
+                        event = event,
+                        textFieldState = textFieldState,
+                        isSearchFocused = isSearchFocused,
+                        onFocusChange = { isSearchFocused = it },
+                        scrollSignal = {
+                            listState.firstVisibleItemIndex * 100_000 + listState.firstVisibleItemScrollOffset +
+                                gridState.firstVisibleItemIndex * 100_000 + gridState.firstVisibleItemScrollOffset
+                        },
+                        modifier = if (uiState.isMyList) Modifier.statusBarsPadding() else Modifier,
+                    )
+                },
                 contentPadding = if (!uiState.isMyList)
                     PaddingValues(bottom = 58.dp + padding.calculateBottomPadding())
                 else PaddingValues(bottom = 58.dp),

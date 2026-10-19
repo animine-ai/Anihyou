@@ -61,7 +61,9 @@ internal fun TopSearchBar(
     textFieldState: TextFieldState,
     isSearchFocused: Boolean,
     onFocusChange: (Boolean) -> Unit,
-    scrollBehavior: TopAppBarScrollBehavior
+    /** Changes whenever the list under the bar scrolls; the keyboard goes away then. */
+    scrollSignal: () -> Int,
+    modifier: Modifier = Modifier,
 ) {
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
@@ -70,7 +72,7 @@ internal fun TopSearchBar(
     LaunchedEffect(isSearchFocused) {
         if (!isSearchFocused) return@LaunchedEffect
 
-        snapshotFlow { scrollBehavior.state.contentOffset }
+        snapshotFlow(scrollSignal)
             .drop(1)
             .collect {
                 focusManager.clearFocus()
@@ -83,12 +85,14 @@ internal fun TopSearchBar(
         keyboardController?.hide()
     }
 
-    TopAppBar(
-        title = {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
             Card(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(min = 360.dp, max = 720.dp)
+                    .weight(1f)
+                    .widthIn(max = 720.dp)
                     .height(56.dp)
                     .focusable(), // fix for TextField acquiring focus without any user interaction
                 shape = RoundedCornerShape(50),
@@ -178,8 +182,6 @@ internal fun TopSearchBar(
                     }
                 }
             }
-        },
-        actions = {
             val isFuzzyActive = uiState.query.isNotBlank() &&
                     uiState.isFuzzySearchEnabled &&
                     !uiState.isSearchSortModified
@@ -241,8 +243,7 @@ internal fun TopSearchBar(
                     )
                 }
             }
-        },
-        scrollBehavior = scrollBehavior,
-    )
+    }
+
 
 }
