@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
@@ -70,10 +71,10 @@ import com.axiel7.anihyou.feature.usermedialist.composables.MinimalUserMediaList
 import com.axiel7.anihyou.feature.usermedialist.composables.StandardUserMediaListItem
 import org.koin.compose.viewmodel.koinActivityViewModel
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 /** What the list shows above its sticky header: the search bar of the host. It scrolls with the list. */
 internal val LocalListTopContent = androidx.compose.runtime.staticCompositionLocalOf<@Composable () -> Unit> { {} }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun UserMediaListView(
     uiState: UserMediaListUiState,
