@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -24,7 +23,6 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
@@ -71,10 +69,7 @@ import com.axiel7.anihyou.feature.usermedialist.composables.MinimalUserMediaList
 import com.axiel7.anihyou.feature.usermedialist.composables.StandardUserMediaListItem
 import org.koin.compose.viewmodel.koinActivityViewModel
 
-/** What the list shows above its sticky header: the search bar of the host. It scrolls with the list. */
-internal val LocalListTopContent = androidx.compose.runtime.staticCompositionLocalOf<@Composable () -> Unit> { {} }
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun UserMediaListView(
     uiState: UserMediaListUiState,
@@ -88,12 +83,22 @@ fun UserMediaListView(
     lazyListState: LazyListState,
     lazyGridState: LazyGridState,
     stickyHeaderContent: (@Composable () -> Unit),
-    /** The search bar: the first row of the list, so the list alone scrolls it away and brings it back (nothing else reacts to the drag). */
-    topContent: (@Composable () -> Unit)? = null,
+    /** The scroll connection of the collapsing search bar. It is held back while the list is being pulled to refresh. */
+    barScrollConnection: NestedScrollConnection? = null,
+    /** False while the search bar is hidden or on its way: showing the bar is that drag, the pull to refresh waits for it. */
+    pullEnabled: Boolean = true,
 ) {
     val isDark = isSystemInDarkTheme()
     val haptic = LocalHapticFeedback.current
     val pullRefreshState = rememberPullToRefreshState()
+    // The bar hides and shows with the scroll, the pull to refresh moves the list with the pull. Both on one drag fought
+    // over the same movement (the list jumped back and forth), so the bar rests while a pull is on.
+    val listModifier = if (barScrollConnection == null) modifier else modifier.nestedScroll(
+        remember(barScrollConnection, pullRefreshState) {
+            PauseWhile(barScrollConnection) { pullRefreshState.distanceFraction > 0f }
+        },
+    )
+
     val priorityNoneColor = MaterialTheme.colorScheme.secondaryContainer
     val lowPriorityColors = remember(uiState.lowPriorityColor, isDark) {
         (uiState.lowPriorityColor ?: priorityNoneColor).toPriorityColors(isDark)
@@ -120,14 +125,12 @@ fun UserMediaListView(
     // The same box as PullToRefreshBox, with the switch it does not have: one drag either shows the search bar or pulls.
     // The list brings no stretch of its own: a pull that nobody consumes (while the list reloads, or while the bar comes
     // back) used to stretch and push the whole list down over the screen.
-    CompositionLocalProvider(
-        LocalOverscrollFactory provides null,
-        LocalListTopContent provides (topContent ?: {}),
-    ) {
+    CompositionLocalProvider(LocalOverscrollFactory provides null) {
     Box(
         modifier = Modifier.fillMaxSize().pullToRefresh(
             isRefreshing = uiState.fetchFromNetwork,
             state = pullRefreshState,
+            enabled = pullEnabled,
             onRefresh = { event?.refreshList() },
         ),
     ) {
@@ -136,7 +139,7 @@ fun UserMediaListView(
                 uiState = uiState,
                 event = event,
                 isCompactScreen = isCompactScreen,
-                modifier = modifier,
+                modifier = listModifier,
                 contentPadding = contentPadding,
                 navActionManager = navActionManager,
                 onShowEditSheet = onShowEditSheet,
@@ -153,7 +156,7 @@ fun UserMediaListView(
                 customMediaList = null,
                 event = event,
                 isCompactScreen = isCompactScreen,
-                modifier = modifier,
+                modifier = listModifier,
                 contentPadding = contentPadding,
                 navActionManager = navActionManager,
                 onShowEditSheet = onShowEditSheet,
@@ -167,8 +170,7 @@ fun UserMediaListView(
         PullToRefreshDefaults.LoadingIndicator(
             state = pullRefreshState,
             isRefreshing = uiState.fetchFromNetwork,
-            modifier = Modifier.align(Alignment.TopCenter)
-                .then(if (uiState.isMyList) Modifier.statusBarsPadding() else Modifier),
+            modifier = Modifier.align(Alignment.TopCenter),
         )
     }//: Box
     }//: CompositionLocalProvider
@@ -347,7 +349,6 @@ private fun LazyListGrid(
     val grouping = watchGrouping(uiState)
     val navPadding = WindowInsets.navigationBars.asPaddingValues()
 
-    val top = LocalListTopContent.current
     LazyVerticalGrid(
         columns = if (uiState.itemsPerRow.value > 0) GridCells.Fixed(uiState.itemsPerRow.value)
         else GridCells.Adaptive(minSize = (MEDIA_POSTER_MEDIUM_WIDTH + 8).dp),
@@ -357,7 +358,6 @@ private fun LazyListGrid(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
     ) {
-        item(key = "top_content", span = { GridItemSpan(maxLineSpan) }, contentType = "top") { top() }
         stickyHeader {
             stickyHeaderContent()
         }
@@ -410,7 +410,6 @@ private fun LazyListTablet(
 ) {
     val grouping = watchGrouping(uiState)
     val navPadding = WindowInsets.navigationBars.asPaddingValues()
-    val top = LocalListTopContent.current
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         modifier = modifier,
@@ -418,7 +417,6 @@ private fun LazyListTablet(
         contentPadding = contentPadding + navPadding,
         horizontalArrangement = Arrangement.Center
     ) {
-        item(key = "top_content", span = { GridItemSpan(maxLineSpan) }, contentType = "top") { top() }
         stickyHeader {
             stickyHeaderContent()
         }
@@ -521,13 +519,11 @@ private fun LazyListPhone(
     stickyHeaderContent: (@Composable () -> Unit)
 ) {
     val grouping = watchGrouping(uiState)
-    val top = LocalListTopContent.current
     LazyColumn(
         modifier = modifier,
         state = listState,
         contentPadding = contentPadding,
     ) {
-        item(key = "top_content", contentType = "top") { top() }
         stickyHeader {
             stickyHeaderContent()
         }
@@ -616,4 +612,22 @@ private fun LazyListPhone(
             else -> {}
         }
     }//: LazyColumn
+}
+
+/** Passes the scroll to [delegate] unless [paused] says it must rest; a paused connection consumes no scroll. Flings always pass. */
+private class PauseWhile(
+    private val delegate: NestedScrollConnection,
+    private val paused: () -> Boolean,
+) : NestedScrollConnection {
+    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+        if (paused()) Offset.Zero else delegate.onPreScroll(available, source)
+
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+        if (paused()) Offset.Zero else delegate.onPostScroll(consumed, available, source)
+
+    // The settling of the bar after a drag always runs: a bar left half way would jump when the next drag starts.
+    override suspend fun onPreFling(available: Velocity): Velocity = delegate.onPreFling(available)
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        delegate.onPostFling(consumed, available)
 }
