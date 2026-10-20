@@ -8,6 +8,7 @@ on:
       - ep07/extension-update-ux
       - ep07/device-feedback-cutover
       - ep07/product-audit-candidate
+      - feature/release-refresh-notify-2026-10-17
   workflow_dispatch:
 
 permissions:

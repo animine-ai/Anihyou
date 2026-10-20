@@ -1,5 +1,5 @@
 name: Signed Kiyori Release
-run-name: Kiyori 1.7.1 signed release
+run-name: Kiyori 1.8 signed release
 on:
   workflow_dispatch:
   push:
@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: kiyori-release-1.7.1
+  group: kiyori-release-1.8
   cancel-in-progress: false
 jobs:
   signing-inputs:
@@ -108,8 +108,8 @@ jobs:
           "$tools/zipalign" -c -P 16 4 "${apks[0]}"
           "$tools/apksigner" sign --ks "$key" --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD \
-            --out out/Kiyori-1.7.1-arm64-v8a.apk "${apks[0]}"
-          "$tools/apksigner" verify --verbose --print-certs out/Kiyori-1.7.1-arm64-v8a.apk \
+            --out out/Kiyori-1.8-arm64-v8a.apk "${apks[0]}"
+          "$tools/apksigner" verify --verbose --print-certs out/Kiyori-1.8-arm64-v8a.apk \
             > out/signature-verification.txt
           keytool -exportcert -keystore "$key" -alias "$KEY_ALIAS" \
             -storepass:env STORE_PASSWORD -file "$RUNNER_TEMP/kiyori-cert.der"
@@ -121,9 +121,9 @@ jobs:
             exit 1
           fi
           echo "Release signer certificate matches the keystore"
-          "$tools/zipalign" -c -P 16 4 out/Kiyori-1.7.1-arm64-v8a.apk
-          "$tools/aapt" dump badging out/Kiyori-1.7.1-arm64-v8a.apk > out/apk-badging.txt
-          if ! grep -q "package: name='app.kiyori' versionCode='137' versionName='1.7.1'" out/apk-badging.txt; then
+          "$tools/zipalign" -c -P 16 4 out/Kiyori-1.8-arm64-v8a.apk
+          "$tools/aapt" dump badging out/Kiyori-1.8-arm64-v8a.apk > out/apk-badging.txt
+          if ! grep -q "package: name='app.kiyori' versionCode='138' versionName='1.8'" out/apk-badging.txt; then
             echo "::error::Unexpected release package or version"
             head -n 1 out/apk-badging.txt
             exit 1
@@ -132,7 +132,7 @@ jobs:
             echo "::error::Release APK is debuggable"
             exit 1
           fi
-          (cd out && sha256sum Kiyori-1.7.1-arm64-v8a.apk > SHA256.txt)
+          (cd out && sha256sum Kiyori-1.8-arm64-v8a.apk > SHA256.txt)
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
@@ -165,6 +165,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create v1.7.1 out/Kiyori-1.7.1-arm64-v8a.apk out/SHA256.txt \
+          gh release create v1.8 out/Kiyori-1.8-arm64-v8a.apk out/SHA256.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Kiyori 1.7.1" --notes-file docs/releases/1.7.1.md --latest
+            --title "Kiyori 1.8" --notes-file docs/releases/1.8.md --latest
