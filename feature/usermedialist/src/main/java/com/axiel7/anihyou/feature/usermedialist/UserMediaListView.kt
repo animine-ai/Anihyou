@@ -67,6 +67,11 @@ import com.axiel7.anihyou.feature.usermedialist.composables.CompactUserMediaList
 import com.axiel7.anihyou.feature.usermedialist.composables.GridUserMediaListItem
 import com.axiel7.anihyou.feature.usermedialist.composables.MinimalUserMediaListItem
 import com.axiel7.anihyou.feature.usermedialist.composables.StandardUserMediaListItem
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import com.axiel7.anihyou.release.core.log.AppLog
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import org.koin.compose.viewmodel.koinActivityViewModel
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -91,6 +96,24 @@ fun UserMediaListView(
     val isDark = isSystemInDarkTheme()
     val haptic = LocalHapticFeedback.current
     val pullRefreshState = rememberPullToRefreshState()
+    // Evidence for the pull to refresh: while a pull or a reload is on, one line for every change of what can move the list.
+    val latestState by rememberUpdatedState(uiState)
+    LaunchedEffect(pullRefreshState, lazyListState) {
+        snapshotFlow {
+            ListMotion(
+                pull = (pullRefreshState.distanceFraction * 100).toInt(),
+                refreshing = latestState.fetchFromNetwork,
+                loading = latestState.isLoading,
+                rows = latestState.entries.size,
+                firstIndex = lazyListState.firstVisibleItemIndex,
+                firstOffset = lazyListState.firstVisibleItemScrollOffset,
+                scrolling = lazyListState.isScrollInProgress,
+            )
+        }
+            .distinctUntilChanged()
+            .filter { it.pull > 0 || it.refreshing || it.loading }
+            .collect { AppLog.d("list") { "pull=${it.pull}% refreshing=${it.refreshing} loading=${it.loading} rows=${it.rows} first=${it.firstIndex}+${it.firstOffset}px scrolling=${it.scrolling}" } }
+    }
     // The bar hides and shows with the scroll, the pull to refresh moves the list with the pull. Both on one drag fought
     // over the same movement (the list jumped back and forth), so the bar rests while a pull is on.
     val listModifier = if (barScrollConnection == null) modifier else modifier.nestedScroll(
@@ -633,3 +656,13 @@ private class PauseWhile(
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
         delegate.onPostFling(consumed, available)
 }
+
+private data class ListMotion(
+    val pull: Int,
+    val refreshing: Boolean,
+    val loading: Boolean,
+    val rows: Int,
+    val firstIndex: Int,
+    val firstOffset: Int,
+    val scrolling: Boolean,
+)
