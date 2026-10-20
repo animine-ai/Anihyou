@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
@@ -140,9 +141,10 @@ class AnimeListCollapsingBarComposeTest {
                     if (barOver) {
                         val behavior = rememberFollowListScrollBehavior()
                         val revealed by remember { derivedStateOf { behavior.state.heightOffset > -0.5f } }
-                        Scaffold { _ ->
+                        Scaffold(contentWindowInsets = WindowInsets(0.dp)) { padding ->
                             CollapsingBarsLayout(
                                 scrollBehavior = behavior,
+                                modifier = Modifier.padding(padding),
                                 bars = { TopAppBar(title = { Text("Suche") }, scrollBehavior = behavior) },
                             ) { topPadding ->
                                 Box(Modifier.fillMaxSize().onGloballyPositioned { containerTop = it.boundsInRoot().top }) {
