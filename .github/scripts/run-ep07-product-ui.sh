@@ -20,6 +20,7 @@ instrumentation_status=0
 timeout 600 adb shell am instrument -w -r app.kiyori.debug.test/androidx.test.runner.AndroidJUnitRunner | tee "$out/instrumentation.txt" || instrumentation_status=$?
 adb logcat -d > "$out/logcat.txt"
 echo "== ANIME LIST PULL MEASUREMENT api=$api =="
+grep -E "AnimeListBar.*(reversals|summary)" "$out/logcat.txt" | cut -c1-260 || true
 grep -E "AnimeListPull" "$out/logcat.txt" | cut -c1-260 | awk 'NR<=6 || /worst/ || /reload(0|1|2|5|10|20|40)[^0-9]/' | tail -40 || true
 # A system crash of the emulator ends the instrumentation without any app stack; keep what the log knows about it.
 if grep -q -E "INSTRUMENTATION_ABORTED|Process crashed" "$out/instrumentation.txt"; then
@@ -66,7 +67,7 @@ required={'ExtensionCalendarComposeTest','ExtensionUpdateComposeTest','Extension
           'MainNavigationProductComposeTest','MainNavigationChartChromeTest','ReleaseScheduleTextComposeTest','MediaDetailsNavigationComposeTest','MatchingManagementComposeTest',
           'ExtensionRefreshScheduleComposeTest','ScreenshotCaptureGuardTest',
           'AniListCalendarEventComposeTest','NativeSettingsGroupsComposeTest','ExploreSourceAiringComposeTest',
-          'CalendarFastScrollerComposeTest','AnimeListPullRefreshComposeTest'}
+          'CalendarFastScrollerComposeTest','AnimeListPullRefreshComposeTest','AnimeListCollapsingBarComposeTest'}
 for name in required:
     assert name in text, (name,text[-20000:])
 assert 'INSTRUMENTATION_STATUS_CODE: -3' not in text and 'INSTRUMENTATION_STATUS_CODE: -4' not in text, 'skipped/assumption-failed test'

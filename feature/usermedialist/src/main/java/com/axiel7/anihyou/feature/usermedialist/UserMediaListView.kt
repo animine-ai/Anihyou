@@ -170,7 +170,7 @@ fun UserMediaListView(
         PullToRefreshDefaults.LoadingIndicator(
             state = pullRefreshState,
             isRefreshing = uiState.fetchFromNetwork,
-            modifier = Modifier.align(Alignment.TopCenter),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = contentPadding.calculateTopPadding()),
         )
     }//: Box
     }//: CompositionLocalProvider
@@ -298,6 +298,7 @@ private fun MediaListView(
             event = event,
             allPriorityColors = allPriorityColors,
             modifier = modifier,
+            topPadding = contentPadding.calculateTopPadding(),
             navActionManager = navActionManager,
             onShowEditSheet = onShowEditSheet,
             listState = lazyGridState,
@@ -341,6 +342,7 @@ private fun LazyListGrid(
     event: UserMediaListEvent?,
     allPriorityColors: AllPriorityColors,
     modifier: Modifier,
+    topPadding: androidx.compose.ui.unit.Dp,
     navActionManager: NavActionManager,
     onShowEditSheet: (CommonMediaListEntry) -> Unit,
     listState: LazyGridState,
@@ -354,7 +356,7 @@ private fun LazyListGrid(
         else GridCells.Adaptive(minSize = (MEDIA_POSTER_MEDIUM_WIDTH + 8).dp),
         modifier = modifier,
         state = listState,
-        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 8.dp) + navPadding,
+        contentPadding = PaddingValues(top = 8.dp + topPadding, bottom = 8.dp, start = 8.dp, end = 8.dp) + navPadding,
         verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
     ) {

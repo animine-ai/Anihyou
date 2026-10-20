@@ -43,7 +43,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -136,7 +135,7 @@ private fun UserMediaListHostContent(
     val snackbarManager = rememberSnackbarManager(scope)
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    val scrollBehavior = rememberFollowListScrollBehavior()
     val isScrollingUp by rememberIsScrollingUp(listState = listState, gridState = gridState)
     // Pulling to refresh starts only with the search bar fully shown; before that the drag is the bar coming back.
     val barRevealed by remember { derivedStateOf { scrollBehavior.state.heightOffset > -0.5f } }
@@ -209,16 +208,6 @@ private fun UserMediaListHostContent(
 
     Scaffold(
         modifier = modifier,
-        topBar = {
-            TopSearchBar(
-                uiState = uiState,
-                event = event,
-                textFieldState = textFieldState,
-                isSearchFocused = isSearchFocused,
-                onFocusChange = { isSearchFocused = it },
-                scrollBehavior = scrollBehavior
-            )
-        },
         floatingActionButton = {
             FloatingActionButton(
                 uiState = uiState,
@@ -236,52 +225,41 @@ private fun UserMediaListHostContent(
         contentWindowInsets = if (!uiState.isMyList) WindowInsets.systemBars
         else WindowInsets.systemBars.only(WindowInsetsSides.Horizontal)
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(
-                    start = padding.calculateStartPadding(LocalLayoutDirection.current),
-                    top = padding.calculateTopPadding(),
-                    end = padding.calculateEndPadding(LocalLayoutDirection.current),
-                    bottom = if (!uiState.isMyList) 0.dp
-                    else padding.calculateBottomPadding()
-                )
-        ) {
-            val isScrolled by remember {
-                derivedStateOf {
-                    listState.firstVisibleItemIndex > 1 || listState.firstVisibleItemScrollOffset > 1
-                }
+        val isScrolled by remember {
+            derivedStateOf {
+                listState.firstVisibleItemIndex > 1 || listState.firstVisibleItemScrollOffset > 1
             }
+        }
 
-            val headerColor by animateColorAsState(
-                targetValue = if (isScrolled) MaterialTheme.colorScheme.surfaceContainer
-                else MaterialTheme.colorScheme.surface,
-                label = "headerColor"
-            )
+        val headerColor by animateColorAsState(
+            targetValue = if (isScrolled) MaterialTheme.colorScheme.surfaceContainer
+            else MaterialTheme.colorScheme.surface,
+            label = "headerColor"
+        )
 
-            val headerElevation by animateDpAsState(
-                targetValue = if (isScrolled) 4.dp else 0.dp,
-                label = "headerElevation"
-            )
-            UserMediaListView(
-                uiState = uiState,
-                event = event,
-                isCompactScreen = isCompactScreen,
-                modifier = Modifier.fillMaxSize(),
-                barScrollConnection = scrollBehavior.nestedScrollConnection,
-                pullEnabled = barRevealed,
-                contentPadding = if (!uiState.isMyList)
-                    PaddingValues(bottom = 58.dp + padding.calculateBottomPadding())
-                else PaddingValues(bottom = 58.dp),
-                defaultNovelTab = defaultNovelTab,
-                navActionManager = navActionManager,
-                onShowEditSheet = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    event?.selectItem(it)
-                    showEditSheet = true
-                },
-                lazyListState = listState,
-                lazyGridState = gridState,
-                stickyHeaderContent = {
+        val headerElevation by animateDpAsState(
+            targetValue = if (isScrolled) 4.dp else 0.dp,
+            label = "headerElevation"
+        )
+        // The bar and the filters lie over the list (see CollapsingBarsLayout): they never change its size or position.
+        CollapsingBarsLayout(
+            scrollBehavior = scrollBehavior,
+            modifier = Modifier.padding(
+                start = padding.calculateStartPadding(LocalLayoutDirection.current),
+                end = padding.calculateEndPadding(LocalLayoutDirection.current),
+                bottom = if (!uiState.isMyList) 0.dp
+                else padding.calculateBottomPadding()
+            ),
+            bars = {
+                Column {
+                    TopSearchBar(
+                        uiState = uiState,
+                        event = event,
+                        textFieldState = textFieldState,
+                        isSearchFocused = isSearchFocused,
+                        onFocusChange = { isSearchFocused = it },
+                        scrollBehavior = scrollBehavior
+                    )
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         color = headerColor,
@@ -294,8 +272,30 @@ private fun UserMediaListHostContent(
                         )
                     }
                 }
+            },
+        ) { topPadding ->
+            UserMediaListView(
+                uiState = uiState,
+                event = event,
+                isCompactScreen = isCompactScreen,
+                modifier = Modifier.fillMaxSize(),
+                barScrollConnection = scrollBehavior.nestedScrollConnection,
+                pullEnabled = barRevealed,
+                contentPadding = if (!uiState.isMyList)
+                    PaddingValues(top = topPadding, bottom = 58.dp + padding.calculateBottomPadding())
+                else PaddingValues(top = topPadding, bottom = 58.dp),
+                defaultNovelTab = defaultNovelTab,
+                navActionManager = navActionManager,
+                onShowEditSheet = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    event?.selectItem(it)
+                    showEditSheet = true
+                },
+                lazyListState = listState,
+                lazyGridState = gridState,
+                stickyHeaderContent = {}
             )
-        }//: Column
+        }
     }//: Scaffold
 }
 
