@@ -37,7 +37,8 @@ class TrackerProvider : ContentProvider() {
         if (snapshot.accountId == null) return status("signed_out")
         if (!snapshot.complete) return status("cache_missing", snapshot.cachedAtMillis)
         snapshot.entries.forEach { entry ->
-            if (path == "airing" && (entry.nextAiringAt == null || entry.nextEpisode == null || !range!!.contains(entry.nextAiringAt))) return@forEach
+            val airingAt = entry.nextAiringAt
+            if (path == "airing" && (airingAt == null || entry.nextEpisode == null || !range!!.contains(airingAt))) return@forEach
             val data = mapOf<String, Any?>(
                 "media_id" to entry.mediaId, "title_romaji" to entry.romaji, "title_english" to entry.english,
                 "cover_url" to entry.cover, "progress" to entry.progress, "episodes_total" to entry.total,
