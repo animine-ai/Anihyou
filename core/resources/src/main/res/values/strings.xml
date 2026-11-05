@@ -849,4 +849,6 @@
     <string name="extension_update_installed_text">%1$s is now version %2$s.</string>
     <string name="extension_update_failed_title">Extension update failed</string>
     <string name="extension_update_failed_text">%1$s %2$s could not be installed. Open the extension settings to see why.</string>
+    <string name="tracker_permission_label">Read anime tracker data</string>
+    <string name="tracker_permission_desc">Allow reading your locally cached watching list, progress and next episode times. No account credentials or network refresh are shared.</string>
 </resources>

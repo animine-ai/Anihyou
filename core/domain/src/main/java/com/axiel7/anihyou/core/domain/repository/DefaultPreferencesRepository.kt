@@ -35,16 +35,19 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 
 class DefaultPreferencesRepository(
-    private val dataStore: DataStore<Preferences>
+    private val dataStore: DataStore<Preferences>,
+    val trackerSnapshots: com.axiel7.anihyou.core.domain.tracker.TrackerSnapshotStore? = null,
 ) {
 
     // user credentials
     val accessToken = dataStore.getValue(ACCESS_TOKEN_KEY)
     suspend fun setAccessToken(value: String?) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { trackerSnapshots?.switchAccount(null) }
         dataStore.setValue(ACCESS_TOKEN_KEY, value)
     }
 
     suspend fun removeAccessToken() {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { trackerSnapshots?.switchAccount(null) }
         dataStore.edit { it.remove(ACCESS_TOKEN_KEY) }
     }
 
@@ -52,10 +55,12 @@ class DefaultPreferencesRepository(
 
     val userId = dataStore.getValue(USER_ID_KEY)
     suspend fun setUserId(value: Int) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { trackerSnapshots?.switchAccount(value) }
         dataStore.setValue(USER_ID_KEY, value)
     }
 
     suspend fun saveViewerInfo(viewer: ViewerOptionsQuery.Viewer) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { trackerSnapshots?.switchAccount(viewer.id) }
         dataStore.edit {
             it[USER_ID_KEY] = viewer.id
             it[DISPLAY_ADULT_KEY] = viewer.options?.displayAdultContent == true
@@ -69,6 +74,7 @@ class DefaultPreferencesRepository(
     }
 
     suspend fun removeViewerInfo() {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { trackerSnapshots?.switchAccount(null) }
         dataStore.edit {
             it.remove(ACCESS_TOKEN_KEY)
             it.remove(USER_ID_KEY)

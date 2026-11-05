@@ -53,6 +53,7 @@ class CurrentBehindProjectionTest {
         media = exampleCommonMediaListEntry.media!!.copy(
             id = mediaId, status = MediaStatus.RELEASING,
             nextAiringEpisode = CommonMediaListEntry.NextAiringEpisode(
+            airingAt = 1_800_000_000,
                 __typename = "", episode = 12, timeUntilAiring = 86_400, id = 0),
         ),
         basicMediaListEntry = exampleBasicMediaListEntry.copy(mediaId = mediaId, id = mediaId, progress = progress),

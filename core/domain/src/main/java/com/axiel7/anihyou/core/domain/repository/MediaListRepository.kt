@@ -67,6 +67,14 @@ class MediaListRepository(
         .asPagedResult(page = { CommonPage("", chunk, it.MediaListCollection?.hasNextChunk) }) {
             it.MediaListCollection?.lists.orEmpty()
         }
+        .onEach { result ->
+            if (mediaType == MediaType.ANIME && result is PagedResult.Success && !result.hasNextPage) {
+                val entries = result.list.flatMap { it?.entries.orEmpty().mapNotNull { row -> row?.commonMediaListEntry } }
+                    .filter { it.basicMediaListEntry.status in setOf(MediaListStatus.CURRENT, MediaListStatus.REPEATING) }
+                    .distinctBy { it.mediaId }
+                publishTrackerPage(userId, 1, false, entries)
+            }
+        }
 
     fun getUserMediaList(
         userId: Int,
@@ -106,6 +114,10 @@ class MediaListRepository(
         }
         .onEach { result ->
             if (result is PagedResult.Success) {
+                if (mediaType == MediaType.ANIME && mediaIds == null && perPage == 50 &&
+                    statusIn?.toSet() == setOf(MediaListStatus.CURRENT, MediaListStatus.REPEATING)) {
+                    publishTrackerPage(userId, page ?: 1, result.hasNextPage, result.list)
+                }
                 localAccountProgressIndex.record(
                     userId = userId,
                     progressByMediaId = result.list.mapNotNull { entry ->
@@ -114,6 +126,30 @@ class MediaListRepository(
                 )
             }
         }
+
+    /** Publish existing UI results only. This method performs no fetch and cannot cross an account boundary. */
+    private suspend fun publishTrackerPage(userId: Int, page: Int, hasNext: Boolean,
+        entries: List<com.axiel7.anihyou.core.network.fragment.CommonMediaListEntry>) {
+        val snapshots = defaultPreferencesRepository.trackerSnapshots ?: return
+        if (defaultPreferencesRepository.userId.first() != userId || !defaultPreferencesRepository.isLoggedIn.first()) return
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                snapshots.initializeIfMissing(userId)
+                snapshots.recordPage(userId, page, hasNext, entries.mapNotNull { entry ->
+                    val media = entry.media ?: return@mapNotNull null
+                    val next = media.nextAiringEpisode
+                    val total = media.basicMediaDetails.episodes
+                    com.axiel7.anihyou.core.domain.tracker.TrackerEntry(
+                        entry.mediaId, media.title?.romaji, media.title?.english, media.coverImage?.large,
+                        entry.basicMediaListEntry.progress ?: 0, total,
+                        next?.episode?.minus(1) ?: total.takeIf { media.status == com.axiel7.anihyou.core.network.type.MediaStatus.FINISHED },
+                        next?.episode, next?.airingAt?.toLong(), entry.basicMediaListEntry.status?.rawValue.orEmpty(),
+                    )
+                })
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { /* Sharing cache failure must not break the ordinary list. */ }
+    }
 
     fun getMySeasonalAnime(
         season: AnimeSeason,

@@ -47,7 +47,7 @@ class App : Application(), SingletonImageLoader.Factory {
         // The Wasm runtime service runs in an isolated process that has no access to the app's files, accounts or
         // network. Starting the whole app there (Koin, stores, schedulers) crashed that process on its first
         // uncaught exception, so the service never connected and an install waited on it indefinitely.
-        if (isIsolatedProcess()) return
+        if (isIsolatedProcess() || isTrackerProcess()) return
         if (BuildConfig.DEBUG || BuildConfig.PERFORMANCE_LOGGING) installDiagnosticLog()
 
         val koinApplication = startKoin {
@@ -182,3 +182,7 @@ private fun installDiagnosticLog() {
         "diagnostic log on, profile=${BuildConfig.BUILD_TYPE} version=${BuildConfig.VERSION_NAME} code=${BuildConfig.VERSION_CODE} sdk=${android.os.Build.VERSION.SDK_INT}"
     }
 }
+
+/** Provider reads are local-only: do not start app schedulers or network initialisation in this process. */
+private fun isTrackerProcess(): Boolean = if (SDK_INT >= 28) Application.getProcessName().endsWith(":tracker")
+    else runCatching { java.io.File("/proc/self/cmdline").readText().substringBefore('\u0000').endsWith(":tracker") }.getOrDefault(false)

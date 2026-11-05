@@ -12,6 +12,10 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
 
+    <permission android:name="${applicationId}.permission.READ_TRACKER_DATA"
+        android:label="@string/tracker_permission_label" android:description="@string/tracker_permission_desc"
+        android:protectionLevel="dangerous" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
@@ -33,6 +37,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MySplash"
         tools:targetApi="33">
+        <provider android:name=".TrackerProvider" android:authorities="${applicationId}.tracker"
+            android:exported="true" android:process=":tracker"
+            android:readPermission="${applicationId}.permission.READ_TRACKER_DATA" />
         <activity
             android:name=".ui.screens.main.MainActivity"
             android:exported="true"

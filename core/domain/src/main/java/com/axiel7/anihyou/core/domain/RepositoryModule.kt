@@ -19,13 +19,15 @@ import com.axiel7.anihyou.core.domain.repository.StaffRepository
 import com.axiel7.anihyou.core.domain.repository.StudioRepository
 import com.axiel7.anihyou.core.domain.repository.ThreadRepository
 import com.axiel7.anihyou.core.domain.repository.UserRepository
+import org.koin.android.ext.koin.androidApplication
 import org.koin.dsl.module
 import org.koin.plugin.module.dsl.single
 
 val repositoryModule = module {
     single<ActivityRepository>()
     single<CharacterRepository>()
-    single<DefaultPreferencesRepository>()
+    single { DefaultPreferencesRepository(get(), com.axiel7.anihyou.core.domain.tracker.TrackerSnapshotStore(
+        java.io.File(androidApplication().noBackupFilesDir, "tracker-share"))) }
     single<FavoriteRepository>()
     single<LikeRepository>()
     single<ListPreferencesRepository>()

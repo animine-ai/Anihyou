@@ -85,6 +85,7 @@ val exampleCommonMediaListEntry = CommonMediaListEntry(
             color = "#f55442"
         ),
         nextAiringEpisode = CommonMediaListEntry.NextAiringEpisode(
+            airingAt = 1_800_000_000,
             __typename = "",
             episode = 3,
             timeUntilAiring = 1203239,
